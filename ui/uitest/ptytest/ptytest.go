@@ -13,6 +13,9 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
+
+	"github.com/Tangerg/oolong/ui/core/process"
 )
 
 // ErrUnsupported is reported by [Start] on a platform with no pty here.
@@ -68,10 +71,12 @@ type Session struct {
 
 	waitDone chan struct{}
 
-	// waitErr is written by the one goroutine that reaps the child, before
-	// waitDone closes, and read only after — which is what makes it safe without
-	// a lock.
-	waitErr error
+	// The observer publishes exit before waitDone; reaping is held until release
+	// and published before reapDone. Readers synchronize through those channels.
+	waitErr  error
+	release  chan struct{}
+	reapDone chan struct{}
+	reapErr  error
 
 	stopCancel func() bool
 	closeOnce  sync.Once
@@ -125,6 +130,8 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 		process:    cmd.Process,
 		transcript: newTranscript(),
 		waitDone:   make(chan struct{}),
+		release:    make(chan struct{}),
+		reapDone:   make(chan struct{}),
 	}
 	go s.read()
 	go s.wait(cmd)
@@ -152,11 +159,36 @@ func (s *Session) read() {
 }
 
 func (s *Session) wait(cmd *exec.Cmd) {
-	defer close(s.waitDone)
-	// The waiting goroutine is the only owner of exec.Cmd after Start returns.
-	// Once Wait finishes, its arguments, environment and launch bookkeeping can be
-	// collected even while the Session remains available for transcript assertions.
-	s.waitErr = cmd.Wait()
+	// Keeping the exited leader waitable reserves the group identity until Close
+	// has signaled every descendant. Wait must never release that reservation.
+	s.waitErr = process.WaitExit(cmd.Process)
+	close(s.waitDone)
+	<-s.release
+	if _, exited := errors.AsType[*process.ExitError](s.waitErr); s.waitErr != nil && !exited {
+		s.reapErr = errors.Join(s.waitErr, cmd.Process.Release())
+		_ = cmd.Wait()
+		close(s.reapDone)
+		return
+	}
+	s.reapErr = cmd.Wait()
+	close(s.reapDone)
+}
+
+func (s *Session) endProcessGroup() error {
+	select {
+	case <-s.waitDone:
+		if _, exited := errors.AsType[*process.ExitError](s.waitErr); s.waitErr != nil && !exited {
+			return s.waitErr
+		}
+	default:
+	}
+	if s.process == nil {
+		return nil
+	}
+	if err := process.SignalGroup(s.process, syscall.SIGKILL); err != nil {
+		return fmt.Errorf("ptytest: terminate process group: %w", err)
+	}
+	return nil
 }
 
 func (s *Session) Transcript() *Transcript { return s.transcript }
@@ -169,8 +201,8 @@ func (s *Session) Resize(size Size) error {
 	return setSize(s.primary, size)
 }
 
-// Wait blocks until the program exits. If ctx ends first, Wait returns
-// [context.Cause] of ctx.
+// Wait observes exit without reaping: Close must still release the child identity.
+// A failed child returns *process.ExitError. If ctx ends first, its cause is returned.
 func (s *Session) Wait(ctx context.Context) error {
 	select {
 	case <-s.waitDone:
@@ -210,7 +242,8 @@ func (s *Session) close() {
 		// started. A child that exited having left something of its own behind left
 		// it in the same group and holding the same terminal, and waiting for the
 		// leader is not waiting for that.
-		endErr := endSession(s.process)
+		endErr := s.endProcessGroup()
+		close(s.release)
 		// Closing the primary is what ends the read. It ends it even when something
 		// outside this session still holds the replica: the descriptor is in the
 		// runtime's poller, so the pending read is unblocked rather than waited for.
@@ -218,12 +251,12 @@ func (s *Session) close() {
 		<-s.transcript.done
 		var waitErr error
 		if endErr == nil {
-			<-s.waitDone
-			waitErr = s.waitErr
+			<-s.reapDone
+			waitErr = s.reapErr
 		} else {
 			select {
-			case <-s.waitDone:
-				waitErr = s.waitErr
+			case <-s.reapDone:
+				waitErr = s.reapErr
 			default:
 			}
 		}

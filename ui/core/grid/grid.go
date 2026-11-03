@@ -209,8 +209,8 @@ type Cell struct {
 	span span
 }
 
-// Content returns the complete grapheme cluster stored on an atom's head. It is
-// empty for a blank or continuation cell.
+// Content is empty for blanks and continuations. Inspect Width for coordinates:
+// concatenating text alone cannot preserve independently placed atom boundaries.
 func (c Cell) Content() string { return c.content }
 
 // Width is how many columns the cell occupies: the complete display width on an

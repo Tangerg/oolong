@@ -96,3 +96,23 @@ func TestKeyboardTextRequestsItsWirePrerequisite(t *testing.T) {
 		t.Fatalf("text-reporting acquisition %q, restoration %q", modes.Enter(), modes.Leave())
 	}
 }
+
+func TestAcquisitionOwnsOneRequestedKeyboardObservation(t *testing.T) {
+	for _, features := range []term.Features{
+		{}, {Probe: true}, {Keyboard: term.KeyboardCompatible}, {Probe: true, Keyboard: term.KeyboardCompatible},
+	} {
+		modes := (term.Config{Features: features}).Modes(nil)
+		want := 0
+		if features.Probe || features.Keyboard != 0 {
+			want = 1
+		}
+		for range 2 {
+			if got := strings.Count(modes.Enter(), "\x1b[?u"); got != want {
+				t.Fatalf("keyboard observation count = %d, want %d", got, want)
+			}
+		}
+		if strings.Contains(modes.Leave(), "\x1b[?u") {
+			t.Fatal("restoration queried a terminal whose input is being released")
+		}
+	}
+}

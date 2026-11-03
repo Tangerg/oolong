@@ -20,7 +20,7 @@ func (l *editorLayout) rowsFor(lines []string, width int) []editorRow {
 	if !l.stale && l.width == width && l.rows != nil {
 		return l.rows
 	}
-	l.projection = text.NewLayout(text.LayoutConfig{Lines: lines, Width: width})
+	l.projection = text.NewLayout(text.LayoutConfig{Lines: lines, Width: width, ReserveCaret: true})
 	l.rows = make([]editorRow, l.projection.Len())
 	for i, row := range l.projection.Rows() {
 		l.rows[i] = editorRow{line: row.Line, start: row.From, end: row.To}

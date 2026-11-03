@@ -4,8 +4,6 @@ import (
 	"context"
 	"strconv"
 
-	"github.com/Tangerg/oolong/ui/core/input"
-
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
@@ -88,7 +86,7 @@ func (s *Select[T]) Element() scene.Element {
 			Semantics: func() scene.Semantic {
 				choice, _ := s.Chosen()
 				return scene.Semantic{Role: scene.RoleList, Name: s.Label, Value: choice.Label, ContentRevision: s.list.contentRevision, State: s.semanticState()}
-			}, Actions: []scene.ActionBinding{selectValue.Binding()},
+			}, Actions: []scene.ActionBinding{selectValue.Binding(), collectionReadAction(&s.list, unchangedItem[Option[T]])},
 		})
 	}
 	s.list.element = s.element
@@ -104,8 +102,8 @@ func (m *MultiSelect[T]) Element() scene.Element {
 				return partEvent(e, m.Handle, &m.geometry, &m.list.geometry, &m.list.pointer.geometry)
 			}, Focusable: func() bool { return true }, FocusChanged: m.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleList, Name: m.Label, Value: strconv.Itoa(len(m.Taken())), ContentRevision: m.list.contentRevision, State: m.semanticState()}
-			},
+				return scene.Semantic{Role: scene.RoleList, Name: m.Label, Value: m.takenLabels(), ContentRevision: m.list.contentRevision, State: m.semanticState()}
+			}, Actions: append(collectionActions(&m.list, m.choiceState), m.setTakenAction()),
 		})
 	}
 	m.list.element = m.element
@@ -159,7 +157,7 @@ func (l *List[T]) Element() scene.Element {
 			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, l.Handle, &l.geometry, &l.pointer.geometry) }, Focusable: func() bool { return true }, FocusChanged: l.focusChanged,
 			Semantics: func() scene.Semantic {
 				return scene.Semantic{Role: scene.RoleList, ContentRevision: l.contentRevision, Value: strconv.Itoa(l.Selected())}
-			},
+			}, Actions: collectionActions(l, unchangedItem[T]),
 		})
 	}
 	l.scroll.element = l.element
@@ -167,7 +165,20 @@ func (l *List[T]) Element() scene.Element {
 }
 
 func (t *Tree[T]) Element() scene.Element {
-	return collectionElement(&t.element, &t.list, scene.RoleTree, t.HeightForWidth, t.Draw, t.Handle, t.focusChanged)
+	if t.element.IsZero() {
+		t.element = scene.NewElement(scene.ElementConfig{
+			Measure: rowsMeasure(t.HeightForWidth), Paint: t.Draw,
+			Handle: func(event scene.Event) scene.EventResult {
+				return partEvent(event, t.Handle, &t.list.geometry, &t.list.pointer.geometry)
+			},
+			Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
+			Semantics: func() scene.Semantic {
+				return scene.Semantic{Role: scene.RoleTree, ContentRevision: t.list.contentRevision, Value: strconv.Itoa(t.Selected())}
+			}, Actions: append(collectionActions(&t.list, unchangedItem[Shown[T]]), t.branchAction(true), t.branchAction(false)),
+		})
+	}
+	t.list.element, t.list.scroll.element = t.element, t.element
+	return t.element
 }
 
 func (f *Filter[T]) Element() scene.Element {
@@ -179,7 +190,7 @@ func (f *Filter[T]) Element() scene.Element {
 			}, Focusable: func() bool { return true }, FocusChanged: f.focusChanged,
 			Semantics: func() scene.Semantic {
 				return scene.Semantic{Role: scene.RoleList, ContentRevision: f.list.contentRevision, Name: f.Pattern(), Value: strconv.Itoa(f.Selected())}
-			},
+			}, Actions: append(collectionActions(&f.list, func(row hit[T]) T { return row.item }), f.patternAction()),
 		})
 	}
 	f.list.element = f.element
@@ -188,7 +199,20 @@ func (f *Filter[T]) Element() scene.Element {
 }
 
 func (t *Table[T]) Element() scene.Element {
-	return collectionElement(&t.element, &t.rows, scene.RoleTable, t.HeightForWidth, t.Draw, t.Handle, t.focusChanged)
+	if t.element.IsZero() {
+		t.element = scene.NewElement(scene.ElementConfig{
+			Measure: rowsMeasure(t.HeightForWidth), Paint: t.Draw,
+			Handle: func(event scene.Event) scene.EventResult {
+				return partEvent(event, t.Handle, &t.rows.geometry, &t.rows.pointer.geometry)
+			},
+			Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
+			Semantics: func() scene.Semantic {
+				return scene.Semantic{Role: scene.RoleTable, ContentRevision: t.rows.contentRevision, Value: strconv.Itoa(t.Selected())}
+			}, Actions: append(collectionActions(&t.rows, unchangedItem[T]), t.sortAction(), t.clearSortAction()),
+		})
+	}
+	t.rows.element, t.rows.scroll.element = t.element, t.element
+	return t.element
 }
 
 func (s *Settings[T]) Element() scene.Element {
@@ -200,7 +224,7 @@ func (s *Settings[T]) Element() scene.Element {
 			}, Focusable: func() bool { return true }, FocusChanged: s.focusChanged,
 			Semantics: func() scene.Semantic {
 				return scene.Semantic{Role: scene.RoleList, ContentRevision: s.list.contentRevision, Value: strconv.Itoa(s.list.Selected())}
-			},
+			}, Actions: append(collectionActions(&s.list, unchangedItem[T]), s.valueActions()...),
 		})
 	}
 	s.list.scroll.element = s.list.element
@@ -273,24 +297,4 @@ func (c *Completion) Element() scene.Element {
 	}
 	c.list.element, c.list.scroll.element = c.element, c.element
 	return c.element
-}
-
-// collectionElement installs the shared list projection and event geometry on a
-// composite collection's one scene part. Role and appearance remain parameters;
-// the underlying list still owns collection revision, selection and scrolling.
-func collectionElement[T any](element *scene.Element, list *List[T], role scene.Role, height func(int) int, paint func(scene.Frame), handle func(input.Event) bool, focusChanged func(bool)) scene.Element {
-	if element.IsZero() {
-		*element = scene.NewElement(scene.ElementConfig{
-			Measure: rowsMeasure(height), Paint: paint, Focusable: func() bool { return true }, FocusChanged: focusChanged,
-			Handle: func(event scene.Event) scene.EventResult {
-				return partEvent(event, handle, &list.geometry, &list.pointer.geometry)
-			},
-			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: role, ContentRevision: list.contentRevision, Value: strconv.Itoa(list.Selected())}
-			},
-		})
-	}
-	list.element = *element
-	list.scroll.element = *element
-	return *element
 }

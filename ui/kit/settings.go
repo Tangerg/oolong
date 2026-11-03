@@ -44,8 +44,8 @@ type SettingsConfig[T any] struct {
 	// They run during measurement and drawing and must be observationally pure.
 	Label func(T) string
 	Value func(T) string
-	// Change applies a value action. Nil makes values read-only.
-	Change func(index int, item T, action keymap.Action) bool
+	// Value reports acceptance and State reports the application owner's outcome.
+	Change func(index int, item T, action keymap.Action) scene.ActionResult[bool]
 	// Keys browse rows; EditKeys change the selected value. Nil uses the respective defaults.
 	Keys     *keymap.Map
 	EditKeys *keymap.Map

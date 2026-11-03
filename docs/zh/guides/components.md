@@ -49,10 +49,18 @@ features := term.Features{
 }
 ```
 
-把 `features` 传给 `program.Config.Terminal`。启动时，一张 1 像素 PNG 的查询和设备属性请求共用一次往返。与请求 ID 匹配的成功回复确认可以直接传输 PNG。终端已回复设备属性却没有答复图像查询，或明确拒绝查询时，终端名称不能单独启用 Kitty 图像。探测未完成时仍可参考名称和环境提示。传图前检查 `runtime.Images().Protocol().Supports(graphics.Live)` 和 `runtime.Images().CellSize()`。控件无法显示图片时会显示 `Alt`。
+把 `features` 传给 `program.ScreenConfig.Terminal` 或 `program.InlineConfig.Terminal`。启动时，一张 1 像素 PNG 的查询和设备属性请求共用一次往返。与请求 ID 匹配的成功回复确认可以直接传输 PNG。终端已回复设备属性却没有答复图像查询，或明确拒绝查询时，终端名称不能单独启用 Kitty 图像。探测未完成时仍可参考名称和环境提示。传图前检查 `runtime.Images().Protocol().Supports(graphics.Live)` 和 `runtime.Images().CellSize()`。控件无法显示图片时会显示 `Alt`。
+
+`runtime.Images().Transmit(ctx, png)` 返回接纳错误，或一个缓冲通道；通道只交付一次 `graphics.UploadResult`。写端接纳不代表终端已经创建图片。应在 `program.Work.Run` 中读取结果，再由 UI 所有者上的 `Apply` 安装 `Resource`。即使任务结果交付被撤销，成功创建的资源仍须有明确的释放者；image 与 Mermaid 示例展示了完整生命周期。Context 只取消未完成的上传；已经返回的资源持续有效，直到主动释放、交出终端或关闭终端。
+
+Oolong 发送 Kitty 图片编号 `I`，并接收终端分配的物理图片 ID `i`，不再以本地计数器选择物理 ID。请求关联有容量上限，同一进程内不同 Terminal 实例不复用编号；取消后保留关联，才能在迟到回复到达时删除那张已分配的图片。删除命令因写端背压被拒绝时，在写端重新有容量后重试。终端拒绝、匹配但格式错误的回复、输入输出失败、取消与响应超时都会明确结算上传结果。终端会话要求独占前台输入与输出；请求关联的作用域是当前进程，协议本身无法认证任意残留或外部字节。
 
 `kit.Image.Source` 使用原始 PNG 的像素坐标，左上角包含、右下角不包含，例如 `image.Rect(16, 8, 48, 40)`。零值表示整张图。并排显示同一张图时，为每个位置指定独立的 `Placement` ID。主动释放资源前先移除其显示位置。交出终端后，原句柄会失效，收回终端后需要重新传输。[Kitty 图像规范](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 
 `term.KeyboardCompatible` 请求无歧义按键和备用键码。数字小键盘可单独绑定，例如 `kp-enter` 优先于普通回车绑定。通过 `runtime.Environment().Keyboard()` 可读取终端回复的标志。用 `keymap.Map` 注册快捷键，在按下或重复时调用 `ActionFor` 或 `Matcher.Handle`。当前布局的显式绑定优先。例如切换到西里尔字母布局后，同一物理键仍可通过基础布局命中 `Ctrl+A`。编辑器使用终端提供的 `Key.Text` 输入实际文字。需要松开事件时添加 `input.KeyboardReportEvents`，需要关联文本时添加 `input.KeyboardReportText`。后者会按规范同时开启全键转义编码。[键盘示例](https://github.com/Tangerg/oolong/tree/main/examples/keys) · [Kitty 键盘规范](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+
+默认的 `input.XTermKeyboard` 方言接受 XTerm 精确的修饰 F3 序列，包括 Shift、Alt 和 Ctrl。有效的键盘标志回复确认 `input.KittyKeyboard` 协议家族，即使增强标志为零也一样；此时 `CSI ... R` 按光标报告处理。方言同时拥有共享功能键序列的修饰位解释：XTerm Meta 与 Kitty Super 使用同一位。`CSI u` 始终遵循其明确的 Kitty 语法。只要请求键盘增强或启动探测，终端接管阶段就发送一次异步键盘查询；SSH 与交接后的重新接管也使用同一机制。`Terminal.Keyboard()` 仍返回启动探测的功能快照，解码器观察到的协议家族不会改写这份快照。自定义解析器可以设置初始的 `input.ParserConfig.Keyboard` 或 `input.StreamConfig.Keyboard`。光标查询所有者必须使用 DEC 私有 CPR（`CSI ?6n`）：无私有标志的第 1 行光标回复，与传统修饰 F3 的字节完全相同。[XTerm 控制序列](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
+
+剪贴板默认使用原生 OSC 52，在 tmux 内也一样。`TMUX` 和 `TERM` 不能证明 DCS 透传已启用。只有会话明确配置了透传时，才设置 `term.Features{Clipboard: clipboard.Config{TmuxPassthrough: true}}`；SSH 适配器将同一配置用于已接受的远端终端。应用经 tmux 原生复制需要它的 `set-clipboard on` 路径；透传则受独立的 `allow-passthrough` 策略控制。[tmux 剪贴板](https://github.com/tmux/tmux/wiki/Clipboard) · [tmux 透传](https://github.com/tmux/tmux/wiki/FAQ)
 
 Ghostty 支持这两套线协议。嵌入 libghostty 的宿主可以单独配置各项能力，Oolong 以当前连接为准。内嵌 SSH 服务端适配器可处理键盘输入，目前未提供实时图像宿主接口。多路复用器的图像透传需要传输层另行支持。[Ghostty 终端能力](https://ghostty.org/docs/features)

@@ -56,7 +56,6 @@ func (b Box) insets() layout.Inset {
 	}
 }
 
-// InnerRect is the region left for content within a space of size.
 func (b Box) InnerRect(size image.Point) image.Rectangle {
 	if size.X <= 0 || size.Y <= 0 {
 		// A box with no room has no interior, and saying so here is what keeps this
@@ -142,15 +141,16 @@ func (b Box) drawEdge(v grid.View, y, w int, left, mid, right string) {
 	}
 }
 
-// label writes a title or footer into a border row, keeping a column of border on
-// each side of it so the line still reads as a frame.
+const borderLabelInset = 2
+
+// The corner and an adjacent border cell must remain visible on each side.
 func (b Box) label(v grid.View, y, w int, label string, style grid.Style, align layout.Align) {
-	if label == "" || w <= 4 {
+	room := w - 2*borderLabelInset
+	if label == "" || room <= 0 {
 		return
 	}
-	room := w - 4
 	label = text.Truncate(label, room, b.Glyphs.Ellipsis)
 	width := text.Width(label)
-	x := 2 + align.Offset(room, width)
+	x := borderLabelInset + align.Offset(room, width)
 	v.Text(x, y, label, style)
 }

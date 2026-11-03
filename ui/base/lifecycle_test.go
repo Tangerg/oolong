@@ -187,7 +187,10 @@ func TestDeferredSettingActionCannotEditAnotherRow(t *testing.T) {
 		changes := 0
 		settings := &base.Settings[string]{
 			EditKeys: keys,
-			Change:   func(int, string, keymap.Action) bool { changes++; return true },
+			Change: func(int, string, keymap.Action) scene.ActionResult[bool] {
+				changes++
+				return scene.ActionResult[bool]{State: scene.Applied, Value: true}
+			},
 		}
 		settings.List().SetItems([]string{"one", "two"})
 		settings.Handle(input.Key{Code: input.Character, Rune: 'g'})

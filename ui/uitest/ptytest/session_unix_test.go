@@ -13,6 +13,26 @@ import (
 	"github.com/Tangerg/oolong/ui/uitest/ptytest"
 )
 
+func TestWaitReservesTheLeaderIdentityUntilClose(t *testing.T) {
+	needPTY(t)
+	session, err := ptytest.Start(t.Context(), ptytest.Config{}, "sh", "-c", `printf 'descendant %d\n' "$$"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	waitFor(t, session.Transcript(), "descendant ")
+	pid := reportedPID(t, session.Transcript().String())
+	if err := session.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !alive(pid) {
+		t.Fatal("Wait released the leader's numeric identity before group cleanup")
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestClosingEndsTheWholeSessionItStarted holds the harness to what it promised.
 //
 // Start gives the command a session of its own, so what a test walks away from is a
@@ -103,7 +123,7 @@ func TestCancellationAfterTheLeaderExitsClosesTheSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The descendant still holds the PTY. Its geometry can change after the
-	// leader has been reaped, without sending a signal to that dead process.
+	// leader has exited, without sending a signal to that dead process.
 	if err := s.Resize(ptytest.Size{Cols: 41, Rows: 13}); err != nil {
 		t.Fatalf("resize after the session leader exited: %v", err)
 	}

@@ -23,7 +23,8 @@ const (
 	focusOn  = "\x1b[?1004h"
 	focusOff = "\x1b[?1004l"
 
-	keyboardOff = "\x1b[<u"
+	keyboardOff   = "\x1b[<u"
+	queryKeyboard = "\x1b[?u"
 
 	pasteOn  = "\x1b[?2004h"
 	pasteOff = "\x1b[?2004l"
@@ -47,26 +48,29 @@ const KeyboardCompatible = input.KeyboardDisambiguate | input.KeyboardReportAlte
 // around raw-mode ownership; a transport such as SSH queues them around its own
 // session lifecycle.
 type Modes struct {
-	altScreen bool
-	mouse     bool
-	focus     bool
-	keyboard  input.KeyboardFeatures
+	altScreen       bool
+	mouse           bool
+	focus           bool
+	keyboard        input.KeyboardFeatures
+	observeKeyboard bool
 }
 
 // Modes returns the terminal-mode encoding selected by o for an environment.
-// Probe is deliberately absent from the result: probing is an input round trip,
-// not an output mode.
+// Acquisition owns keyboard observation for both local and remote transports.
+// Startup probing consumes that same reply rather than issuing a second query.
 //
 // lookup is the environment of the terminal being driven, not necessarily this
 // process. A local terminal passes its process environment lookup; an SSH adapter
 // passes the client's accepted PTY environment. Nil means no environment facts are
 // available.
 func (c Config) Modes(lookup func(string) (string, bool)) Modes {
+	keyboard := compatibleKeyboard(c.Features.Keyboard, lookup)
 	return Modes{
-		altScreen: c.AltScreen,
-		mouse:     c.Features.Mouse,
-		focus:     c.Features.Focus,
-		keyboard:  compatibleKeyboard(c.Features.Keyboard, lookup),
+		altScreen:       c.AltScreen,
+		mouse:           c.Features.Mouse,
+		focus:           c.Features.Focus,
+		keyboard:        keyboard,
+		observeKeyboard: keyboard != 0 || c.Features.Probe,
 	}
 }
 
@@ -141,6 +145,9 @@ func (m Modes) Enter() string {
 		if mode.wanted {
 			b.WriteString(mode.on)
 		}
+	}
+	if m.observeKeyboard {
+		b.WriteString(queryKeyboard)
 	}
 	return b.String()
 }

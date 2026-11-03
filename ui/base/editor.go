@@ -238,7 +238,6 @@ func commonRuneSuffixStarts(a, b string, prefix int) (int, int) {
 	return aEnd, bEnd
 }
 
-// Empty reports whether there is nothing in the field.
 func (e *Editor) Empty() bool {
 	lines := e.document().lines
 	return len(lines) == 0 || len(lines) == 1 && lines[0] == ""
@@ -470,7 +469,6 @@ func (e *Editor) DeleteForward() {
 	e.replaceRange(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
 }
 
-// DeleteWordBack removes from the cursor back to the start of the word behind it.
 func (e *Editor) DeleteWordBack() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
@@ -1534,7 +1532,6 @@ func (e *Editor) textBetween(start, end Caret) string {
 	return b.String()
 }
 
-// DeleteSelection removes the selected text and reports whether there was any.
 func (e *Editor) DeleteSelection() bool {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()

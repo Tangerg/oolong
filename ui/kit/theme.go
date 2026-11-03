@@ -55,12 +55,8 @@ type Scrim struct {
 	Opacity float64
 }
 
-// Over paints the scrim across everything the view covers.
-//
-// Where a cell's colour is the terminal's own it is resolved first, which needs the
-// terminal to have said what that is — see [grid.View.Blend]. Nothing else here has
-// to know that, which is why this is one line and lives at the bottom of the layer
-// rather than in every widget that floats something.
+// Over delegates terminal-default colour resolution to grid.View.Blend so floating
+// widgets cannot invent conflicting interpretations of the terminal's palette.
 func (s Scrim) Over(v grid.View) { v.Blend(v.Bounds(), s.Color, s.Opacity) }
 
 // Look is what a base widget that draws itself is dressed with — see
@@ -105,26 +101,35 @@ func Suited(g grid.Ground) Theme {
 	return base.suited(g)
 }
 
-// suited keeps semantic colours from t and derives every neutral role from the
-// terminal. The zero foreground styles are intentional: leaving them unset is how
-// body text continues to follow a terminal that is recoloured while the program is
-// running.
+const (
+	terminalSubtleContrast    = 0.30
+	terminalMutedContrast     = 0.44
+	terminalBorderContrast    = 0.16
+	terminalSurfaceContrast   = 0.04
+	terminalSunkenContrast    = 0.08
+	terminalSelectionContrast = 0.18
+	terminalAddedContrast     = 0.18
+	terminalRemovedContrast   = 0.18
+	terminalScrimOpacity      = 0.55
+)
+
+// Unset foregrounds let body text follow terminal recolouring during a session.
 func (t Theme) suited(g grid.Ground) Theme {
 	t.Text.FG = grid.Color{}
 	t.Strong.FG = grid.Color{}
 	t.Heading.FG = grid.Color{}
 
-	t.Subtle.FG = g.BG.Blend(g.FG, 0.30)
-	t.Muted.FG = g.BG.Blend(g.FG, 0.44)
+	t.Subtle.FG = g.BG.Blend(g.FG, terminalSubtleContrast)
+	t.Muted.FG = g.BG.Blend(g.FG, terminalMutedContrast)
 	t.Context.FG = t.Muted.FG
-	t.Border.FG = g.BG.Blend(g.FG, 0.16)
+	t.Border.FG = g.BG.Blend(g.FG, terminalBorderContrast)
 	t.Divider.FG = t.Border.FG
-	t.Surface.BG = g.BG.Blend(g.FG, 0.04)
-	t.Sunken.BG = g.BG.Blend(g.FG, 0.08)
-	t.Selection.BG = g.BG.Blend(g.FG, 0.18)
-	t.Added.BG = g.BG.Blend(t.Success.FG, 0.18)
-	t.Removed.BG = g.BG.Blend(t.Danger.FG, 0.18)
-	t.Scrim = Scrim{Color: g.BG, Opacity: 0.55}
+	t.Surface.BG = g.BG.Blend(g.FG, terminalSurfaceContrast)
+	t.Sunken.BG = g.BG.Blend(g.FG, terminalSunkenContrast)
+	t.Selection.BG = g.BG.Blend(g.FG, terminalSelectionContrast)
+	t.Added.BG = g.BG.Blend(t.Success.FG, terminalAddedContrast)
+	t.Removed.BG = g.BG.Blend(t.Danger.FG, terminalRemovedContrast)
+	t.Scrim = Scrim{Color: g.BG, Opacity: terminalScrimOpacity}
 	return t
 }
 

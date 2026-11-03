@@ -1,6 +1,7 @@
 package program
 
 import (
+	"context"
 	"errors"
 	"image"
 
@@ -165,8 +166,8 @@ func (i Images) Protocol() graphics.Protocol { return i.runtime.services().graph
 
 func (i Images) CellSize() (image.Point, bool) { return i.runtime.services().cellSize() }
 
-func (i Images) Transmit(png []byte) (graphics.Resource, error) {
-	return i.runtime.services().transmit(png)
+func (i Images) Transmit(ctx context.Context, png []byte) (<-chan graphics.UploadResult, error) {
+	return i.runtime.services().transmit(ctx, png)
 }
 
 // Release ends the transmitted image's lifetime. Remove all its placements before

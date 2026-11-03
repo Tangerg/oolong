@@ -10,7 +10,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/keymap"
 )
 
-// Node is one item of a [Tree] and whatever is under it.
 type Node[T any] struct {
 	Item     T
 	Children []Node[T]
@@ -81,7 +80,6 @@ type Tree[T any] struct {
 	matcher keymap.Matcher
 }
 
-// NewTree constructs a tree from top-level nodes in display order.
 func NewTree[T any](nodes ...Node[T]) *Tree[T] {
 	t := &Tree[T]{}
 	t.SetNodes(nodes)
@@ -166,7 +164,6 @@ func (t *Tree[T]) rebuild() {
 // Selected is the row the cursor is on, or -1 when the tree is showing nothing.
 func (t *Tree[T]) Selected() int { return t.list.Selected() }
 
-// Current is the item under the cursor and whether there is one.
 func (t *Tree[T]) Current() (T, bool) {
 	row, ok := t.CurrentRow()
 	return row.Item, ok
@@ -188,7 +185,6 @@ func (t *Tree[T]) Select(at int) {
 // a leaf, or a branch that was already open, changes nothing.
 func (t *Tree[T]) Open(at int) bool { return t.set(at, true) }
 
-// Close hides it again, and reports the same.
 func (t *Tree[T]) Close(at int) bool { return t.set(at, false) }
 
 func (t *Tree[T]) set(at int, open bool) bool {
@@ -292,7 +288,6 @@ func (t *Tree[T]) Focused() bool { return t.list.Focused() }
 
 func (t *Tree[T]) HeightForWidth(int) int { return t.list.Len() }
 
-// Scroll exposes the position, for a scrollbar drawn beside the tree.
 func (t *Tree[T]) Scroll() *Scroll { return t.list.Scroll() }
 
 func (t *Tree[T]) Draw(v scene.Frame) {

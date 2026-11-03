@@ -179,7 +179,6 @@ func (d *Dialog) SetContent(content scene.Element) {
 	d.Element().Invalidate()
 }
 
-// Title is the dialog's semantic name.
 func (d *Dialog) Title() string { return d.title }
 
 // SetTitle replaces the owned semantic name. It panics during presentation or observation.
@@ -189,7 +188,6 @@ func (d *Dialog) SetTitle(title string) {
 	d.Element().Invalidate()
 }
 
-// Description is the dialog's explanatory semantic text.
 func (d *Dialog) Description() string { return d.detail }
 
 // SetDescription replaces the owned explanation. It panics during presentation or observation.

@@ -49,16 +49,20 @@ type LayoutConfig struct {
 	Width    int
 	Wrap     WrapMode
 	Revision uint64
+	// ReserveCaret keeps insertion positions inside wrapped rows, including the
+	// continuation needed after a full logical line. Passive layouts leave it off.
+	ReserveCaret bool
 }
 
 // Layout is an immutable logical-text to cell projection. It owns terminal-safe
 // lines, so byte positions refer to cleaned logical text, never unparsed format
 // source. Rendering, hit testing, caret placement and selection use one wrap.
 type Layout struct {
-	lines    []string
-	rows     []LayoutRow
-	width    int
-	revision uint64
+	lines        []string
+	rows         []LayoutRow
+	width        int
+	revision     uint64
+	reserveCaret bool
 }
 
 // LayoutRow is one visual row with its logical byte interval and soft-break relationship.
@@ -76,11 +80,14 @@ func NewLayout(cfg LayoutConfig) *Layout {
 	if cfg.Wrap > WrapNone {
 		panic("text: invalid wrapping policy")
 	}
-	l := &Layout{width: max(0, cfg.Width), revision: cfg.Revision}
+	l := &Layout{width: max(0, cfg.Width), revision: cfg.Revision, reserveCaret: cfg.ReserveCaret && cfg.Wrap != WrapNone && cfg.Width > 0}
 	l.lines = make([]string, len(cfg.Lines))
 	for i, line := range cfg.Lines {
 		l.lines[i] = strings.Clone(Printable(line))
 		l.wrapLine(i, cfg.Wrap)
+		if l.reserveCaret && l.rows[len(l.rows)-1].Width >= l.width {
+			l.appendRow(i, len(l.lines[i]), len(l.lines[i]))
+		}
 	}
 	return l
 }
@@ -199,7 +206,11 @@ func (l *Layout) Caret(position Position) image.Point {
 			continue
 		}
 		last := i == len(l.rows)-1 || l.rows[i+1].Line != row.Line
-		if position.Byte < row.To || position.Byte == row.To && (position.Affinity == Backward || last) {
+		atEnd := position.Byte == row.To && (position.Affinity == Backward || last)
+		if l.reserveCaret && row.Width >= l.width && !last {
+			atEnd = false
+		}
+		if position.Byte < row.To || atEnd {
 			return image.Pt(ColumnOf(row.Text, position.Byte-row.From), i)
 		}
 	}

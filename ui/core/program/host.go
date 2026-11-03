@@ -1,6 +1,7 @@
 package program
 
 import (
+	"context"
 	"errors"
 	"image"
 	"time"
@@ -153,7 +154,7 @@ type ImageHost interface {
 	NativeTarget() grid.NativeTarget
 	Graphics() graphics.Protocol
 	CellSize() (image.Point, bool)
-	Transmit(png []byte) (graphics.Resource, error)
+	Transmit(ctx context.Context, png []byte) (<-chan graphics.UploadResult, error)
 	ReleaseImage(img graphics.Resource) error
 }
 
@@ -300,11 +301,11 @@ func (s hostServices) cellSize() (image.Point, bool) {
 	return s.images.CellSize()
 }
 
-func (s hostServices) transmit(png []byte) (graphics.Resource, error) {
+func (s hostServices) transmit(ctx context.Context, png []byte) (<-chan graphics.UploadResult, error) {
 	if s.images == nil {
-		return graphics.Resource{}, errors.ErrUnsupported
+		return nil, errors.ErrUnsupported
 	}
-	return s.images.Transmit(png)
+	return s.images.Transmit(ctx, png)
 }
 
 func (s hostServices) releaseImage(img graphics.Resource) error {

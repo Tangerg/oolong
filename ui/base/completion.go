@@ -121,7 +121,6 @@ func (e *Editor) TokenAtCursor(triggers ...Trigger) (Token, bool) {
 	return token, ok
 }
 
-// Candidate is one thing a completion offers.
 type Candidate struct {
 	Text string
 	// Label is the row as shown. Empty shows Text, which is the common case: what is
@@ -367,7 +366,6 @@ type CompletionRenderer interface {
 	Width(candidate Candidate) int
 }
 
-// DefaultCompletionRenderer shows a highlighted label with right-aligned detail.
 type DefaultCompletionRenderer struct{}
 
 // Width includes the label, the detail and their gap.
@@ -393,7 +391,6 @@ func (c *Completion) renderer() CompletionRenderer {
 	return DefaultCompletionRenderer{}
 }
 
-// detailGap is what separates a row's label from its detail.
 const detailGap = 2
 
 func (c *Completion) Draw(v scene.Frame) {

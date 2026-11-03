@@ -253,6 +253,11 @@ func (f *field) focus(has bool, forward func(bool), reconcile func(), validate f
 // carrying it out. A later attempt revokes settlement of an earlier one.
 type SubmissionID struct{ identity *byte }
 
+const (
+	ActionCancel         scene.ActionID = "cancel"
+	ActionReadSubmission scene.ActionID = "read-submission"
+)
+
 // SubmissionState distinguishes a pending attempt from its terminal outcome.
 type SubmissionState uint8
 
@@ -362,7 +367,7 @@ func (f *Form) ensure() {
 				state |= scene.StateInvalid
 			}
 			return scene.Semantic{Role: scene.RoleForm, Name: f.title, State: state}
-		}, Actions: []scene.ActionBinding{submit.Binding()}},
+		}, Actions: []scene.ActionBinding{submit.Binding(), f.submissionAction(), f.cancelAction()}},
 		Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
 			flow, slots, extra := f.fieldLayout(items)
 			rects := flow.Rects(image.Pt(space.X, layout.Remaining(space.Y, extra)), slots)
@@ -551,6 +556,37 @@ func (f *Form) Cancel() error {
 
 func (f *Form) canCancel() bool { return f.cancel != nil && f.attempt.State == SubmissionPending }
 
+func (f *Form) submissionAction() scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[struct{}, Submission]{
+		ID: ActionReadSubmission, Label: "Read submission",
+		Run: func(context.Context, struct{}) (scene.ActionResult[Submission], error) {
+			return scene.ActionResult[Submission]{Value: f.Submission()}, nil
+		},
+	}).Binding()
+}
+
+func (f *Form) cancelAction() scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[SubmissionID, Submission]{
+		ID: ActionCancel, Label: "Cancel submission",
+		Availability: func(id SubmissionID) scene.Availability {
+			if !f.canCancel() || id != f.attempt.ID {
+				return scene.Availability{Disabled: true, Reason: "submission is not current or cancellable"}
+			}
+			return scene.Availability{}
+		},
+		Run: func(_ context.Context, id SubmissionID) (scene.ActionResult[Submission], error) {
+			err := f.Cancel()
+			state := scene.Unchanged
+			if f.attempt.ID != id || f.attempt.State != SubmissionPending {
+				state = scene.Applied
+			} else if err == nil {
+				state = scene.Started
+			}
+			return scene.ActionResult[Submission]{State: state, Value: f.Submission()}, err
+		},
+	}).Binding()
+}
+
 func (f *Form) HeightForWidth(width int) int {
 	if f.group == nil {
 		return 0
@@ -694,7 +730,6 @@ func (f *Form) checkDraft(id SubmissionID, validations []func() bool) error {
 	return err
 }
 
-// Title is the semantic form name also read by kit appearance.
 func (f *Form) Title() string { return f.title }
 
 // SetTitle changes the semantic name and invalidates the same form identity.

@@ -17,9 +17,9 @@ func TestSettingsRoutesNavigationAndValueActionsSeparately(t *testing.T) {
 	var index int
 	var item string
 	var action keymap.Action
-	settings.Change = func(at int, current string, do keymap.Action) bool {
+	settings.Change = func(at int, current string, do keymap.Action) scene.ActionResult[bool] {
 		index, item, action = at, current, do
-		return true
+		return scene.ActionResult[bool]{State: scene.Applied, Value: true}
 	}
 
 	if !settings.Handle(input.Key{Code: input.Down}) || settings.List().Selected() != 1 {

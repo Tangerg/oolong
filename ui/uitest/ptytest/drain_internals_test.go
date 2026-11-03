@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"testing"
 )
@@ -38,6 +39,7 @@ func TestCloseReportsGroupRefusalWithoutWaitingForTheLeader(t *testing.T) {
 	s := &Session{
 		primary: primary, process: &os.Process{},
 		transcript: newTranscript(), waitDone: make(chan struct{}),
+		release: make(chan struct{}), reapDone: make(chan struct{}),
 	}
 	s.transcript.finish(nil)
 	if err := s.Close(); err == nil {
@@ -45,7 +47,7 @@ func TestCloseReportsGroupRefusalWithoutWaitingForTheLeader(t *testing.T) {
 	}
 }
 
-func TestProcessWaitDoesNotSuppressPTYReadErrors(t *testing.T) {
+func TestFinalReapPreservesCommandCancellationFailures(t *testing.T) {
 	if !Supported() {
 		t.Skip("no PTY on this platform")
 	}
@@ -62,16 +64,22 @@ func TestProcessWaitDoesNotSuppressPTYReadErrors(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	s := &Session{waitDone: make(chan struct{})}
+	s := &Session{waitDone: make(chan struct{}), release: make(chan struct{}), reapDone: make(chan struct{})}
 	go s.wait(cmd)
-	defer func() { _ = cmd.Process.Kill(); <-s.waitDone }()
+	release := sync.OnceFunc(func() { close(s.release) })
+	defer func() { _ = cmd.Process.Kill(); release(); <-s.reapDone }()
 	cancel()
 	<-cancelled
 	if _, err := io.WriteString(stdin, "done\n"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Wait(t.Context()); !errors.Is(err, syscall.EIO) {
-		t.Fatalf("process cancellation error was treated as PTY EOF: %v", err)
+	if err := s.Wait(t.Context()); err != nil {
+		t.Fatalf("observing successful child exit: %v", err)
+	}
+	release()
+	<-s.reapDone
+	if !errors.Is(s.reapErr, syscall.EIO) {
+		t.Fatalf("final reap discarded command cancellation failure: %v", s.reapErr)
 	}
 }
 
@@ -87,10 +95,11 @@ func TestClosePreservesReaderAndProcessFailures(t *testing.T) {
 	waitFailure := errors.New("process wait failed")
 	s := &Session{
 		primary: primary, transcript: newTranscript(), waitDone: make(chan struct{}),
-		waitErr: waitFailure,
+		release: make(chan struct{}), reapDone: make(chan struct{}), reapErr: waitFailure,
 	}
 	s.transcript.finish(readFailure)
 	close(s.waitDone)
+	close(s.reapDone)
 	for range 2 {
 		if err := s.Close(); !errors.Is(err, readFailure) || !errors.Is(err, waitFailure) {
 			t.Fatalf("Close discarded a session failure: %v", err)

@@ -84,20 +84,20 @@ func reapBrowser(pid int) error {
 	}
 }
 
-func TestUnreapedBrowserKeepsShutdownFailureVisible(t *testing.T) {
+func TestBrowserTerminationDoesNotDependOnItsExternalReaper(t *testing.T) {
 	if runWithProcessReaper(t) {
 		return
 	}
 	call, pid := unresponsiveRender(t)
 	call.cancel()
 	<-call.done
-	// Deliberately leave the terminated child unreaped until the bounded
-	// production wait has returned. Its incomplete cleanup must remain visible.
+	// A zombie has terminated; its external reaper must not control Render's
+	// outcome. The wait status still proves that group cleanup delivered SIGKILL.
 	if err := reapBrowser(pid); err != nil {
 		t.Fatal(err)
 	}
 	if !errors.Is(call.err, context.Canceled) || errors.Is(call.err, syscall.EPERM) ||
-		!strings.Contains(call.err.Error(), "did not finish shutdown") {
+		strings.Contains(call.err.Error(), "did not finish shutdown") {
 		t.Fatalf("unreaped browser shutdown=%v", call.err)
 	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {

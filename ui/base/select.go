@@ -12,7 +12,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
 
-// Option is one thing a choice offers.
 type Option[T any] struct {
 	Label string
 	Value T
@@ -25,7 +24,6 @@ func (o Option[T]) holds(want T, same func(a, b T) bool) bool {
 	return same(o.Value, want)
 }
 
-// Options is the usual case, where what is shown is what it means.
 func Options[T ~string](values ...T) []Option[T] {
 	out := make([]Option[T], len(values))
 	for i, v := range values {
@@ -108,7 +106,6 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 // Options returns a copy of what is on offer.
 func (s *Select[T]) Options() []Option[T] { return slices.Clone(s.list.items) }
 
-// Chosen reads the current choice.
 func (s *Select[T]) Chosen() (Option[T], bool) {
 	return s.list.At(s.selected())
 }
@@ -146,7 +143,6 @@ func (s *Select[T]) indexOf(options []Option[T], value T) (int, bool) {
 	return at, at >= 0
 }
 
-// Handle moves the cursor, and takes the choice with it.
 func (s *Select[T]) Handle(ev input.Event) bool {
 	requireMutable(s.element)
 	if key, ok := ev.(input.Key); ok {

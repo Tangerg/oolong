@@ -16,6 +16,8 @@ For an ordered visual assertion, call `host.Repaint(ctx)`. Its snapshot combines
 
 A screenshot checks appearance, but it does not prove that the same action is available to a keyboard or an agent. Pair visual assertions with action results, target lifetime, source revision or writer receipts when those facts matter.
 
+`ptytest.Session.Wait` observes the direct child's exit while keeping its kernel identity reserved for group cleanup. A failed child returns `*process.ExitError` from `ui/core/process`. Always call `Close`, even after `Wait` succeeds; it sends the final group signal before reaping and releases the reserved process slot. The session owns the sole final wait, so do not independently reap its child or enable automatic SIGCHLD reaping. Context cancellation follows the same close path.
+
 ## Exercise transactions and failures
 
 Prepare a frame, inspect that committed geometry has not advanced, then abort. Verify model changes survive while geometry remains at the previous complete frame. Admit another candidate and report physical writing separately. A queued frame is not a written frame.

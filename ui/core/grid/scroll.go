@@ -93,10 +93,9 @@ func (v verticalShift) exposed() (y0, y1 int) {
 // diffCostFloor is a guaranteed lower bound on what the plain cell diff between
 // prev and next will cost in bytes.
 //
-// It counts positioning and printable bytes exactly, and deliberately leaves out
-// style transitions: those can only add to the real stream, so a shift that beats
-// this floor beats the diff itself. A floor rather than the diff means the diff is
-// never built just to be thrown away.
+// It omits style transitions and atom boundaries, which can only add bytes to
+// the stream. A shift that beats this floor therefore beats the diff without
+// building the complete diff just to throw it away.
 func diffCostFloor(prev, next *Surface) int {
 	if !diffable(prev, next) {
 		return 0

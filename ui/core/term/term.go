@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -26,14 +25,10 @@ import (
 
 var ErrNotTerminal = errors.New("term: not a terminal")
 
-// ErrImageIDsExhausted means a terminal session has used every image identity the
-// graphics protocol can represent. Reusing one would make a new image overwrite an
-// older image that can still be present, so the session refuses another transmission.
-var ErrImageIDsExhausted = errors.New("term: image identities exhausted")
-
 // Features can cross transport boundaries without carrying screen ownership.
 // The zero value requests no optional capabilities.
 type Features struct {
+	Clipboard clipboard.Config
 	// Mouse asks for mouse reporting, including movement and not only clicks.
 	Mouse bool
 	// Focus asks to be told when the terminal window gains or loses focus, which is
@@ -64,7 +59,9 @@ type Config struct {
 
 // Terminal binds raw mode, requested modes, readers, writer, and restoration
 // to one session. Close restores resources in reverse acquisition order and is
-// idempotent, including after failure. A Terminal must not be copied.
+// idempotent, including after failure. The caller must exclusively own foreground
+// terminal input and output: correlation IDs cannot authenticate foreign bytes.
+// A Terminal must not be copied.
 type Terminal struct {
 	in, out     *os.File
 	inFD, outFD int
@@ -104,11 +101,9 @@ type Terminal struct {
 	title         title
 	// task is progress shown outside the cell grid. It owns its keepalive and
 	// pauses it whenever another process owns the terminal.
-	task *taskProgress
-	// modeMu keeps image ID allocation, frame admission and binding in the same
-	// terminal lifetime. Refusing a transmission consumes no wire identity.
-	lastImageID uint32
-	imageOwner  graphics.ImageOwner
+	task       *taskProgress
+	uploads    map[uint32]*imageUpload
+	imageOwner graphics.ImageOwner
 
 	resized  chan input.Resize
 	resizeMu sync.Mutex
@@ -228,7 +223,7 @@ func newTerminal(
 		pumpDone:      make(chan struct{}),
 		resizeDone:    make(chan struct{}),
 		task:          newTaskProgress(),
-		clipboard:     clipboard.New(lookup),
+		clipboard:     clipboard.New(cfg.Features.Clipboard),
 		locale:        DetectLocale(lookup),
 		color:         DetectDepth(lookup),
 		wheelProfile:  input.WheelFor(lookup, ""),
@@ -311,12 +306,13 @@ func (t *Terminal) start(cfg Config) {
 
 	p := &pump{
 		raw: raw, end: end, resized: t.resized, stop: t.stop,
-		out: t.events, stream: stream, early: early,
+		out: t.events, stream: stream, early: early, consume: t.takeImageReply,
 	}
 	t.startResizeWatcher(resizes)
 	go func() {
 		defer close(t.pumpDone)
 		t.inputErr = p.run()
+		t.endUploads(t.inputErr)
 		close(t.events)
 	}()
 }
@@ -403,9 +399,10 @@ func (t *Terminal) Version() (input.DeviceVersion, bool) {
 	return t.said.version, t.said.hasVersion
 }
 
-// Keyboard reports accepted features, which may be fewer than requested.
-// Consumers cannot infer release-event support from presses alone. The boolean
-// is false without a keyboard request or a matching terminal reply.
+// Keyboard reports the startup probe's accepted-feature snapshot. Consumers
+// cannot infer release-event support from presses alone. The boolean requires
+// Features.Probe and a matching reply; later protocol-family observations belong
+// to the input decoder and do not advance this startup snapshot.
 func (t *Terminal) Keyboard() (input.KeyboardFeatures, bool) {
 	return t.said.keyboard, t.said.hasKeyboard
 }
@@ -483,36 +480,6 @@ func (t *Terminal) CellSize() (image.Point, bool) {
 	return cellSize(t.outFD)
 }
 
-// Transmit allocates a session-owned identity and queues the PNG once; later
-// graphics.Resource.Placement calls reuse it. Writer reports delivery. The
-// terminal must support graphics, and ErrImageIDsExhausted refuses identity
-// reuse that could overwrite a still-visible transmission.
-func (t *Terminal) Transmit(png []byte) (graphics.Resource, error) {
-	if !t.Graphics().Supports(graphics.Live) {
-		return graphics.Resource{}, errors.ErrUnsupported
-	}
-	t.modeMu.Lock()
-	defer t.modeMu.Unlock()
-	if t.lastImageID == math.MaxUint32 {
-		return graphics.Resource{}, ErrImageIDsExhausted
-	}
-	// Encoding only increases the payload. An oversized source cannot fit even
-	// before the framing and base64 overhead are added.
-	if len(png) > t.writer.maxFrameBytes {
-		return graphics.Resource{}, ErrPayloadTooLarge
-	}
-	var payload bytes.Buffer
-	img, err := graphics.Transmit(&payload, t.lastImageID+1, png)
-	if err != nil {
-		return graphics.Resource{}, err
-	}
-	if _, err := t.writer.Queue(payload.Bytes()); err != nil {
-		return graphics.Resource{}, err
-	}
-	t.lastImageID = img.ID
-	return t.imageOwner.Bind(img), nil
-}
-
 // ReleaseImage queues deletion of transmitted image data and all its placements.
 // The caller must stop drawing the image before releasing it.
 func (t *Terminal) ReleaseImage(resource graphics.Resource) error {
@@ -535,6 +502,9 @@ func deleteImage(img graphics.Image, queue func([]byte) (uint64, error)) error {
 // Never delete by ID after the child takes over. Draining between admissions
 // keeps cleanup inside the writer's fixed control budget for any image count.
 func (t *Terminal) releaseImages() error {
+	if err := t.releasePendingImages(); err != nil {
+		return err
+	}
 	return t.imageOwner.ReleaseAll(func(img graphics.Image) error {
 		if err := t.writer.Drain(DrainGrace); err != nil {
 			return err
@@ -548,6 +518,7 @@ func (t *Terminal) releaseImages() error {
 func (t *Terminal) Close() error {
 	t.closeOnce.Do(func() {
 		t.writer.CloseAdmission()
+		t.endUploads(ErrClosed)
 		close(t.stop)
 		// Wake both kernel waits and handover parking so shutdown can join the
 		// reader without requiring input or a child to return.
@@ -572,6 +543,7 @@ func (t *Terminal) closeOutput() error {
 	t.modeMu.Lock()
 	defer t.modeMu.Unlock()
 	defer t.imageOwner.RevokeAll()
+	defer t.revokeUploads()
 	var errs []error
 	if t.ownsModes {
 		// Raw mode must settle independently of output backpressure. The same
@@ -786,6 +758,7 @@ func (t *Terminal) release(parked <-chan struct{}) error {
 	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
 		return errors.Join(err, t.resumeOutput())
 	}
+	t.cancelUploads(ErrHandoverActive)
 	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
 		// release is transactional: on failure no child runs and the session is made
 		// live again before the error reaches the caller.

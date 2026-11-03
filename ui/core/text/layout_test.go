@@ -98,6 +98,41 @@ func TestLayoutPreservesWhitespaceAndClipsSelectionWithoutSplittingAtoms(t *test
 	}
 }
 
+func TestReservedInsertionCaretSharesLayoutHitAndSelection(t *testing.T) {
+	for _, value := range []string{"abcd", "abcdefgh", "界界", "a\u0301bcd"} {
+		t.Run(value, func(t *testing.T) {
+			passive := text.NewLayout(text.LayoutConfig{Lines: []string{value}, Width: 4})
+			editable := text.NewLayout(text.LayoutConfig{Lines: []string{value}, Width: 4, ReserveCaret: true})
+			if editable.Len() != passive.Len()+1 {
+				t.Fatalf("full final row lacks its insertion row: %v", editable.Rows())
+			}
+			for _, affinity := range []text.Affinity{text.Forward, text.Backward} {
+				end := text.Position{Byte: len(value), Affinity: affinity}
+				point := editable.Caret(end)
+				if point != image.Pt(0, editable.Len()-1) {
+					t.Fatalf("end caret = %v", point)
+				}
+				if hit := editable.Hit(point); hit.Line != end.Line || hit.Byte != end.Byte {
+					t.Fatalf("insertion row hit = %+v", hit)
+				}
+			}
+			selection := text.Range{End: text.Position{Byte: len(value)}}
+			if !slices.Equal(editable.Rects(selection), passive.Rects(selection)) || editable.Text(selection) != value {
+				t.Fatal("caret reservation altered document selection")
+			}
+		})
+	}
+	for _, cfg := range []text.LayoutConfig{
+		{Lines: []string{"abc"}, Width: 4, ReserveCaret: true},
+		{Lines: []string{"abcd"}, Width: 4, Wrap: text.WrapNone, ReserveCaret: true},
+		{Lines: []string{"abcd"}, ReserveCaret: true},
+	} {
+		if got := text.NewLayout(cfg).Len(); got != 1 {
+			t.Fatalf("unneeded insertion row for %+v: %d rows", cfg, got)
+		}
+	}
+}
+
 func FuzzLayoutPositionsRemainGraphemeBoundaries(f *testing.F) {
 	for _, value := range []string{"hello world", "你\t好 e\u0301", "👨‍👩‍👧‍👦x", "a  b", "\xffa\x1b"} {
 		f.Add(value, uint8(4))

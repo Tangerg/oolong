@@ -70,7 +70,6 @@ const (
 	Dismiss keymap.Action = "dismiss"
 )
 
-// Close is what dismisses the top layer of a [Dialog].
 const Close keymap.Action = "close"
 
 // Activate invokes a button-like control such as a [Button].
@@ -162,7 +161,6 @@ func DefaultEditorKeys() *keymap.Map {
 	return m
 }
 
-// DefaultListKeys are the keystrokes a terminal list is expected to answer.
 func DefaultListKeys() *keymap.Map {
 	return verticalKeys(verticalActions{
 		up: SelectPrev, down: SelectNext,
@@ -171,7 +169,6 @@ func DefaultListKeys() *keymap.Map {
 	})
 }
 
-// DefaultScrollKeys are the keystrokes a terminal reader is expected to answer.
 func DefaultScrollKeys() *keymap.Map {
 	return verticalKeys(verticalActions{
 		up: ScrollUp, down: ScrollDown,
@@ -209,14 +206,12 @@ func DefaultCompletionKeys() *keymap.Map {
 	return m
 }
 
-// DefaultDialogKeys are the keystrokes a layered interface is expected to answer.
 func DefaultDialogKeys() *keymap.Map {
 	m := &keymap.Map{}
 	m.Bind(Close, input.Chord{Code: input.Esc})
 	return m
 }
 
-// DefaultActivationKeys are the two conventional ways to invoke a focused control.
 func DefaultActivationKeys() *keymap.Map {
 	m := &keymap.Map{}
 	m.Bind(Activate, input.Chord{Code: input.Enter})

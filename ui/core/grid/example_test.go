@@ -59,9 +59,8 @@ func ExampleView_Text() {
 	// "中中"
 }
 
-// EncodeRow turns one finished row into inline terminal text: styles and hyperlinks,
-// and nothing that moves the cursor or erases anything. It is how a transcript line is
-// printed into the terminal's own scrollback, where it has to survive on its own.
+// Relative atom boundaries let finished rows survive in scrollback without a
+// live screen position.
 func ExampleEncodeRow() {
 	s := grid.NewSurface(12, 1)
 	v := s.View()

@@ -113,7 +113,6 @@ func (c *Confirm) Handle(ev input.Event) bool {
 	return handled
 }
 
-// Do runs one of the field's actions by name. See [Doer].
 func (c *Confirm) Do(action keymap.Action) bool {
 	switch action {
 	case SelectPrev:

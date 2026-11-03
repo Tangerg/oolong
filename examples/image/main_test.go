@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"image"
 	"io"
 	"path/filepath"
@@ -23,13 +24,16 @@ func (h *imageHost) NativeTarget() grid.NativeTarget { return h.resources.Native
 func (*imageHost) Graphics() graphics.Protocol       { return graphics.Kitty }
 func (*imageHost) CellSize() (image.Point, bool)     { return image.Pt(8, 16), true }
 
-func (h *imageHost) Transmit(data []byte) (graphics.Resource, error) {
+func (h *imageHost) Transmit(_ context.Context, data []byte) (<-chan graphics.UploadResult, error) {
 	wire, err := graphics.Transmit(io.Discard, 1, data)
 	if err != nil {
-		return graphics.Resource{}, err
+		return nil, err
 	}
 	h.image = h.resources.Bind(wire)
-	return h.image, nil
+	result := make(chan graphics.UploadResult, 1)
+	result <- graphics.UploadResult{Resource: h.image}
+	close(result)
+	return result, nil
 }
 
 func (h *imageHost) ReleaseImage(resource graphics.Resource) error {

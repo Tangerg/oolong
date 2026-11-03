@@ -7,6 +7,29 @@ import (
 	"github.com/Tangerg/oolong/ui/core/link"
 )
 
+func TestURLSchemesIgnoreCaseWithoutChangingDestinationOrLookingUpFiles(t *testing.T) {
+	for _, target := range []string{
+		"HTTPS://example.com/Case.go?Token=AbC",
+		"HtTp://example.com/Case.go?Token=AbC",
+		"WWW.example.com/Case.go?Token=AbC",
+	} {
+		for _, quote := range []string{"", "'", "\""} {
+			source := quote + target + quote
+			found := link.Detect(source, func(path string) bool {
+				t.Fatalf("URL caused a filesystem lookup for %q", path)
+				return false
+			})
+			want := target
+			if strings.HasPrefix(target, "WWW.") {
+				want = "https://" + target
+			}
+			if len(found) != 1 || found[0].Kind != link.URL || found[0].Target != want {
+				t.Fatalf("Detect(%q) = %+v; want URL %q", source, found, want)
+			}
+		}
+	}
+}
+
 func TestQuotedURLsKeepTheirSemanticKind(t *testing.T) {
 	for _, quote := range []string{"\"", "'"} {
 		for _, target := range []string{"https://example.com", "http://example.com/a.go", "www.example.com"} {

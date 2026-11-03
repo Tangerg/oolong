@@ -1,6 +1,7 @@
 package base
 
 import (
+	"context"
 	"slices"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -27,17 +28,24 @@ type Table[T any] struct {
 
 	less func(a, b T, column int) bool
 
-	order *tableOrder
+	order *SortOrder
 }
 
-type tableOrder struct {
-	column     int
-	descending bool
+type SortOrder struct {
+	Column     int
+	Descending bool
 }
+
+const (
+	ActionSort      scene.ActionID = "sort"
+	ActionClearSort scene.ActionID = "clear-sort"
+)
 
 // SetLess installs a pure strict weak ordering and reapplies the active sort. Nil
 // clears the sort without moving rows. Reentrant ordering mutations panic; comparison
 // panics leave rows, comparator and reported order intact.
+// Column interpretation belongs to the comparator because this row controller owns
+// no column schema; callers must use indices supported by that comparator.
 func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
 	requireMutable(t.element)
 	if less == nil {
@@ -60,13 +68,18 @@ func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
 // metadata publish together after comparison succeeds. Repeating the current column
 // reverses the order.
 func (t *Table[T]) SortBy(column int) bool {
-	requireMutable(t.element)
-	if t.less == nil || column < 0 || t.rows.Len() == 0 {
-		return false
+	order := SortOrder{Column: column}
+	if t.order != nil && t.order.Column == column {
+		order.Descending = !t.order.Descending
 	}
-	order := tableOrder{column: column}
-	if t.order != nil && t.order.column == column {
-		order.descending = !t.order.descending
+	return t.SetSort(order)
+}
+
+// SetSort keeps retries idempotent; interactive direction toggles belong to SortBy.
+func (t *Table[T]) SetSort(order SortOrder) bool {
+	requireMutable(t.element)
+	if !t.canSort(order.Column) || t.order != nil && *t.order == order {
+		return false
 	}
 	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), t.less, order)
 	t.rows.matcher.Reset(func() {
@@ -76,13 +89,17 @@ func (t *Table[T]) SortBy(column int) bool {
 	return true
 }
 
+func (t *Table[T]) canSort(column int) bool {
+	return t.less != nil && column >= 0 && t.rows.Len() > 0
+}
+
 // Sorted returns the sort column, reverse flag and whether sorting is active.
 // An unsorted table returns (0, false, false).
 func (t *Table[T]) Sorted() (column int, descending, ok bool) {
 	if t.order == nil {
 		return 0, false, false
 	}
-	return t.order.column, t.order.descending, true
+	return t.order.Column, t.order.Descending, true
 }
 
 // ClearSort clears sort metadata without moving rows.
@@ -107,18 +124,15 @@ func (t *Table[T]) SetItems(items []T) {
 	})
 }
 
-// Items returns the rows in the order the table put them in.
 func (t *Table[T]) Items() []T { return t.list().Items() }
 
 func (t *Table[T]) Len() int { return t.list().Len() }
 
-// At returns one row by index, and whether there is one.
 func (t *Table[T]) At(index int) (T, bool) { return t.list().At(index) }
 
 // Selected is the index of the row under the cursor, or -1.
 func (t *Table[T]) Selected() int { return t.list().Selected() }
 
-// Current is the row under the cursor, and whether there is one.
 func (t *Table[T]) Current() (T, bool) { return t.list().Current() }
 
 // Select puts the cursor on a row.
@@ -127,7 +141,6 @@ func (t *Table[T]) Select(i int) { t.list().Select(i) }
 // Move steps the cursor by n rows.
 func (t *Table[T]) Move(n int) { t.configureRows(); t.rows.Move(n) }
 
-// Scroll is the table's position, for a scrollbar drawn beside it.
 func (t *Table[T]) Scroll() *Scroll { return t.list().Scroll() }
 
 func (t *Table[T]) focusChanged(has bool) { t.list().focusChanged(has) }
@@ -137,7 +150,6 @@ func (t *Table[T]) Focused() bool { return t.list().Focused() }
 // Handle answers the keys, the wheel and a press that move the cursor.
 func (t *Table[T]) Handle(ev input.Event) bool { t.configureRows(); return t.rows.Handle(ev) }
 
-// Do runs one of the list's actions by name. See [Doer].
 func (t *Table[T]) Do(action keymap.Action) bool { t.configureRows(); return t.rows.Do(action) }
 
 func (t *Table[T]) HeightForWidth(width int) int { return t.list().HeightForWidth(width) }
@@ -165,7 +177,7 @@ func (t *Table[T]) replaceRows(items []T, selected int) {
 // Sorting a permutation preserves the selected row without requiring T equality.
 // Preparation borrows only private rows; publication and resolver cancellation wait
 // until the comparison has returned, so a failure cannot claim an unfinished order.
-func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, order tableOrder) ([]T, int) {
+func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, order SortOrder) ([]T, int) {
 	if len(items) < 2 {
 		return items, selected
 	}
@@ -178,13 +190,13 @@ func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, 
 	t.Element().ReadOnly(func() {
 		slices.SortStableFunc(permutation, func(a, b int) int {
 			x, y := items[a], items[b]
-			if order.descending {
+			if order.Descending {
 				x, y = y, x
 			}
 			switch {
-			case less(x, y, order.column):
+			case less(x, y, order.Column):
 				return -1
-			case less(y, x, order.column):
+			case less(y, x, order.Column):
 				return 1
 			default:
 				return 0
@@ -201,4 +213,42 @@ func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, 
 		}
 	}
 	return sorted, moved
+}
+
+func (t *Table[T]) sortAction() scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[SortOrder, *SortOrder]{
+		ID: ActionSort, Label: "Set sort order",
+		Availability: func(order SortOrder) scene.Availability {
+			if !t.canSort(order.Column) {
+				return scene.Availability{Disabled: true, Reason: "sort order is not available"}
+			}
+			return scene.Availability{}
+		},
+		Run: func(_ context.Context, order SortOrder) (scene.ActionResult[*SortOrder], error) {
+			state := scene.Unchanged
+			if t.SetSort(order) {
+				state = scene.Applied
+			}
+			var current *SortOrder
+			if t.order != nil {
+				orderSnapshot := *t.order
+				current = &orderSnapshot
+			}
+			return scene.ActionResult[*SortOrder]{State: state, Value: current}, nil
+		},
+	}).Binding()
+}
+
+func (t *Table[T]) clearSortAction() scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[struct{}, struct{}]{
+		ID: ActionClearSort, Label: "Clear sort order",
+		Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
+			state := scene.Unchanged
+			if t.order != nil {
+				t.ClearSort()
+				state = scene.Applied
+			}
+			return scene.ActionResult[struct{}]{State: state}, nil
+		},
+	}).Binding()
 }

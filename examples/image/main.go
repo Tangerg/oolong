@@ -9,6 +9,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -44,30 +45,60 @@ func run(ctx context.Context, path string, host program.Host) (err error) {
 		return err
 	}
 	var resource graphics.Resource
-	// Run closes its own terminal. A supplied host survives Run, along with
-	// any transmission the viewer did not explicitly retire.
-	if images, ok := host.(program.ImageHost); ok {
-		defer func() {
-			if resource.Live() {
-				err = errors.Join(err, images.ReleaseImage(resource))
-			}
-		}()
-	}
+	var scope *program.Scope
+	var workers sync.WaitGroup
+	defer func() {
+		if scope != nil {
+			scope.Close()
+		}
+		workers.Wait()
+		if images, ok := host.(program.ImageHost); ok && resource.Live() {
+			err = errors.Join(err, images.ReleaseImage(resource))
+		}
+	}()
 	app, err := program.NewScreen(program.ScreenConfig{
 		Host: host, Terminal: term.Features{Probe: true, Keyboard: term.KeyboardCompatible},
 		Build: func(runtime *program.Runtime) (scene.Element, error) {
 			images := runtime.Images()
-			picture := kit.Image{Alt: "PNG preview unavailable: " + filepath.Base(path)}
+			picture := &kit.Image{Alt: "PNG preview unavailable: " + filepath.Base(path)}
+			element := viewer(picture, runtime.Quit)
 			cell, known := images.CellSize()
-			if known && images.Protocol().Supports(graphics.Live) {
-				var uploadErr error
-				resource, uploadErr = images.Transmit(data)
-				if uploadErr != nil {
-					return scene.Element{}, uploadErr
-				}
-				picture.Of, picture.Cell = resource, cell
+			if !known || !images.Protocol().Supports(graphics.Live) {
+				return element, nil
 			}
-			return viewer(picture, runtime.Quit), nil
+			var scopeErr error
+			scope, scopeErr = runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // The scope owns the upload's explicit parent lifetime.
+			if scopeErr != nil {
+				return scene.Element{}, scopeErr
+			}
+			result, uploadErr := images.Transmit(scope.Context(), data) //nolint:contextcheck // ScopeConfig above derives this request lifetime from ctx.
+			if uploadErr != nil {
+				return scene.Element{}, uploadErr
+			}
+			receive := func() (graphics.Resource, error) {
+				defer workers.Done()
+				outcome := <-result
+				resource = outcome.Resource
+				return outcome.Resource, outcome.Err
+			}
+			workers.Add(1)
+			_, startErr := runtime.Start(scope, program.Work[graphics.Resource]{
+				Run: func(context.Context) (graphics.Resource, error) { return receive() },
+				Apply: func(image graphics.Resource, uploadErr error) {
+					if uploadErr != nil {
+						picture.Alt = "PNG upload failed: " + uploadErr.Error()
+					} else {
+						picture.Of, picture.Cell = image, cell
+					}
+					element.Invalidate()
+				},
+			})
+			if startErr != nil {
+				scope.Close()
+				go func() { _, _ = receive() }()
+				return scene.Element{}, startErr
+			}
+			return element, nil
 		},
 	})
 	if err != nil {
@@ -76,7 +107,7 @@ func run(ctx context.Context, path string, host program.Host) (err error) {
 	return app.Run(ctx)
 }
 
-func viewer(picture kit.Image, quit func()) scene.Element {
+func viewer(picture *kit.Image, quit func()) scene.Element {
 	const (
 		full  keymap.Action = "full"
 		left  keymap.Action = "left"
@@ -97,7 +128,7 @@ func viewer(picture kit.Image, quit func()) scene.Element {
 		Paint: func(frame scene.Frame) {
 			width, height := frame.Size()
 			frame.Text(0, 0, "1 full   2 left   3 right   q quit", grid.Style{})
-			preview := picture
+			preview := *picture
 			preview.MaxRows = max(0, height-1)
 			preview.Draw(frame.View.Sub(grid.Area(0, 1, width, preview.MaxRows)))
 		},

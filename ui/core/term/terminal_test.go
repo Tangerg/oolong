@@ -776,10 +776,23 @@ func TestHandoverEndsThePreviousForegroundsInputAndImageLifetimes(t *testing.T) 
 	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
 		t.Fatal(err)
 	}
-	resource, err := tty.Transmit(data.Bytes())
+	result, err := tty.Transmit(t.Context(), data.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, identity, found := strings.Cut(read(t, primary, 100*time.Millisecond), "I=")
+	number, _, separated := strings.Cut(identity, ",")
+	if !found || !separated {
+		t.Fatal("upload did not request terminal allocation")
+	}
+	if _, err := primary.WriteString("\x1b_Gi=99,I=" + number + ";OK\x1b\\"); err != nil {
+		t.Fatal(err)
+	}
+	outcome := <-result
+	if outcome.Err != nil {
+		t.Fatal(outcome.Err)
+	}
+	resource := outcome.Resource
 	if !tty.Paste() {
 		t.Fatal("cannot issue clipboard read")
 	}
@@ -809,7 +822,7 @@ func TestHandoverEndsThePreviousForegroundsInputAndImageLifetimes(t *testing.T) 
 	}
 	readKey('a')
 	if err := tty.Hand(nil, func() error {
-		if output := read(t, primary, 100*time.Millisecond); !strings.Contains(output, "a=d,d=I,i=1") {
+		if output := read(t, primary, 100*time.Millisecond); !strings.Contains(output, "a=d,d=I,i=99") {
 			t.Error("the child inherited the previous foreground image allocation")
 		}
 		return nil
@@ -829,4 +842,52 @@ func TestHandoverEndsThePreviousForegroundsInputAndImageLifetimes(t *testing.T) 
 		t.Fatal(err)
 	}
 	readKey('b')
+}
+
+func TestKeyboardObservationRunsWithoutStartupProbeAndOnResume(t *testing.T) {
+	tty, primary := open(t, term.Config{Features: term.Features{Keyboard: term.KeyboardCompatible}})
+	if output := read(t, primary, 50*time.Millisecond); strings.Count(output, "\x1b[?u") != 1 {
+		t.Fatalf("keyboard acquisition did not issue one observation: %q", output)
+	}
+	readFunction := func(want input.Mods) {
+		t.Helper()
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case event := <-tty.Events():
+				key, ok := event.(input.Key)
+				if !ok {
+					continue
+				}
+				if key.Code != input.F1 || key.Mods != want {
+					t.Fatalf("key = %+v, want F1 with %v", key, want)
+				}
+				return
+			case <-timer.C:
+				t.Fatal("keyboard protocol observation stalled input")
+			}
+		}
+	}
+	if _, err := primary.WriteString("\x1b[1;9P"); err != nil {
+		t.Fatal(err)
+	}
+	readFunction(input.Meta)
+	if _, err := primary.WriteString("\x1b[?0u\x1b[1;9P"); err != nil {
+		t.Fatal(err)
+	}
+	readFunction(input.Super)
+	if _, known := tty.Keyboard(); known {
+		t.Fatal("asynchronous family observation invented a startup feature snapshot")
+	}
+	if err := tty.Hand(nil, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if output := read(t, primary, 50*time.Millisecond); strings.Count(output, "\x1b[?u") != 1 {
+		t.Fatalf("resume did not re-observe the keyboard family: %q", output)
+	}
+	if _, err := primary.WriteString("\x1b[?0u\x1b[1;9P"); err != nil {
+		t.Fatal(err)
+	}
+	readFunction(input.Super)
 }

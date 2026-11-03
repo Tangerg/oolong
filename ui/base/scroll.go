@@ -1,11 +1,34 @@
 package base
 
 import (
+	"context"
+
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
+
+const ActionScroll scene.ActionID = "scroll"
+
+// ScrollRequest uses signed row deltas so callers do not depend on key bindings
+// or viewport size. Positive rows move toward the end.
+type ScrollRequest struct{ Rows int }
+
+func (s *Scroll) action(label string, availability func(ScrollRequest) scene.Availability) scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[ScrollRequest, int]{
+		ID: ActionScroll, Label: label, Availability: availability,
+		Run: func(_ context.Context, request ScrollRequest) (scene.ActionResult[int], error) {
+			before := s.revision
+			s.By(request.Rows)
+			state := scene.Unchanged
+			if s.revision != before {
+				state = scene.Applied
+			}
+			return scene.ActionResult[int]{State: state, Value: s.Offset()}, nil
+		},
+	}).Binding()
+}
 
 // Scroll shows a window onto something taller than the space available.
 //
@@ -57,7 +80,6 @@ func (s *Scroll) Wheel(w input.Wheel) {
 // commits; use [List.Hit] or [Filter.Hit] to query rows in the presented frame.
 func (s *Scroll) Offset() int { return s.resolved().offset }
 
-// FollowingEnd reports whether the window is following the end of the content.
 func (s *Scroll) FollowingEnd() bool { return s.resolved().following }
 
 // By scrolls a number of rows: negative towards the start, positive towards the end.
@@ -83,7 +105,6 @@ func (s *Scroll) ToBottom() {
 	}
 }
 
-// ToTop shows the start of the content and stops following.
 func (s *Scroll) ToTop() {
 	if s.toTop() {
 		s.element.Invalidate()

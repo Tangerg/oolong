@@ -18,6 +18,36 @@ A field controller owns its value. Form output and semantic values are projectio
 
 `Group` and `Overlay` remain scene mechanisms. Dialog focus policy, tab activation and list selection reuse those mechanisms without creating another attachment or routing tree. Replacing appearance preserves the behavior part's element identity and action binding.
 
+## Typed collection and controller actions
+
+List, Filter, Select, MultiSelect, Tree, Table and Settings expose `base.ActionReadItems` on their existing element. Pass `CollectionQuery{ContentRevision: observed.ContentRevision, Start: start, Limit: limit}` to read a copied `CollectionPage[T]`, including the current selection and total count. A zero limit uses `DefaultCollectionPageSize`; requests beyond `MaxCollectionPageSize` are unavailable. Item values keep the same reference ownership as the controller's ordinary snapshot API. Tree pages contain the currently shown `Shown[T]` rows, filter pages contain ranked matches, and multi-select pages contain `ChoiceState[T]` with each option's value, label and chosen state.
+
+`CollectionIndex{ContentRevision: observed.ContentRevision, Index: index}` addresses an item in that exact order. Replacing items, filtering, sorting or expanding a branch invalidates old positional addresses. An invalid or stale address returns `scene.ErrUnavailable` instead of clamping to a different item. Read the current semantic revision and request a new page before retrying.
+
+| Controller | Action | Parameter | Result |
+| --- | --- | --- | --- |
+| List, Filter, MultiSelect, Tree, Table, Settings | `scene.ActionSelect` | `CollectionIndex` | `CollectionSelection[R]`, where `R` is the page item type |
+| Select | `scene.ActionSelect` | `T` | Selected value `T` |
+| Filter | `scene.ActionFill` | Pattern `string` | Current pattern |
+| MultiSelect | `scene.ActionSetValue` | Chosen values `[]T` | Actual chosen values, in option order |
+| Tree | `scene.ActionExpand`, `scene.ActionCollapse` | `CollectionIndex` | Current branch openness |
+| Table | `base.ActionSort` | `SortOrder` | Detached current `*SortOrder` |
+| Table | `base.ActionClearSort` | `struct{}` | `struct{}` |
+| Settings | `scene.ActionIncrement`, `scene.ActionDecrement`, `scene.ActionActivate` | `CollectionIndex` | Domain acceptance `bool` |
+| Viewport, Transcript | `base.ActionScroll` | `ScrollRequest` | Current row offset |
+| Form | `base.ActionReadSubmission` | `struct{}` | Current `Submission`, including its opaque ID |
+| Form | `base.ActionCancel` | The `SubmissionID` returned by submit | Current `Submission` |
+
+Actions compose the same owner operations as pointer and keyboard input. Repeating an explicit table `SetSort` order is unchanged; `SortBy` retains its interactive toggle behavior. Multi-select set-value rejects unavailable values and excess choices before mutation, while equivalent option aliases still name one choice. A form cancellation request reports `Started` until the application settles the attempt; an old attempt ID cannot cancel a later submission.
+
+Table column interpretation belongs to its `SetLess` comparator. The row controller has no column schema: sort availability checks a nonnegative index, an installed comparator and nonempty rows, and callers must use columns supported by that comparator.
+
+`Settings.Change` returns `scene.ActionResult[bool]`: `Value` says whether input was accepted, and `State` reports the domain owner's actual outcome. An accepted action at a value boundary returns `Value: true, State: scene.Unchanged`. Settings neither duplicates the value nor infers mutation from input consumption.
+
+## Editor insertion positions
+
+Multiline editors opt into `text.LayoutConfig.ReserveCaret`. A full logical line receives an empty continuation row for its final insertion position. Height, scrolling, vertical movement, hit testing and selection all consume that same immutable projection, including gutter and resize handling. Ordinary text layouts keep their existing passive row count unless they request this editing policy.
+
 ## Rich content behavior
 
 `Transcript.AddDocument` connects a `StreamDocument` once. Changes, EOF preparation, partial-result policy, publication admission, retirement and subscription cleanup then follow the owning objects. A caller does not repeat a Feed/Changed/Finish/Commit protocol.
@@ -32,7 +62,7 @@ A transcript scrolls one full viewport. A sticky header overlays its top rows wi
 
 `VirtualWindow.Resolve` runs explicitly on the owner before painting. A `VirtualSource` supplies dataset revision, stable keys and pure height measurements. The window retains only materialized elements and bounded measurements, reusing an element while its key remains present. Leaving the window detaches its target; reappearing later receives a new mount lifetime.
 
-Estimated total height remains marked inexact until all relevant heights are known. The metadata index and prefix pass are bounded by `MaxItems` and `MaxKeyBytes`; measurement work is bounded by `MaxMeasurements`. See [history and virtualization](../guides/history.md) for the separate ownership of archived content.
+Estimated total height remains marked inexact until all relevant heights are known. The metadata index and retained measurements are bounded by `MaxItems`, key storage by `MaxKeyBytes`, and new measurement work in each resolution by `MaxMeasurementsPerResolve`. Measurements survive scrolling for the current source revision and width so known prefix positions cannot revert to estimates. Only visible and overscan elements remain mounted. See [history and virtualization](../guides/history.md) for the separate ownership of archived content.
 
 With no Build callback the virtual window can measure a range without mounting any rows. Its scene layout describes only actual children. An explicit scroll offset remains the request while estimated heights are refined; consult the resulting range for the final offset.
 

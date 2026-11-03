@@ -46,7 +46,7 @@ func (m *MultiSelect[T]) Reply(said string) error {
 			}
 			values = append(values, m.list.items[at].Value)
 		}
-		taken := m.indices(m.list.items, values)
+		taken, _ := m.indices(m.list.items, values)
 		if m.limit > 0 && len(taken) > m.limit {
 			return fmt.Errorf("at most %d may be chosen", m.limit)
 		}

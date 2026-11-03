@@ -2,6 +2,7 @@ package input
 
 import (
 	"github.com/Tangerg/oolong/ui/core/ansi"
+	"github.com/Tangerg/oolong/ui/core/graphics"
 )
 
 const (
@@ -16,9 +17,6 @@ const (
 	oscIntro = ']'
 	dcsIntro = 'P'
 	apcIntro = '_'
-
-	// The image-id prefix distinguishes graphics replies from a literal Alt+_.
-	graphicsReplyHead = "Gi="
 
 	// maxOSCCommand bounds how many digits a command number may have. The longest in
 	// use is four — iTerm2's 1337 — so five is room to spare and a bound all the same.
@@ -111,11 +109,11 @@ func dcsHead(b []byte) (size int) {
 func graphicsHead(b []byte) int {
 	const introducer = 2
 	after := b[introducer:]
-	n := min(len(after), len(graphicsReplyHead))
-	if string(after[:n]) != graphicsReplyHead[:n] {
+	n := min(len(after), len(graphics.ReplyPrefix))
+	if string(after[:n]) != graphics.ReplyPrefix[:n] {
 		return -1
 	}
-	if n < len(graphicsReplyHead) {
+	if n < len(graphics.ReplyPrefix) {
 		return 0
 	}
 	return introducer

@@ -170,7 +170,6 @@ func TestExtendedKeyReportsThatMustBeRefused(t *testing.T) {
 		"\x1b[97;;98:0u",       // associated text containing NUL
 		"\x1b[97;;127u",        // associated text containing DEL
 		"\x1b[97;;155u",        // associated text containing C1 CSI
-		"\x1b[1;5R",            // a cursor-position report from row 1 is not Ctrl+F3
 		"\x1b[?u",              // a keyboard query, not a flags response
 		"\x1b[?1;2u",           // flags must be one decimal integer
 		"\x1b[?999999999u",     // malformed flags must not indicate support
@@ -741,5 +740,97 @@ func TestAStringStillBeingReadIsPending(t *testing.T) {
 	}
 	if !p.Pending() {
 		t.Fatal("Pending is false while a string is still waiting for its terminator")
+	}
+}
+
+func TestModifiedF3FollowsTheNegotiatedDialect(t *testing.T) {
+	for _, test := range []struct {
+		sequence string
+		mods     input.Mods
+	}{
+		{"\x1b[1;2R", input.Shift},
+		{"\x1b[1;3R", input.Alt},
+		{"\x1b[1;5R", input.Ctrl},
+		{"\x1b[1;9R", input.Meta},
+		{"\x1b[1;16R", input.Shift | input.Alt | input.Ctrl | input.Meta},
+	} {
+		legacy := input.NewParser(input.ParserConfig{})
+		got := legacy.Feed([]byte(test.sequence))
+		if len(got) != 1 || got[0] != (input.Key{Code: input.F3, Mods: test.mods}) {
+			t.Fatalf("legacy %q = %+v", test.sequence, got)
+		}
+		kitty := input.NewParser(input.ParserConfig{Keyboard: input.KittyKeyboard})
+		if got := kitty.Feed([]byte(test.sequence)); len(got) != 0 {
+			t.Fatalf("Kitty cursor report %q became %+v", test.sequence, got)
+		}
+	}
+	for _, sequence := range []string{"\x1b[?1;5R", "\x1b[2;5R", "\x1b[1;17R", "\x1b[1;5:1R", "\x1b[1;5;2R"} {
+		if got := feed(sequence); len(got) != 0 {
+			t.Fatalf("report or malformed sequence %q became %+v", sequence, got)
+		}
+	}
+}
+
+func TestNegotiatedKeyboardModeAppliesWithinTheSameRead(t *testing.T) {
+	p := input.NewParser(input.ParserConfig{})
+	events := p.Feed([]byte("\x1b[?1u\x1b[1;5R\x1b[13;5~"))
+	if len(events) != 2 || events[1] != (input.Key{Code: input.F3, Mods: input.Ctrl}) {
+		t.Fatalf("Kitty negotiation batch = %+v", events)
+	}
+	events = p.Feed([]byte("\x1b[?0u\x1b[1;5R\x1b[1;9P"))
+	if len(events) != 2 || events[1] != (input.Key{Code: input.F1, Mods: input.Super}) {
+		t.Fatalf("zero enhancements lost the observed protocol family: %+v", events)
+	}
+}
+
+func TestFunctionalKeyModifiersBelongToTheirKeyboardDialect(t *testing.T) {
+	for _, test := range []struct {
+		sequence string
+		code     input.Code
+	}{
+		{"\x1b[1;9P", input.F1},
+		{"\x1b[1;9Q", input.F2},
+		{"\x1b[1;9S", input.F4},
+		{"\x1b[15;9~", input.F5},
+		{"\x1b[1;9A", input.Up},
+		{"\x1b[13;9~", input.F3},
+	} {
+		for _, dialect := range []input.KeyboardDialect{input.XTermKeyboard, input.KittyKeyboard} {
+			p := input.NewParser(input.ParserConfig{Keyboard: dialect})
+			want := input.Meta
+			if dialect == input.KittyKeyboard {
+				want = input.Super
+			}
+			events := p.Feed([]byte(test.sequence))
+			if len(events) != 1 || events[0] != (input.Key{Code: test.code, Mods: want}) {
+				t.Fatalf("dialect %d, %q = %+v; want %v", dialect, test.sequence, events, want)
+			}
+		}
+	}
+}
+
+func TestEnhancedModifiersAndTransitionsKeepTheirProtocolMeaning(t *testing.T) {
+	for _, test := range []struct {
+		sequence string
+		want     input.Key
+	}{
+		{"\x1b[1;49:2P", input.Key{Code: input.F1, Mods: input.Hyper | input.Meta, Transition: input.Repeat}},
+		{"\x1b[15;33:3~", input.Key{Code: input.F5, Mods: input.Meta, Transition: input.Release}},
+		{"\x1b[1;193A", input.Key{Code: input.Up}},
+	} {
+		p := input.NewParser(input.ParserConfig{Keyboard: input.KittyKeyboard})
+		if events := p.Feed([]byte(test.sequence)); len(events) != 1 || events[0] != test.want {
+			t.Fatalf("enhanced %q = %+v; want %+v", test.sequence, events, test.want)
+		}
+		legacy := input.NewParser(input.ParserConfig{Keyboard: input.XTermKeyboard})
+		if events := legacy.Feed([]byte(test.sequence)); len(events) != 0 {
+			t.Fatalf("legacy namespace accepted unsupported modifier bits: %+v", events)
+		}
+	}
+	for _, dialect := range []input.KeyboardDialect{input.XTermKeyboard, input.KittyKeyboard} {
+		p := input.NewParser(input.ParserConfig{Keyboard: dialect})
+		if events := p.Feed([]byte("\x1b[97;9u")); len(events) != 1 || events[0] != (input.Key{Code: input.Character, Rune: 'a', Mods: input.Super}) {
+			t.Fatalf("CSI u lost its unambiguous modifier grammar: %+v", events)
+		}
 	}
 }

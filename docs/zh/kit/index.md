@@ -20,11 +20,17 @@ Kit 提供主题、字形选择、被动内容块和常用复合控件。它组�
 
 宿主字形能力只解析一次。需要截断标记时，将 `glyphs.Ellipsis` 传给 `ButtonConfig.Ellipsis`、`Paragraph.Ellipsis` 和 `Label.Ellipsis`。空标记表示静默截断。测量与绘制使用同一个标记；更改 Paragraph 的标记也会改变其布局缓存身份。
 
+Kit 替换绘制槽后仍保留控制器的类型化集合动作和带修订的条目地址。`SettingsConfig.Change` 返回 `scene.ActionResult[bool]`，皮肤不会将消费按键擅自解释为值改变。详见[类型化控制器动作](../base/index.md#类型化集合与控制器动作)。
+
+Box 标题和页脚的最小宽度、可用文字宽度与对齐起点，都由同一个边框标签内缩策略推导。截断与对齐始终保留角点及其相邻边框。
+
 ## 主题所有权
 
 通过 `kit.NewThemeOwner(initial)` 创建应用的动态调色板，将 `owner.Scope()` 传入组件 Config，并在 UI owner turn 调用 `owner.Set(next)`。所有者使已挂载消费者失效重绘，不重建元素或控制器。`scope.With(kit.ThemeOverride{...})` 创建不可变子树分支；`Appearance` 提供实例覆盖。解析顺序为应用 → 祖先 scope → 当前 scope → 实例。
 
 覆盖字段使用指针，显式零样式可恢复终端默认值；构造时复制指针指向的值。组件也可接收静态 `Theme`；非零 Theme 与 Scope 不能同时提供。展示期间或存在未提交帧时，调色板修改会被拒绝，与控制器修改共用纯度边界。
+
+适配终端的中性色角色使用具名对比策略。选区、新增内容和删除内容即使当前比例相同，也各自拥有独立语义策略；上下文和分割线分别派生自弱化文字与边框角色。
 
 ## Transcript 示例
 

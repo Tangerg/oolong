@@ -992,7 +992,7 @@ func TestAttributesWithNoTerminalCodeDoNotRestateAStyle(t *testing.T) {
 	}
 }
 
-func TestEncodeRowIsSelfContainedInlineText(t *testing.T) {
+func TestEncodeRowContainsItsAppearanceWithoutAbsolutePositioning(t *testing.T) {
 	s := grid.NewSurface(6, 1)
 	v := s.View()
 	v.Text(0, 0, "hi", grid.Style{FG: grid.RGBColor(1, 2, 3)})
@@ -1000,7 +1000,7 @@ func TestEncodeRowIsSelfContainedInlineText(t *testing.T) {
 
 	row := grid.EncodeRow(s.Row(0), grid.TrueColor)
 	if strings.Contains(row, "\x1b[1;") || strings.Contains(row, "H") {
-		t.Fatalf("row = %q, want nothing that moves the cursor", row)
+		t.Fatalf("row = %q, want no absolute cursor positioning", row)
 	}
 	if strings.LastIndex(row, "\x1b]8;;") > strings.LastIndex(row, "\x1b]8;;\x1b\\") {
 		t.Fatalf("row = %q, want no hyperlink left open", row)

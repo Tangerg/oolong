@@ -118,7 +118,6 @@ func (l *List[T]) Len() int {
 	return len(l.items)
 }
 
-// At returns the item at index and whether it exists.
 func (l *List[T]) At(index int) (T, bool) {
 	items := l.items
 	if index >= 0 && index < len(items) {
@@ -261,7 +260,6 @@ func (l *List[T]) focusChanged(has bool) {
 
 func (l *List[T]) Focused() bool { return l.element.Focused() }
 
-// Scroll exposes the position, for a scrollbar drawn beside the list.
 func (l *List[T]) Scroll() *Scroll { return &l.scroll }
 
 func (l *List[T]) Draw(v scene.Frame) {

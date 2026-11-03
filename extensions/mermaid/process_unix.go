@@ -5,61 +5,78 @@ package mermaid
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
 	"time"
+
+	"github.com/Tangerg/oolong/ui/core/process"
 )
 
-const (
-	gracefulExitTimeout      = time.Second
-	processGroupWaitTimeout  = time.Second
-	processGroupPollInterval = time.Millisecond
-)
+const gracefulExitTimeout = time.Second
 
-func platformSupported() error { return nil }
+func platformSupported() error {
+	if !process.Supported() {
+		return errors.ErrUnsupported
+	}
+	return nil
+}
 
 func run(ctx context.Context, cmd *exec.Cmd) error {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
-		if errors.Is(err, syscall.ESRCH) {
-			return os.ErrProcessDone
-		}
+	if err := context.Cause(ctx); err != nil {
 		return err
 	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = gracefulExitTimeout
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	err := cmd.Wait()
-	// The owned launcher places the browser in this same group. Killing does not
-	// depend on a JavaScript signal handler or a responsive rendering process.
-	killed := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	waited := waitGroup(cmd.Process.Pid)
-	if errors.Is(killed, syscall.ESRCH) || (errors.Is(killed, syscall.EPERM) && waited == nil) {
-		killed = nil
-	}
-	return errors.Join(context.Cause(ctx), err, killed, waited)
+	finished := make(chan struct{})
+	cancelled := make(chan error, 1)
+	go func() { cancelled <- cancelGroup(ctx, cmd.Process, finished) }()
+	observed := process.WaitExit(cmd.Process)
+	close(finished)
+	// Every group signal finishes before reaping can release its numeric identity.
+	cancelErr := <-cancelled
+	return errors.Join(context.Cause(ctx), cancelErr, finishGroup(cmd, observed))
 }
 
-func waitGroup(pid int) error {
-	deadline := time.Now().Add(processGroupWaitTimeout)
-	for {
-		err := syscall.Kill(-pid, 0)
-		if errors.Is(err, syscall.ESRCH) {
-			return nil
-		}
-		// Darwin can report EPERM while an exiting group's only members are
-		// zombies. Only ESRCH proves the group is gone; a persistent denial
-		// remains an error when the shutdown deadline expires.
-		if err != nil && !errors.Is(err, syscall.EPERM) {
-			return err
-		}
-		if !time.Now().Before(deadline) {
-			return errors.Join(fmt.Errorf("mermaid: process group %d did not finish shutdown", pid), err)
-		}
-		time.Sleep(processGroupPollInterval)
+func cancelGroup(ctx context.Context, leader *os.Process, finished <-chan struct{}) error {
+	select {
+	case <-finished:
+		return nil
+	case <-ctx.Done():
+	}
+	interrupted := signalBeforeExit(leader, syscall.SIGINT, finished)
+	timer := time.NewTimer(gracefulExitTimeout)
+	defer timer.Stop()
+	select {
+	case <-finished:
+		return interrupted
+	case <-timer.C:
+		return errors.Join(interrupted, signalBeforeExit(leader, syscall.SIGKILL, finished))
+	}
+}
+
+func finishGroup(cmd *exec.Cmd, observed error) error {
+	if _, exited := errors.AsType[*process.ExitError](observed); observed != nil && !exited {
+		// Failed observation cannot authorize another numeric signal or wait.
+		// Release invalidates the handle; Wait then only joins Cmd's bounded pipes.
+		released := cmd.Process.Release()
+		_ = cmd.Wait()
+		return errors.Join(observed, released)
+	}
+	// The unreaped launcher reserves the group ID. Non-child zombie reaping
+	// belongs to the operating system, so no numeric lookup follows this wait.
+	killed := process.SignalGroup(cmd.Process, syscall.SIGKILL)
+	return errors.Join(killed, cmd.Wait())
+}
+
+func signalBeforeExit(leader *os.Process, signal syscall.Signal, finished <-chan struct{}) error {
+	select {
+	case <-finished:
+		return nil
+	default:
+		return process.SignalGroup(leader, signal)
 	}
 }

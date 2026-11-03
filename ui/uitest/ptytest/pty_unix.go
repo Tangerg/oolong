@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
-	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -50,50 +49,6 @@ func setSize(primary *os.File, size Size) error {
 		return fmt.Errorf("ptytest: size the pty: %w", controlErr)
 	}
 	return ioctlErr
-}
-
-// endSession kills everything the child left running, not only the child.
-//
-// attach gives it a session and a process group of its own, so what the harness
-// started is a group. Killing the leader alone leaves whatever it spawned holding
-// the replica open: the terminal stays alive, the transcript reader has nothing to
-// end it, and a test that asked for a pty walks away from a process still sitting
-// on one.
-func endSession(process *os.Process) error {
-	if process == nil {
-		return nil
-	}
-	// A group kill is addressed by negating the leader's id, so a leader that is
-	// not one — init, or a zero value — would address something else entirely.
-	if process.Pid <= 1 {
-		return errors.New("ptytest: cannot terminate an unowned process group")
-	}
-	// The group outlives its leader, and so does the obligation to end it: a child
-	// that exited having left something of its own running left it holding the
-	// terminal. While the group has members its id is not given to anything else, so
-	// this reaches the harness's own group; once it is empty the id is free again,
-	// and the kill finds nobody — or, on a machine that has been through a whole
-	// generation of process ids since, somebody the harness never started. That last
-	// case is the kernel's to prevent and cannot be closed from here.
-	err := unix.Kill(-process.Pid, unix.SIGKILL)
-	if err == nil || errors.Is(err, unix.ESRCH) {
-		return nil
-	}
-	if errors.Is(err, unix.EPERM) {
-		// A disappearing group can refuse delivery before it disappears from the
-		// process table. Only observed absence settles that refusal as success.
-		deadline := time.Now().Add(time.Second)
-		for {
-			if errors.Is(unix.Kill(-process.Pid, 0), unix.ESRCH) {
-				return nil
-			}
-			if !time.Now().Before(deadline) {
-				break
-			}
-			time.Sleep(time.Millisecond)
-		}
-	}
-	return fmt.Errorf("ptytest: terminate process group: %w", err)
 }
 
 // readClosed reports whether an error is just the far end of the pty going away.

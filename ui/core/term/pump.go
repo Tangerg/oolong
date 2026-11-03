@@ -1,6 +1,7 @@
 package term
 
 import (
+	"errors"
 	"io"
 	"time"
 
@@ -39,7 +40,9 @@ type pump struct {
 	// here rather than pushed into out directly, because nothing is reading out
 	// until this goroutine runs and a burst large enough to fill it would deadlock
 	// whoever pushed.
-	early []input.Event
+	early   []input.Event
+	consume func(input.Event) (bool, error)
+	failure error
 }
 
 // run decodes until the input ends or the pump is asked to stop and reports the
@@ -48,7 +51,7 @@ type pump struct {
 // endings.
 func (p *pump) run() error {
 	if !p.send(p.early) {
-		return nil
+		return p.failure
 	}
 	p.early = nil
 	if p.end != nil {
@@ -70,11 +73,11 @@ func (p *pump) run() error {
 				return err
 			}
 			if !p.send(p.stream.Expire(time.Now())) {
-				return nil
+				return p.failure
 			}
 		case resized := <-p.resized:
 			if !p.send([]input.Event{resized}) {
-				return nil
+				return p.failure
 			}
 		case <-p.stop:
 			return nil
@@ -88,16 +91,16 @@ func (p *pump) take(result readResult) (done bool, err error) {
 		return false, nil
 	}
 	if !p.send(p.stream.Feed(result.data, result.at)) {
-		return true, nil
+		return true, p.failure
 	}
 	if result.err == nil {
 		return false, nil
 	}
 	p.send(p.stream.Flush(result.at))
 	if result.err == io.EOF { //nolint:errorlint // Only bare EOF ends a reader successfully; wrapped or joined failures must survive.
-		return true, nil
+		return true, p.failure
 	}
-	return true, result.err
+	return true, errors.Join(result.err, p.failure)
 }
 
 // Queued read results precede a timer's observation of the current time.
@@ -119,6 +122,16 @@ func (p *pump) drainRaw() (done bool, err error) {
 // downstream is listening any more.
 func (p *pump) send(events []input.Event) bool {
 	for _, ev := range events {
+		if p.consume != nil {
+			consumed, err := p.consume(ev)
+			if err != nil {
+				p.failure = err
+				return false
+			}
+			if consumed {
+				continue
+			}
+		}
 		select {
 		case p.out <- ev:
 		case <-p.stop:

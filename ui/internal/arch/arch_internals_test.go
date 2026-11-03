@@ -62,6 +62,7 @@ var rings = []struct {
 	{"ui/core/publication/", "publication"},
 	{"ui/automation/", "automation"},
 	{"ui/core/term/", "infrastructure"},
+	{"ui/core/process/", "process"},
 	{"ui/core/text/", "model"},
 	{"ui/core/content/", "content"},
 	{"ui/core/keymap/", "interaction"},
@@ -91,6 +92,8 @@ var dependencies = map[string][]string{
 	// them.
 	"identity":   nil,
 	"foundation": {"identity"},
+	// Sharing child-process lifetime gives optional renderers no access to UI models.
+	"process": nil,
 
 	// Decoded input is built from foundational byte protocols. Key maps add caller
 	// policy, but terminal adapters and runtime orchestration never acquire it.
@@ -126,14 +129,14 @@ var dependencies = map[string][]string{
 	// Optional content modules terminate at the common text model and remain peers:
 	// no parser, highlighter or typesetter owns another.
 	"extensions/markdown":  {"model", "content"},
-	"extensions/mermaid":   nil,
+	"extensions/mermaid":   {"process"},
 	"extensions/highlight": {"model"},
 	"extensions/latex":     {"model"},
 
 	// A harness is outside the product graph and may inspect terminal-neutral text
 	// and ANSI syntax from above. Demonstrations are the composition root and may use
 	// every public branch, but no production ring depends on either test layer.
-	"harness":        {"model"},
+	"harness":        {"model", "process"},
 	"extensions/ssh": {"runtime"},
 	"examples":       {"extensions/mermaid", "content", "testharness", "kit", "automation", "extensions/markdown", "extensions/highlight", "extensions/latex", "harness", "extensions/ssh"},
 
@@ -243,8 +246,8 @@ func TestOnlyCoreOwnsCoreDependencies(t *testing.T) {
 		// what draws a terminal, and ptytest drives one from the outside. It
 		// allocates a pty and spawns a process into it, which is the operating
 		// system's business and not the renderer's.
-		switch ringOf(dir) {
-		case "foundation", "protocol", "interaction", "model", "coordination", "infrastructure", "runtime", "harness", "":
+		ring := ringOf(dir)
+		if strings.HasPrefix(dir, "ui/core/") || ring == "harness" || ring == "" {
 			return
 		}
 		for _, imported := range imports(t, fset, path) {
@@ -1277,6 +1280,11 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 		{"extensions/markdown", "extensions/latex", true},
 		{"extensions/latex", "ui/core/text", false},
 		{"ui/uitest/ptytest", "ui/core/text", false},
+		{"extensions/mermaid", "ui/core/process", false},
+		{"ui/uitest/ptytest", "ui/core/process", false},
+		{"extensions/mermaid", "ui/core/grid", true},
+		{"ui/core/process", "ui/core/grid", true},
+		{"ui/core/process", "ui/core/term", true},
 
 		// Nothing leans on the harness, and nothing imports a demonstration.
 		{"ui/core/program", "ui/uitest/ptytest", true},

@@ -1,8 +1,11 @@
 package base
 
 import (
+	"context"
+
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
 // Settings is a browsable list whose selected item answers value actions.
@@ -18,9 +21,9 @@ type Settings[T any] struct {
 	noCopy noCopy
 
 	list List[T]
-	// Change applies an action to the selected item. It reports whether the item
-	// accepted it. Nil makes the list read-only.
-	Change func(index int, item T, action keymap.Action) bool
+	// Value reports input acceptance; State reports the domain owner's outcome.
+	// Acceptance alone cannot tell semantic callers whether a value changed.
+	Change func(index int, item T, action keymap.Action) scene.ActionResult[bool]
 	// EditKeys binds value actions. Nil reads through [DefaultSettingsKeys]. List.Keys
 	// independently controls navigation, so rebinding a value never replaces how the
 	// list is browsed.
@@ -72,12 +75,44 @@ func (s *Settings[T]) Do(action keymap.Action) bool {
 	if s.list.Do(action) {
 		return true
 	}
-	if s.Change == nil {
-		return false
+	return s.change(s.list.Selected(), action).Value
+}
+
+func (s *Settings[T]) change(index int, action keymap.Action) scene.ActionResult[bool] {
+	if item, ok := s.list.At(index); ok && s.Change != nil {
+		result := s.Change(index, item, action)
+		if result.State != scene.Unchanged {
+			s.list.element.Invalidate()
+		}
+		return result
 	}
-	index := s.list.Selected()
-	item, ok := s.list.At(index)
-	return ok && s.Change(index, item, action)
+	return scene.ActionResult[bool]{}
+}
+
+func (s *Settings[T]) valueActions() []scene.ActionBinding {
+	return []scene.ActionBinding{
+		s.valueAction(scene.ActionIncrement, "Increase value", Increase),
+		s.valueAction(scene.ActionDecrement, "Decrease value", Decrease),
+		s.valueAction(scene.ActionActivate, "Activate value", Activate),
+	}
+}
+
+func (s *Settings[T]) valueAction(id scene.ActionID, label string, action keymap.Action) scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[CollectionIndex, bool]{
+		ID: id, Label: label,
+		Availability: func(address CollectionIndex) scene.Availability {
+			if availability := s.list.indexAvailability(address); availability.Disabled {
+				return availability
+			}
+			if s.Change == nil {
+				return scene.Availability{Disabled: true, Reason: "setting is read-only"}
+			}
+			return scene.Availability{}
+		},
+		Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[bool], error) {
+			return s.change(address.Index, action), nil
+		},
+	}).Binding()
 }
 
 func (s *Settings[T]) editKeys() *keymap.Map {

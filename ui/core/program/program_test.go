@@ -409,8 +409,8 @@ func (h *host) CellSize() (image.Point, bool) { return image.Point{}, false }
 
 func (h *host) NativeTarget() grid.NativeTarget { return h.imageOwner.NativeTarget() }
 
-func (h *host) Transmit([]byte) (graphics.Resource, error) {
-	return graphics.Resource{}, errors.ErrUnsupported
+func (h *host) Transmit(context.Context, []byte) (<-chan graphics.UploadResult, error) {
+	return nil, errors.ErrUnsupported
 }
 
 func (h *host) timesHanded() int {
@@ -776,7 +776,7 @@ func TestAHostOnlyImplementsTransport(t *testing.T) {
 			if runtime.Images().Protocol() != graphics.None {
 				t.Error("a host with no graphics reported a protocol")
 			}
-			if _, err := runtime.Images().Transmit([]byte("png")); !errors.Is(err, errors.ErrUnsupported) {
+			if _, err := runtime.Images().Transmit(t.Context(), []byte("png")); !errors.Is(err, errors.ErrUnsupported) {
 				t.Errorf("Transmit error = %v, want errors.ErrUnsupported", err)
 			}
 			if err := runtime.Dispatcher().Post(runtime.Quit); err != nil {
@@ -886,7 +886,7 @@ func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 	if images.Protocol() != graphics.None {
 		t.Fatal("zero Images reported a protocol")
 	}
-	if _, err := images.Transmit([]byte("png")); !errors.Is(err, errors.ErrUnsupported) {
+	if _, err := images.Transmit(t.Context(), []byte("png")); !errors.Is(err, errors.ErrUnsupported) {
 		t.Fatalf("zero Images.Transmit error = %v, want errors.ErrUnsupported", err)
 	}
 

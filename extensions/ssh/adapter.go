@@ -149,7 +149,7 @@ func (t *terminalBinding) open(cfg term.Config) (*Host, error) {
 	env := newEnvironment(t.session.Environ())
 	env.set("TERM", t.name)
 	return newHost(t.session.Context().Done(), exactly(t.session), t.windows,
-		cfg.Modes(env.lookup), clipboard.New(env.lookup),
+		cfg.Modes(env.lookup), clipboard.New(cfg.Features.Clipboard),
 		term.DetectLocale(env.lookup), term.DetectDepth(env.lookup),
 		input.WheelFor(env.lookup, "")), nil
 }

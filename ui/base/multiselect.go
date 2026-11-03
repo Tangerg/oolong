@@ -63,7 +63,7 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 		panic("base: MultiSelect requires Same before SetOptions")
 	}
 	before := m.Taken()
-	taken := m.indices(options, before)
+	taken, _ := m.indices(options, before)
 	changed := readProjection(m.Element(), func() bool {
 		return !slices.EqualFunc(before, taken, func(value T, at int) bool {
 			return options[at].holds(value, m.Same)
@@ -124,17 +124,20 @@ func (m *MultiSelect[T]) Taken() []T {
 	return out
 }
 
-func (m *MultiSelect[T]) indices(options []Option[T], values []T) []int {
+func (m *MultiSelect[T]) indices(options []Option[T], values []T) ([]int, bool) {
 	var indices []int
+	complete := true
 	m.Element().ReadOnly(func() {
 		for _, value := range values {
 			if at := optionIndex(options, value, m.Same); at >= 0 {
 				indices = append(indices, at)
+			} else {
+				complete = false
 			}
 		}
 	})
 	slices.Sort(indices)
-	return slices.Compact(indices)
+	return slices.Compact(indices), complete
 }
 
 // Toggle takes the option under the cursor, or gives it back, and reports whether
@@ -192,7 +195,6 @@ func (m *MultiSelect[T]) DrawWith(v scene.Frame, look Look) {
 	})
 }
 
-// Handle moves the cursor and takes choices.
 func (m *MultiSelect[T]) Handle(ev input.Event) bool {
 	requireMutable(m.element)
 	if key, ok := ev.(input.Key); ok {
@@ -206,7 +208,6 @@ func (m *MultiSelect[T]) Handle(ev input.Event) bool {
 	return m.list.Handle(m.local(mouse))
 }
 
-// Do runs one of the field's actions by name. See [Doer].
 func (m *MultiSelect[T]) Do(action keymap.Action) bool {
 	requireMutable(m.element)
 	if action == Toggle {
@@ -239,7 +240,7 @@ func (m *MultiSelect[T]) focusChanged(has bool) {
 // SetTaken replaces the chosen set. Unavailable and duplicate values are discarded.
 func (m *MultiSelect[T]) SetTaken(values []T) {
 	requireMutable(m.element)
-	taken := m.indices(m.list.items, values)
+	taken, _ := m.indices(m.list.items, values)
 	if m.limit > 0 && len(taken) > m.limit {
 		taken = taken[:m.limit]
 	}

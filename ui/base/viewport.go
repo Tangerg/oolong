@@ -38,6 +38,13 @@ func (p *Viewport) ensure() {
 	}
 	p.group = scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{
 		Measure: rowsMeasure(p.HeightForWidth), Focusable: func() bool { return !p.Content().IsZero() },
+		Semantics: func() scene.Semantic { return scene.Semantic{Role: scene.RoleDocument} },
+		Actions: []scene.ActionBinding{p.scroll.action("Scroll content", func(ScrollRequest) scene.Availability {
+			if p.Content().IsZero() {
+				return scene.Availability{Disabled: true, Reason: "viewport has no content"}
+			}
+			return scene.Availability{}
+		})},
 		Paint: func(frame scene.Frame) {
 			w, h := frame.Size()
 			p.scroll.Stage(frame, p.Content().Measure(layout.Down, w), h)

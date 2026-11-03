@@ -97,13 +97,20 @@ func TestTheSelectionIsCarried(t *testing.T) {
 	}
 }
 
-func TestAnUnknownSelectionBecomesTheSystemOne(t *testing.T) {
-	sequence, ok := (&clipboard.Channel{}).Copy(clipboard.Selection(99), "x")
-	if !ok {
-		t.Fatal("refused")
+func TestInvalidSelectionIsRefused(t *testing.T) {
+	channel := &clipboard.Channel{}
+	if sequence, ok := channel.Copy(clipboard.Selection(255), "x"); ok || sequence != "" {
+		t.Fatalf("invalid copy = %q, %t", sequence, ok)
 	}
-	if !strings.HasPrefix(sequence, "\x1b]52;c;") {
-		t.Errorf("got %q, want it addressed to the system clipboard", sequence)
+	if channel.Request(clipboard.Selection(255), func(string) bool { t.Fatal("invalid selection was sent"); return true }) {
+		t.Fatal("invalid request accepted")
+	}
+}
+
+func TestZeroSelectionUsesSystemClipboard(t *testing.T) {
+	sequence, ok := (&clipboard.Channel{}).Copy(0, "x")
+	if !ok || !strings.HasPrefix(sequence, "\x1b]52;c;") {
+		t.Fatalf("zero selection copy = %q, %t", sequence, ok)
 	}
 }
 
@@ -237,25 +244,26 @@ func TestAnswerRefusesContentPastTheLimit(t *testing.T) {
 	}
 }
 
-func TestTmuxChannelWrapsOnlyItsOSC52Traffic(t *testing.T) {
-	for name, env := range map[string]map[string]string{
-		"session variable": {"TMUX": "/tmp/tmux-1000/default,1,0"},
-		"terminal name":    {"TERM": "tmux-256color"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			channel := clipboard.New(func(name string) (string, bool) {
-				value, ok := env[name]
-				return value, ok
-			})
-			sequence, ok := channel.Copy(clipboard.System, "hello")
-			if !ok {
-				t.Fatal("copy was refused")
+func TestPassthroughRequiresExplicitConfiguration(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		channel := clipboard.New(clipboard.Config{TmuxPassthrough: enabled})
+		copySequence, copied := channel.Copy(clipboard.System, "hello")
+		readSequence, requested := request(channel, clipboard.System)
+		if !copied || !requested {
+			t.Fatal("clipboard traffic was refused")
+		}
+		for _, sequence := range []string{copySequence, readSequence} {
+			if !enabled {
+				if !strings.HasPrefix(sequence, "\x1b]52;c;") {
+					t.Fatalf("native OSC 52 = %q", sequence)
+				}
+				continue
 			}
 			if !strings.HasPrefix(sequence, "\x1bPtmux;\x1b\x1b]52;c;") ||
 				!strings.HasSuffix(sequence, "\x1b\x1b\\\x1b\\") {
-				t.Fatalf("tmux copy sequence = %q", sequence)
+				t.Fatalf("passthrough = %q", sequence)
 			}
-		})
+		}
 	}
 }
 

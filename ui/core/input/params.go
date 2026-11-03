@@ -40,7 +40,7 @@ func (ps params) namesNoKey() bool {
 
 // keyMeta rejects malformed metadata because guessed modifiers could execute
 // a binding the user did not press.
-func (ps params) keyMeta() (Mods, Transition, bool) {
+func (ps params) keyMeta(dialect KeyboardDialect) (Mods, Transition, bool) {
 	group := ps.Group(1)
 	if group.Len() == 0 {
 		return 0, Press, true
@@ -58,15 +58,11 @@ func (ps params) keyMeta() (Mods, Transition, bool) {
 		// here, and narrowing first would let a large one wrap into a modifier
 		// nobody held — the same class of mistake as reading a rune out of an
 		// integer and asking afterwards whether it was one.
-		bits := group.At(0) - 1
-		const shortcutMods = Shift | Alt | Ctrl | Super | Hyper | Meta
-		const lockBits = 1<<6 | 1<<7
-		// Caps/Num lock describe text generation; unsupported identity modifiers
-		// must never become an unmodified key binding.
-		if bits & ^(int(shortcutMods)|lockBits) != 0 {
+		var ok bool
+		mods, ok = dialect.modifiers(group.At(0) - 1)
+		if !ok {
 			return 0, Press, false
 		}
-		mods = Mods(bits & int(shortcutMods))
 	}
 	if group.Len() < 2 {
 		return mods, Press, true
@@ -110,15 +106,15 @@ func codePoint(cp int) (rune, bool) {
 
 // modifiedKey is code with the modifiers the sequence carried, or nil when the
 // sequence names a key of its own as well — one keystroke has one name.
-func (ps params) modifiedKey(code Code, extra Mods) Event {
+func (ps params) modifiedKey(code Code, extra Mods, dialect KeyboardDialect) Event {
 	if !ps.namesNoKey() {
 		return nil
 	}
-	return ps.functionalKey(code, extra)
+	return ps.functionalKey(code, extra, dialect)
 }
 
-func (ps params) functionalKey(code Code, extra Mods) Event {
-	mods, transition, ok := ps.keyMeta()
+func (ps params) functionalKey(code Code, extra Mods, dialect KeyboardDialect) Event {
+	mods, transition, ok := ps.keyMeta(dialect)
 	if !ok || ps.Len() > 2 {
 		return nil
 	}
@@ -129,7 +125,7 @@ func (ps params) extendedKey() Event {
 	if ps.Len() > 3 {
 		return nil
 	}
-	mods, transition, ok := ps.keyMeta()
+	mods, transition, ok := ps.keyMeta(KittyKeyboard)
 	if !ok {
 		return nil
 	}
@@ -225,5 +221,37 @@ func (ps params) report(final byte) Event {
 		return DeviceVersion{Kind: ps.At(0), Version: ps.At(1), Patch: ps.At(2)}
 	default:
 		return nil
+	}
+}
+
+func (ps params) legacyF3() Event {
+	if !ps.scalars(2) || ps.At(0) != 1 || ps.At(1) <= 1 {
+		return nil
+	}
+	return ps.functionalKey(F3, 0, XTermKeyboard)
+}
+
+func (d KeyboardDialect) modifiers(bits int) (Mods, bool) {
+	const basic = Shift | Alt | Ctrl
+	const legacyMetaBit = 1 << 3
+	const shortcutMods = basic | Super | Hyper | Meta
+	const lockBits = 1<<6 | 1<<7
+	switch d {
+	case XTermKeyboard:
+		if bits & ^(int(basic)|legacyMetaBit) != 0 {
+			return 0, false
+		}
+		mods := Mods(bits & int(basic))
+		if bits&legacyMetaBit != 0 {
+			mods |= Meta
+		}
+		return mods, true
+	case KittyKeyboard:
+		if bits & ^(int(shortcutMods)|lockBits) != 0 {
+			return 0, false
+		}
+		return Mods(bits & int(shortcutMods)), true
+	default:
+		return 0, false
 	}
 }

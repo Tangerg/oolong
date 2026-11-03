@@ -16,6 +16,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/term"
 	"github.com/Tangerg/oolong/ui/uitest"
 )
 
@@ -33,11 +34,14 @@ func (h *imageHost) NativeTarget() grid.NativeTarget { return h.images.NativeTar
 
 func (h *imageHost) Graphics() graphics.Protocol   { return h.protocol }
 func (h *imageHost) CellSize() (image.Point, bool) { return image.Pt(8, 16), !h.unknownCell }
-func (h *imageHost) Transmit([]byte) (graphics.Resource, error) {
+func (h *imageHost) Transmit(context.Context, []byte) (<-chan graphics.UploadResult, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.sent++
-	return h.images.Bind(graphics.Image{ID: h.sent, Size: image.Pt(80, 32)}), nil
+	result := make(chan graphics.UploadResult, 1)
+	result <- graphics.UploadResult{Resource: h.images.Bind(graphics.Image{ID: h.sent, Size: image.Pt(80, 32)})}
+	close(result)
+	return result, nil
 }
 
 func (h *imageHost) ReleaseImage(resource graphics.Resource) error {
@@ -130,7 +134,7 @@ func TestBackendDiagnosticIsVisible(t *testing.T) {
 func TestClosedPreparationCannotAdvanceContentState(t *testing.T) {
 	screen := &diagramScreen{closed: true, pending: true, source: "current source"}
 	screen.accept(new(mermaid.Image), nil)
-	if !screen.pending || screen.err != nil || screen.image.ID() != 0 || screen.doc.Len() != 0 {
+	if !screen.pending || screen.err != nil || len(screen.imageResources) != 0 || screen.doc.Len() != 0 {
 		t.Fatal("closed content accepted a preparation result")
 	}
 }
@@ -242,4 +246,41 @@ func TestImageOpenActionUsesAcceptedExport(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestRevokedImageDeliveryRetainsARefusedCleanupForClose(t *testing.T) {
+	host := &refusingImageHost{imageHost: &imageHost{protocol: graphics.Kitty}}
+	resource := host.images.Bind(graphics.Image{ID: 41, Size: image.Pt(80, 32)})
+	result := make(chan graphics.UploadResult, 1)
+	result <- graphics.UploadResult{Resource: resource}
+	close(result)
+	screen := &diagramScreen{images: host}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	screen.workers.Add(1)
+	if _, err := screen.receiveImage(ctx, result); !errors.Is(err, term.ErrQueueFull) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("revoked cleanup outcome = %v", err)
+	}
+	if !resource.Live() || len(screen.imageResources) != 1 {
+		t.Fatal("refused cleanup discarded its resource owner")
+	}
+	if err := screen.close(); err != nil {
+		t.Fatal(err)
+	}
+	if resource.Live() || len(screen.imageResources) != 0 {
+		t.Fatal("screen close did not retry the retained cleanup")
+	}
+}
+
+type refusingImageHost struct {
+	*imageHost
+	refused bool
+}
+
+func (h *refusingImageHost) ReleaseImage(resource graphics.Resource) error {
+	if !h.refused {
+		h.refused = true
+		return term.ErrQueueFull
+	}
+	return h.imageHost.ReleaseImage(resource)
 }

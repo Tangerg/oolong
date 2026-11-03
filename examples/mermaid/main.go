@@ -78,7 +78,8 @@ type diagramScreen struct {
 	prepare          func(context.Context, string) (*mermaid.Image, error)
 	theme            kit.Theme
 	doc              markdown.Doc
-	image            graphics.Resource
+	imageMu          sync.Mutex
+	imageResources   map[graphics.Resource]struct{}
 	err              error
 	source           string
 	prepared         *mermaid.Image
@@ -147,13 +148,30 @@ func (s *diagramScreen) accept(result *mermaid.Image, err error) {
 		s.setDocument(nil)
 		return
 	}
-	handle, err := images.Transmit(result.PNG())
+	resultChannel, err := images.Transmit(s.scope.Context(), result.PNG())
 	if err != nil {
 		s.err = err
 		return
 	}
-	s.image = handle
-	s.setDocument(kit.Image{Of: handle, Cell: cell, MaxRows: 16, Alt: "Mermaid diagram", Theme: s.theme})
+	s.pending = true
+	receive := func(ctx context.Context) (graphics.Resource, error) { return s.receiveImage(ctx, resultChannel) }
+	s.workers.Add(1)
+	_, err = s.runtime.Start(s.scope, program.Work[graphics.Resource]{
+		Run: receive,
+		Apply: func(resource graphics.Resource, uploadErr error) {
+			s.pending, s.err = false, uploadErr
+			if uploadErr == nil {
+				s.setDocument(kit.Image{Of: resource, Cell: cell, MaxRows: 16, Alt: "Mermaid diagram", Theme: s.theme})
+			}
+			s.element.Invalidate()
+		},
+	})
+	if err != nil {
+		s.scope.Close()
+		ctx := s.scope.Context()
+		go func() { _, _ = receive(ctx) }()
+		s.pending, s.err = false, err
+	}
 }
 
 func (s *diagramScreen) setDocument(child grid.Drawable) {
@@ -180,15 +198,47 @@ func (s *diagramScreen) setDocument(child grid.Drawable) {
 	s.err = errors.Join(s.err, err)
 }
 
-func (s *diagramScreen) release() error {
-	if s.image.ID() == 0 {
-		return nil
+func (s *diagramScreen) receiveImage(ctx context.Context, result <-chan graphics.UploadResult) (graphics.Resource, error) {
+	defer s.workers.Done()
+	outcome := <-result
+	s.imageMu.Lock()
+	defer s.imageMu.Unlock()
+	if outcome.Resource.Live() {
+		if s.imageResources == nil {
+			s.imageResources = make(map[graphics.Resource]struct{})
+		}
+		s.imageResources[outcome.Resource] = struct{}{}
 	}
-	if err := s.images.ReleaseImage(s.image); err != nil {
-		return err
+	if ctx.Err() != nil {
+		var cleanupErr error
+		if outcome.Resource.Live() {
+			// A refused deletion stays owned for the next replacement or close.
+			// Revoked task delivery cannot dispose of the only resource reference.
+			cleanupErr = s.retireImage(outcome.Resource)
+		}
+		return graphics.Resource{}, errors.Join(context.Cause(ctx), cleanupErr)
 	}
-	s.image = graphics.Resource{}
+	return outcome.Resource, outcome.Err
+}
+
+func (s *diagramScreen) retireImage(resource graphics.Resource) error {
+	if resource.Live() {
+		if err := s.images.ReleaseImage(resource); err != nil {
+			return err
+		}
+	}
+	delete(s.imageResources, resource)
 	return nil
+}
+
+func (s *diagramScreen) release() error {
+	s.imageMu.Lock()
+	defer s.imageMu.Unlock()
+	var failures []error
+	for resource := range s.imageResources {
+		failures = append(failures, s.retireImage(resource))
+	}
+	return errors.Join(failures...)
 }
 
 func (s *diagramScreen) close() error {

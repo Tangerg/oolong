@@ -16,11 +16,12 @@ func FuzzSurfaceMaintainsDisplayAtoms(f *testing.F) {
 		{8, 0, 0, 0, 0, 0},
 		{4, 1, 2, 3, 4, 5, 6, 7},
 		{16, 255, 128, 64, 32, 16, 8, 4, 2, 1},
+		{7, 4, 0, 0, 10, 6, 0, 0, 7, 6, 0, 0, 11},
 	} {
 		f.Add(seed)
 	}
 
-	texts := [...]string{"x", "中", "ｶﾞ", "あﾞ", "é", "🙂", "\t"}
+	texts := [...]string{"x", "中", "ｶﾞ", "あﾞ", "é", "🙂", "\t", "\u200d", "\u0301", "\ufe0f", "👋", "🏽"}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) == 0 {
 			return
@@ -141,6 +142,9 @@ func assertDisplayAtoms(t *testing.T, surface *Surface) {
 	for y := range surface.h {
 		row := surface.row(y)
 		for x, cell := range row {
+			if cell.content != "" && graphemeWidth(cell.content) != cell.Width() {
+				t.Fatalf("atom (%d,%d) width %d differs from content %q", x, y, cell.Width(), cell.content)
+			}
 			switch {
 			case cell.span == 0:
 			case cell.span >= 2:

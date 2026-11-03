@@ -315,6 +315,12 @@ func (w *Writer) Drain(timeout time.Duration) error {
 	return nil
 }
 
+func (w *Writer) advanceSignal() <-chan struct{} {
+	w.advanceMu.Lock()
+	defer w.advanceMu.Unlock()
+	return w.advanced
+}
+
 func (w *Writer) drain(target uint64, timeout time.Duration) bool {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
@@ -322,9 +328,7 @@ func (w *Writer) drain(target uint64, timeout time.Duration) bool {
 		// The channel is taken before the watermark is read, so that an advance
 		// landing between the two closes a channel this is about to wait on rather
 		// than one it has already let go of.
-		w.advanceMu.Lock()
-		advanced := w.advanced
-		w.advanceMu.Unlock()
+		advanced := w.advanceSignal()
 
 		if w.processed.Load() >= target {
 			return true

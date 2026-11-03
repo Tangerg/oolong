@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
+	"github.com/Tangerg/oolong/ui/core/internal/grapheme"
 )
 
 const (
@@ -14,6 +15,10 @@ const (
 	osc8Open  = "\x1b]8;;"
 	osc8Close = "\x1b]8;;\x1b\\"
 	stringEnd = "\x1b\\"
+
+	// Rendition changes do not end a grapheme. A relative cursor round trip
+	// preserves an atom boundary without assuming the row's screen position.
+	atomBoundary = "\x1b[D\x1b[C"
 
 	// Synchronized output. A frame wrapped in these is applied by the terminal in
 	// one go, which is what keeps a multiplexer from showing a half-drawn frame.
@@ -34,11 +39,12 @@ type painter struct {
 	// Color depth is applied only at this wire boundary; stored cells stay
 	// truecolor so rendering never depends on the destination palette.
 	depth Depth
-	// at is where the terminal's cursor sits, and known says whether that is
-	// worth believing. A run of adjacent cells needs no positioning.
-	at    image.Point
-	known bool
-	begun bool
+	// previous retains the last atom on an uninterrupted text run. Cursor
+	// positioning ends that run; SGR and OSC do not.
+	previous string
+	at       image.Point
+	known    bool
+	begun    bool
 }
 
 func (p *painter) restart() {
@@ -46,6 +52,7 @@ func (p *painter) restart() {
 	p.sourceStyle = Style{}
 	p.style = wireStyle{}
 	p.link = ""
+	p.previous = ""
 	p.known = false
 	p.begun = false
 }
@@ -63,6 +70,7 @@ func (p *painter) begin() {
 	p.sourceStyle = Style{}
 	p.style = wireStyle{}
 	p.known = false
+	p.previous = ""
 }
 
 // end leaves the terminal with no hyperlink open and the default style, so
@@ -81,6 +89,7 @@ func (p *painter) adopt(other *painter) {
 	p.sourceStyle = other.sourceStyle
 	p.style = other.style
 	p.link = other.link
+	p.previous = other.previous
 	p.at = other.at
 	p.known = other.known
 	p.begun = p.begun || other.begun
@@ -104,10 +113,19 @@ func (p *painter) moveTo(x, y int) {
 	p.out = append(p.out, 'H')
 	p.at = image.Pt(x, y)
 	p.known = true
+	p.previous = ""
 }
 
 // The cursor must already be positioned at this atom's head.
 func (p *painter) cell(c *Cell, width int) {
+	content := c.content
+	if content == "" {
+		content = " "
+	}
+	if previous := p.previous; previous != "" &&
+		(previous[len(previous)-1] >= utf8.RuneSelf || content[0] >= utf8.RuneSelf) && joinsAtoms(previous, content) {
+		p.out = append(p.out, atomBoundary...)
+	}
 	if c.Style != p.sourceStyle {
 		p.sourceStyle = c.Style
 		next := styleOnWire(c.Style, p.depth)
@@ -123,7 +141,18 @@ func (p *painter) cell(c *Cell, width int) {
 	} else {
 		p.out = append(p.out, c.content...)
 	}
+	p.previous = content
 	p.at.X += width
+}
+
+func joinsAtoms(left, right string) bool {
+	clusters := grapheme.New(left + right)
+	for clusters.Next() {
+		if clusters.End() >= len(left) {
+			return clusters.End() > len(left)
+		}
+	}
+	return false
 }
 
 // Reset complete styles because terminals disagree on per-attribute reset behavior.
@@ -359,10 +388,11 @@ func LinkTarget(target string) string {
 	return target
 }
 
-// EncodeRow emits no cursor movement so a row can survive in terminal
-// scrollback independently of a live screen. It closes links and resets style
-// before return. Partial atoms become styled blanks, preserving the supplied
-// column count instead of advancing beyond the slice.
+// EncodeRow uses only relative, position-preserving cursor barriers so separate
+// atoms cannot merge on the wire. The caller must position the cursor before
+// output to end any preceding grapheme; the row must fit to the terminal margin.
+// No absolute screen position is assumed. It closes links and resets style before
+// return. Partial atoms become styled blanks.
 func EncodeRow(cells []Cell, depth Depth) string {
 	return encodeCells(trimBlankTail(cells), depth)
 }

@@ -26,6 +26,8 @@ Markdown extension hooks accept passive rendering functions from applications. T
 
 Native terminal images remain live resources. Capturing their cell rectangle is not a permanent image publication protocol: `grid.Capture` refuses native painters with `errors.ErrUnsupported`. Applications may select a textual final representation explicitly.
 
+Mermaid's Unix adapter keeps its launcher waitable until group cancellation and final termination finish, then reaps the launcher and settles its pipes. It does not wait for another process to reap terminated non-child zombies. `core/process` owns the shared operating-system observation and signal boundary; hosts without that identity guarantee return `errors.ErrUnsupported` at construction. Windows keeps its job-object lifetime. Publish an updated UI module before releasing an adapter that consumes its new process capability.
+
 ## Keep copying honest
 
 Rendered rows can supply `text.Row` soft-wrap metadata. That supports logical copying and reflow without claiming a general Markdown source map. Format diagnostics belong to preparation, and no parser, network operation or external renderer runs from `Paint` or `HeightForWidth`.

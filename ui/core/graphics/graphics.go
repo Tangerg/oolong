@@ -117,36 +117,47 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 	if id == 0 {
 		return Image{}, errImageIdentity
 	}
-	size, err := pngSize(png)
+	size, err := transmit(w, fmt.Sprintf("i=%d,q=%d", id, kittySuppressReplies), png)
 	if err != nil {
 		return Image{}, err
 	}
-	// Only the final chunk may contain base64 padding. A multiple of three
-	// source bytes can be encoded and written independently of the next chunk.
+	return Image{ID: id, Size: size}, nil
+}
+
+// Upload requests a fresh physical identity, even when another image already has
+// this number. Only the terminal's matching reply identifies the created image.
+func Upload(w io.Writer, number uint32, png []byte) (image.Point, error) {
+	if number == 0 {
+		return image.Point{}, errImageIdentity
+	}
+	return transmit(w, fmt.Sprintf("I=%d", number), png)
+}
+
+func transmit(w io.Writer, identity string, png []byte) (image.Point, error) {
+	size, err := pngSize(png)
+	if err != nil {
+		return image.Point{}, err
+	}
 	const rawChunk = chunkLimit / 4 * 3
-	for first := true; ; first = false {
-		n := min(len(png), rawChunk)
-		chunk := base64.StdEncoding.EncodeToString(png[:n])
-		png = png[n:]
+	for offset := 0; offset < len(png); {
+		end := min(offset+rawChunk, len(png))
 		more := 0
-		if len(png) > 0 {
+		if end < len(png) {
 			more = 1
 		}
-		// Suppress acknowledgements because this path does not await them; replies
-		// would otherwise enter the terminal input stream without a request owner.
+		chunk := base64.StdEncoding.EncodeToString(png[offset:end])
 		var sequence string
-		if first {
-			sequence = fmt.Sprintf("\x1b_Ga=t,f=%d,i=%d,q=%d,m=%d;%s\x1b\\", kittyPNG, id, kittySuppressReplies, more, chunk)
+		if offset == 0 {
+			sequence = fmt.Sprintf("\x1b_Ga=t,f=%d,%s,m=%d;%s\x1b\\", kittyPNG, identity, more, chunk)
 		} else {
 			sequence = fmt.Sprintf("\x1b_Gm=%d;%s\x1b\\", more, chunk)
 		}
-		if err = writeString(w, sequence); err != nil {
-			return Image{}, err
+		if err := writeString(w, sequence); err != nil {
+			return image.Point{}, err
 		}
-		if more == 0 {
-			return Image{ID: id, Size: size}, nil
-		}
+		offset = end
 	}
+	return size, nil
 }
 
 // ImagePlacement is one independently removable placement of transmitted data.

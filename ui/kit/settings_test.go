@@ -7,6 +7,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
@@ -25,12 +26,12 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 			}
 			return ""
 		},
-		Change: func(index int, _ preference, action keymap.Action) bool {
+		Change: func(index int, _ preference, action keymap.Action) scene.ActionResult[bool] {
 			if action != base.Increase {
-				return false
+				return scene.ActionResult[bool]{}
 			}
 			values[index] = "off"
-			return true
+			return scene.ActionResult[bool]{State: scene.Applied, Value: true}
 		},
 	})
 

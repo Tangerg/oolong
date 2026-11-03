@@ -160,11 +160,18 @@ func (d *dashboard) preferenceValue(item preference) string {
 	}
 }
 
-func (d *dashboard) changePreference(_ int, item preference, action keymap.Action) bool {
+func (d *dashboard) changePreference(_ int, item preference, action keymap.Action) scene.ActionResult[bool] {
+	result := scene.ActionResult[bool]{}
 	switch item {
 	case ratePreference:
-		return d.watch.rate.Controller().Do(action)
+		rate := d.watch.rate.Controller()
+		previous := rate.Value()
+		result.Value = rate.Do(action)
+		if rate.Value() != previous {
+			result.State = scene.Applied
+		}
 	case motionPreference:
+		previous := d.motion
 		switch action {
 		case base.Decrease:
 			d.motion = false
@@ -173,19 +180,28 @@ func (d *dashboard) changePreference(_ int, item preference, action keymap.Actio
 		case base.Activate:
 			d.motion = !d.motion
 		default:
-			return false
+			return scene.ActionResult[bool]{}
 		}
-		return true
-	default:
-		return false
+		result.Value = true
+		if d.motion != previous {
+			result.State = scene.Applied
+		}
 	}
+	return result
+}
+
+type taskColumn struct {
+	header kit.Column
+	less   func(task, task) bool
+	cell   func(task) kit.Cell
 }
 
 type queue struct {
-	element scene.Element
-	theme   kit.Theme
-	rows    *base.Table[task]
-	view    kit.Table
+	element     scene.Element
+	theme       kit.Theme
+	rows        *base.Table[task]
+	view        kit.Table
+	definitions []taskColumn
 	// columns are the complete table geometry from the last accepted frame. A press
 	// arrives between frames and can only be about the boxes it saw.
 	columns scene.Snapshot[kit.TableLayout]
@@ -194,28 +210,20 @@ type queue struct {
 func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 	q := &queue{theme: theme}
 	q.rows = new(base.Table[task])
-	q.rows.SetLess(func(a, b task, column int) bool {
-		switch column {
-		case 1:
-			return a.state() < b.state()
-		case 2:
-			return a.done*b.total < b.done*a.total
-		default:
-			return a.name < b.name
-		}
-	})
+	q.definitions = q.taskColumns()
+	q.rows.SetLess(q.less)
 	q.rows.SetItems(tasks())
+	headers := make([]kit.Column, len(q.definitions))
+	for i, column := range q.definitions {
+		headers[i] = column.header
+	}
 	q.view = kit.Table{
-		Theme:  theme,
-		Glyphs: glyphs,
-		Columns: []kit.Column{
-			{Title: "task", Size: layout.Flex(2).AtLeast(8)},
-			{Title: "state", Size: layout.Fixed(9)},
-			{Title: "progress", Size: layout.Flex(3).AtLeast(12)},
-		},
-		Header: true,
-		Sorted: q.rows.Sorted,
-		Cell:   q.cell,
+		Theme:   theme,
+		Glyphs:  glyphs,
+		Columns: headers,
+		Header:  true,
+		Sorted:  q.rows.Sorted,
+		Cell:    q.cell,
 	}
 	header := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
 		width, _ := frame.Size()
@@ -247,6 +255,36 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 
 func (q *queue) Element() scene.Element { return q.element }
 
+const progressCellWidth = 12
+
+func (q *queue) taskColumns() []taskColumn {
+	return []taskColumn{
+		{
+			header: kit.Column{Title: "task", Size: layout.Flex(2).AtLeast(8)},
+			less:   func(a, b task) bool { return a.name < b.name },
+			cell: func(item task) kit.Cell {
+				return kit.LabelCell(kit.Label{Text: item.name, Ellipsis: q.view.Glyphs.Ellipsis})
+			},
+		},
+		{
+			header: kit.Column{Title: "state", Size: layout.Fixed(9)},
+			less:   func(a, b task) bool { return a.state() < b.state() },
+			cell: func(item task) kit.Cell {
+				return kit.LabelCell(kit.Label{Text: item.state(), Style: q.stateStyle(item), Ellipsis: q.view.Glyphs.Ellipsis})
+			},
+		},
+		{
+			header: kit.Column{Title: "progress", Size: layout.Flex(3).AtLeast(progressCellWidth)},
+			less:   func(a, b task) bool { return a.done*b.total < b.done*a.total },
+			cell:   q.progressCell,
+		},
+	}
+}
+
+func (q *queue) less(a, b task, column int) bool {
+	return column >= 0 && column < len(q.definitions) && q.definitions[column].less(a, b)
+}
+
 func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, selected bool) {
 	width, _ := v.Size()
 	base := q.theme.Text
@@ -261,31 +299,25 @@ func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, select
 // reads that mapping without retaining a second task model.
 func (q *queue) cell(row, column int) kit.Cell {
 	item, ok := q.rows.At(row)
-	if !ok {
+	if !ok || column < 0 || column >= len(q.definitions) {
 		return kit.Cell{}
 	}
-	switch column {
-	case 0:
-		return kit.LabelCell(kit.Label{Text: item.name, Ellipsis: q.view.Glyphs.Ellipsis})
-	case 1:
-		return kit.LabelCell(kit.Label{Text: item.state(), Style: q.state(item), Ellipsis: q.view.Glyphs.Ellipsis})
-	default:
-		return kit.Cell{
-			Preferred: 12,
-			Paint: func(v grid.View, _ grid.Style) {
-				kit.Progress{
-					Theme:   q.theme,
-					Glyphs:  q.view.Glyphs,
-					Done:    item.done,
-					Total:   item.total,
-					Percent: true,
-				}.Draw(v)
-			},
-		}
+	return q.definitions[column].cell(item)
+}
+
+func (q *queue) progressCell(item task) kit.Cell {
+	return kit.Cell{
+		Preferred: progressCellWidth,
+		Paint: func(v grid.View, _ grid.Style) {
+			kit.Progress{
+				Theme: q.theme, Glyphs: q.view.Glyphs,
+				Done: item.done, Total: item.total, Percent: true,
+			}.Draw(v)
+		},
 	}
 }
 
-func (q *queue) state(of task) grid.Style {
+func (q *queue) stateStyle(of task) grid.Style {
 	switch of.state() {
 	case done:
 		return q.theme.Success
@@ -306,12 +338,12 @@ func (q *queue) advance(by int) {
 	q.rows.SetItems(items)
 }
 
-func (q *queue) remaining() (finished, total int) {
+func (q *queue) completionTotals() (completedUnits, totalUnits int) {
 	for _, item := range q.rows.Items() {
-		finished += item.done
-		total += item.total
+		completedUnits += item.done
+		totalUnits += item.total
 	}
-	return finished, total
+	return completedUnits, totalUnits
 }
 
 type activity struct {
@@ -349,7 +381,7 @@ func (a *activity) tick() {
 }
 
 func (a *activity) Draw(v scene.Frame) {
-	finished, total := a.of.remaining()
+	completedUnits, totalUnits := a.of.completionTotals()
 	// The rectangles are kept, not asked of the children afterwards: a child frame's
 	// own bounds begin at zero, and staging a pointer region with those would put the
 	// slider's row wherever the first row is.
@@ -365,8 +397,8 @@ func (a *activity) Draw(v scene.Frame) {
 		Theme:   a.theme,
 		Glyphs:  a.glyphs,
 		Label:   "all of it",
-		Done:    finished,
-		Total:   total,
+		Done:    completedUnits,
+		Total:   totalUnits,
 		Percent: true,
 	}.Draw(rows[0].View)
 	kit.Sparkline{
@@ -377,7 +409,7 @@ func (a *activity) Draw(v scene.Frame) {
 	// A spinner is for work with no total and a bar is for work with one. Both are
 	// here because the two questions are different: how far along, and is anything
 	// happening at all.
-	if finished >= total {
+	if completedUnits >= totalUnits {
 		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(rows[3].View)
 	} else {
 		a.spinner.Draw(rows[3].View)
@@ -392,10 +424,10 @@ func (a *activity) Element() scene.Element { return a.element }
 
 // The dashboard owns sampling policy; Sparkline only projects its bounded history.
 func (a *activity) record() {
-	finished, total := a.of.remaining()
+	completedUnits, totalUnits := a.of.completionTotals()
 	value := 0.0
-	if total > 0 {
-		value = float64(finished) / float64(total)
+	if totalUnits > 0 {
+		value = float64(completedUnits) / float64(totalUnits)
 	}
 	if len(a.samples) == cap(a.samples) {
 		copy(a.samples, a.samples[1:])

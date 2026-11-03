@@ -37,12 +37,13 @@ func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
 	editor.Gutter = numberedGutter{}
 	editor.SetText("alpha beta\nx")
 
-	if got := editor.HeightForWidth(7); got != 3 {
-		t.Fatalf("HeightForWidth(7) = %d, want 3 wrapped rows", got)
+	if got := editor.HeightForWidth(7); got != 4 {
+		t.Fatalf("HeightForWidth(7) = %d, want 4 rows including the full-line insertion row", got)
 	}
-	equalRows(t, paintWidget(7, 3, editor), []string{
+	equalRows(t, paintWidget(7, 4, editor), []string{
 		"1.alpha",
 		".. beta",
+		".......",
 		"2.x....",
 	})
 
@@ -100,6 +101,7 @@ func (g queryingGutter) Draw(grid.View, []text.Row) { g.editor.HeightForWidth(20
 func TestGutterMeasurementCannotReplaceThePaintedLayout(t *testing.T) {
 	e := base.NewEditor(base.EditorConfig{Initial: "abcdef"})
 	e.Gutter = queryingGutter{e}
+	e.SetCursor(0, 0)
 	equalRows(t, paintWidget(4, 2, e), []string{".abc", ".def"})
 }
 

@@ -43,6 +43,12 @@ type contentScreen struct {
 	renderErr error
 }
 
+const (
+	goFormat       content.Format = "go"
+	latexFormat    content.Format = "latex"
+	markdownFormat content.Format = "markdown"
+)
+
 func newContent(runtime *program.Runtime) *contentScreen {
 	theme := kit.Suited(runtime.Environment().Ground())
 	look := markdownlook.New(theme, kit.GlyphsFor(runtime.Environment().Locale()))
@@ -50,14 +56,14 @@ func newContent(runtime *program.Runtime) *contentScreen {
 	formulaLook := latexlook.New(theme, runtime.Environment().Locale())
 	screen := &contentScreen{runtime: runtime, theme: theme}
 	registry, err := content.New(content.Config{Bindings: []content.Binding{
-		{Format: "go", Render: func(_ context.Context, source string) (grid.Drawable, error) {
-			return text.NewBlock(text.BlockConfig{Lines: highlighter.Lines("go", source), Wrap: true}), nil
+		{Format: goFormat, Render: func(_ context.Context, source string) (grid.Drawable, error) {
+			return text.NewBlock(text.BlockConfig{Lines: highlighter.Lines(string(goFormat), source), Wrap: true}), nil
 		}},
-		{Format: "latex", Render: func(_ context.Context, source string) (grid.Drawable, error) {
+		{Format: latexFormat, Render: func(_ context.Context, source string) (grid.Drawable, error) {
 			formula := latex.Render(source, formulaLook)
 			return formula, formula.Err()
 		}},
-		{Format: "markdown", Render: func(_ context.Context, source string) (grid.Drawable, error) {
+		{Format: markdownFormat, Render: func(_ context.Context, source string) (grid.Drawable, error) {
 			blocks, err := markdown.Render(source, look)
 			doc := new(markdown.Doc)
 			doc.SetBlocks(blocks)
@@ -70,15 +76,15 @@ func newContent(runtime *program.Runtime) *contentScreen {
 	}
 	screen.registry = registry
 	look.SetRenderer(markdown.FencedCode, func(info, source string) (grid.Drawable, error) {
-		if info != "go" {
+		if content.Format(info) != goFormat {
 			return nil, markdown.ErrUnhandled
 		}
 		return registry.Render(context.Background(), content.Format(info), source)
 	})
 	look.SetRenderer(markdown.DisplayMath, func(_ string, source string) (grid.Drawable, error) {
-		return registry.Render(context.Background(), "latex", source)
+		return registry.Render(context.Background(), latexFormat, source)
 	})
-	screen.show("markdown", contentSource)
+	screen.show(markdownFormat, contentSource)
 	return screen
 }
 
@@ -112,13 +118,13 @@ func (s *contentScreen) Handle(event input.Event) bool {
 	if s.registry != nil {
 		switch key.Rune {
 		case '1':
-			s.show("markdown", contentSource)
+			s.show(markdownFormat, contentSource)
 			return true
 		case '2':
-			s.show("go", "func main() { println(\"Oolong\") }")
+			s.show(goFormat, "func main() { println(\"Oolong\") }")
 			return true
 		case '3':
-			s.show("latex", `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`)
+			s.show(latexFormat, `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`)
 			return true
 		}
 	}

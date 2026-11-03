@@ -12,6 +12,8 @@ contentType: Reference
 
 UI 所有者通过 `Runtime.NewScope` 创建 `Scope`。`ScopeConfig.Attachment` 可将交付资格绑定到一个挂载代次，`Context` 增加外部生命周期。`Runtime.Start(scope, Work[T]{Run, Apply})` 在启动 `Run` 前预留完成容量。工作线程返回类型化结果；只有作用域仍具资格时，`Apply` 才在 UI 所有者上执行。
 
+`Attachment` 为 nil 时，作用域跟随会话。要将任务绑定到已挂载的元素，先取 `lease := element.Attachment()`，再传入 `ScopeConfig{Attachment: &lease}`。构造时复制租约，因此调用方替换自己的变量不能改变已接纳任务的绑定。显式提供空租约、已卸载租约或其他运行时的租约会返回 `ErrScopeClosed`，不会回退到会话生命周期。元素卸载后重新挂载会产生新租约，旧作用域不能因此恢复。
+
 `TaskStatus` 将工作线程结果、`CancelRequested` 与结果交付分开。调用 `Cancel` 是请求协作，不能声称外部工作已经结束。视图卸载后，即使工作成功，UI 交付也可能被撤销。`Task.Done` 和 `Task.Settled` 暴露不同边界。普通 dispatcher 拥塞不会丢弃已接受任务的完成结果。
 
 ## 已接纳的帧与指针输入
@@ -79,4 +81,6 @@ StreamDocument 限制保留源字节；Capture 限制单元格与自有字符串
 
 `Session.Suspend` 先按这个协议交出终端，再调用 `term.Suspend`。Linux、Darwin 和 FreeBSD 的停止请求必须经过操作系统的同步边界，调用才能返回。默认作业控制会在继续后返回；忽略信号、宿主自定义处理和孤立进程组可能使进程继续运行。停止信号被阻塞或平台不支持时，返回 `errors.ErrUnsupported`，不排队一个可能迟到的停止请求。库不替换宿主信号策略，也不等待一个可能永远不会出现的继续信号。
 
-支持原生图片的宿主用自己的 `graphics.ImageOwner` 绑定已接纳的传输，同时提供该所有者的 `NativeTarget`。资源句柄带有签发目标和传输寿命。先停止绘制，再通过同一宿主释放。即使两台终端各自使用了相同的线协议编号，也不能将活资源放到另一台终端。低层 `graphics.Image` 用于显式协议编码，其数字 ID 不是资源回执。
+`Images.Transmit(ctx, png)` 返回准入错误，或带缓冲且只结算一次的 `<-chan graphics.UploadResult`。只有终端确认创建成功后，结果才包含 `Resource`。在 `Work.Run` 中接收结果，在 UI 所有者上应用放置；如果作用域撤销导致无法交付，仍须保留清理责任。image 和 Mermaid 示例展示了这一所有权转移。请求上下文只结束尚未完成的工作；已经返回的资源会一直存活到显式释放、终端交出或终端关闭。取消的请求保留有界关联，直至可以删除终端迟到创建的图片；输出容量不足时，等待容量恢复后继续提交删除。
+
+支持原生图片的宿主用自己的 `graphics.ImageOwner` 绑定已获终端确认的传输，同时提供该所有者的 `NativeTarget`。资源句柄带有签发目标和传输寿命。先停止绘制，再通过同一宿主释放。即使两台终端各自使用了相同的线协议编号，也不能将活资源放到另一台终端。低层 `graphics.Image` 用于显式协议编码，其数字 ID 不是资源回执。

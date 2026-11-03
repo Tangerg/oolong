@@ -6,6 +6,7 @@ package clipboard
 
 import (
 	"encoding/base64"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,18 +14,20 @@ import (
 
 const Command = 52
 
-type Selection uint8
+// Selection uses wire identities so encoding and reply matching cannot drift.
+// Zero selects System at admission; an unknown value is refused.
+type Selection byte
 
 const (
-	// System is the clipboard a copy command fills and a paste command reads. It
-	// is the zero value because it is what "the clipboard" means to nearly
-	// everyone: the X11 primary selection is a convention of one windowing system,
-	// and this one is universal.
-	System Selection = iota
-	// Primary is the X11 selection that middle-click pastes, filled by selecting
-	// text rather than by any command. Terminals elsewhere ignore it.
-	Primary
+	System  Selection = 'c'
+	Primary Selection = 'p'
 )
+
+type Config struct {
+	// tmux's native OSC 52 path needs no wrapping. Passthrough is separate
+	// terminal policy and must be enabled by whoever owns the tmux session.
+	TmuxPassthrough bool
+}
 
 // MaxPayload is the largest text [Channel.Copy] will carry, in bytes.
 //
@@ -45,11 +48,11 @@ const responseTimeout = 10 * time.Second
 // Channel is one stateful OSC 52 path to a user-facing terminal.
 //
 // Its zero value is a direct path ready for use; a nil *Channel is inert. [New]
-// additionally adapts encoding to a tmux session described by an environment. All
-// methods are safe to call from different goroutines. A Channel must not be copied
+// selects passthrough only when explicitly configured. All methods are safe to
+// call from different goroutines. A Channel must not be copied
 // after first use.
 type Channel struct {
-	tmux bool
+	passthrough bool
 
 	mu        sync.Mutex
 	selection Selection
@@ -57,24 +60,7 @@ type Channel struct {
 	now       func() time.Time
 }
 
-// New returns a channel suited to the terminal environment. lookup belongs to the
-// terminal being driven: a remote adapter passes the accepted PTY environment, not
-// the server process environment. Nil constructs the same direct channel as the
-// zero value.
-func New(lookup func(string) (string, bool)) *Channel {
-	c := &Channel{}
-	if lookup == nil {
-		return c
-	}
-	if value, ok := lookup("TMUX"); ok && strings.TrimSpace(value) != "" {
-		c.tmux = true
-		return c
-	}
-	if value, ok := lookup("TERM"); ok && strings.HasPrefix(strings.ToLower(value), "tmux") {
-		c.tmux = true
-	}
-	return c
-}
+func New(cfg Config) *Channel { return &Channel{passthrough: cfg.TmuxPassthrough} }
 
 // Copy returns the sequence that asks the terminal to put text on a clipboard.
 //
@@ -85,10 +71,11 @@ func New(lookup func(string) (string, bool)) *Channel {
 //
 // It reports false for text too large to carry. See [MaxPayload].
 func (c *Channel) Copy(sel Selection, text string) (string, bool) {
-	if c == nil || len(text) > MaxPayload {
+	selection, valid := normalized(sel)
+	if c == nil || !valid || len(text) > MaxPayload {
 		return "", false
 	}
-	return c.wrap(encode(sel, base64.StdEncoding.EncodeToString([]byte(text)))), true
+	return c.wrap(encode(selection, base64.StdEncoding.EncodeToString([]byte(text)))), true
 }
 
 // Request starts one clipboard read only when send accepts its sequence.
@@ -101,7 +88,8 @@ func (c *Channel) Copy(sel Selection, text string) (string, bool) {
 // Channel. It runs under the request lock, so an answer cannot settle a proposal
 // before transport admission decides whether that request exists.
 func (c *Channel) Request(sel Selection, send func(string) bool) bool {
-	if c == nil || send == nil {
+	selection, valid := normalized(sel)
+	if c == nil || send == nil || !valid {
 		return false
 	}
 	c.mu.Lock()
@@ -110,11 +98,10 @@ func (c *Channel) Request(sel Selection, send func(string) bool) bool {
 	if c.live(now) {
 		return false
 	}
-	sel = normalized(sel)
-	if !send(c.wrap(encode(sel, "?"))) {
+	if !send(c.wrap(encode(selection, "?"))) {
 		return false
 	}
-	c.selection = sel
+	c.selection = selection
 	c.until = now.Add(responseTimeout)
 	return true
 }
@@ -168,7 +155,7 @@ func (c *Channel) clock() time.Time {
 }
 
 func (c *Channel) wrap(sequence string) string {
-	if !c.tmux || sequence == "" {
+	if !c.passthrough || sequence == "" {
 		return sequence
 	}
 	// tmux DCS passthrough doubles every escape in the inner sequence. This stays
@@ -178,11 +165,15 @@ func (c *Channel) wrap(sequence string) string {
 	return "\x1bPtmux;" + inner + "\x1b\\"
 }
 
-func normalized(sel Selection) Selection {
-	if sel != System && sel != Primary {
-		return System
+func normalized(sel Selection) (Selection, bool) {
+	switch sel {
+	case 0:
+		return System, true
+	case System, Primary:
+		return sel, true
+	default:
+		return 0, false
 	}
-	return sel
 }
 
 func splitAnswer(params string) (Selection, string, bool) {
@@ -190,14 +181,8 @@ func splitAnswer(params string) (Selection, string, bool) {
 	if !found || len(selection) != 1 {
 		return 0, "", false
 	}
-	switch selection[0] {
-	case 'c':
-		return System, payload, true
-	case 'p':
-		return Primary, payload, true
-	default:
-		return 0, "", false
-	}
+	sel := Selection(selection[0])
+	return sel, payload, sel == System || sel == Primary
 }
 
 func decodePayload(payload string) (string, bool) {
@@ -221,20 +206,13 @@ func decodePayload(payload string) (string, bool) {
 // encode wraps a payload in the sequence that carries it. ST is used rather than
 // BEL because multiplexers recognise the standard-named terminator more reliably.
 func encode(sel Selection, payload string) string {
-	sel = normalized(sel)
 	var b strings.Builder
-	b.Grow(len("\x1b]52;c;") + len(payload) + len("\x1b\\"))
-	b.WriteString("\x1b]52;")
-	b.WriteByte(selectionCode(sel))
+	b.WriteString("\x1b]")
+	b.WriteString(strconv.Itoa(Command))
+	b.WriteByte(';')
+	b.WriteByte(byte(sel))
 	b.WriteByte(';')
 	b.WriteString(payload)
 	b.WriteString("\x1b\\")
 	return b.String()
-}
-
-func selectionCode(sel Selection) byte {
-	if normalized(sel) == Primary {
-		return 'p'
-	}
-	return 'c'
 }

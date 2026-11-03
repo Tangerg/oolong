@@ -28,7 +28,7 @@ type Scope struct {
 	cancel     context.CancelCauseFunc
 	queue      *taskQueue
 	slot       *reservation
-	attachment scene.Attachment
+	attachment *scene.Attachment
 	closeOnce  sync.Once
 	stopParent func() bool
 }
@@ -36,8 +36,9 @@ type Scope struct {
 // ScopeConfig combines an optional external lifetime with attachment lifetime.
 // Either ending revokes result delivery; the runtime remains the parent owner.
 type ScopeConfig struct {
-	Context    context.Context //nolint:containedctx // This optional lifetime parent is retained by construction, not by an individual request.
-	Attachment scene.Attachment
+	Context context.Context //nolint:containedctx // This optional lifetime parent is retained by construction, not by an individual request.
+	// Nil leaves the scope session-bound; a supplied empty or ended lease is invalid.
+	Attachment *scene.Attachment
 }
 
 // NewScope reserves bounded lifetime capacity before starting its cancellation
@@ -47,9 +48,13 @@ func (r *Runtime) NewScope(cfg ScopeConfig) (*Scope, error) {
 	if p == nil || p.ctx == nil {
 		return nil, ErrStopped
 	}
-	target := cfg.Attachment.Target()
-	if !target.IsZero() && (p.root == nil || !p.root.Valid(target)) {
-		return nil, ErrScopeClosed
+	var attachment *scene.Attachment
+	if cfg.Attachment != nil {
+		lease := *cfg.Attachment
+		if !p.root.Valid(lease.Target()) {
+			return nil, ErrScopeClosed
+		}
+		attachment = &lease
 	}
 	if cfg.Context != nil && cfg.Context.Err() != nil {
 		return nil, context.Cause(cfg.Context)
@@ -59,19 +64,19 @@ func (r *Runtime) NewScope(cfg ScopeConfig) (*Scope, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancelCause(p.ctx)
-	scope := &Scope{ctx: ctx, external: cfg.Context, cancel: cancel, queue: p.tasks, slot: slot, attachment: cfg.Attachment}
+	scope := &Scope{ctx: ctx, external: cfg.Context, cancel: cancel, queue: p.tasks, slot: slot, attachment: attachment}
 	if cfg.Context != nil {
 		scope.stopParent = context.AfterFunc(cfg.Context, func() { cancel(context.Cause(cfg.Context)) })
 	}
+	var detached <-chan struct{}
+	if attachment != nil {
+		detached = attachment.Done()
+	}
 	go func() {
-		if target.IsZero() {
-			<-ctx.Done()
-		} else {
-			select {
-			case <-ctx.Done():
-			case <-cfg.Attachment.Done():
-				cancel(ErrScopeClosed)
-			}
+		select {
+		case <-ctx.Done():
+		case <-detached:
+			cancel(ErrScopeClosed)
 		}
 		scope.Close()
 	}()
@@ -109,8 +114,7 @@ func (s *Scope) eligible(p *program) bool {
 	if s.external != nil && s.external.Err() != nil {
 		return false
 	}
-	target := s.attachment.Target()
-	return target.IsZero() || (p.root != nil && p.root.Valid(target))
+	return s.attachment == nil || p.root.Valid(s.attachment.Target())
 }
 
 // TaskState records the worker outcome, independently of cancellation requests.

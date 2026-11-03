@@ -30,7 +30,6 @@ type Slider struct {
 	controller *base.Slider
 }
 
-// SliderConfig is the complete construction state of [Slider].
 type SliderConfig struct {
 	Scope      *ThemeScope
 	Appearance ThemeOverride

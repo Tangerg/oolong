@@ -1,7 +1,6 @@
 package base
 
 import (
-	"context"
 	"errors"
 	"image"
 	"math"
@@ -170,12 +169,6 @@ type Transcript struct {
 	clicked         uint64
 }
 
-// ActionScroll is the typed transcript action shared by semantic callers and reading controls.
-const ActionScroll scene.ActionID = "scroll"
-
-// ScrollRequest moves by terminal rows; positive values read toward the end.
-type ScrollRequest struct{ Rows int }
-
 // NewTranscript validates retention dependencies and creates one stable scene element.
 func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	if cfg.MaxItems < 0 || cfg.KeepCompleted < 0 || cfg.Retention > PublishCompleted {
@@ -211,18 +204,6 @@ func (t *Transcript) initialize() {
 	t.next = 1
 	t.current = -1
 	t.scroll.ToBottom()
-	scrollAction := scene.NewAction(scene.ActionConfig[ScrollRequest, int]{
-		ID: ActionScroll, Label: "Scroll document",
-		Run: func(_ context.Context, request ScrollRequest) (scene.ActionResult[int], error) {
-			before := t.scroll.revision
-			t.scroll.By(request.Rows)
-			state := scene.Unchanged
-			if t.scroll.revision != before {
-				state = scene.Applied
-			}
-			return scene.ActionResult[int]{State: state, Value: t.scroll.Offset()}, nil
-		},
-	})
 	t.element = scene.NewElement(scene.ElementConfig{
 		Key:       t.cfg.Key,
 		Enabled:   func() bool { return !t.closed },
@@ -235,7 +216,7 @@ func (t *Transcript) initialize() {
 			return scene.Semantic{Role: scene.RoleDocument, Name: t.cfg.Name, ContentRevision: t.revision, Availability: availability}
 		},
 		Handle:  t.handle,
-		Actions: []scene.ActionBinding{scrollAction.Binding()},
+		Actions: []scene.ActionBinding{t.scroll.action("Scroll document", nil)},
 		Paint: func(frame scene.Frame) {
 			view := t.StageWindow(frame)
 			view.Content.Draw(frame.Sub(view.Header).View, view.HeaderFrom)

@@ -25,6 +25,7 @@ type Stream struct {
 }
 
 type StreamConfig struct {
+	Keyboard KeyboardDialect
 	// Grace is how long an ambiguous sequence waits for the bytes that would settle
 	// it. Zero uses [DefaultEscapeTimeout].
 	Grace time.Duration
@@ -35,7 +36,7 @@ type StreamConfig struct {
 }
 
 func NewStream(cfg StreamConfig) *Stream {
-	return &Stream{grace: cfg.Grace, clipboard: cfg.Clipboard}
+	return &Stream{grace: cfg.Grace, clipboard: cfg.Clipboard, parser: NewParser(ParserConfig{Keyboard: cfg.Keyboard})}
 }
 
 // decoder is the parser this stream reads through, made on first use so that the
@@ -58,7 +59,7 @@ func (s *Stream) escapeGrace() time.Duration {
 // Reset discards incomplete framing and its deadline at a break in transport
 // ownership. No key or paste can be inferred from bytes the next reader missed.
 func (s *Stream) Reset() {
-	s.parser = nil
+	s.parser = &Parser{keyboard: s.decoder().keyboard}
 	s.disarm()
 }
 

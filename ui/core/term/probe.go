@@ -1,10 +1,8 @@
 package term
 
 import (
+	"fmt"
 	"io"
-	"math"
-	"math/rand/v2"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,15 +13,8 @@ import (
 )
 
 const (
-	// Probe the PNG decoder used by Transmit as well as the direct transport.
-	// Some embedded terminals support raw RGB but have no PNG decoder.
-	queryPixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
-
-	queryBackground = "\x1b]11;?\x07"
-
-	// Blending terminal-default cells needs both queried colors; the
-	// background alone can choose a theme but cannot resolve the foreground.
-	queryForeground = "\x1b]10;?\x07"
+	foregroundCommand = 10
+	backgroundCommand = 11
 
 	// A direct name reply describes the destination; environment hints can
 	// instead describe an outer terminal or the remote host.
@@ -31,10 +22,6 @@ const (
 
 	// Numeric identity probes cover peers that omit a human-readable name.
 	queryDeviceVersion = "\x1b[>0c"
-
-	// Query after mode acquisition so the reply describes accepted keyboard
-	// features rather than the terminal's previous settings.
-	queryKeyboard = "\x1b[?u"
 
 	// Send DA1 last so its reply can settle earlier unanswered queries
 	// without spending the full timeout. Silent peers still need answerGrace.
@@ -71,9 +58,9 @@ type probe struct {
 	deadline  time.Time
 	readBytes int
 
-	graphicsReplyPrefix string
-	early               []input.Event
-	end                 *readResult
+	graphicsQueryID uint32
+	early           []input.Event
+	end             *readResult
 }
 
 type graphicsProbeResult uint8
@@ -113,13 +100,19 @@ func (p *probe) run() answers {
 		return got
 	}
 	defer func() { _ = p.out.SetWriteDeadline(time.Time{}) }()
-	// A fresh request ID keeps a late reply to an earlier session from claiming
-	// this one. a=q tests direct transfer without displaying or retaining an image.
-	id := strconv.FormatUint(uint64(rand.Uint32N(math.MaxUint32))+1, 10) //nolint:gosec // A correlation ID is not a secret.
-	p.graphicsReplyPrefix = "Gi=" + id + ";"
-	queryGraphics := "\x1b_Gi=" + id + ",a=q,t=d,f=100;" + queryPixelPNG + "\x1b\\"
-	if _, err := p.out.WriteString(queryBackground + queryForeground + queryVersion +
-		queryDeviceVersion + queryKeyboard + queryGraphics + queryAttributes); err != nil {
+	// Query correlation shares the nonwrapping graphics sequence; a=q avoids
+	// retaining or replacing an image while testing the direct PNG path.
+	id, err := nextGraphicsRequestNumber()
+	if err != nil {
+		return got
+	}
+	p.graphicsQueryID = id
+	var query strings.Builder
+	if err := graphics.QueryPNG(&query, p.graphicsQueryID); err != nil {
+		return got
+	}
+	if _, err := p.out.WriteString(colorQuery(backgroundCommand) + colorQuery(foregroundCommand) + queryVersion +
+		queryDeviceVersion + query.String() + queryAttributes); err != nil {
 		return got
 	}
 
@@ -190,10 +183,10 @@ func (p *probe) take(ev input.Event, got *answers) {
 	switch ev := ev.(type) {
 	case input.OSC:
 		switch ev.Command {
-		case 10:
+		case foregroundCommand:
 			got.foreground, got.hasFg = parseXParseColor(ev.Params)
 			return
-		case 11:
+		case backgroundCommand:
 			got.background, got.hasBg = parseXParseColor(ev.Params)
 			return
 		}
@@ -225,16 +218,17 @@ func (p *probe) take(ev input.Event, got *answers) {
 }
 
 func (p *probe) graphicsResult(body string) graphicsProbeResult {
-	message, ours := strings.CutPrefix(body, p.graphicsReplyPrefix)
-	switch {
-	case !ours || p.graphicsReplyPrefix == "" || message == "":
+	reply, err := graphics.ParseReply(body)
+	if err != nil || p.graphicsQueryID == 0 || reply.ID != p.graphicsQueryID || reply.Number != 0 || reply.Placement != 0 {
 		return graphicsUnanswered
-	case message == "OK":
-		return graphicsAccepted
-	default:
+	}
+	if reply.Err() != nil {
 		return graphicsRejected
 	}
+	return graphicsAccepted
 }
+
+func colorQuery(command int) string { return fmt.Sprintf("\x1b]%d;?\x07", command) }
 
 // DA1 is sent last. Once it arrives, a missing Kitty reply rules out direct
 // graphics on this channel, even when TERM names the outer terminal.

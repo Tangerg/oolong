@@ -46,12 +46,30 @@ const (
 	droppingString
 )
 
+// KeyboardDialect owns overlapping wire meanings; enhancement flags do not
+// change a protocol family's modifier namespace.
+type KeyboardDialect uint8
+
+const (
+	XTermKeyboard KeyboardDialect = iota
+	KittyKeyboard
+)
+
+type ParserConfig struct {
+	// Legacy modified F3 overlaps an unmarked cursor-position reply. Query
+	// owners must use DEC private CPR (CSI ?6n) while this dialect is active.
+	Keyboard KeyboardDialect
+}
+
+func NewParser(cfg ParserConfig) *Parser { return &Parser{keyboard: cfg.Keyboard} }
+
 // Parser retains ambiguous bytes across arbitrary chunks so split escape sequences
 // and UTF-8 cannot lose keys. A lone escape needs an external deadline: Pending
 // reports it and Flush ends the wait. A Parser belongs to one reader goroutine,
 // must not be copied after first use, and is not safe for concurrent use.
 type Parser struct {
-	noCopy noCopy
+	noCopy   noCopy
+	keyboard KeyboardDialect
 
 	buf       []byte
 	expiring  bool
@@ -445,15 +463,19 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	}
 	ps := parseParams(piece.Parameters)
 
-	return n, controlEvent(ps, final), true
+	return n, p.controlEvent(ps, final), true
 }
 
-func controlEvent(ps params, final byte) Event {
+func (p *Parser) controlEvent(ps params, final byte) Event {
 	// A private marker says the sequence is a report and not a key, because a key
 	// never carries one. Dispatching on the final byte alone let a keyboard-flags
 	// reply — "CSI ? 31 u" — decode as a keystroke of an invisible control character.
 	if ps.Marker() != 0 {
-		return ps.report(final)
+		event := ps.report(final)
+		if _, ok := event.(KeyboardFlags); ok {
+			p.keyboard = KittyKeyboard
+		}
+		return event
 	}
 
 	// Everything past here turns a sequence into a keystroke, and a keystroke nobody
@@ -477,32 +499,34 @@ func controlEvent(ps params, final byte) Event {
 
 	switch final {
 	case 'R':
-		// CSI row;column R is a cursor-position reply. F3 uses SS3 R or CSI 13 ~.
-		return nil
+		if p.keyboard != XTermKeyboard {
+			return nil
+		}
+		return ps.legacyF3()
 	case 'u':
 		return ps.extendedKey()
 	case '~':
-		return ps.numberedKey()
+		return ps.numberedKey(p.keyboard)
 	case 'Z':
 		// Shift and tab, not a key of its own. A terminal speaking the Kitty protocol
 		// reports the same keystroke as tab with shift held, and one keystroke that
 		// arrives under two names is one nothing can be bound to.
-		return ps.modifiedKey(Tab, Shift)
+		return ps.modifiedKey(Tab, Shift, p.keyboard)
 	default:
 		code, ok := finalKeys[final]
 		if !ok {
 			return nil
 		}
-		return ps.modifiedKey(code, 0)
+		return ps.modifiedKey(code, 0, p.keyboard)
 	}
 }
 
-func (ps params) numberedKey() Event {
+func (ps params) numberedKey(dialect KeyboardDialect) Event {
 	code, ok := numberedKeys[ps.At(0)]
 	if !ok || ps.Group(0).Len() != 1 {
 		return nil
 	}
-	return ps.functionalKey(code, 0)
+	return ps.functionalKey(code, 0, dialect)
 }
 
 // Unknown Kitty private-use key numbers are refused so unsupported keys do not

@@ -135,9 +135,12 @@ func TestInlineStartupPublicationUsesTheSelectedColorDepth(t *testing.T) {
 	}
 }
 
-func (h *imageLifetimeHost) Transmit([]byte) (graphics.Resource, error) {
+func (h *imageLifetimeHost) Transmit(context.Context, []byte) (<-chan graphics.UploadResult, error) {
 	h.transmitted++
-	return h.imageOwner.Bind(graphics.Image{ID: 1}), nil
+	result := make(chan graphics.UploadResult, 1)
+	result <- graphics.UploadResult{Resource: h.imageOwner.Bind(graphics.Image{ID: 1})}
+	close(result)
+	return result, nil
 }
 
 func (h *imageLifetimeHost) ReleaseImage(graphics.Resource) error { h.released++; return nil }
@@ -184,7 +187,7 @@ func TestEndedRuntimeRevokesRetainedCapabilities(t *testing.T) {
 			if clipboard.Copy("stale") || clipboard.Paste() || runtime.Clipboard().Copy("late") {
 				t.Error("an ended runtime changed its externally owned host clipboard")
 			}
-			if _, err := images.Transmit(nil); !errors.Is(err, errors.ErrUnsupported) {
+			if _, err := images.Transmit(t.Context(), nil); !errors.Is(err, errors.ErrUnsupported) {
 				t.Errorf("ended image transmission = %v", err)
 			}
 			if err := images.Release(graphics.Resource{}); !errors.Is(err, errors.ErrUnsupported) {

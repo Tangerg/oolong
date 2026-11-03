@@ -405,12 +405,11 @@ func (v View) Fill(r image.Rectangle, style Style) {
 	}
 }
 
-// Text writes s at local (x, y) and returns how many columns it advanced, including
-// any it advanced outside the clip.
-//
-// A multi-column cluster is never split: one that would straddle an edge is dropped
+// Text never splits a multi-column cluster: one that would straddle an edge is dropped
 // and its visible columns blanked, because part of a glyph is worse than a gap. A
 // zero-width cluster joins the display atom to its left rather than taking a column.
+// Text returns the column advance, including any width change of that preceding
+// atom and any columns outside the clip.
 func (v View) Text(x, y int, s string, style Style) int {
 	v.scope.requireWritable()
 	if v.surface == nil {
@@ -432,11 +431,13 @@ func (v View) Text(x, y int, s string, style Style) int {
 			continue
 		}
 		if w == 0 {
-			v.combine(cx, p.Y, cluster)
+			delta := v.combine(cx, p.Y, cluster)
+			cx = layout.Translate(cx, delta)
+			advanced = layout.Translate(advanced, delta)
 			continue
 		}
 		end := layout.Translate(cx, w)
-		advanced = layout.Sum(advanced, w)
+		advanced = layout.Translate(advanced, w)
 		switch {
 		case end <= clip.Min.X || cx >= clip.Max.X:
 			// The column still advances: a caller measuring what it drew is asking
@@ -444,29 +445,28 @@ func (v View) Text(x, y int, s string, style Style) int {
 		case cx < clip.Min.X || end > clip.Max.X:
 			v.blank(min(max(cx, clip.Min.X), clip.Max.X), min(end, clip.Max.X), p.Y, style)
 		default:
-			v.writeAtom(cx, p.Y, w, cluster, style)
+			v.writeAtom(cx, p.Y, w, Cell{content: v.surface.capture.own(cluster), Style: style})
 		}
 		cx = end
 	}
 	return advanced
 }
 
-func (v View) writeAtom(cx, y, w int, cluster string, style Style) {
+func (v View) writeAtom(cx, y, w int, head Cell) {
 	surf := v.surface
-	content := surf.capture.own(cluster)
-	if content == "" {
+	if head.content == "" {
 		return
 	}
 	for offset := range w {
 		surf.repairAtom(layout.Translate(cx, offset), y)
 	}
-	head := Cell{content: content, Style: style}
+	head.span = 0
 	if w > 1 {
 		head.span = span(w)
 	}
 	*surf.cellAt(cx, y) = head
 	for offset := 1; offset < w; offset++ {
-		*surf.cellAt(layout.Translate(cx, offset), y) = Cell{Style: style, span: span(-offset)}
+		*surf.cellAt(layout.Translate(cx, offset), y) = Cell{Style: head.Style, Link: head.Link, span: span(-offset)}
 	}
 }
 
@@ -497,7 +497,7 @@ func ownedCluster(cluster string) string {
 	return strings.Clone(cluster)
 }
 
-func (v View) combine(cx, y int, cluster string) {
+func (v View) combine(cx, y int, cluster string) int {
 	head := layout.Translate(cx, -1)
 	prev := v.surface.cellAt(head, y)
 	if prev != nil && prev.span < 0 {
@@ -505,7 +505,7 @@ func (v View) combine(cx, y int, cluster string) {
 		prev = v.surface.cellAt(head, y)
 	}
 	if prev == nil || prev.span < 0 || !image.Pt(head, y).In(v.clipped()) {
-		return
+		return 0
 	}
 	base := prev.content
 	if base == "" {
@@ -515,12 +515,23 @@ func (v View) combine(cx, y int, cluster string) {
 	if pool := v.surface.capture; pool != nil {
 		if int64(len(cluster)) > pool.limit-int64(len(base)) {
 			pool.err = ErrCaptureLimit
-			return
+			return 0
 		}
-		prev.content = pool.own(base + cluster)
-		return
 	}
-	prev.content = base + cluster
+	combined := *prev
+	combined.content = base + cluster
+	width := graphemeWidth(combined.content)
+	delta := width - prev.Width()
+	end := layout.Translate(head, width)
+	if end > v.clipped().Max.X {
+		v.blank(head, v.clipped().Max.X, y, combined.Style)
+	} else {
+		if v.surface.capture != nil {
+			combined.content = v.surface.capture.own(combined.content)
+		}
+		v.writeAtom(head, y, width, combined)
+	}
+	return delta
 }
 
 // Link stamps target onto the display atoms whose heads occupy w columns from local

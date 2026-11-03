@@ -17,6 +17,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -365,10 +366,13 @@ func kitDrawPurityCases() []drawPurityCase {
 	settingValues := []string{"dark", "on"}
 	settingChanges := 0
 	settings := NewSettings(SettingsConfig[int]{
-		Items:  []int{0, 1},
-		Label:  func(index int) string { return []string{"theme", "wrap"}[index] },
-		Value:  func(index int) string { return settingValues[index] },
-		Change: func(int, int, keymap.Action) bool { settingChanges++; return true },
+		Items: []int{0, 1},
+		Label: func(index int) string { return []string{"theme", "wrap"}[index] },
+		Value: func(index int) string { return settingValues[index] },
+		Change: func(int, int, keymap.Action) scene.ActionResult[bool] {
+			settingChanges++
+			return scene.ActionResult[bool]{State: scene.Applied, Value: true}
+		},
 	})
 	settings.Controller().List().Select(1)
 	cases = append(cases, widgetPurityCase("*Settings", settings, func() any {

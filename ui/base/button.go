@@ -103,7 +103,6 @@ func (b *Button) Element() scene.Element {
 	return b.element
 }
 
-// Label returns the semantic name used by the default appearance.
 func (b *Button) Label() string { return b.label }
 
 // SetLabel replaces the owned name and wakes the scene. It panics during presentation or observation.

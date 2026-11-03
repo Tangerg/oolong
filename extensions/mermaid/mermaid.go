@@ -2,9 +2,9 @@
 // second parser dialect develops here. Applications prepare PNGs in workers and
 // accept immutable results on their content owner.
 //
-// The application installs and versions the CLI and browser. Unix process groups
-// and Windows 10+ jobs provide cancellation ownership; other platforms reject
-// rendering because they cannot guarantee browser-child cleanup.
+// The application installs and versions the CLI and browser. Supported Unix hosts
+// retain an unreaped group leader through cancellation; Windows 10+ uses jobs.
+// Other hosts reject rendering because they cannot preserve cleanup authority.
 package mermaid
 
 import (
@@ -211,7 +211,7 @@ func (r *Renderer) Render(ctx context.Context, source string) (result *Image, er
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, r.backend.node, args...) //nolint:gosec // Trusted backend configuration, fixed flags, source only on stdin.
+	cmd := exec.Command(r.backend.node, args...) //nolint:noctx,gosec // The platform group/job owner controls cancellation and joins it before reaping; backend configuration is trusted and source is stdin only.
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(source)
 	diagnostics := &boundedOutput{limit: maxDiagnosticBytes}

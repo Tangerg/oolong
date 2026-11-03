@@ -19,6 +19,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/graphics"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -50,13 +51,6 @@ func TestWriterPanicsBeforeItsSequenceCanWrap(t *testing.T) {
 		}
 	}()
 	_, _ = writer.Queue(nil)
-}
-
-func TestTerminalRefusesToReuseAnImageIdentity(t *testing.T) {
-	terminal := Terminal{imageProtocol: graphics.Kitty, lastImageID: math.MaxUint32}
-	if _, err := terminal.Transmit(nil); !errors.Is(err, ErrImageIDsExhausted) {
-		t.Fatalf("Transmit error = %v, want ErrImageIDsExhausted", err)
-	}
 }
 
 func TestWriterReleasesItsDestinationOnlyAfterTheWriteLoopEnds(t *testing.T) {
@@ -543,7 +537,7 @@ func TestTerminalCommandsReportRefusedAdmission(t *testing.T) {
 	if err := terminal.ReportDirectory(t.TempDir()); !errors.Is(err, ErrClosed) {
 		t.Errorf("ReportDirectory = %v, want ErrClosed", err)
 	}
-	if img, err := terminal.Transmit(data.Bytes()); !errors.Is(err, ErrClosed) || img != (graphics.Resource{}) {
+	if img, err := terminal.Transmit(t.Context(), data.Bytes()); !errors.Is(err, ErrClosed) || img != nil {
 		t.Errorf("Transmit = %+v, %v; want no handle and ErrClosed", img, err)
 	}
 	if err := terminal.ReleaseImage(terminal.imageOwner.Bind(graphics.Image{ID: 9})); !errors.Is(err, ErrClosed) {
@@ -586,14 +580,9 @@ func TestImageReleaseCannotAddressAnotherTerminal(t *testing.T) {
 	first := &Terminal{writer: NewWriter(WriterConfig{Destination: &a}), imageProtocol: graphics.Kitty}
 	second := &Terminal{writer: NewWriter(WriterConfig{Destination: &b}), imageProtocol: graphics.Kitty}
 	defer func() { _ = first.writer.Close(); _ = second.writer.Close() }()
-	left, err := first.Transmit(pngData.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	right, err := second.Transmit(pngData.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
+	left := acknowledgedImage(t, first, pngData.Bytes(), 1)
+	right := acknowledgedImage(t, second, pngData.Bytes(), 1)
+	var err error
 	if err = second.ReleaseImage(left); err == nil {
 		t.Error("foreign handle released the local image with the same wire ID")
 	}
@@ -626,7 +615,7 @@ func TestImageReleaseCannotAddressAnotherTerminal(t *testing.T) {
 	}
 }
 
-func TestOnlyAdmittedKittyImagesConsumeAnIdentity(t *testing.T) {
+func TestImageAdmissionNeverInventsAPhysicalIdentity(t *testing.T) {
 	var pngData bytes.Buffer
 	if err := png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
 		t.Fatal(err)
@@ -635,24 +624,24 @@ func TestOnlyAdmittedKittyImagesConsumeAnIdentity(t *testing.T) {
 	defer func() { _ = terminal.writer.Close() }()
 	for _, protocol := range []graphics.Protocol{graphics.None, graphics.ITerm2, graphics.Sixel} {
 		terminal.imageProtocol = protocol
-		if _, err := terminal.Transmit(pngData.Bytes()); !errors.Is(err, errors.ErrUnsupported) || terminal.writer.Queued() != 0 {
+		if _, err := terminal.Transmit(t.Context(), pngData.Bytes()); !errors.Is(err, errors.ErrUnsupported) || terminal.writer.Queued() != 0 {
 			t.Fatalf("attempted live image on %s: queued=%d err=%v", protocol, terminal.writer.Queued(), err)
 		}
 	}
 	terminal.imageProtocol = graphics.Kitty
-	if _, err := terminal.Transmit(nil); err == nil {
+	if _, err := terminal.Transmit(t.Context(), nil); err == nil {
 		t.Fatal("invalid PNG was accepted")
 	}
 	if err := terminal.writer.pauseAdmission(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := terminal.Transmit(pngData.Bytes()); !errors.Is(err, ErrHandoverActive) {
+	if _, err := terminal.Transmit(t.Context(), pngData.Bytes()); !errors.Is(err, ErrHandoverActive) {
 		t.Fatal(err)
 	}
 	terminal.writer.resumeAdmission()
-	r, err := terminal.Transmit(pngData.Bytes())
-	if err != nil || r.ID() != 1 {
-		t.Fatalf("first accepted image = %d, %v", r.ID(), err)
+	r := acknowledgedImage(t, &terminal, pngData.Bytes(), 99)
+	if r.ID() != 99 {
+		t.Fatalf("allocated image = %d", r.ID())
 	}
 }
 
@@ -674,4 +663,57 @@ func TestUnparkedReaderRefusesHandoverAndReopensOutput(t *testing.T) {
 			t.Fatalf("failed handover kept output sealed: %v", err)
 		}
 	})
+}
+
+func acknowledgedImage(t *testing.T, terminal *Terminal, png []byte, id uint32) graphics.Resource {
+	t.Helper()
+	result, err := terminal.Transmit(t.Context(), png)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consumed, err := terminal.takeImageReply(input.APC{Body: fmt.Sprintf("Gi=%d,I=%d;OK", id, pendingImageNumber(t, terminal))}); !consumed || err != nil {
+		t.Fatal("upload acknowledgement was not consumed")
+	}
+	outcome := <-result
+	if outcome.Err != nil {
+		t.Fatal(outcome.Err)
+	}
+	return outcome.Resource
+}
+
+func TestClipboardTransportIsChosenIndependentlyOfEnvironment(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		terminal := newTerminal(nil, nil, Config{Features: Features{Clipboard: clipboard.Config{TmuxPassthrough: passthrough}}},
+			func(name string) (string, bool) {
+				switch name {
+				case "TERM":
+					return "tmux-256color", true
+				case "TMUX":
+					return "/tmp/tmux-1000/default,1,0", true
+				default:
+					return "", false
+				}
+			})
+		sequence, ok := terminal.clipboard.Copy(clipboard.System, "copy")
+		if !ok {
+			t.Fatal("clipboard request refused")
+		}
+		if wrapped := strings.HasPrefix(sequence, "\x1bPtmux;"); wrapped != passthrough {
+			t.Fatalf("environment chose transport: %q", sequence)
+		}
+	}
+}
+
+func pendingImageNumber(t *testing.T, terminal *Terminal) uint32 {
+	t.Helper()
+	terminal.modeMu.Lock()
+	defer terminal.modeMu.Unlock()
+	var newest uint32
+	for number := range terminal.uploads {
+		newest = max(newest, number)
+	}
+	if newest == 0 {
+		t.Fatal("no pending image request")
+	}
+	return newest
 }

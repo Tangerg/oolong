@@ -10,7 +10,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Column is one column of a [Table].
 type Column struct {
 	Title string
 	Align layout.Align

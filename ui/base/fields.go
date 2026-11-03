@@ -24,7 +24,6 @@ type Text struct {
 	editor      Editor
 }
 
-// Text returns the current single-line document.
 func (t *Text) Text() string { return t.editor.Text() }
 
 // SetText replaces the owned answer and records one document edit. It panics during presentation or observation.

@@ -18,6 +18,7 @@ import (
 
 	charmssh "charm.land/ssh"
 	"github.com/Tangerg/oolong/extensions/ssh"
+	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
@@ -361,5 +362,88 @@ func TestInstallPreservesAnOccupiedPTYSlot(t *testing.T) {
 	}
 	if _, err := server.PtyHandler(nil, nil, charmssh.Pty{}); err != nil || !called {
 		t.Fatalf("existing PTY handler was replaced: called=%t err=%v", called, err)
+	}
+}
+
+func TestClipboardPassthroughIsExplicitForTheAcceptedRemoteTerminal(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		windows := make(chan charmssh.Window)
+		close(windows)
+		session := &fakeSession{
+			ctx: newFakeContext(t.Context()), window: charmssh.Window{Width: 80, Height: 24},
+			windows: windows, ptyOK: true, environ: []string{"TERM=tmux-256color", "TMUX=/tmp/client-tmux,1,0"},
+		}
+		err := runFakeSSHFixture(session, program.ScreenConfig{
+			Terminal: term.Features{Clipboard: clipboard.Config{TmuxPassthrough: passthrough}},
+			Build: func(runtime *program.Runtime) (scene.Element, error) {
+				if !runtime.Clipboard().Copy("copied") {
+					t.Error("remote clipboard copy refused")
+				}
+				return fixtureElement(quittingComponent{runtime: runtime}), nil
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		output := session.output.String()
+		if wrapped := strings.Contains(output, "\x1bPtmux;"); wrapped != passthrough {
+			t.Fatalf("remote environment overrode explicit clipboard transport: %q", output)
+		}
+		if !passthrough && !strings.Contains(output, "\x1b]52;c;Y29waWVk\x1b\\") {
+			t.Fatalf("native remote OSC 52 missing: %q", output)
+		}
+	}
+}
+
+func TestKeyboardRequestObservesRemoteDialectWithoutStartupProbe(t *testing.T) {
+	windows := make(chan charmssh.Window)
+	close(windows)
+	session := &fakeSession{
+		ctx: newFakeContext(t.Context()), window: charmssh.Window{Width: 80, Height: 24},
+		windows: windows, ptyOK: true,
+	}
+	session.input.Reset("\x1b[?0u\x1b[1;9P")
+	server := new(charmssh.Server)
+	var adapter ssh.Adapter
+	if err := adapter.Install(server); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := session.requestedPTY()
+	release, err := server.PtyHandler(session.ctx, session, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if releaseErr := release(); releaseErr != nil {
+			t.Error(releaseErr)
+		}
+	}()
+	terminal, err := adapter.Bind(session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := terminal.Open(term.Config{Features: term.Features{Keyboard: term.KeyboardCompatible}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if closeErr := host.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	}()
+	var keys []input.Key
+	for event := range host.Input().Events() {
+		if key, ok := event.(input.Key); ok {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) != 1 || keys[0].Code != input.F1 || keys[0].Mods != input.Super {
+		t.Fatalf("remote zero-enhancement Kitty reply was not observed: %+v", keys)
+	}
+	if err := host.Writer().Drain(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if output := session.output.String(); strings.Count(output, "\x1b[?u") != 1 {
+		t.Fatalf("remote keyboard request omitted or duplicated its observation: %q", output)
 	}
 }

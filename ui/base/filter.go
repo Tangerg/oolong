@@ -54,7 +54,6 @@ type Filter[T any] struct {
 	list List[hit[T]]
 }
 
-// hit is one item that matched, and how.
 type hit[T any] struct {
 	item  T
 	match fuzzy.Match
@@ -144,7 +143,6 @@ func (f *Filter[T]) Select(at int) {
 	f.list.Select(at)
 }
 
-// Scroll exposes the position, for a scrollbar drawn beside the list.
 func (f *Filter[T]) Scroll() *Scroll { return f.list.Scroll() }
 
 // Handle answers the keys, the wheel and a press that move the cursor. What narrows
@@ -156,7 +154,6 @@ func (f *Filter[T]) Handle(ev input.Event) bool {
 	return f.list.Handle(ev)
 }
 
-// Do runs one of the list's actions by name. See [Doer].
 func (f *Filter[T]) Do(action keymap.Action) bool {
 	return f.list.Do(action)
 }

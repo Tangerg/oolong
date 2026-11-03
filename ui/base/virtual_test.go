@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"reflect"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -51,7 +52,7 @@ func virtualData(n int) *virtualSource {
 func TestVirtualWindowMeasuresAndMountsOnlyBoundedWindow(t *testing.T) {
 	data := virtualData(10000)
 	builds := 0
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, EstimatedHeight: 2, Overscan: 2, MaxMeasurements: 32, Build: func(key base.ItemKey) scene.Element {
+	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, EstimatedHeight: 2, Overscan: 2, MaxMeasurementsPerResolve: 32, Build: func(key base.ItemKey) scene.Element {
 		builds++
 		return scene.NewElement(scene.ElementConfig{Key: string(key), Paint: func(frame scene.Frame) { frame.Text(0, 0, string(key), grid.Style{}) }})
 	}})
@@ -78,12 +79,13 @@ func TestVirtualWindowMeasuresAndMountsOnlyBoundedWindow(t *testing.T) {
 	root.Wrote(1)
 	firstTarget := window.Element().Target()
 	for offset := range 100 {
+		before := data.calls
 		current, err := window.Resolve(40, 10, offset*50)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if window.Cached() > 32 || len(current.Items) > 32 {
-			t.Fatal("height cache grew with session age")
+		if data.calls-before > 32 || window.Cached() > data.Len() || len(current.Items) > 32 {
+			t.Fatal("measurement work, dataset metadata or mounted window exceeded its bound")
 		}
 	}
 	if window.Element().Target() != firstTarget {
@@ -93,7 +95,7 @@ func TestVirtualWindowMeasuresAndMountsOnlyBoundedWindow(t *testing.T) {
 
 func TestVirtualWindowDatasetChangeAndBudgetFailureAreAtomic(t *testing.T) {
 	data := virtualData(10)
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxItems: 12, MaxMeasurements: 32})
+	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxItems: 12, MaxMeasurementsPerResolve: 32})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +103,11 @@ func TestVirtualWindowDatasetChangeAndBudgetFailureAreAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	data.keys = append(data.keys, "unversioned")
+	if _, err = window.Resolve(40, 3, 0); !errors.Is(err, base.ErrVirtualSourceChanged) {
+		t.Fatalf("unversioned dataset growth = %v", err)
+	}
+	data.keys = data.keys[:len(data.keys)-1]
 	data.duplicate = true
 	data.revision++
 	if _, err := window.Resolve(40, 3, 0); err == nil {
@@ -122,7 +129,7 @@ func TestVirtualWindowDatasetChangeAndBudgetFailureAreAtomic(t *testing.T) {
 
 func TestVirtualWindowDoesNotPretendUnknownHeightsAreExact(t *testing.T) {
 	data := virtualData(3)
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurements: 8})
+	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,5 +258,67 @@ func TestVirtualRefinementPreservesTheRequestedViewport(t *testing.T) {
 	}
 	if len(result.Items) != 2 || result.Items[0].Index != 0 || result.Items[1].Index != 2 {
 		t.Errorf("visible range includes an empty item: %+v", result.Items)
+	}
+}
+
+func TestVirtualWindowKeepsMeasuredPrefixGeometryUntilItsSourceChanges(t *testing.T) {
+	data := virtualData(3)
+	data.heights = []int{10, 10, 10}
+	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = window.Resolve(20, 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	second, err := window.Resolve(20, 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Items[0].Top != 10 || second.Total != 21 || window.Cached() != 2 {
+		t.Fatalf("measured prefix was lost: %+v, cached=%d", second, window.Cached())
+	}
+	calls := data.calls
+	for range 3 {
+		repeated, repeatErr := window.Resolve(20, 1, 10)
+		if repeatErr != nil || !reflect.DeepEqual(repeated, second) || data.calls != calls {
+			t.Fatalf("unchanged source and viewport changed geometry: %+v, calls=%d, error=%v", repeated, data.calls, repeatErr)
+		}
+	}
+	if _, err = window.Resolve(20, 1, 20); err != nil {
+		t.Fatal(err)
+	}
+	if window.Cached() != data.Len() || !window.Snapshot().Exact {
+		t.Fatalf("complete geometry was not retained: %+v, cached=%d", window.Snapshot(), window.Cached())
+	}
+	data.revision++
+	data.heights = []int{2, 2, 2}
+	changed, err := window.Resolve(20, 1, 0)
+	if err != nil || changed.Total != 4 || window.Cached() != 1 {
+		t.Fatalf("source revision retained stale geometry: %+v, cached=%d, error=%v", changed, window.Cached(), err)
+	}
+	data.heights[0] = 3
+	resized, err := window.Resolve(10, 1, 0)
+	if err != nil || resized.Total != 5 || window.Cached() != 1 {
+		t.Fatalf("width retained stale geometry: %+v, cached=%d, error=%v", resized, window.Cached(), err)
+	}
+}
+
+func TestVirtualMeasurementBudgetFailurePreservesGeometry(t *testing.T) {
+	data := virtualData(3)
+	data.heights = []int{2, 2, 2}
+	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := window.Resolve(20, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := window.Resolve(20, 6, 0); !errors.Is(err, base.ErrVirtualLimit) {
+		t.Fatalf("measurement limit error = %v", err)
+	}
+	if !reflect.DeepEqual(window.Snapshot(), before) || window.Cached() != 1 {
+		t.Fatal("failed resolution published partial geometry")
 	}
 }

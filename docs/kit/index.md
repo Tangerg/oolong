@@ -20,11 +20,17 @@ A custom skin can fill a base element's paint and measure slots before attachmen
 
 Resolve glyph capability once for the host, then pass `glyphs.Ellipsis` to `ButtonConfig.Ellipsis`, `Paragraph.Ellipsis` and `Label.Ellipsis` where a truncation marker is wanted. An empty marker truncates silently. Measurement and drawing use the same marker; changing a paragraph's marker also changes its layout-cache identity.
 
+Kit retains its controller's typed collection actions and revision-qualified item addresses when replacing paint slots. `SettingsConfig.Change` returns `scene.ActionResult[bool]`, so a skin never translates a consumed key into an invented value change. See [typed controller actions](../base/index.md#typed-collection-and-controller-actions).
+
+Box title and footer placement derive their minimum width, available text width and aligned origin from one border-label inset. Corners and the adjacent border remain visible under truncation and alignment.
+
 ## Theme ownership
 
 Create `kit.NewThemeOwner(initial)` for a live application palette, pass `owner.Scope()` through component Config values, and call `owner.Set(next)` on the UI owner turn. The owner invalidates attached consumers without rebuilding their elements or controllers. `scope.With(kit.ThemeOverride{...})` creates an immutable subtree branch; `Appearance` supplies an instance override. Resolution is application → ancestor scopes → local scope → instance.
 
 Override fields are pointers so an explicit zero style can restore terminal defaults; constructors copy those pointed-to values. A component may instead receive a static `Theme`. Supplying both a nonzero Theme and Scope is invalid. Palette updates are refused during presentation or a pending frame, preserving the same purity boundary as controller mutations.
+
+Terminal-fitted neutral roles use named contrast policies. Selection, added-content and removed-content contrast remain separate semantic policies even when their current ratios match; context and divider derive from their corresponding muted and border roles.
 
 ## Transcript example
 

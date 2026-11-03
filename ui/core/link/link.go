@@ -84,7 +84,7 @@ var urlPrefixPattern = func() *regexp.Regexp {
 		}
 		patterns = append(patterns, pattern)
 	}
-	return regexp.MustCompile(strings.Join(patterns, "|"))
+	return regexp.MustCompile("(?i)" + strings.Join(patterns, "|"))
 }()
 
 // Quotes admit spaces; rooted paths supply their own evidence; relative paths
@@ -354,7 +354,7 @@ func trimTrailing(text string, quoted bool) string {
 
 func prefixOf(text string) (string, bool) {
 	for _, p := range urlPrefixes {
-		if strings.HasPrefix(text, p) {
+		if len(text) >= len(p) && strings.EqualFold(text[:len(p)], p) {
 			return p, true
 		}
 	}

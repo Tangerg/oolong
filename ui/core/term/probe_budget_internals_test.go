@@ -1,10 +1,7 @@
 package term
 
 import (
-	"bytes"
-	"encoding/base64"
 	"errors"
-	"image/png"
 	"io"
 	"strconv"
 	"strings"
@@ -165,14 +162,6 @@ func (w answerWriter) WriteString(query string) (int, error) {
 }
 
 func TestDirectGraphicsQueryOwnsTheStartupDecision(t *testing.T) {
-	pixel, err := base64.StdEncoding.DecodeString(queryPixelPNG)
-	if err != nil {
-		t.Fatal(err)
-	}
-	img, err := png.Decode(bytes.NewReader(pixel))
-	if err != nil || img.Bounds().Dx() != 1 || img.Bounds().Dy() != 1 {
-		t.Fatal("invalid 1×1 probe PNG:", err)
-	}
 	const marker = "\x1b[?62;4c"
 	for _, tc := range []struct {
 		name, reply string
@@ -192,7 +181,7 @@ func TestDirectGraphicsQueryOwnsTheStartupDecision(t *testing.T) {
 				_, tail, ok := strings.Cut(query, "\x1b_Gi=")
 				id, suffix, found := strings.Cut(tail, ",")
 				value, err := strconv.ParseUint(id, 10, 32)
-				if !ok || !found || err != nil || value == 0 || suffix != "a=q,t=d,f=100;"+queryPixelPNG+"\x1b\\\x1b[c" {
+				if !ok || !found || err != nil || value == 0 || !strings.HasPrefix(suffix, "a=q,t=d,f=100;") || !strings.HasSuffix(suffix, "\x1b\\\x1b[c") {
 					t.Fatalf("unexpected query %q", query)
 				}
 				reply := strings.NewReplacer("KEY;OK", "\x1b_Gi="+id+";OK\x1b\\",

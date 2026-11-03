@@ -52,7 +52,6 @@ type SliderConfig struct {
 	Keys *keymap.Map
 }
 
-// NewSlider constructs one slider from config.
 func NewSlider(config SliderConfig) *Slider {
 	s := &Slider{value: newOwnedValue(config.Initial), Keys: config.Keys}
 	s.SetBounds(config.Minimum, config.Maximum)
@@ -164,7 +163,6 @@ func (s *Slider) Move(steps int) bool {
 	return s.Set(value + steps*step)
 }
 
-// Label returns the control's semantic label.
 func (s *Slider) Label() string {
 	if s == nil {
 		return ""
@@ -220,7 +218,6 @@ func (s *Slider) Handle(event input.Event) bool {
 	return handled
 }
 
-// Do applies a slider action by name.
 func (s *Slider) Do(action keymap.Action) bool {
 	switch action {
 	case Decrease:

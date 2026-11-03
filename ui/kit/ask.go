@@ -41,7 +41,6 @@ func Ask(form *base.Form, in io.Reader, out io.Writer) (scene.ActionResult[base.
 	})
 }
 
-// spokenField is the capability Ask consumes from a field.
 type spokenField interface {
 	base.Field
 	Ask() string

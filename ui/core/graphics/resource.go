@@ -42,6 +42,12 @@ const (
 // Copies share its lifetime. The zero value is not a live image.
 type Resource struct{ record *imageRecord }
 
+// UploadResult is settled once. Writer admission alone cannot create a Resource.
+type UploadResult struct {
+	Resource Resource
+	Err      error
+}
+
 // NativeTarget identifies the canvas on which this owner's resources may be
 // placed. It cannot release images or change their wire identity.
 func (o *ImageOwner) NativeTarget() grid.NativeTarget {
@@ -51,6 +57,13 @@ func (o *ImageOwner) NativeTarget() grid.NativeTarget {
 		o.target = grid.NewNativeTarget()
 	}
 	return o.target
+}
+
+func (o *ImageOwner) Contains(id uint32) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	_, found := o.live[id]
+	return found
 }
 
 // Bind records a successful transmission. It panics for a zero ID or if the

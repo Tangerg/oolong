@@ -29,21 +29,24 @@ type VirtualSource interface {
 	Measure(index, width int) int
 }
 
-// VirtualConfig bounds keys, measurement work and the retained visible cache; Build runs only during Resolve.
+// VirtualConfig separates geometry retention from per-resolution measurement work.
+// Geometry knowledge survives scrolling until the source revision or width changes.
+// MaxItems bounds its retained measurements; MaxMeasurementsPerResolve bounds new
+// measurements in one call. Build runs only for materialized visible/overscan rows.
 type VirtualConfig struct {
-	Source          VirtualSource
-	Build           func(ItemKey) scene.Element
-	EstimatedHeight int
-	Overscan        int
-	MaxItems        int
-	MaxKeyBytes     int
-	MaxMeasurements int
+	Source                    VirtualSource
+	Build                     func(ItemKey) scene.Element
+	EstimatedHeight           int
+	Overscan                  int
+	MaxItems                  int
+	MaxKeyBytes               int
+	MaxMeasurementsPerResolve int
 }
 
 const (
-	defaultVirtualItems        = 100_000
-	defaultVirtualKeyBytes     = 4 << 20
-	defaultVirtualMeasurements = 512
+	defaultVirtualItems                  = 100_000
+	defaultVirtualKeyBytes               = 4 << 20
+	defaultVirtualMeasurementsPerResolve = 512
 )
 
 // VirtualItem is one materialized content identity with its projected dataset index and row extent.
@@ -82,7 +85,7 @@ type VirtualWindow struct {
 
 // NewVirtualWindow validates budgets and creates the sole scene group for materialized items.
 func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
-	if cfg.Source == nil || cfg.EstimatedHeight < 0 || cfg.Overscan < 0 || cfg.MaxItems < 0 || cfg.MaxKeyBytes < 0 || cfg.MaxMeasurements < 0 {
+	if cfg.Source == nil || cfg.EstimatedHeight < 0 || cfg.Overscan < 0 || cfg.MaxItems < 0 || cfg.MaxKeyBytes < 0 || cfg.MaxMeasurementsPerResolve < 0 {
 		return nil, errors.New("base: invalid virtual window configuration")
 	}
 	if cfg.EstimatedHeight == 0 {
@@ -94,8 +97,8 @@ func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
 	if cfg.MaxKeyBytes == 0 {
 		cfg.MaxKeyBytes = defaultVirtualKeyBytes
 	}
-	if cfg.MaxMeasurements == 0 {
-		cfg.MaxMeasurements = defaultVirtualMeasurements
+	if cfg.MaxMeasurementsPerResolve == 0 {
+		cfg.MaxMeasurementsPerResolve = defaultVirtualMeasurementsPerResolve
 	}
 	v := &VirtualWindow{cfg: cfg, heights: make(map[ItemKey]measuredHeight)}
 	v.group = scene.NewGroup(scene.GroupConfig{Layout: func(size image.Point, children []scene.Item) []image.Rectangle {
@@ -126,7 +129,7 @@ func (v *VirtualWindow) Snapshot() VirtualRange {
 	return out
 }
 
-// Cached counts retained height measurements, which are bounded independently of session age.
+// Cached includes offscreen measurements needed to keep absolute row positions stable.
 func (v *VirtualWindow) Cached() int {
 	if v == nil {
 		return 0
@@ -198,15 +201,9 @@ func (v *VirtualWindow) prepare(width, height, offset int) (virtualCandidate, er
 	if !v.sameSource(revision, count) {
 		return virtualCandidate{}, ErrVirtualSourceChanged
 	}
-	// Only the active window retains measurements; scrolling cannot grow an age-based cache.
-	retained := make(map[ItemKey]measuredHeight, len(result.Items))
-	for _, item := range result.Items {
-		retained[item.Key] = cache[item.Key]
-	}
-	if len(retained) > v.cfg.MaxMeasurements {
-		return virtualCandidate{}, ErrVirtualLimit
-	}
-	return virtualCandidate{keys: keys, heights: retained, window: result}, nil
+	// Prefix positions depend on measurements outside the mounted window. Their
+	// lifetime follows the bounded dataset revision and width, not visibility.
+	return virtualCandidate{keys: keys, heights: cache, window: result}, nil
 }
 
 // A candidate can reuse measurements only under the exact source and width key.
@@ -227,7 +224,10 @@ func (v *VirtualWindow) sourceKeys(revision uint64, count int) ([]ItemKey, error
 	if count < 0 || count > v.cfg.MaxItems {
 		return nil, ErrVirtualLimit
 	}
-	if revision == v.window.Revision && len(v.keys) == count && v.keys != nil {
+	if revision == v.window.Revision && v.keys != nil {
+		if len(v.keys) != count {
+			return nil, ErrVirtualSourceChanged
+		}
 		return v.keys, nil
 	}
 	keys := make([]ItemKey, count)
@@ -300,7 +300,7 @@ func (v *VirtualWindow) measureRange(keys []ItemKey, tops []int, cache map[ItemK
 		}
 		rows, ok := cache[key]
 		if !ok {
-			if *measured >= v.cfg.MaxMeasurements {
+			if *measured >= v.cfg.MaxMeasurementsPerResolve {
 				return nil, false, ErrVirtualLimit
 			}
 			value := v.cfg.Source.Measure(index, width)

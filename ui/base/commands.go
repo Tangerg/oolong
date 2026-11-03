@@ -127,7 +127,6 @@ func (c *Commands[T]) Used(name string) {
 // meaning anything and the list is just the registry again.
 const maxRecentCommands = 16
 
-// Found is a command a query matched, and where in its name it matched.
 type Found struct {
 	Command Command
 	// At is the byte offsets in the name that the query matched, for underlining

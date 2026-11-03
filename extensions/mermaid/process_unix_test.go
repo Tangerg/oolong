@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/extensions/mermaid"
 )
@@ -26,11 +27,20 @@ func TestUnresponsiveRendererCannotLeaveTheBrowserRunning(t *testing.T) {
 	})
 	call.cancel()
 	<-call.done
+	finishReaping()
 	if !errors.Is(call.err, context.Canceled) || errors.Is(call.err, syscall.EPERM) || strings.Contains(call.err.Error(), "did not finish") {
 		t.Fatalf("shutdown=%v", call.err)
 	}
-	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Fatalf("browser %d still exists: %v", pid, err)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := syscall.Kill(pid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("browser %d still exists: %v", pid, err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
