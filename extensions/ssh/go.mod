@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	charm.land/ssh v0.4.3
-	github.com/Tangerg/oolong/ui v0.26.1-0.20261103110558-c80ef99ef49c
+	github.com/Tangerg/oolong/ui v0.27.0
 	golang.org/x/crypto v0.57.0
 )
 

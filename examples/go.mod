@@ -7,7 +7,7 @@ require (
 	github.com/Tangerg/oolong/extensions/latex v0.26.0
 	github.com/Tangerg/oolong/extensions/markdown v0.26.0
 	github.com/Tangerg/oolong/extensions/mermaid v0.26.0
-	github.com/Tangerg/oolong/ui v0.26.1-0.20261104155658-d94fa544e7bc
+	github.com/Tangerg/oolong/ui v0.27.0
 	golang.org/x/sys v0.48.0
 )
 

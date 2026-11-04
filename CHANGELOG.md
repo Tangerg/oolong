@@ -134,6 +134,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 - `Render` and `NewRenderer` reject more than 256 simultaneously open Markdown blocks with `ErrBlockNestingLimit`. The parser owns the nesting count, including paragraphs and list items; this bound does not claim to limit every inline construct or all parse work. A rejected parse returns no content, so a finalized stream document reports `Failed` instead of an empty `Partial` result.
 
+### Changed
+
+- Require `github.com/Tangerg/oolong/ui v0.27.0` instead of a development pseudo-version.
+
 ### Fixed
 
 - Markdown table fields complete boundary graphemes before column allocation, preserving alignment, separator styles and agreement between drawing and text rows. Each column also reserves its widest indivisible grapheme; tables use their existing record layout when those minimums cannot fit.
@@ -153,6 +157,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - `\hspace` is no longer accepted as successful output: the terminal layout has no TeX length model. Unsupported spacing preserves the source and returns the existing parse diagnostic rather than discarding its argument.
 
 ### Changed
+
+- Require `github.com/Tangerg/oolong/ui v0.27.0` instead of a development pseudo-version.
 
 - LaTeX parses its expression subset directly into terminal layout. Command arguments, whitespace and scripts have one grammar owner; symbol names continue to use the dependency's symbol tables. Go literal rules, parser wrappers and process-global diagnostics no longer participate.
 
@@ -175,6 +181,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Changed
 
+- Require `github.com/Tangerg/oolong/ui v0.27.0` instead of a development pseudo-version.
+
 - Native Mermaid backend CI includes Linux alongside macOS and Windows. The backend resolves its installed Puppeteer headless shell for both rendering and Linux sandbox setup. A path-scoped AppArmor profile permits that executable's user namespace; browser sandboxing stays enabled, and native rendering remains a required gate.
 
 ### Fixed
@@ -193,11 +201,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 - Replace `ssh.Open`, `ssh.Config` and `ssh.NewAdapter(...)` with a server-scoped `var adapter ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. Use `server.PtyCallback` for admission decisions formerly made in `ssh.AdapterConfig.Allocate`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. Acquire and release application resources in this handler. The adapter owns emulated window intake from PTY acceptance through channel teardown. Each channel can open one host. Configure OS-allocated PTYs on a separate server.
 
+### Changed
+
+- Require `github.com/Tangerg/oolong/ui v0.27.0` instead of a development pseudo-version.
+
 ### Fixed
 
 - Clipboard reads preserve the selected transport policy and remain tied to the originating caller through cancellation and terminal handover.
 
 ## [extensions/highlight/v0.26.1] — 2026-11-05
+
+### Changed
+
+- Require `github.com/Tangerg/oolong/ui v0.27.0` instead of a development pseudo-version.
 
 ### Fixed
 
