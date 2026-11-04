@@ -87,6 +87,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Fixed
 
+- Darwin process-group cleanup recognizes irreversible exit before zombie state becomes visible. A retained leader is still required, and members without exit evidence preserve permission failures, avoiding a spurious `EPERM` while descendants finish exiting.
+
 - Delayed key prefixes and queued exact matches cannot act after their keyboard route expires. Form preserves accepted `Started`, `Applied` and `Unchanged` results alongside errors; a partially accepted pending submission can still be settled by its original identity.
 - Image resources retain only their lightweight allocation ledger, so a released or closed resource cannot keep its terminal, host callbacks and output buffers alive.
 - Rendering purity analysis resolves generic helpers, function aliases and actual imported declarations. Package loading and type checking fail closed; unrelated pure methods named Print or Commit no longer trigger spelling-based publication rules. Plain paragraph construction stays separate from semantic link detection, keeping Entry's presentation memo pure.

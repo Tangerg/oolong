@@ -8,7 +8,7 @@ import (
 
 // SignalGroup requires a child group leader whose PID remains reserved until
 // return. The caller owns final reaping and must finish all group signals first.
-// An absent group or a confirmed zombie-only group needs no further signal.
+// An absent group or one whose members have all entered exit needs no further signal.
 func SignalGroup(leader *os.Process, signal syscall.Signal) error {
 	if leader == nil || leader.Pid <= 1 {
 		return fmt.Errorf("process: signal child group: %w", os.ErrInvalid)
