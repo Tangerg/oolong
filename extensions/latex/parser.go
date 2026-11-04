@@ -79,12 +79,12 @@ type formulaStyle struct {
 
 func render(source string, look Look) (box, error) {
 	if !utf8.ValidString(source) {
-		return box{}, &parseError{message: "source is not valid UTF-8"}
+		return box{}, &formulaError{message: "source is not valid UTF-8"}
 	}
 	parser := formulaParser{source: source, look: look}
 	result, err := parser.sequence(0, formulaStyle{cell: look.Text})
 	if err != nil {
-		return box{}, &parseError{message: err.Error()}
+		return box{}, &formulaError{message: err.Error()}
 	}
 	return result, nil
 }

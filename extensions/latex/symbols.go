@@ -27,11 +27,11 @@ func (p *formulaParser) namedMacro(name string, style grid.Style) (box, error) {
 	switch {
 	case err != nil:
 		if !symbols.FunctionNames.Has(strings.TrimPrefix(name, `\`)) {
-			return box{}, fmt.Errorf("unsupported macro %s", name)
+			return box{}, fmt.Errorf("unsupported macro %q", name)
 		}
 		symbol = strings.TrimPrefix(name, `\`)
 	case grid.ClusterWidth(symbol) == 0:
-		return box{}, fmt.Errorf("unsupported combining accent %s", name)
+		return box{}, fmt.Errorf("unsupported combining accent %q", name)
 	case p.look.Glyphs.Plain:
 		symbol = asciiSymbol(name)
 	}

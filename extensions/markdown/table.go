@@ -1,8 +1,6 @@
 package markdown
 
 import (
-	"strings"
-
 	east "github.com/yuin/goldmark/extension/ast"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -17,7 +15,7 @@ const tableColumnFloor = 4
 
 type table struct {
 	rows   [][]text.Line
-	aligns []columnAlignment
+	aligns []layout.Align
 	header bool
 
 	separator string
@@ -26,24 +24,16 @@ type table struct {
 	rule      grid.Style
 }
 
-type columnAlignment uint8
-
-const (
-	alignLeft columnAlignment = iota
-	alignCenter
-	alignRight
-)
-
-func columnAlignments(in []east.Alignment) []columnAlignment {
-	out := make([]columnAlignment, len(in))
+func columnAlignments(in []east.Alignment) []layout.Align {
+	out := make([]layout.Align, len(in))
 	for i, alignment := range in {
 		switch alignment {
 		case east.AlignCenter:
-			out[i] = alignCenter
+			out[i] = layout.Center
 		case east.AlignRight:
-			out[i] = alignRight
+			out[i] = layout.End
 		case east.AlignLeft, east.AlignNone:
-			out[i] = alignLeft
+			out[i] = layout.Start
 		}
 	}
 	return out
@@ -62,32 +52,40 @@ func (t *table) appendRows(dst []text.Wrapped, room int) []text.Wrapped {
 // false when even the readable floors do not fit, which is the point at which a
 // record layout communicates the table better than a grid.
 func (t *table) columnWidths(room int) ([]int, bool) {
-	natural := t.naturalWidths()
-	if len(natural) == 0 {
+	measures := t.measureColumns()
+	if len(measures) == 0 {
 		return nil, true
 	}
-	budget := room - t.separatorWidth(len(natural))
-	widths := make([]int, len(natural))
+	budget := room - t.separatorWidth(len(measures))
+	widths := make([]int, len(measures))
 	used := 0
-	for i, width := range natural {
-		widths[i] = min(width, tableColumnFloor)
+	for i, measure := range measures {
+		widths[i] = min(measure.natural, max(tableColumnFloor, measure.indivisible))
 		used = layout.Sum(used, widths[i])
 	}
 	if used > budget {
 		return nil, false
 	}
-	t.growColumns(widths, natural, budget-used)
+	t.growColumns(widths, measures, budget-used)
 	return widths, true
 }
 
-func (t *table) naturalWidths() []int {
-	widths := make([]int, t.columns())
+type columnMeasure struct{ natural, indivisible int }
+
+func (t *table) measureColumns() []columnMeasure {
+	measures := make([]columnMeasure, t.columns())
 	for _, row := range t.rows {
 		for column, cell := range row {
-			widths[column] = max(widths[column], cell.Width())
+			measure := &measures[column]
+			measure.natural = max(measure.natural, cell.Width())
+			// Wrapping preserves an oversized grapheme; a narrower grid column
+			// would let that atom displace or hide the fields beside it.
+			for _, cluster := range text.Clusters(cell.String()) {
+				measure.indivisible = max(measure.indivisible, grid.ClusterWidth(cluster))
+			}
 		}
 	}
-	return widths
+	return measures
 }
 
 func (t *table) separatorWidth(columns int) int {
@@ -101,10 +99,10 @@ func (t *table) separatorWidth(columns int) int {
 // growColumns water-fills every column still below its natural width. A column that
 // reaches its target leaves the next round, so compact columns do not consume the
 // same share as content that can still use it.
-func (t *table) growColumns(widths, natural []int, remaining int) {
+func (t *table) growColumns(widths []int, measures []columnMeasure, remaining int) {
 	pending := make([]int, 0, len(widths))
 	for i := range widths {
-		if widths[i] < natural[i] {
+		if widths[i] < measures[i].natural {
 			pending = append(pending, i)
 		}
 	}
@@ -113,7 +111,7 @@ func (t *table) growColumns(widths, natural []int, remaining int) {
 		if share == 0 {
 			break
 		}
-		rest, left := settleColumns(widths, natural, pending, share, remaining)
+		rest, left := settleColumns(widths, measures, pending, share, remaining)
 		if len(rest) < len(pending) {
 			// Finishing a column first is what lets the width it did not need reach
 			// the ones that are still short.
@@ -129,10 +127,10 @@ func (t *table) growColumns(widths, natural []int, remaining int) {
 	scatter(widths, pending, remaining)
 }
 
-func settleColumns(widths, natural, pending []int, share, remaining int) ([]int, int) {
+func settleColumns(widths []int, measures []columnMeasure, pending []int, share, remaining int) ([]int, int) {
 	still := pending[:0]
 	for _, column := range pending {
-		need := natural[column] - widths[column]
+		need := measures[column].natural - widths[column]
 		if need > share {
 			still = append(still, column)
 			continue
@@ -190,29 +188,9 @@ func (t *table) appendRow(dst []text.Wrapped, cells []text.Line, widths []int) [
 			if physical < len(wrapped[column]) {
 				cell = wrapped[column][physical].Line
 			}
-			line = appendAligned(line, cell, width, t.alignment(column))
+			line = append(line, cell.Pad(width, t.alignment(column))...)
 		}
 		dst = append(dst, text.Wrapped{Line: line})
-	}
-	return dst
-}
-
-func appendAligned(dst text.Line, line text.Line, width int, alignment columnAlignment) text.Line {
-	padding := max(width-line.Width(), 0)
-	left, right := 0, padding
-	switch alignment {
-	case alignRight:
-		left, right = padding, 0
-	case alignCenter:
-		left, right = padding/2, padding-padding/2
-	case alignLeft:
-	}
-	if left > 0 {
-		dst = append(dst, blank(left))
-	}
-	dst = append(dst, line...)
-	if right > 0 {
-		dst = append(dst, blank(right))
 	}
 	return dst
 }
@@ -227,35 +205,9 @@ func (t *table) ruleLine(widths []int) text.Line {
 		if i > 0 {
 			out = append(out, text.Span{Text: t.separator, Style: t.rail})
 		}
-		out = append(out, text.Span{Text: fillTo(divider, width), Style: t.rule})
+		out = append(out, text.Span{Text: text.Fill(divider, width), Style: t.rule})
 	}
 	return out
-}
-
-// fillTo covers exactly width columns with a glyph, padding what is left of the
-// column rather than stopping short of it.
-//
-// A divider is configuration: it may be two characters, or one a terminal draws two
-// columns wide. Counting repetitions rather than columns made such a rule overrun its
-// own column and push the rest of the row along. Counting columns and stopping did
-// the opposite for a column no whole number of glyphs fits: the rule was short, and
-// every separator after it moved left of the one on the rows it separates.
-//
-// The remainder is blank because half a glyph is not one, and it is still the
-// column's.
-func fillTo(glyph string, width int) string {
-	unit := text.Width(glyph)
-	if width <= 0 || unit <= 0 {
-		return ""
-	}
-	var filled strings.Builder
-	filled.Grow(width)
-	at := 0
-	for ; at+unit <= width; at += unit {
-		filled.WriteString(glyph)
-	}
-	filled.WriteString(strings.Repeat(" ", width-at))
-	return filled.String()
 }
 
 // appendRecords uses the heading cells as field names. No labels are invented for
@@ -291,16 +243,9 @@ func (t *table) appendRecords(dst []text.Wrapped, room int) []text.Wrapped {
 	return dst
 }
 
-func (t *table) alignment(column int) columnAlignment {
+func (t *table) alignment(column int) layout.Align {
 	if column < 0 || column >= len(t.aligns) {
-		return alignLeft
+		return layout.Start
 	}
 	return t.aligns[column]
-}
-
-func blank(n int) text.Span {
-	if n <= 0 {
-		return text.Span{}
-	}
-	return text.Span{Text: strings.Repeat(" ", n)}
 }

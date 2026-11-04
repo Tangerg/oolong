@@ -68,7 +68,7 @@ func stack(numerator, denominator box, rule bool, glyphs Glyphs, style grid.Styl
 	out.add(denominator, (width-denominator.width)/2, 1+denominator.above)
 	if rule {
 		out.marks = append(out.marks, mark{
-			value: repeatToWidth(glyphs.Horizontal, width), style: style,
+			value: text.Fill(glyphs.Horizontal, width), style: style,
 		})
 	}
 	return out
@@ -135,7 +135,7 @@ func overlined(content box, glyphs Glyphs, style grid.Style) box {
 	out := box{width: content.width, above: content.above + 1, below: content.below}
 	out.add(content, 0, 0)
 	out.marks = append(out.marks, mark{
-		y: -out.above, value: repeatToWidth(glyphs.Horizontal, content.width), style: style,
+		y: -out.above, value: text.Fill(glyphs.Horizontal, content.width), style: style,
 	})
 	return out
 }
@@ -173,9 +173,9 @@ func radical(content box, glyphs Glyphs, textStyle, ruleStyle grid.Style) box {
 	return horizontal(atom(glyphs.Radical, textStyle), overlined(content, glyphs, ruleStyle))
 }
 
-func (b *box) lines() []text.Line {
+func (b *box) lines() ([]text.Line, error) {
 	if len(b.marks) == 0 {
-		return nil
+		return nil, nil
 	}
 	rows := make([][]mark, b.above+b.below+1)
 	for _, placed := range b.marks {
@@ -190,23 +190,50 @@ func (b *box) lines() []text.Line {
 	for y, placed := range rows {
 		slices.SortStableFunc(placed, func(a, b mark) int { return a.x - b.x })
 		var run spanRun
-		at := 0
+		boundaries := make([]atomBoundary, 0, len(placed))
+		at, byteEnd := 0, 0
 		for _, item := range placed {
 			if item.x > at {
 				run.write(strings.Repeat(" ", item.x-at), grid.Style{})
+				byteEnd += item.x - at
 				at = item.x
+				boundaries = append(boundaries, atomBoundary{byteEnd, at})
 			}
 			// Marks occupy complete terminal clusters; clipping an overlap could
 			// split a cluster in the later mark.
 			if item.x < at {
-				continue
+				return nil, &formulaError{message: "formula atoms overlap in terminal columns"}
 			}
 			run.write(item.value, item.style)
+			byteEnd += len(item.value)
 			at += text.Width(item.value)
+			boundaries = append(boundaries, atomBoundary{byteEnd, at})
 		}
 		out[y] = run.done()
+		if !preservesAtomColumns(out[y], boundaries) {
+			return nil, &formulaError{message: "terminal graphemes join across formula atoms"}
+		}
 	}
-	return out
+	return out, nil
+}
+
+type atomBoundary struct{ byteOffset, column int }
+
+// Opposite width changes can cancel at the row's end while moving atoms inside it.
+// One cluster scan checks every boundary with text.ColumnOf's interior-offset rule.
+func preservesAtomColumns(line text.Line, boundaries []atomBoundary) bool {
+	column, next := 0, 0
+	for start, cluster := range text.Clusters(line.String()) {
+		column = text.Advance(cluster, column)
+		end := start + len(cluster)
+		for next < len(boundaries) && boundaries[next].byteOffset <= end {
+			if boundaries[next].column != column {
+				return false
+			}
+			next++
+		}
+	}
+	return next == len(boundaries)
 }
 
 // Adjacent cell marks commonly share a style. A builder keeps their coalescing
@@ -240,12 +267,4 @@ func (r *spanRun) close() {
 func (r *spanRun) done() text.Line {
 	r.close()
 	return r.line
-}
-
-func repeatToWidth(glyph string, width int) string {
-	unit := text.Width(glyph)
-	if unit <= 0 || width <= 0 {
-		return ""
-	}
-	return text.Truncate(strings.Repeat(glyph, width/unit+1), width, "")
 }

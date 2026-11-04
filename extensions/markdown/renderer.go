@@ -23,6 +23,9 @@ func NewRenderer(cfg RendererConfig) content.Renderer {
 			return nil, err
 		}
 		blocks, err := Render(source, look)
+		if err != nil && blocks == nil {
+			return nil, err
+		}
 		return &documentView{blocks: blocks}, err
 	}
 }

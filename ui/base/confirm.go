@@ -32,7 +32,7 @@ type Confirm struct {
 	control       ConfirmControl
 	unsubscribe   func()
 	closed        bool
-	changeErr     error
+	feedback      requestFeedback
 	requestDepth  int
 	pendingChange bool
 	answer        ownedValue[bool]

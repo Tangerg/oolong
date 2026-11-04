@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
 // Virtual resolution failures preserve the previous mounted window and measurements.
@@ -85,7 +86,7 @@ type VirtualWindow struct {
 
 // NewVirtualWindow validates budgets and creates the sole scene group for materialized items.
 func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
-	if cfg.Source == nil || cfg.EstimatedHeight < 0 || cfg.Overscan < 0 || cfg.MaxItems < 0 || cfg.MaxKeyBytes < 0 || cfg.MaxMeasurementsPerResolve < 0 {
+	if identity.IsNil(cfg.Source) || cfg.EstimatedHeight < 0 || cfg.Overscan < 0 || cfg.MaxItems < 0 || cfg.MaxKeyBytes < 0 || cfg.MaxMeasurementsPerResolve < 0 {
 		return nil, errors.New("base: invalid virtual window configuration")
 	}
 	if cfg.EstimatedHeight == 0 {

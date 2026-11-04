@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### ui
 
+- `core/grid.RGB.Blend`, `Color.Blend`, `View.Blend` and `View.Fade` reject NaN opacity before changing colors or cells, including otherwise empty operations. Ordered values retain their existing clamp to the unit interval.
+
 - `core/keymap.(*Matcher).Handle` now accepts `(bindings, key, current, do)`. Capture `element.KeyboardLease()` for retained input and pass its `Valid` method. Only a standalone caller with no scene lifetime should pass nil. A lease follows the actual keyboard route; leaving that route, detaching or closing the root permanently revokes the sequence. Deferred focus traversal uses the same lease's `FocusNext` operation.
 - Rename `core/program.DeliveryApplied` to `core/program.DeliveryDelivered`. The receipt records entry into `Work.Apply`, including a callback that later panics or calls `runtime.Goexit`. `Task.Settled` closes after that callback unwinds; it does not assert successful application effects or a published frame. Revocation is possible only before delivery begins.
 - Replace `base.(*Table[T]).SetLess` with `SetSortColumns(func(column int) func(a, b T) int)`. The column owner returns its pure three-way comparator or nil for an unsupported column. Keyboard, pointer and semantic sorting share this resolver; there is no separately configured column count or validity table. Replacing the resolver clears an active order whose column was removed.
@@ -49,7 +51,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### extensions/latex
 
+- Formula atoms whose joining moves any terminal column boundary now preserve the source and report `Formula.Err` instead of publishing shifted scripts or rules. Keep joined display graphemes within one syntax atom. `\exp` follows the common named-operator grammar; use an explicit spacing command when a space is required.
+
 - `\hspace` is no longer accepted as successful output: the terminal layout has no TeX length model. Unsupported spacing preserves the source and returns the existing parse diagnostic rather than discarding its argument.
+
+#### extensions/markdown
+
+- `Render` and `NewRenderer` reject more than 256 simultaneously open Markdown blocks with `ErrBlockNestingLimit`. The parser owns the nesting count, including paragraphs and list items; this bound does not claim to limit every inline construct or all parse work. A rejected parse returns no content, so a finalized stream document reports `Failed` instead of an empty `Partial` result.
 
 #### extensions/mermaid
 
@@ -58,6 +66,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Unix cancellation now retains the launcher identity until all group signals finish, then reaps that launcher and settles its pipes. Reaping non-child zombies belongs to their external reaper and no longer controls a render's outcome. Linux, Darwin, FreeBSD, NetBSD and DragonFly have the required non-reaping observation; other Unix hosts now reject construction with `errors.ErrUnsupported`. Windows retains its job-object ownership. The adapter now composes `ui/core/process`; release the updated UI module before publishing the adapter.
 
 ### Changed
+
+- `core/text.Line.Pad` prepares independently aligned fields, completing edge graphemes before measuring and padding them. It preserves content styles and links while keeping padding separate.
+
+- `core/text.Fill` owns exact-column pattern filling for Markdown table rules and LaTeX fraction and overline rules. It shares text normalization and grapheme measurement, including tabs, zero-width patterns and joining repeats. Publish the updated UI module before updating these independently versioned extensions' required revisions and checksums; workspace integration alone does not satisfy the published-dependency gate.
 
 - EditSession now owns normalization, document replacement, element identities, undo history, policy changes and transaction publication. Editors retain their own caret, selection and viewport state. Reset no longer constructs a synthetic editor, and each transaction settles peer views before notifying subscribers. Rejected edits preserve the existing typing group as well as text, identities and history.
 - Kit behavior configuration composes the corresponding base configuration instead of maintaining field-by-field mirrors. English and Chinese documentation navigation share one typed route tree and order. CI and release builds use one module-build script, including modules that mix commands and library packages.
@@ -86,6 +98,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - The agent example passes the selected planning mode to the backend when each run starts. Fast mode skips the optional inspection step. Both modes require approval before the mock tool call.
 
 ### Fixed
+
+- Form field replacement revokes its own deferred shortcuts and partial key sequences after validation, including when the focused field stays mounted.
+- Form publishes a new idle submission attempt before invoking external validation, so a panic or goroutine exit cannot leave observers showing the superseded attempt or feedback.
+- Button, Confirm and Form cancellation retain feedback from the newest UI request when callbacks reenter. A successful form cancellation retry clears the earlier cancellation error.
+- Scene notifications pause when an earlier callback prepares a frame and resume in order after that candidate settles.
+- Accepted workers always settle their outcome, delivery and reserved capacity, even when formatting a recovered panic value exits the goroutine.
+- Markdown table fields complete boundary graphemes before column allocation, preserving alignment, separator styles and agreement between drawing and text rows. Each column also reserves its widest indivisible grapheme; tables use their existing record layout when those minimums cannot fit.
+
+- Tree branch changes preserve the selected node, select the closing ancestor when a selected descendant becomes hidden, and revoke deferred navigation before publishing the new rows. Subscribers see one settled selection.
+- A key resolver that retains its callback and then panics or exits its goroutine can no longer dispatch the abandoned sequence. A newer sequence created by resolver reentry keeps its own lifetime.
+- A physical pointer release, cancellation or replacement press ends its old capture even when an eligibility or content callback unwinds before routing. Cleanup cannot cancel a newer reentrant press.
+- Settled scene candidates release their root, transaction and layout. Closed roots release their projection clocks and node storage, and closed transcripts release their committed content projections without changing immutable layouts retained by callers.
+- Virtual windows reject typed-nil sources at construction instead of failing during a later resolution.
+- Markdown and LaTeX rules occupy exactly their allocated terminal columns for wide, zero-width, tabbed and joining divider patterns.
+- LaTeX named operators accept `\exp`, `\exp x` and `\exp^2(x)` through their shared grammar. Unsupported macro diagnostics quote control characters before exposing error text.
 
 - Darwin process-group cleanup recognizes irreversible exit before zombie state becomes visible. A retained leader is still required, and members without exit evidence preserve permission failures, avoiding a spurious permission error while descendants finish exiting.
 

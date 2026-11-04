@@ -49,6 +49,14 @@ func virtualData(n int) *virtualSource {
 	return s
 }
 
+func TestVirtualWindowRejectsATypedNilSourceAtConstruction(t *testing.T) {
+	var source *virtualSource
+	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: source})
+	if err == nil || window != nil {
+		t.Fatalf("typed nil source constructed window=%v with error=%v", window, err)
+	}
+}
+
 func TestVirtualWindowMeasuresAndMountsOnlyBoundedWindow(t *testing.T) {
 	data := virtualData(10000)
 	builds := 0

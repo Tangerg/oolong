@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 
@@ -101,6 +102,22 @@ func TestUnsupportedHorizontalLengthsPreserveSource(t *testing.T) {
 		}
 		if lines := formula.Lines(); len(lines) != 1 || lines[0].String() != source {
 			t.Fatalf("fallback for %q lost source: %v", source, lines)
+		}
+	}
+}
+
+func TestMacroDiagnosticsQuoteControlCharacters(t *testing.T) {
+	for _, source := range []string{"\\\x1b", "\\\x07", "\\\x00", "\\\u009b"} {
+		formula := latex.Render(source, latex.Look{})
+		err := formula.Err()
+		if err == nil {
+			t.Fatalf("Render(%q) accepted an unsupported macro", source)
+		}
+		if strings.ContainsAny(err.Error(), "\x1b\x07\x00\u009b") {
+			t.Fatalf("diagnostic contains terminal controls: %q", err.Error())
+		}
+		if formula.Source() != source {
+			t.Fatalf("source = %q, want %q", formula.Source(), source)
 		}
 	}
 }

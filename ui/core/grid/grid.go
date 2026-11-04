@@ -81,13 +81,20 @@ func coordinateExtent(from, to int) int {
 type RGB struct{ R, G, B uint8 }
 
 // Blend resolves opacity before output because terminal cells have no alpha
-// channel. Opacity is clamped to [0,1].
+// channel. Ordered opacity values clamp to [0,1]; NaN panics before drawing.
 func (c RGB) Blend(over RGB, opacity float64) RGB {
-	opacity = min(max(opacity, 0), 1)
+	opacity = normalizedOpacity(opacity)
 	lerp := func(a, b uint8) uint8 {
 		return uint8(math.Round(float64(a) + (float64(b)-float64(a))*opacity))
 	}
 	return RGB{lerp(c.R, over.R), lerp(c.G, over.G), lerp(c.B, over.B)}
+}
+
+func normalizedOpacity(opacity float64) float64 {
+	if math.IsNaN(opacity) {
+		panic("grid: opacity is NaN")
+	}
+	return min(max(opacity, 0), 1)
 }
 
 // Color is a cell colour: either the terminal's own default, or a truecolor
@@ -108,7 +115,9 @@ func (c Color) RGB() RGB { return c.rgb }
 // Blend cannot resolve a terminal-default color to a number, so it leaves c
 // unchanged if either input is unresolved. Ground supplies queried RGB values
 // when available; guessing a background could make text disappear.
+// NaN opacity panics even when an input color is unresolved.
 func (c Color) Blend(over Color, opacity float64) Color {
+	opacity = normalizedOpacity(opacity)
 	if c.Default() || over.Default() {
 		return c
 	}

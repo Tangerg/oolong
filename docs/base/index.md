@@ -43,11 +43,17 @@ Actions compose the same owner operations as pointer and keyboard input. Repeati
 
 Completion activation accepts the addressed candidate in one operation, independently of the current selection. A later offer invalidates its address, so automation does not need a selection-then-accept sequence that could cross offer versions. Physical Enter continues to accept the current candidate. Closed or expired offers are unavailable to all collection actions.
 
+Opening or closing another tree branch preserves the selected node. Closing an ancestor of the selected node selects that ancestor. The visible list owns selection; a branch transition maps the node identity into its new rows and revokes pending key sequences before notifying subscribers.
+
 Button and Confirm publish accepted `Applied` or `Started` outcomes even when a later step returns an error. Physical input also publishes its retained UI error, including clearing an earlier error without changing the value. `Button.Press`, `Confirm.Request` and semantic actions return their errors directly and preserve the last physical-input feedback. Confirm batches synchronous domain notifications until its request outcome and UI feedback have settled; the domain remains the sole owner of the answer.
+
+UI feedback belongs to the latest UI request. If a callback synchronously starts another request, the earlier return cannot replace that newer feedback. Form cancellation follows the same rule within its existing submission identity; a successful retry clears the earlier cancellation error. Typed programmatic and semantic requests keep returning their own result and error directly.
 
 `Table.SetSortColumns` accepts the column owner's lookup from a column index to a pure three-way comparator. A nil comparator marks that column unavailable to both direct sorting and semantic actions. The lookup owns column support and comparison together; the table keeps no second column count or schema. Replace the lookup when supported columns or their ordering change. Removing an active sort column clears the reported sort while preserving row order.
 
 Form preserves the callback's `Applied` or `Started` result and submission ID alongside an error. `Started` remains pending and can still be settled; its accompanying error is available through `Submission` and `Error`. An explicitly superseded attempt reports `ErrSubmissionStale` without erasing effects already accepted by its callback.
+
+`Form.Set` validates the complete replacement before changing the field relation. A successful replacement revokes the form's old deferred shortcuts and partial key sequences even when its focused field remains mounted. A rejected replacement preserves the current relation and keyboard sequence. Starting a submission publishes its new idle attempt and cleared feedback before entering external validation. If validation exits abnormally, observers can still see that the previous attempt has ended; a later validation error publishes its own feedback separately.
 
 Key sequences capture a `scene.KeyboardLease` through `Matcher.Handle`'s lifetime predicate. A receiver on the keyboard route keeps its lease while focus moves among its descendants. Explicitly forwarding input to another receiver, such as a completion popup, borrows the current origin's lifetime. With no focus, the active modal or root content supplies that origin. Leaving the scope, detaching or closing the root permanently revokes the old lease, including already queued resolvers; returning focus never revives it. Unmounted controls can accept fresh local input until their next attachment. Standalone matchers may pass nil when their caller owns lifetime directly.
 
@@ -62,6 +68,8 @@ Multiline editors opt into `text.LayoutConfig.ReserveCaret`. A full logical line
 ## Rich content behavior
 
 `Transcript.AddDocument` connects a `StreamDocument` once. Changes, EOF preparation, partial-result policy, publication admission, retirement and subscription cleanup then follow the owning objects. A caller does not repeat a Feed/Changed/Finish/Commit protocol.
+
+`Transcript.Close` releases its own committed geometry and presentation along with retained entries and subscriptions, even if no later frame is painted. A layout already retained by a caller remains immutable and keeps its own content lifetime.
 
 `Selection` stores content-relative logical endpoints. `Scroll` owns reading intent. `Sticky` owns content identities eligible for pinning. Transcript's frame candidate composes their projections; painting does not advance their state. `Scan` is a bounded synchronous search operation that callers may schedule as scoped work and accept only for the matching content revision.
 

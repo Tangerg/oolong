@@ -50,9 +50,6 @@ func (p *formulaParser) command(name string, style formulaStyle) (box, error) {
 	case `\overline`:
 		content, err := p.argument(style)
 		return overlined(content, p.look.Glyphs, p.look.Rule), err
-	case `\exp`:
-		content, err := p.argument(style)
-		return horizontal(atom("exp ", style.cell), content), err
 	case `\,`, `\:`, `\;`:
 		return atom(" ", style.cell), nil
 	case `\quad`:

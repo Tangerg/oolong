@@ -347,8 +347,10 @@ func (v View) Ground() Ground { return v.surface.Ground() }
 // Blend changes foreground and background together so a region recedes
 // without moving or replacing its text. Terminal defaults resolve through
 // Ground first; unknown colors remain unchanged.
+// NaN opacity panics before changing cells, including for an empty region.
 func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 	v.scope.requireWritable()
+	opacity = normalizedOpacity(opacity)
 	if v.surface == nil || over.Default() || opacity <= 0 {
 		return
 	}
@@ -367,8 +369,10 @@ func (v View) Blend(r image.Rectangle, over Color, opacity float64) {
 // Fade blends each foreground toward its own background, preserving mixed
 // themes without guessing one overlay color. Zero leaves text unchanged and
 // one hides it; unresolved terminal-default colors are left alone.
+// A NaN amount panics before changing cells, including for an empty region.
 func (v View) Fade(r image.Rectangle, amount float64) {
 	v.scope.requireWritable()
+	amount = normalizedOpacity(amount)
 	if v.surface == nil || amount <= 0 {
 		return
 	}

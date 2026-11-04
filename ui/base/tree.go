@@ -104,7 +104,7 @@ func (t *Tree[T]) SetNodes(nodes []Node[T]) {
 	}
 	t.matcher.Reset(func() {
 		t.replaceNodes(nodes)
-		t.rebuild()
+		t.rebuild(0)
 	})
 }
 
@@ -131,8 +131,9 @@ func (t *Tree[T]) Rows() []Shown[T] {
 // rebuild is the sole transition from the owned hierarchy and open state into the
 // visible list. Drawing reads that settled list and therefore cannot clamp selection
 // or otherwise change semantic state.
-func (t *Tree[T]) rebuild() {
+func (t *Tree[T]) rebuild(selectedID uint64) {
 	rows := make([]Shown[T], 0, len(t.list.items))
+	selected := t.list.selected
 	type pending struct {
 		node  *treeNode[T]
 		depth int
@@ -148,6 +149,9 @@ func (t *Tree[T]) rebuild() {
 		node := current.node
 		branch := len(node.children) > 0
 		open := branch && t.open[node.id]
+		if node.id == selectedID {
+			selected = len(rows)
+		}
 		rows = append(rows, Shown[T]{
 			Item: node.item, Depth: current.depth, Branch: branch, Open: open, id: node.id,
 		})
@@ -158,7 +162,10 @@ func (t *Tree[T]) rebuild() {
 			stack = append(stack, pending{node: &node.children[i], depth: current.depth + 1})
 		}
 	}
-	t.list.SetItems(rows)
+	t.list.matcher.Reset(func() {
+		t.list.replaceItems(rows, selected)
+		t.list.notifyChange()
+	})
 }
 
 // Selected is the row the cursor is on, or -1 when the tree is showing nothing.
@@ -181,8 +188,8 @@ func (t *Tree[T]) Select(at int) {
 	t.list.Select(at)
 }
 
-// Open shows what is under the row at, and reports whether that changed anything:
-// a leaf, or a branch that was already open, changes nothing.
+// Open and Close preserve the selected identity so changing another branch cannot
+// retarget the next action. A hidden descendant moves onto its closing ancestor.
 func (t *Tree[T]) Open(at int) bool { return t.set(at, true) }
 
 func (t *Tree[T]) Close(at int) bool { return t.set(at, false) }
@@ -193,15 +200,27 @@ func (t *Tree[T]) set(at int, open bool) bool {
 	if at < 0 || at >= len(rows) || !rows[at].Branch || rows[at].Open == open {
 		return false
 	}
-	if t.open == nil {
-		t.open = map[uint64]bool{}
+	selected := t.Selected()
+	if !open {
+		for i := at + 1; i < len(rows) && rows[i].Depth > rows[at].Depth; i++ {
+			if i == selected {
+				selected = at
+				break
+			}
+		}
 	}
-	if open {
-		t.open[rows[at].id] = true
-	} else {
-		delete(t.open, rows[at].id)
-	}
-	t.rebuild()
+	selectedID := rows[selected].id
+	t.matcher.Reset(func() {
+		if t.open == nil {
+			t.open = map[uint64]bool{}
+		}
+		if open {
+			t.open[rows[at].id] = true
+		} else {
+			delete(t.open, rows[at].id)
+		}
+		t.rebuild(selectedID)
+	})
 	return true
 }
 

@@ -169,6 +169,14 @@ const (
 	captureRevoked
 )
 
+func (c capture) endsOn(event input.Event) bool {
+	mouse, ok := event.(input.Mouse)
+	if !ok || c.target.IsZero() {
+		return false
+	}
+	return mouse.Action == input.MouseDown || mouse.Action == input.MouseCancel || mouse.Releases(c.button)
+}
+
 func (c capture) cancel(n *node) {
 	if n != nil && n.config.Handle != nil {
 		n.config.Handle(Event{input: input.Mouse{Action: input.MouseCancel, Button: c.button}, target: c.target})
@@ -222,6 +230,12 @@ func (r *Root) Handle(event input.Event) bool { return r.HandleInput(r.CaptureIn
 func (r *Root) HandleInput(event CapturedInput) bool {
 	if r == nil || r.mutable() != nil || event.root != r {
 		return false
+	}
+	held := r.capture
+	if held.endsOn(event.input) {
+		// Eligibility and lifecycle callbacks can unwind before routing. The
+		// physical edge must still end its old gesture, never a reentrant one.
+		defer r.finishCapture(held, r.resolve(held.target))
 	}
 	r.inputTurn = next(r.inputTurn)
 	turn := r.inputTurn
@@ -302,7 +316,6 @@ func (r *Root) capturedMouse(mouse input.Mouse, snapshot *layoutSnapshot) (consu
 	handle := n.config.Handle
 	if mouse.Releases(held.button) {
 		r.capture.phase = captureReleasing
-		defer r.finishRelease(held, n)
 		if handle != nil {
 			handle = func(e Event) EventResult {
 				r.capture = capture{}
@@ -316,13 +329,13 @@ func (r *Root) capturedMouse(mouse input.Mouse, snapshot *layoutSnapshot) (consu
 	return q.dispatch(n, handle, mouse, placement.area).Consumed, true
 }
 
-// A preview can intercept the release, unwind or start a new press. Only
-// the original gesture still awaiting its owning handler needs cancellation.
-func (r *Root) finishRelease(held capture, n *node) {
+// Routing can exit before the release reaches its handler. Only the original
+// gesture still awaiting an end needs cancellation; a new press owns itself.
+func (r *Root) finishCapture(held capture, n *node) {
 	if r.capture.press != held.press {
 		return
 	}
-	cancel := r.capture.phase == captureReleasing
+	cancel := r.capture.phase != captureRevoked
 	r.capture = capture{}
 	if cancel {
 		held.cancel(n)

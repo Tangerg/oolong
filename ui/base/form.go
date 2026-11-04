@@ -315,21 +315,22 @@ type FormConfig struct {
 // keyboard target and pointer route; a form stores no parallel focus ring.
 // Form must not be copied after first use; its collaborators share one live identity.
 type Form struct {
-	noCopy     noCopy
-	key, title string
-	fields     []Field
-	Keys       *keymap.Map
-	Gap        int
-	check      func() error
-	submit     func(SubmissionID) (scene.ActionState, error)
-	cancel     func(SubmissionID) error
-	paintField func(scene.Frame, Field)
-	group      *scene.Group
-	status     scene.Item
-	problem    func() error
-	attempt    Submission
-	submitted  []fieldVersion
-	matcher    keymap.Matcher
+	noCopy         noCopy
+	key, title     string
+	fields         []Field
+	Keys           *keymap.Map
+	Gap            int
+	check          func() error
+	submit         func(SubmissionID) (scene.ActionState, error)
+	cancel         func(SubmissionID) error
+	paintField     func(scene.Frame, Field)
+	group          *scene.Group
+	status         scene.Item
+	problem        func() error
+	cancelFeedback requestFeedback
+	attempt        Submission
+	submitted      []fieldVersion
+	matcher        keymap.Matcher
 }
 
 // NewForm constructs one form owner. It panics for nil or duplicate fields, or fields already owned by an incompatible scene relation.
@@ -378,7 +379,9 @@ func (f *Form) ensure() {
 	})
 }
 
-// Set preflights the entire field relation before replacing it. It panics for nil or duplicate fields, an invalid attachment relation, or mutation during presentation or observation.
+// Set preflights the entire field relation before replacing it. Input begun for
+// the previous questions cannot submit their replacements. It panics for nil or
+// duplicate fields, an invalid attachment relation, or mutation during presentation or observation.
 func (f *Form) Set(fields ...Field) {
 	f.ensure()
 	requireMutable(f.group.Element())
@@ -397,13 +400,16 @@ func (f *Form) Set(fields ...Field) {
 	if err := f.group.CheckSet(items...); err != nil {
 		panic(err)
 	}
-	f.fields = own(f.fields, fields)
-	f.attempt = Submission{}
-	f.submitted = nil
-	f.problem = nil
-	if err := f.group.Set(items...); err != nil {
-		panic(err)
-	}
+	f.matcher.Reset(func() {
+		f.fields = own(f.fields, fields)
+		f.attempt = Submission{}
+		f.submitted = nil
+		f.problem = nil
+		f.cancelFeedback.clear()
+		if err := f.group.Set(items...); err != nil {
+			panic(err)
+		}
+	})
 }
 
 // Add appends fields using the same validation and ownership rules as Set.
@@ -420,6 +426,9 @@ func (f *Form) Fields() []Field { return slices.Clone(f.fields) }
 func (f *Form) Error() error {
 	if f.attempt.Err != nil {
 		return f.attempt.Err
+	}
+	if f.cancelFeedback.err != nil {
+		return f.cancelFeedback.err
 	}
 	if f.problem == nil {
 		return nil
@@ -449,8 +458,11 @@ func (f *Form) SubmitWith(collect func(Field) error) (scene.ActionResult[Submiss
 	requireMutable(f.Element())
 	id := SubmissionID{identity: new(byte)}
 	f.problem = nil
+	f.cancelFeedback.clear()
 	f.attempt = Submission{ID: id, State: SubmissionIdle}
 	f.submitted = nil
+	// Validation may exit without returning after the previous attempt was revoked.
+	f.Element().Invalidate()
 	versions, validationErr := f.validateSubmission(id, collect)
 	if validationErr != nil {
 		if f.attempt.ID == id {
@@ -528,6 +540,7 @@ func (f *Form) complete(outcome SubmissionOutcome) {
 	}
 	f.attempt.State, f.attempt.Err = state, outcome.Err
 	f.problem = nil
+	f.cancelFeedback.clear()
 	f.Element().Invalidate()
 }
 
@@ -641,8 +654,9 @@ func (f *Form) Do(action keymap.Action) bool {
 			return false
 		}
 		id := f.attempt.ID
-		if err := f.Cancel(); err != nil && f.attempt.ID == id && f.attempt.State == SubmissionPending {
-			f.problem = func() error { return err }
+		turn := f.cancelFeedback.begin()
+		err := f.Cancel()
+		if f.attempt.ID == id && f.attempt.State == SubmissionPending && f.cancelFeedback.finish(turn, err) {
 			f.Element().Invalidate()
 		}
 	default:

@@ -429,29 +429,28 @@ func TestAQuotationsBarStandsInTheQuotationsColumnsOnEveryRow(t *testing.T) {
 }
 
 func TestATableRuleFillsItsColumnExactly(t *testing.T) {
-	// A divider is configuration and may be a glyph a terminal draws two columns wide.
-	// Repeating it by count overran the column and pushed the rest of the row along;
-	// repeating it by columns and stopping did the opposite wherever no whole number
-	// of them fits, so the rule was short and every separator after it stood left of
-	// the one on the rows it separates.
-	glyphs := look()
-	glyphs.Glyphs.Divider = "界"
-	got := rows(t, 30, mustRender(t, "| name  | size |\n| --- | --- |\n| value | data |\n", glyphs))
-	if len(got) != 3 {
-		t.Fatalf("the table drew %d rows: %q", len(got), got)
-	}
-	column := func(row string) int {
-		before, _, found := strings.Cut(row, "│")
-		if !found {
-			t.Fatalf("no column separator in %q", row)
-		}
-		return text.Width(before)
-	}
-	bar := column(got[0])
-	for _, row := range got {
-		if at := column(row); at != bar {
-			t.Errorf("the column separator is in column %d of %q and %d of %q", at, row, bar, got[0])
-		}
+	for _, divider := range []string{"界", "\u0301", "a\tb", "🇺"} {
+		t.Run(divider, func(t *testing.T) {
+			glyphs := look()
+			glyphs.Glyphs.Divider = divider
+			got := rows(t, 40, mustRender(t, "| abcdefghijklmnopqrs | size |\n| --- | --- |\n| value | data |\n", glyphs))
+			if len(got) != 3 {
+				t.Fatalf("the table drew %d rows: %q", len(got), got)
+			}
+			column := func(row string) int {
+				before, _, found := strings.Cut(row, "│")
+				if !found {
+					t.Fatalf("no column separator in %q", row)
+				}
+				return text.Width(before)
+			}
+			bar := column(got[0])
+			for _, row := range got {
+				if at := column(row); at != bar {
+					t.Errorf("the column separator is in column %d of %q and %d of %q", at, row, bar, got[0])
+				}
+			}
+		})
 	}
 }
 

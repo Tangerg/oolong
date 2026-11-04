@@ -16,9 +16,13 @@ Leave `Attachment` nil for a session-bound scope. To bind work to a mounted elem
 
 `TaskStatus` separates the worker outcome, `CancelRequested`, and result delivery. Calling `Cancel` requests cooperation; it cannot truthfully declare external work finished. A successful worker can have revoked UI delivery after its view is detached. `Task.Done` and `Task.Settled` expose those distinct boundaries. Ordinary dispatcher congestion does not discard an already accepted task's completion. `DeliveryDelivered` means the result entered `Apply`; it remains delivered if that callback panics or calls `runtime.Goexit`. `Settled` closes after the callback unwinds, without claiming that its effects succeeded or a frame reached the terminal.
 
+Worker failure diagnostics do not own settlement. Even if formatting a recovered panic value exits the goroutine, the accepted task still publishes `ErrTaskAborted`, settles its delivery responsibility and releases its reserved capacity.
+
 ## Delayed keyboard input
 
 A key sequence captures `element.KeyboardLease()` and passes `lease.Valid` to `Matcher.Handle`. The scene owns the continuous keyboard route, including modal or content fallback when nothing is focused. Moving focus between descendants preserves an ancestor's lease; leaving its route, detaching or closing the root permanently revokes it. Returning later cannot revive an old prefix or queued resolver. A deferred traversal uses `lease.FocusNext`, since the originating event's imperative methods have already expired.
+
+If a resolver retains its callback and then panics or exits its goroutine, the matcher revokes that unfinished dispatch before unwinding. Resolver reentry can begin a newer sequence; cleanup of the abandoned dispatch cannot revoke it.
 
 ## Admitted frames and pointer input
 
@@ -26,9 +30,15 @@ A custom compositor calls `Root.Wrote(sequence)` when its writer advances. If se
 
 Pointer input names a mount, content ID, revision and coordinate frame. A callback that changes any of these cannot send the same click to replacement content. Modal shortcuts run inside the active modal. The optional `DialogConfig.Dismissed` callback lets application work follow the actual close, including when an agent invokes it.
 
+A physical release, cancellation or replacement press ends the previously captured gesture even if an eligibility or content callback unwinds before routing. A newer press begun by a reentrant callback has its own capture lifetime.
+
+After `Prepared.Commit` or `Prepared.Abort`, the candidate handle no longer retains its root, transaction or layout. The root owns admitted frames; caller-retained immutable snapshots keep their own lifetimes. Closing the root releases its clock callback and node storage after detaching content.
+
 ## Moving a live element
 
 An attachment's `Done` closes at detach. Its old blur, capture cancellation or detach callback may still be queued or executing. If mounting the same element returns `scene.ErrCleanupPending`, let the old callback return and flush the old root on its owner before retrying. Unrelated elements can mount immediately. An interrupted flush keeps the remaining notifications in order; reentering a flush does not overtake them. Closing a root wakes current and subsequent change subscribers.
+
+A notification may prepare the next frame. If that callback leaves its candidate unsettled, delivery pauses before the next notification; commit or abort the candidate, then flush again. The pending candidate remains the sole authority for this phase boundary.
 
 A routed event retains its input for inspection. Its imperative focus and capture methods expire with the callback or a newer input turn. Save the element or a generation-checked target for a later command.
 

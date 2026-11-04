@@ -14,6 +14,10 @@ Language: English | [简体中文](../zh/core/text.md)
 
 A cell is a display atom projection. Its span is owned by the grid and can exceed two columns. Clipping, overwrite, selection decoration and encoding preserve atom boundaries. A renderer must not infer width from byte length or treat a trailing atom cell as an independent character.
 
+`text.Fill(pattern, width)` keeps repeated dividers on those same column boundaries. It normalizes terminal text and expands tabs within the pattern, repeats complete copies, and pads unused columns with spaces. A pattern with no drawable width produces only spaces; a width of zero or less produces empty text. The complete result is measured again because adjacent copies can form different graphemes. Markdown and LaTeX share this operation instead of defining separate width rules.
+
+`line.Pad(width, alignment)` prepares a separately aligned field with `layout.Start`, `Center` or `End`. It expands tabs at the field origin and supplies a space base for any edge grapheme that would absorb neighbouring padding. That base retains the content's style and link; additional padding has default appearance and no link. Prepare with `Pad(0, layout.Start)` before measuring or wrapping, since completing an edge can increase its natural width. Padding never truncates an oversized field. Keep an explicit space separator when joining independent fields; concatenating arbitrary field bytes does not preserve every grapheme boundary.
+
 ## Encoding cell atoms
 
 Independent `View.Text` placements retain their cell coordinates even when concatenating their Unicode bytes would join an emoji modifier, zero-width joiner sequence, regional indicator pair, or spacing mark. The common terminal encoder inserts relative, position-preserving cursor barriers where segmentation would otherwise cross an atom boundary. Full frames, diffs, inline rows and frozen publications use the same rule; rendition and hyperlink changes are not grapheme boundaries.

@@ -22,9 +22,15 @@ A renderer consumes context and a complete source string, returning a passive `g
 
 ## Compose optional renderers
 
+Markdown parsing accepts at most 256 simultaneously open blocks, including paragraphs and list items. Goldmark owns that structure; exceeding the bound returns `ErrBlockNestingLimit` before further nesting or recursive block traversal. Fenced code containing quote markers is still literal content. This is a block nesting budget, not a general bound on inline syntax or all parsing cost. A rejected parse returns no drawable, and a finalized `StreamDocument` reports `Failed` with the preparation error.
+
+Markdown tables prepare cells and configured rule patterns as independent text fields before measuring them. Edge combining and prepend characters receive a space base that retains their style and link, so padding and separators keep their own columns. Column allocation reserves the widest indivisible grapheme as well as the readable floor; when those minimums cannot fit together, the table uses its record layout without discarding cell content.
+
 Markdown extension hooks accept passive rendering functions from applications. This lets code fences use highlighting and mathematics use LaTeX without making the Markdown module import its peers. Prepared Mermaid output has an external-process lifetime; perform it in scoped work before drawing.
 
 `latex.Render` accepts a bounded expression body, without math delimiters or document commands. Its parser owns the supported command arguments, scripts and grouping, and returns every unsupported-input diagnostic through `Formula.Err`. Rendering writes neither stdout nor stderr. Ordinary mathematical text such as `08`, `1e`, `0x` and quote characters follows the expression grammar, without Go literal interpretation. Literal atoms retain display graphemes, so joined emoji and combining marks have the same geometry during layout and drawing. Math whitespace is ignored; text-style arguments preserve whitespace, including the line boundary after a percent comment. This is a terminal expression subset, not a TeX document engine.
+
+Splitting a joined grapheme across syntax atoms can change terminal geometry after mathematical layout, as in `👩{‍💻}^2`. If any mathematical atom boundary moves, `Formula.Err` reports the unsupported geometry and the display retains the source; matching only the total row width is insufficient. A complete grapheme within one atom remains supported. Named operators such as `\exp` share the same grammar; they do not require a braced argument or consume a following script as an argument.
 
 Native terminal images remain live resources. Capturing their cell rectangle is not a permanent image publication protocol: `grid.Capture` refuses native painters with `errors.ErrUnsupported`. Applications may select a textual final representation explicitly.
 

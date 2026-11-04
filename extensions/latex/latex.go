@@ -141,11 +141,12 @@ func Render(source string, look Look) *Formula {
 	// Keep exact source for callers while parsing and fallback share physical line boundaries.
 	source = strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
 	laidOut, err := render(source, look)
+	if err == nil {
+		f.lines, err = laidOut.lines()
+	}
 	if err != nil {
 		f.err = err
 		f.lines = sourceLines(source, look.Error)
-	} else {
-		f.lines = laidOut.lines()
 	}
 	for _, line := range f.lines {
 		f.width = max(f.width, line.Width())
@@ -241,9 +242,9 @@ func sourceLines(source string, style grid.Style) []text.Line {
 
 var (
 	_ grid.Drawable = (*Formula)(nil)
-	_ error         = (*parseError)(nil)
+	_ error         = (*formulaError)(nil)
 )
 
-type parseError struct{ message string }
+type formulaError struct{ message string }
 
-func (e *parseError) Error() string { return "latex: " + e.message }
+func (e *formulaError) Error() string { return "latex: " + e.message }

@@ -23,14 +23,14 @@ type ButtonConfig struct {
 // independent enabled flag: appearance and activation query the same policy.
 // Button must not be copied after first use; its collaborators share one live identity.
 type Button struct {
-	noCopy    noCopy
-	label     string
-	element   scene.Element
-	action    *scene.Action[struct{}, struct{}]
-	pointer   Pointer
-	lastError error
-	keys      *keymap.Map
-	matcher   keymap.Matcher
+	noCopy   noCopy
+	label    string
+	element  scene.Element
+	action   *scene.Action[struct{}, struct{}]
+	pointer  Pointer
+	feedback requestFeedback
+	keys     *keymap.Map
+	matcher  keymap.Matcher
 }
 
 // NewButton constructs one action owner. Nil Activate creates a disabled button with an explanatory availability reason.
@@ -122,11 +122,14 @@ func (b *Button) Press(ctx context.Context) (scene.ActionResult[struct{}], error
 
 func (b *Button) press(ctx context.Context, recordError bool) (scene.ActionResult[struct{}], error) {
 	requireMutable(b.element)
+	var turn uint64
+	if recordError {
+		turn = b.feedback.begin()
+	}
 	result, err := b.action.Invoke(ctx, struct{}{})
 	changed := result.State != scene.Unchanged
 	if recordError {
-		changed = changed || b.lastError != nil || err != nil
-		b.lastError = err
+		changed = b.feedback.finish(turn, err) || changed
 	}
 	if changed {
 		b.element.Invalidate()
@@ -136,7 +139,7 @@ func (b *Button) press(ctx context.Context, recordError bool) (scene.ActionResul
 
 // Error is the last activation error delivered by keyboard or pointer input.
 // Programmatic and agent activation return their error directly.
-func (b *Button) Error() error { return b.lastError }
+func (b *Button) Error() error { return b.feedback.err }
 
 func (b *Button) HeightForWidth(int) int { return 1 }
 

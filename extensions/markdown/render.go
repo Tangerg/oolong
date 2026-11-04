@@ -5,15 +5,11 @@ import (
 	"errors"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
-	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/extension"
 	east "github.com/yuin/goldmark/extension/ast"
 	gparser "github.com/yuin/goldmark/parser"
-	gtext "github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -21,26 +17,11 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Each parse has its own context, so one lazily initialized parser can safely
-// serve full-source snapshots without rebuilding extension priorities per chunk.
-// GFM keeps tables, task lists, strikethrough and bare links semantic.
-func parse(source []byte, context gparser.Context) ast.Node {
-	return parser().Parse(gtext.NewReader(source), gparser.WithContext(context))
-}
-
-var parser = sync.OnceValue(func() gparser.Parser {
-	return goldmark.New(
-		goldmark.WithExtensions(extension.GFM),
-		goldmark.WithParserOptions(gparser.WithBlockParsers(
-			util.Prioritized(&mathBlockParser{}, 650),
-		)),
-	).Parser()
-})
-
 // Render normalizes invalid UTF-8 and NUL before parsing so every syntax uses the
 // same characters and offsets. Extension failures retain readable blocks alongside
 // errors. Live and final snapshots share parsing; source revision and finalization
-// belong to the stream document.
+// belong to the stream document. ErrBlockNestingLimit returns no blocks because
+// the parse was stopped before rendering.
 func Render(source string, look Look) ([]Block, error) {
 	return render(source, look, nil)
 }
@@ -51,7 +32,10 @@ func render(source string, look Look, context gparser.Context) ([]Block, error) 
 	}
 	look = cloneLook(look)
 	r := &renderer{look: look, source: []byte(normalizeSource(source))}
-	root := parse(r.source, context)
+	root, err := parse(r.source, context)
+	if err != nil {
+		return nil, err
+	}
 	r.render(root, frame{body: look.Text})
 	return r.blocks, errors.Join(r.errors...)
 }
@@ -611,8 +595,9 @@ func (r *renderer) table(n *east.Table, in frame) {
 	r.push(Block{
 		table: &table{
 			rows: rows, aligns: columnAlignments(n.Alignments), header: header,
-			separator: r.column(), divider: r.look.Glyphs.Divider,
-			rail: r.look.Rail, rule: r.look.Rule,
+			separator: text.Of(r.column(), r.look.Rail).Pad(0, layout.Start).String(),
+			divider:   text.Of(r.look.Glyphs.Divider, r.look.Rule).Pad(0, layout.Start).String(),
+			rail:      r.look.Rail, rule: r.look.Rule,
 		},
 	}, in)
 }
@@ -635,7 +620,7 @@ func (r *renderer) cells(n *east.Table) (rows [][]text.Line, header bool) {
 				row = append(row, nil)
 				continue
 			}
-			row = append(row, lines[0])
+			row = append(row, lines[0].Pad(0, layout.Start))
 		}
 		rows = append(rows, row)
 	}

@@ -20,7 +20,7 @@ func TestTreeDepthUsesStorageRatherThanTheCallStackOrPathCopies(t *testing.T) {
 		tree.open[node.id] = true
 		owned = node.children
 	}
-	tree.rebuild()
+	tree.rebuild(0)
 
 	rows := tree.Rows()
 	if len(rows) != depth {

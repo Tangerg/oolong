@@ -555,6 +555,11 @@ func (r *Root) FlushNotifications() {
 		}
 	}()
 	for remaining := len(r.notifications); len(r.notifications) > 0 && (remaining > 0 || r.closed); remaining-- {
+		// A callback may leave the next frame prepared. Its model must stay
+		// unchanged until that candidate settles, including during this flush.
+		if r.pending != nil {
+			return
+		}
 		// Claim only this callback. A panic or Goexit must not discard its
 		// successors, and a recursive flush must not overtake them.
 		call := r.notifications[0]
@@ -621,6 +626,7 @@ func (r *Root) revoke() {
 	}
 	r.content = Element{}
 	r.closed = true
+	r.nodes, r.now = nil, nil
 	r.capture = capture{}
 	r.scopes = nil
 	r.previousKeyboardRoute = nil

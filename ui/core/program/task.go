@@ -214,16 +214,9 @@ func (t *Task) run[T any](ctx context.Context, scope *Scope, p *program, slot *r
 	stopCancellation := context.AfterFunc(ctx, t.noteCancellation)
 	var value T
 	err := ErrTaskAborted
+	// Formatting a recovered value can itself exit. Its diagnostics cannot
+	// share the defer that must settle the already accepted task.
 	defer func() {
-		// The worker has no caller stack to unwind into. Report its failure on
-		// the task, so the UI owner still gets to decide and restore its session.
-		if v := recover(); v != nil {
-			cause, ok := v.(error)
-			if !ok {
-				cause = fmt.Errorf("panic: %v", v)
-			}
-			err = errors.Join(ErrTaskAborted, cause)
-		}
 		stopCancellation()
 		if ctx.Err() != nil {
 			t.noteCancellation()
@@ -255,6 +248,17 @@ func (t *Task) run[T any](ctx context.Context, scope *Scope, p *program, slot *r
 				t.settle(false)
 				slot.close()
 			}
+		}
+	}()
+	defer func() {
+		// The worker has no caller stack to unwind into. Report its failure on
+		// the task, so the UI owner still gets to decide and restore its session.
+		if v := recover(); v != nil {
+			cause, ok := v.(error)
+			if !ok {
+				cause = fmt.Errorf("panic: %v", v)
+			}
+			err = errors.Join(ErrTaskAborted, cause)
 		}
 	}()
 	value, err = work.Run(ctx)

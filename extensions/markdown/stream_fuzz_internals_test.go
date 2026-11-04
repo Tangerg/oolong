@@ -2,7 +2,9 @@ package markdown
 
 import (
 	"context"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/content"
@@ -18,6 +20,7 @@ func FuzzStreamSaysTheSameThingHoweverItArrives(f *testing.F) {
 		"- ```go\n  x\n  ```\n\nafter\n", "one\n\ntwo\n\nthree\n",
 		"[ref]: /target\n\n[first][ref]\n\n[second][ref]\n\nend\n",
 		"[first][ref]\n\n[ref]: /late\n", "| a | b |\n| - | - |\n| 1 | 2 |\n\nafter\n",
+		strings.Repeat("> ", maxBlockNesting) + "leaf",
 	} {
 		f.Add(source)
 	}
@@ -26,17 +29,22 @@ func FuzzStreamSaysTheSameThingHoweverItArrives(f *testing.F) {
 			t.Skip()
 		}
 		renderer := NewRenderer(RendererConfig{})
-		whole, err := renderer(context.Background(), source)
-		if err != nil {
-			t.Fatal(err)
+		whole, parseErr := renderer(context.Background(), source)
+		if parseErr != nil && !errors.Is(parseErr, ErrBlockNestingLimit) {
+			t.Fatal(parseErr)
 		}
-		want, err := grid.Capture(grid.CaptureConfig{Content: whole, Width: 40})
-		if err != nil {
-			t.Fatal(err)
-		}
-		wantRows, err := want.Rows(40)
-		if err != nil {
-			t.Fatal(err)
+		var wantRows [][]grid.Cell
+		if parseErr == nil {
+			want, err := grid.Capture(grid.CaptureConfig{Content: whole, Width: 40})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantRows, err = want.Rows(40)
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else if whole != nil {
+			t.Fatal("rejected parse retained a body")
 		}
 		for _, chunk := range []int{1, 3, 17} {
 			doc, err := content.NewStreamDocument(content.StreamConfig{Format: "markdown"})
@@ -57,7 +65,17 @@ func FuzzStreamSaysTheSameThingHoweverItArrives(f *testing.F) {
 			if err = doc.Accept(doc.Snapshot().Prepare(context.Background(), renderer)); err != nil {
 				t.Fatal(err)
 			}
-			got, err := grid.Capture(grid.CaptureConfig{Content: doc.Current().Body, Width: 40})
+			change := doc.Current()
+			if parseErr != nil {
+				if change.State != content.Failed || change.Body != nil || !errors.Is(change.PrepareError, ErrBlockNestingLimit) || change.Publishable() {
+					t.Fatalf("chunk %d changed rejected parse result: %+v", chunk, change)
+				}
+				continue
+			}
+			if change.State != content.Final || change.PrepareError != nil {
+				t.Fatalf("chunk %d changed accepted parse result: %+v", chunk, change)
+			}
+			got, err := grid.Capture(grid.CaptureConfig{Content: change.Body, Width: 40})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -20,14 +20,17 @@ import (
 // a panic that moves into caller-reachable code fails this test until it is either
 // documented on the exported API or explained here.
 var internalAssertions = map[string]string{
-	"ui/core/anim:requireFinite":                "Transition.To, Timeline.SetFrames and Value, and Spring.To, Set and Tick document non-finite input or unrepresentable motion refusal",
-	"ui/core/ansi:Scanner.requireIdle":          "Scanner documents that its active visitor cannot reenter Feed or Reset",
-	"ui/core/publication:Publisher.checkPrefix": "Commit and FailAdmission require the current pending prefix issued by this publisher",
+	"extensions/markdown:blockNestingContext.SetOpenedBlocks": "Goldmark has no error return here; parse catches this private budget termination and public renderers return ErrBlockNestingLimit",
+	"extensions/markdown:parse":                               "only unexpected panic values are rethrown; the private block nesting termination becomes an explicit parse error",
+	"ui/core/anim:requireFinite":                              "Transition.To, Timeline.SetFrames and Value, and Spring.To, Set and Tick document non-finite input or unrepresentable motion refusal",
+	"ui/core/ansi:Scanner.requireIdle":                        "Scanner documents that its active visitor cannot reenter Feed or Reset",
+	"ui/core/publication:Publisher.checkPrefix":               "Commit and FailAdmission require the current pending prefix issued by this publisher",
 
 	// Dimensions are validated in one place for both of a renderer's buffers. The
 	// exported callers, NewSurface and Surface.Resize, document the panic themselves.
 	"extensions/markdown:documentView.arrange": "Doc measurement, drawing and row projection document refusal when combined block heights cannot fit an int",
 	"ui/core/grid:surfaceSize":                 "NewSurface and Surface.Resize document the overflow panic",
+	"ui/core/grid:normalizedOpacity":           "RGB.Blend, Color.Blend, View.Blend and View.Fade document NaN refusal before changing colors or cells",
 	"ui/core/grid:publication.requireIdle":     "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
 	"ui/core/grid:viewScope.requireWritable":   "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
 

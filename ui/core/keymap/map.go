@@ -344,7 +344,16 @@ func (m *Matcher) deferExact(bindings *Map, action Action, do func(Action) bool)
 		return
 	}
 	ticket := m.ticket
+	returned := false
+	defer func() {
+		// A scheduler can retain resolve before unwinding. Revoke that unfinished
+		// dispatch without clearing a newer sequence started by scheduler reentry.
+		if !returned && m.ticket == ticket {
+			m.Clear()
+		}
+	}()
 	cancel := bindings.Resolve(bindings.timeout(), func() { m.resolve(ticket) })
+	returned = true
 	if m.ticket == ticket && len(m.keys) > 0 {
 		m.cancel = cancel
 	} else if cancel != nil {

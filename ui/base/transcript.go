@@ -397,6 +397,9 @@ func (t *Transcript) Close() {
 	t.entries.Clear()
 	t.selection.clear()
 	t.sticky.setBlocks(nil)
+	// Close must release its projections even if no later frame is painted.
+	t.geometry = scene.Snapshot[TranscriptLayout]{}
+	t.presentation = scene.Snapshot[transcriptPresentation]{}
 	t.changed()
 }
 

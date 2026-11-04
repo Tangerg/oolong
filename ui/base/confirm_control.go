@@ -64,10 +64,13 @@ func (c *Confirm) request(ctx context.Context, request ConfirmRequest, recordErr
 			c.invalidate()
 		}
 	}()
+	var turn uint64
+	if recordError {
+		turn = c.feedback.begin()
+	}
 	result, err := c.applyRequest(ctx, request)
 	if recordError {
-		c.pendingChange = c.pendingChange || c.changeErr != nil || err != nil
-		c.changeErr = err
+		c.pendingChange = c.feedback.finish(turn, err) || c.pendingChange
 	}
 	c.pendingChange = c.pendingChange || result.State != scene.Unchanged
 	return result, err
@@ -107,7 +110,7 @@ func (c *Confirm) invalidate() {
 
 // ChangeError is the last failure from a keyboard, pointer, Say or Reply request.
 // Typed programmatic and AX requests return errors directly.
-func (c *Confirm) ChangeError() error { return c.changeErr }
+func (c *Confirm) ChangeError() error { return c.feedback.err }
 
 // Close releases a live domain subscription and disables further requests. It
 // does not dispose the domain owner. Temporary scene detachment does not close the

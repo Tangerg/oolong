@@ -202,14 +202,13 @@ type Prepared struct {
 	root   *Root
 	tx     *transaction
 	layout *layoutSnapshot
-	done   bool
 }
 
 // Commit atomically publishes the candidate after writer admission. Zero inherits the previous writer sequence.
 // Wrote then publishes its input geometry, including when that watermark was already confirmed.
 // It panics if the candidate has already settled, is foreign, regresses the writer sequence, or settlement interrupts a pure phase.
 func (p *Prepared) Commit(sequence uint64) {
-	if p == nil || p.done {
+	if p == nil || p.root == nil {
 		panic("scene: candidate already settled")
 	}
 	p.requireSettlement()
@@ -224,26 +223,31 @@ func (p *Prepared) Commit(sequence uint64) {
 	r.lastSequence = sequence
 	p.tx.commit()
 	r.layout = p.layout
-	r.pending = nil
-	p.done = true
 	if n := len(r.inFlight); n != 0 && r.inFlight[n-1].sequence == sequence {
 		r.inFlight[n-1] = p.layout
 	} else {
 		r.inFlight = append(r.inFlight, p.layout)
 	}
+	p.settle()
 	r.signal()
 }
 
 // Abort discards an unsettled candidate without undoing model or attachment changes.
 // It panics if called on a copy of a live candidate or during a pure projection.
 func (p *Prepared) Abort() {
-	if p == nil || p.done {
+	if p == nil || p.root == nil {
 		return
 	}
 	p.requireSettlement()
 	p.tx.abort()
+	p.settle()
+}
+
+// A settled handle owns no frame. Retaining it must not pin obsolete projections
+// or the live scene, and losing the owner is itself the terminal state.
+func (p *Prepared) settle() {
 	p.root.pending = nil
-	p.done = true
+	p.root, p.tx, p.layout = nil, nil, nil
 }
 
 // The writer clock may be sampled between preparation and admission. Its pure
