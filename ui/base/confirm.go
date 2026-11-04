@@ -108,7 +108,7 @@ func (c *Confirm) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := c.matcher.Handle(c.keys(), key, c.Do)
+	_, handled := c.matcher.Handle(c.keys(), key, keyboardReceipt(&c.element), c.Do)
 	return handled
 }
 

@@ -59,7 +59,7 @@ func TestScopeWithoutAttachmentFollowsTheRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	settleTask(t, owner, task)
-	if !applied || task.Snapshot().Delivery != DeliveryApplied {
+	if !applied || task.Snapshot().Delivery != DeliveryDelivered {
 		t.Fatal("changing the scene revoked a session-bound scope")
 	}
 }

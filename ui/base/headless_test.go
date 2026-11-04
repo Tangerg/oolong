@@ -159,13 +159,8 @@ func altKey(r rune) input.Event {
 	return input.Key{Code: input.Character, Rune: r, Mods: input.Alt}
 }
 
-// cursorAt lays the editor out at a width and returns the cursor's row and column.
-
-// cursorAt lays the editor out at a width and returns where it put the caret.
-//
-// Through a screen, because a screen is what carries a cursor: the editor places
-// one with [grid.View.PlaceCursor] and [grid.Screen.Cursor] reads it back, which
-// is the same question a caller asks and the same answer they get.
+// The screen owns cursor placement; observing it exercises the same projection
+// boundary as a terminal instead of reading editor-internal geometry.
 func cursorAt(e *base.Editor, w, h int) (int, int) {
 	screen := grid.NewScreen(w, h)
 	newTestRoot(e).Draw(screen.Frame())
@@ -258,8 +253,6 @@ func TestAHintReadsTheKeyOutOfTheMapThatBoundIt(t *testing.T) {
 		t.Errorf("what it does = %q", got)
 	}
 }
-
-// widgetFunc adapts a function to [Widget].
 
 func TestTokenAt(t *testing.T) {
 	for _, tc := range []struct {

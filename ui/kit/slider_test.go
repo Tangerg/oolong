@@ -5,12 +5,13 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func TestSliderComposesLabelTrackThumbAndValue(t *testing.T) {
-	slider := kit.NewSlider(kit.SliderConfig{Glyphs: kit.Unicode(), Maximum: 10, Label: "speed"})
+	slider := kit.NewSlider(kit.SliderConfig{Behavior: base.SliderConfig{Maximum: 10, Label: "speed"}, Glyphs: kit.Unicode()})
 	slider.Controller().Set(5)
 	equalRows(t, paintWidget(20, 1, slider), []string{"speed.─────●──────.5"})
 
@@ -26,14 +27,14 @@ func TestSliderComposesLabelTrackThumbAndValue(t *testing.T) {
 }
 
 func TestSliderMayFormatItsValue(t *testing.T) {
-	slider := kit.NewSlider(kit.SliderConfig{Glyphs: kit.ASCII(), Minimum: 1, Maximum: 8, Label: "workers"})
+	slider := kit.NewSlider(kit.SliderConfig{Behavior: base.SliderConfig{Minimum: 1, Maximum: 8, Label: "workers"}, Glyphs: kit.ASCII()})
 	slider.Controller().Set(3)
 	slider.Format = func(value int) string { return strconv.Itoa(value) + "x" }
 	equalRows(t, paintWidget(18, 1, slider), []string{"workers.-O-----.3x"})
 }
 
 func TestSliderNeverClipsAFormattedValueIntoAnotherNumber(t *testing.T) {
-	slider := kit.NewSlider(kit.SliderConfig{Glyphs: kit.ASCII(), Maximum: 100})
+	slider := kit.NewSlider(kit.SliderConfig{Behavior: base.SliderConfig{Maximum: 100}, Glyphs: kit.ASCII()})
 	slider.Controller().Set(50)
 	slider.Format = func(int) string { return "7000%" }
 	equalRows(t, paintWidget(3, 1, slider), []string{"-O-"})

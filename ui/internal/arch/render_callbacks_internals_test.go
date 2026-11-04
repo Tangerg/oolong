@@ -33,8 +33,6 @@ type callbackRule struct {
 var renderingCallbacks = map[string]callbackRule{
 	"ui/kit:InputConfig.Validate":         {callbackEvent, "the input skin configures validation on its sole base.Text controller"},
 	"ui/base:Confirm.unsubscribe":         {callbackEvent, "closing the control revokes its domain owner subscription"},
-	"ui/kit:ButtonConfig.Activate":        {callbackEvent, "the skin supplies activation policy to its single base action"},
-	"ui/kit:ButtonConfig.Availability":    {callbackProjection, "the skin shares the base action's pure eligibility policy"},
 	"ui/base:Completion.Accept":           {callbackEvent, "acceptance follows an input action after the completion closes"},
 	"ui/base:Completion.CurrentToken":     {callbackProjection, "offer eligibility reads the current editor position without advancing it"},
 	"ui/base:Confirm.Check":               {callbackEvent, "validation follows an answer change or form submission"},
@@ -79,7 +77,7 @@ var renderingCallbacks = map[string]callbackRule{
 	"ui/base:Select.Check":                {callbackEvent, "validation follows a selection change"},
 	"ui/base:Select.Same":                 {callbackProjection, "equality is a read-only projection of two values"},
 	"ui/base:Settings.Change":             {callbackEvent, "a value changes only in response to an action"},
-	"ui/base:Table.less":                  {callbackSemantic, "ordering is rebuilt by an explicit sort operation"},
+	"ui/base:Table.sortColumns":           {callbackSemantic, "ordering is rebuilt by an explicit sort operation"},
 	"ui/base:Text.Check":                  {callbackEvent, "validation follows an edit or form transition"},
 	"ui/base:fieldCheck.current":          {callbackProjection, "a validation receipt only compares its checked answer with the current owner"},
 	"ui/base:TextConfig.Check":            {callbackEvent, "construction retains checking for edits and form transitions"},

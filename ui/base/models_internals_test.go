@@ -35,9 +35,9 @@ func TestEditorUndoHistoryIsBounded(t *testing.T) {
 }
 
 func TestEditorHistoryClearsPoppedSnapshots(t *testing.T) {
-	history := editorHistory{}
-	history.record(editorState{lines: []string{"before"}, marks: []text.Mark{{ID: 1}}})
-	if _, ok := history.back(editorState{lines: []string{"after"}}); !ok {
+	history := editHistory{}
+	history.record(editSnapshot{lines: []string{"before"}, marks: []text.Mark{{ID: 1}}})
+	if _, ok := history.back(editSnapshot{lines: []string{"after"}}); !ok {
 		t.Fatal("undo stack reported empty")
 	}
 	for i, state := range history.undo[:cap(history.undo)] {
@@ -45,7 +45,7 @@ func TestEditorHistoryClearsPoppedSnapshots(t *testing.T) {
 			t.Fatalf("popped undo slot %d retained %+v", i, state)
 		}
 	}
-	if _, ok := history.forward(editorState{lines: []string{"current"}}); !ok {
+	if _, ok := history.forward(editSnapshot{lines: []string{"current"}}); !ok {
 		t.Fatal("redo stack reported empty")
 	}
 	for i, state := range history.redo[:cap(history.redo)] {

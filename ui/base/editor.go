@@ -1,14 +1,10 @@
 package base
 
 import (
-	"cmp"
 	"image"
-	"math"
-	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
-	"weak"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
 
@@ -70,6 +66,48 @@ type Editor struct {
 	presentation scene.Snapshot[editorPresentation]
 }
 
+// EditorConfig chooses the document owner. Initial is used only when Session is
+// absent; supplying both is a construction error rather than an arbitration rule.
+type EditorConfig struct {
+	Session     *EditSession
+	Initial     string
+	Placeholder string
+	MaxRows     int
+	SingleLine  bool
+}
+
+// NewEditor constructs one view. It panics if Session is combined with Initial or SingleLine, which would supply competing document owners.
+func NewEditor(config EditorConfig) *Editor {
+	if config.Session != nil && (config.Initial != "" || config.SingleLine) {
+		panic("base: editor Session cannot be combined with Initial or SingleLine")
+	}
+	e := &Editor{session: config.Session, Placeholder: strings.Clone(config.Placeholder), MaxRows: config.MaxRows}
+	if e.session == nil {
+		e.local.initialize(EditSessionConfig{Initial: config.Initial, SingleLine: config.SingleLine})
+		e.finishReplacement(e.local.end(), true)
+	}
+	e.connect()
+	return e
+}
+
+func (e *Editor) document() *EditSession {
+	if e.session != nil {
+		return e.session
+	}
+	return &e.local
+}
+
+// Session returns the document owner used by this view. Its subscriptions observe completed document transactions.
+func (e *Editor) Session() *EditSession { e.connect(); return e.document() }
+
+func (e *Editor) connect() {
+	if e.registered {
+		return
+	}
+	e.registered = true
+	e.document().attach(e)
+}
+
 type editorPresentation struct {
 	content                    editorProjectionKey
 	width, gutter, first, left int
@@ -96,16 +134,6 @@ func (p editorPresentation) textPoint(point image.Point) (image.Point, bool) {
 	return point, true
 }
 
-type editorState struct {
-	view             weak.Pointer[Editor]
-	change           ChangeMap // maps this history snapshot to the state it replaces on undo or redo
-	lines            []string
-	line, byteOffset int
-	// Text cannot reconstruct element identities, so undo must retain the marks.
-	marks []text.Mark
-}
-
-// Text is the whole content, lines joined by newlines.
 func (e *Editor) Text() string { return e.document().Text() }
 
 // Revision advances once per semantic text or element change, including undo and redo.
@@ -122,7 +150,10 @@ func (e *Editor) SingleLine() bool { return e.document().singleLine }
 // It clears history so undo cannot restore invalid multi-line content. A non-empty
 // mask still requires one-line storage when the explicit setting is disabled.
 func (e *Editor) SetSingleLine(enabled bool) {
-	e.setPolicy(enabled, e.Mask())
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
+	e.connect()
+	e.document().setPolicy(e, enabled, e.Mask())
 }
 
 // Mask reports the shared session's display mask. Empty means text is shown.
@@ -132,122 +163,17 @@ func (e *Editor) Mask() string { return e.document().mask }
 // A non-empty mask also requires single-line storage for every writer, including
 // Reset. It panics for invisible or joining masks, or during scene projection.
 func (e *Editor) SetMask(mask string) {
-	if mask != "" && !maskable(mask) {
-		panic("base: editor mask must be visible terminal text that does not join a copy of itself")
-	}
-	e.setPolicy(e.SingleLine(), mask)
-}
-
-// Repeated masks must not join into grapheme clusters, or multiplication would place
-// the cursor beyond the rendered text.
-func maskable(mask string) bool {
-	return text.Printable(mask) == mask &&
-		!strings.Contains(mask, "\t") &&
-		text.Width(mask) > 0 &&
-		clusters(mask+mask) == 2*clusters(mask)
-}
-
-func clusters(s string) int {
-	n := 0
-	for range text.Clusters(s) {
-		n++
-	}
-	return n
-}
-
-func (e *Editor) setPolicy(singleLine bool, mask string) {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
-	doc := e.document()
-	if doc.singleLine == singleLine && doc.mask == mask {
-		return
-	}
 	e.connect()
-	entering := !e.oneLine() && (singleLine || mask != "")
-	if entering && len(doc.lines) > 1 {
-		e.requireContentRevision()
-	}
-	doc.singleLine, doc.mask = singleLine, strings.Clone(mask)
-	if entering {
-		// Older snapshots could restore line breaks even if today's text has none.
-		doc.history.clear()
-		if len(doc.lines) > 1 {
-			before := doc.lines
-			at := e.offsetOf(Caret{Line: e.line, Byte: e.byteOffset})
-			flattened := strings.Join(before, " ")
-			doc.lines = []string{flattened}
-			e.line, e.byteOffset = 0, e.snapElement(0, at, true)
-			e.selecting = false
-			e.endTyping()
-			doc.commit(e, before, ChangeMap{OldEnd: len(flattened), NewEnd: len(flattened)}, false)
-			return
-		}
-	}
-	for _, ref := range doc.views {
-		if view := ref.Value(); view != nil {
-			view.endTyping()
-			view.layout.stale = true
-			view.revealCursor()
-		}
-	}
-	doc.invalidateViews()
+	e.document().setPolicy(e, e.SingleLine(), mask)
 }
 
-// SetText replaces the content and places the cursor at its end.
-func (e *Editor) SetText(s string) { e.replaceDocument(s, true) }
-
-// replaceDocument settles history policy before publishing the document change.
-func (e *Editor) replaceDocument(s string, remember bool) {
+func (e *Editor) SetText(value string) {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	e.endTyping()
-	start := Caret{}
-	end := Caret{Line: len(e.document().lines) - 1, Byte: len(e.document().lines[len(e.document().lines)-1])}
-	s, changed := e.prepareReplacement(start, end, s)
-	if !remember {
-		e.document().history.clear()
-	}
-	if !changed {
-		e.finishReplacement(end)
-		return
-	}
-	if remember {
-		e.snapshot()
-	}
-	// A whole replacement supplies no particular edit location. Preserve its
-	// unchanged edges; explicit range edits keep their actual coordinates.
-	previous := e.Text()
-	prefix := commonRunePrefix(previous, s)
-	oldEnd, newEnd := commonRuneSuffixStarts(previous, s, prefix)
-	before, _ := e.applyRange(start, end, s)
-	e.document().commit(e, before, ChangeMap{Start: prefix, OldEnd: oldEnd, NewEnd: newEnd}, true)
-}
-
-func commonRunePrefix(a, b string) int {
-	at := 0
-	for at < len(a) && at < len(b) {
-		ra, sa := utf8.DecodeRuneInString(a[at:])
-		rb, sb := utf8.DecodeRuneInString(b[at:])
-		if ra != rb || sa != sb {
-			break
-		}
-		at += sa
-	}
-	return at
-}
-
-func commonRuneSuffixStarts(a, b string, prefix int) (int, int) {
-	aEnd, bEnd := len(a), len(b)
-	for aEnd > prefix && bEnd > prefix {
-		ra, sa := utf8.DecodeLastRuneInString(a[:aEnd])
-		rb, sb := utf8.DecodeLastRuneInString(b[:bEnd])
-		if ra != rb || sa != sb || aEnd-sa < prefix || bEnd-sb < prefix {
-			break
-		}
-		aEnd, bEnd = aEnd-sa, bEnd-sb
-	}
-	return aEnd, bEnd
+	e.document().replace(e, editReplacement{text: value, whole: true}, e.finishReplacement)
 }
 
 func (e *Editor) Empty() bool {
@@ -259,16 +185,7 @@ func (e *Editor) Clear() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	e.endTyping()
-	start := Caret{}
-	end := Caret{Line: len(e.document().lines) - 1, Byte: len(e.document().lines[len(e.document().lines)-1])}
-	_, changed := e.prepareReplacement(start, end, "")
-	if !changed {
-		e.finishReplacement(start)
-		return
-	}
-	e.snapshot()
-	e.replaceRange(start, end, "")
+	e.document().replace(e, editReplacement{end: e.document().end()}, e.finishReplacement)
 }
 
 // Cursor returns the logical line and byte offset.
@@ -284,47 +201,31 @@ func (e *Editor) SetCursor(line, byteOffset int) {
 	e.line = min(max(line, 0), len(e.document().lines)-1)
 	current := e.document().lines[e.line]
 	byteOffset = min(max(byteOffset, 0), len(current))
-	e.byteOffset = e.snapElement(e.line, byteOffset, false)
+	e.byteOffset = e.document().snapElement(e.line, byteOffset, false)
 	e.desiredColumn = editorColumn{}
 }
 
 // Insert inserts text at the cursor as one undo step, splitting lines at newlines.
 func (e *Editor) Insert(s string) { e.insert(s, false) }
 
-func (e *Editor) insert(s string, typed bool) {
+func (e *Editor) insert(value string, typed bool) {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
-	if !typed {
-		e.endTyping()
-	}
-	if s == "" {
+	if value == "" {
 		if typed {
-			e.document().history.endTyping(e)
+			e.document().endTyping(e)
+		} else {
+			e.endTyping()
 		}
 		return
 	}
 	e.ensure()
-	e.breakContinuation()
-	start, end := Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: e.byteOffset}
-	if selected, selectedEnd, ok := e.Selection(); ok {
-		start, end = selected, selectedEnd
-	}
-	s, changed := e.prepareReplacement(start, end, s)
-	if !changed {
-		if typed {
-			e.document().history.endTyping(e)
-		}
-		e.finishReplacement(end)
-		return
-	}
-	if e.document().history.typist.Value() != e {
-		e.snapshot()
-	}
+	start, end := e.replacementRange()
+	history := recordEdit
 	if typed {
-		e.document().history.typist = weak.Make(e)
+		history = coalesceEdit
 	}
-	// Selection replacement and insertion share one undo step.
-	e.replaceRange(start, end, s)
+	e.document().replace(e, editReplacement{start: start, end: end, text: value, history: history}, e.finishReplacement)
 }
 
 // Replace swaps the byte range [start, end) of the line the cursor is on for s, and
@@ -334,81 +235,16 @@ func (e *Editor) insert(s string, typed bool) {
 // It is one edit rather than a delete and an insert so that it is one step to undo:
 // accepting a completion is one thing the user did, and taking it back should not
 // take two. A token never spans lines, which is why the range does not either.
-func (e *Editor) Replace(start, end int, s string) {
+func (e *Editor) Replace(start, end int, value string) {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	line := e.document().lines[e.line]
-	start = min(max(start, 0), len(line))
-	end = min(max(end, start), len(line))
-	start, end = completeClusters(line, start, end)
-	e.endTyping()
-	from := Caret{Line: e.line, Byte: start}
-	to := Caret{Line: e.line, Byte: end}
-	s, changed := e.prepareReplacement(from, to, s)
-	if !changed {
-		e.finishReplacement(to)
-		return
-	}
-	e.snapshot()
-	e.replaceRange(from, to, s)
+	e.document().replace(e, editReplacement{
+		start: Caret{Line: e.line, Byte: start}, end: Caret{Line: e.line, Byte: end}, text: value, expandClusters: true,
+	}, e.finishReplacement)
 }
 
-// Expand non-empty edits to whole graphemes; insertions inside a cluster land before
-// it so neither UTF-8 nor terminal cursor positions can be split.
-func completeClusters(line string, start, end int) (int, int) {
-	empty := start == end
-	for at, cluster := range text.Clusters(line) {
-		after := at + len(cluster)
-		if start > at && start < after {
-			start = at
-		}
-		if end > at && end < after {
-			end = after
-		}
-	}
-	if empty {
-		end = start
-	}
-	return start, end
-}
-
-// All text mutations share storage normalization so paste, typing and replacement
-// cannot introduce different line endings, invalid UTF-8 or terminal controls.
-func (e *Editor) canonicalText(s string) string {
-	if e.oneLine() {
-		return oneLineText(s)
-	}
-	if strings.Contains(s, "\r") {
-		s = logicalLineBreaks.Replace(s)
-	}
-	if !strings.Contains(s, "\n") {
-		return text.Printable(s)
-	}
-	lines := strings.Split(s, "\n")
-	for i := range lines {
-		lines[i] = text.Printable(lines[i])
-	}
-	return strings.Join(lines, "\n")
-}
-
-// Pure projections share one-line normalization without constructing or mutating an Editor.
-func oneLineText(s string) string { return text.Printable(flattenLines(s)) }
-
-func flattenLines(s string) string {
-	if !strings.ContainsAny(s, "\n\r") {
-		return s
-	}
-	return flatLineBreaks.Replace(s)
-}
-
-// Immutable replacers are shared safely without allocating one for each edit.
-var (
-	logicalLineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
-	flatLineBreaks    = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
-)
-
-func (e *Editor) oneLine() bool { return e.SingleLine() || e.Mask() != "" }
+func (e *Editor) oneLine() bool { return e.document().oneLine() }
 
 func (e *Editor) InsertRune(r rune) {
 	e.beginViewUpdate()
@@ -435,27 +271,24 @@ func (e *Editor) DeleteBack() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	e.breakContinuation()
 	if e.byteOffset > 0 {
-		if e.document().history.typist.Value() != e {
-			e.snapshot()
-		}
 		at := text.PrevCluster(e.document().lines[e.line], e.byteOffset)
-		if el, inside := e.insideElement(e.line, at); inside {
-			at = el.Start
+		if element, inside := e.document().insideElement(e.line, at); inside {
+			at = element.Start
 		}
-		// Corrections extend the same undo group; settle it before publication.
-		e.document().history.typist = weak.Make(e)
-		e.replaceRange(Caret{Line: e.line, Byte: at}, Caret{Line: e.line, Byte: e.byteOffset}, "")
+		e.document().replace(e, editReplacement{
+			start: Caret{Line: e.line, Byte: at}, end: Caret{Line: e.line, Byte: e.byteOffset}, history: coalesceEdit,
+		}, e.finishReplacement)
 		return
 	}
 	if e.line == 0 {
+		e.breakContinuation()
 		return
 	}
-	e.endTyping()
-	e.snapshot()
 	above := e.document().lines[e.line-1]
-	e.replaceRange(Caret{Line: e.line - 1, Byte: len(above)}, Caret{Line: e.line, Byte: 0}, "")
+	e.document().replace(e, editReplacement{
+		start: Caret{Line: e.line - 1, Byte: len(above)}, end: Caret{Line: e.line},
+	}, e.finishReplacement)
 }
 
 // DeleteForward removes the cluster after the cursor, or joins the line below.
@@ -463,22 +296,24 @@ func (e *Editor) DeleteForward() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	e.endTyping()
 	current := e.document().lines[e.line]
 	if e.byteOffset < len(current) {
-		e.snapshot()
 		at := nextClusterBoundary(current, e.byteOffset)
-		if el, inside := e.ElementAt(e.line, e.byteOffset); inside {
-			at = el.End
+		if element, inside := e.ElementAt(e.line, e.byteOffset); inside {
+			at = element.End
 		}
-		e.replaceRange(Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: at}, "")
+		e.document().replace(e, editReplacement{
+			start: Caret{Line: e.line, Byte: e.byteOffset}, end: Caret{Line: e.line, Byte: at},
+		}, e.finishReplacement)
 		return
 	}
 	if e.line == len(e.document().lines)-1 {
+		e.endTyping()
 		return
 	}
-	e.snapshot()
-	e.replaceRange(Caret{Line: e.line, Byte: len(current)}, Caret{Line: e.line + 1, Byte: 0}, "")
+	e.document().replace(e, editReplacement{
+		start: Caret{Line: e.line, Byte: len(current)}, end: Caret{Line: e.line + 1},
+	}, e.finishReplacement)
 }
 
 func (e *Editor) DeleteWordBack() {
@@ -489,7 +324,7 @@ func (e *Editor) DeleteWordBack() {
 	start := end
 	if start.Byte > 0 {
 		at := wordStart(e.document().lines[e.line], e.byteOffset)
-		start.Byte = e.snapElementBoundary(e.line, at, false)
+		start.Byte = e.document().snapElementBoundary(e.line, at, false)
 	} else if start.Line > 0 {
 		start.Line--
 		start.Byte = len(e.document().lines[start.Line])
@@ -521,22 +356,24 @@ func (e *Editor) KillToStart() {
 
 func (e *Editor) killRange(start, end Caret, prepend bool) {
 	join := e.continuation == editorContinuationKill
-	e.endTyping()
 	if start == end {
+		e.endTyping()
 		return
 	}
-	e.snapshot()
-	e.rememberKill(e.textBetween(start, end), prepend, join)
-	e.replaceRange(start, end, "")
+	killed := e.document().textBetween(start, end)
+	e.document().replace(e, editReplacement{start: start, end: end}, func(at Caret, changed bool) {
+		e.rememberKill(killed, prepend, join)
+		e.finishReplacement(at, changed)
+	})
 }
 
 // Yank puts back the most recently killed text.
 func (e *Editor) Yank() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
-	e.endTyping()
 	killed, ok := e.kills.newest()
 	if !ok {
+		e.endTyping()
 		return
 	}
 	e.ensure()
@@ -566,21 +403,11 @@ func (e *Editor) YankPop() {
 }
 
 func (e *Editor) applyYank(start, end Caret, killed string, ring int) {
-	offset := e.offsetOf(start)
-	killed, changed := e.prepareReplacement(start, end, killed)
-	var before []string
-	var change ChangeMap
-	if changed {
-		e.snapshot()
-		before, change = e.applyRange(start, end, killed)
-	} else {
-		e.finishReplacement(end)
-	}
-	e.yank = editorYank{start: start, end: e.caretAt(offset + len(killed)), ring: ring}
-	e.continuation = editorContinuationYank
-	if changed {
-		e.document().commit(e, before, change, true)
-	}
+	e.document().replace(e, editReplacement{start: start, end: end, text: killed}, func(at Caret, changed bool) {
+		e.finishReplacement(at, changed)
+		e.yank = editorYank{start: start, end: at, ring: ring}
+		e.continuation = editorContinuationYank
+	})
 }
 
 func (e *Editor) MoveLeft() {
@@ -591,7 +418,7 @@ func (e *Editor) MoveLeft() {
 	e.endTyping()
 	e.desiredColumn = editorColumn{}
 	if e.byteOffset > 0 {
-		e.byteOffset = e.snapElementBoundary(e.line, text.PrevCluster(e.document().lines[e.line], e.byteOffset), false)
+		e.byteOffset = e.document().snapElementBoundary(e.line, text.PrevCluster(e.document().lines[e.line], e.byteOffset), false)
 		return
 	}
 	if e.line > 0 {
@@ -608,7 +435,7 @@ func (e *Editor) MoveRight() {
 	e.endTyping()
 	e.desiredColumn = editorColumn{}
 	if e.byteOffset < len(e.document().lines[e.line]) {
-		e.byteOffset = e.snapElementBoundary(e.line, nextClusterBoundary(e.document().lines[e.line], e.byteOffset), true)
+		e.byteOffset = e.document().snapElementBoundary(e.line, nextClusterBoundary(e.document().lines[e.line], e.byteOffset), true)
 		return
 	}
 	if e.line < len(e.document().lines)-1 {
@@ -628,7 +455,7 @@ func (e *Editor) MoveWordLeft() {
 		e.MoveLeft()
 		return
 	}
-	e.byteOffset = e.snapElementBoundary(e.line, wordStart(e.document().lines[e.line], e.byteOffset), false)
+	e.byteOffset = e.document().snapElementBoundary(e.line, wordStart(e.document().lines[e.line], e.byteOffset), false)
 }
 
 func (e *Editor) MoveWordRight() {
@@ -642,7 +469,7 @@ func (e *Editor) MoveWordRight() {
 		e.MoveRight()
 		return
 	}
-	e.byteOffset = e.snapElementBoundary(e.line, wordEnd(e.document().lines[e.line], e.byteOffset), true)
+	e.byteOffset = e.document().snapElementBoundary(e.line, wordEnd(e.document().lines[e.line], e.byteOffset), true)
 }
 
 func (e *Editor) MoveLineStart() {
@@ -668,95 +495,26 @@ func (e *Editor) MoveLineEnd() {
 func (e *Editor) Undo() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
-	e.endTyping()
-	if !e.document().history.canBack() {
-		return
-	}
-	e.requireContentRevision()
-	previous, ok := e.document().history.back(e.state())
-	if !ok {
-		return
-	}
-	e.restore(previous)
+	e.document().undo(e)
 }
 
 func (e *Editor) Redo() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
-	e.endTyping()
-	if !e.document().history.canForward() {
-		return
-	}
-	e.requireContentRevision()
-	next, ok := e.document().history.forward(e.state())
-	if !ok {
-		return
-	}
-	e.restore(next)
+	e.document().redo(e)
 }
 
 func (e *Editor) ensure() {
 	e.connect()
-	if len(e.document().lines) == 0 {
-		e.document().lines = []string{""}
-	}
+	e.document().ensure()
 	e.line = min(max(e.line, 0), len(e.document().lines)-1)
 	e.byteOffset = min(max(e.byteOffset, 0), len(e.document().lines[e.line]))
 }
 
-// requireContentRevision keeps exhaustion on the caller's side of a mutation, so a
-// recovered panic cannot leave changed content carrying its old observation token.
-func (e *Editor) requireContentRevision() {
-	e.requireMutable()
-	if e.document().revision == math.MaxUint64 {
-		panic("base: editor exhausted content revisions")
-	}
-}
-
 // Movement and editing share this boundary so typing, drag and soft-break affinity cannot drift.
 func (e *Editor) endTyping() {
-	e.dragging = false
-	e.document().history.endTyping(e)
-	e.rowEndSet = false
-	e.breakContinuation()
-}
-
-func (e *Editor) snapshot() {
-	e.requireContentRevision()
-	e.ensure()
-	e.document().history.record(e.state())
-}
-
-// Prevent undo storage from growing with session lifetime.
-const maxUndo = 200
-
-func (e *Editor) state() editorState {
-	return editorState{
-		view:       weak.Make(e),
-		lines:      append([]string(nil), e.document().lines...),
-		line:       e.line,
-		byteOffset: e.byteOffset,
-		marks:      append([]text.Mark(nil), e.document().marks...),
-	}
-}
-
-func (e *Editor) restore(s editorState) {
-	changed := !slices.Equal(e.document().lines, s.lines) || !slices.Equal(e.document().marks, s.marks)
-	if changed {
-		e.requireContentRevision()
-	}
-	before := e.document().lines
-	e.document().lines = slices.Clone(s.lines)
-	e.document().marks = append([]text.Mark(nil), s.marks...)
-	var restored *Editor
-	if s.view.Value() == e {
-		e.line, e.byteOffset = s.line, s.byteOffset
-		e.selecting = false
-		restored = e
-	}
-	if changed {
-		e.document().commit(restored, before, s.change.inverse(), false)
-	}
+	e.document().endTyping(e)
+	e.prepareEdit(false)
 }
 
 func wordStart(s string, i int) int {
@@ -807,68 +565,9 @@ func isWord(cluster string) bool {
 func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
-	body = elementBody(body)
-	if body == "" {
-		return Element{}
-	}
 	e.ensure()
-	doc := e.document()
-	id, ok := doc.elementIDs.next()
-	if !ok {
-		panic("base: editor exhausted element identities")
-	}
-	if doc.elementOwner == nil {
-		doc.elementOwner = new(byte)
-	}
-	e.endTyping()
-	e.snapshot()
-	start, end := Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: e.byteOffset}
-	if selected, selectedEnd, ok := e.Selection(); ok {
-		start, end = selected, selectedEnd
-	}
-	lead := ""
-	if e.joinsWhatPrecedes(start, body) {
-		lead = " "
-	}
-	at := e.offsetOf(start) + len(lead)
-	replacement, changedText := e.prepareReplacement(start, end, lead+body+" ")
-	var before []string
-	var change ChangeMap
-	if changedText {
-		before, change = e.applyRange(start, end, replacement)
-	} else {
-		e.requireContentRevision()
-		before = e.document().lines
-		e.finishReplacement(end)
-	}
-	mark := text.Mark{
-		ID:     id,
-		Kind:   int(kind),
-		Start:  at,
-		End:    at + len(body),
-		Atomic: true,
-	}
-	where, _ := slices.BinarySearchFunc(e.document().marks, mark, func(a, b text.Mark) int {
-		return a.Start - b.Start
-	})
-	e.document().marks = slices.Insert(e.document().marks, where, mark)
-	inserted := e.elementOf(mark)
-	e.document().commit(e, before, change, true)
-	return inserted
-}
-
-// Joining depends on neighboring text: two valid regional-indicator labels can
-// form one flag. An element must start at its own grapheme boundary.
-func (e *Editor) joinsWhatPrecedes(at Caret, body string) bool {
-	if at.Line < 0 || at.Line >= len(e.document().lines) {
-		return false
-	}
-	line := e.document().lines[at.Line]
-	before := line[:min(max(at.Byte, 0), len(line))]
-	if before == "" {
-		return false
-	}
-	return clusters(before+body) != clusters(before)+clusters(body)
+	start, end := e.replacementRange()
+	return e.document().insertElement(e, start, end, kind, body, e.finishReplacement)
 }
 
 // Elements is every element in the text, in the order they appear. The slice is a
@@ -876,7 +575,7 @@ func (e *Editor) joinsWhatPrecedes(at Caret, body string) bool {
 func (e *Editor) Elements() []Element {
 	out := make([]Element, 0, len(e.document().marks))
 	for _, m := range e.document().marks {
-		out = append(out, e.elementOf(m))
+		out = append(out, e.document().elementOf(m))
 	}
 	return out
 }
@@ -892,7 +591,7 @@ func (e *Editor) ElementAt(line, byteOffset int) (Element, bool) {
 	at := offsetInLines(lines, Caret{Line: line, Byte: byteOffset})
 	for _, m := range e.document().marks {
 		if m.Covers(at) {
-			return e.elementOf(m), true
+			return e.document().elementOf(m), true
 		}
 	}
 	return Element{}, false
@@ -903,158 +602,19 @@ func (e *Editor) ElementAt(line, byteOffset int) (Element, bool) {
 func (e *Editor) RemoveElement(id ElementID) bool {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
-	if id.owner != e.document().elementOwner || id.owner == nil {
+	start, end, found := e.document().elementRemoval(id)
+	if !found {
 		return false
 	}
-	for _, m := range e.document().marks {
-		if m.ID != id.serial {
-			continue
-		}
-		el := e.elementRange(m)
-		e.endTyping()
-		e.snapshot()
-		// Remove the trailing separator inserted with the element so removing a chip leaves no gap.
-		end := el.End
-		if line := e.document().lines[el.Line]; end < len(line) && line[end] == ' ' {
-			end++
-		}
-		e.replaceRange(Caret{Line: el.Line, Byte: el.Start}, Caret{Line: el.Line, Byte: end}, "")
-		return true
-	}
-	return false
-}
-
-// Element endpoints are valid caret positions; treating the start as interior would
-// prevent insertion before the element.
-func (e *Editor) insideElement(line, byteOffset int) (Element, bool) {
-	at := e.offsetOf(Caret{Line: line, Byte: byteOffset})
-	for _, m := range e.document().marks {
-		if m.Within(at) {
-			return e.elementRange(m), true
-		}
-	}
-	return Element{}, false
-}
-
-func (e *Editor) snapElement(line, byteOffset int, forward bool) int {
-	// The zero editor has a conceptual empty line; a read projection must not initialize storage.
-	if len(e.document().lines) == 0 {
-		return 0
-	}
-	line = min(max(line, 0), len(e.document().lines)-1)
-	byteOffset = clusterPosition(e.document().lines[line], byteOffset, forward)
-	return e.snapElementBoundary(line, byteOffset, forward)
-}
-
-// These callers already own a grapheme boundary, so only element snapping is needed.
-func (e *Editor) snapElementBoundary(line, byteOffset int, forward bool) int {
-	for {
-		el, inside := e.insideElement(line, byteOffset)
-		if !inside {
-			return byteOffset
-		}
-		if forward {
-			byteOffset = clusterPosition(e.document().lines[line], el.End, true)
-		} else {
-			byteOffset = clusterPosition(e.document().lines[line], el.Start, false)
-		}
-	}
-}
-
-// Marks use pre-edit byte offsets; shift them before changing line storage.
-func (e *Editor) edited(edit text.Edit) {
-	e.document().marks = edit.Shift(e.document().marks, e.byteLength())
-}
-
-// Offset shifts cannot prove that an element still spans whole graphemes. Validate
-// against the edited text once for every mutation.
-func (e *Editor) settleMarks() {
-	e.document().marks = slices.DeleteFunc(e.document().marks, func(m text.Mark) bool {
-		return !e.spansWholeClusters(m)
-	})
-}
-
-func (e *Editor) spansWholeClusters(m text.Mark) bool {
-	start, end := e.caretAt(m.Start), e.caretAt(m.End)
-	if start.Line != end.Line {
-		return false
-	}
-	line := e.document().lines[start.Line]
-	return clusterPosition(line, start.Byte, true) == start.Byte &&
-		clusterPosition(line, end.Byte, true) == end.Byte
-}
-
-func (e *Editor) byteLength() int {
-	e.ensure()
-	n := len(e.document().lines) - 1
-	for _, line := range e.document().lines {
-		n += len(line)
-	}
-	return n
-}
-
-func (e *Editor) offsetOf(c Caret) int {
-	e.ensure()
-	return offsetInLines(e.document().lines, c)
-}
-
-func (e *Editor) caretAt(at int) Caret {
-	e.ensure()
-	for i, line := range e.document().lines {
-		if at <= len(line) {
-			return Caret{Line: i, Byte: max(at, 0)}
-		}
-		at -= len(line) + 1
-	}
-	last := len(e.document().lines) - 1
-	return Caret{Line: last, Byte: len(e.document().lines[last])}
-}
-
-func (e *Editor) elementOf(m text.Mark) Element {
-	el := e.elementRange(m)
-	el.body = strings.Clone(e.document().lines[el.Line][el.Start:el.End])
-	return el
-}
-
-func (e *Editor) elementRange(m text.Mark) Element {
-	start := e.caretAt(m.Start)
-	end := e.caretAt(m.End)
-	if end.Line != start.Line {
-		// An element never spans a line break, so a mark that reads as though it does
-		// is reported as far as the end of the line it began on. Nothing produces one:
-		// an edit that put a break inside a mark destroyed it.
-		end = Caret{Line: start.Line, Byte: len(e.document().lines[start.Line])}
-	}
-	return Element{
-		ID:    ElementID{owner: e.document().elementOwner, serial: m.ID},
-		Kind:  kindOf(m.Kind),
-		Line:  start.Line,
-		Start: start.Byte,
-		End:   end.Byte,
-	}
+	e.document().replace(e, editReplacement{start: start, end: end}, e.finishReplacement)
+	return true
 }
 
 // RetainedElementIDs returns identities reachable from the document or undo/redo
 // history. Applications may release associated payloads only after they disappear
 // from this set. The returned slice is owned by the caller.
 func (e *Editor) RetainedElementIDs() []ElementID {
-	ids := make(map[uint64]struct{})
-	for _, mark := range e.document().marks {
-		ids[mark.ID] = struct{}{}
-	}
-	for _, stack := range [][]editorState{e.document().history.undo, e.document().history.redo} {
-		for _, state := range stack {
-			for _, mark := range state.marks {
-				ids[mark.ID] = struct{}{}
-			}
-		}
-	}
-	out := make([]ElementID, 0, len(ids))
-	for id := range ids {
-		out = append(out, ElementID{owner: e.document().elementOwner, serial: id})
-	}
-	slices.SortFunc(out, func(a, b ElementID) int { return cmp.Compare(a.serial, b.serial) })
-	return out
+	return e.document().retainedElementIDs()
 }
 
 // ForgetHistory ends the lifetime of edits no longer available to Undo or Redo.
@@ -1063,7 +623,7 @@ func (e *Editor) ForgetHistory() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.endTyping()
-	e.document().history.clear()
+	e.document().forgetHistory()
 }
 
 // Handle answers keys, pastes and pointer selection, reporting whether it consumed
@@ -1121,7 +681,7 @@ func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed fun
 		}
 	}
 
-	matched, handled := e.matcher.Handle(e.keys(), key, do)
+	matched, handled := e.matcher.Handle(e.keys(), key, keyboardReceipt(&e.element), do)
 	if !matched {
 		return typed(key)
 	}
@@ -1225,7 +785,7 @@ func (e *Editor) moveRow(delta int) {
 			return
 		}
 		e.line = target
-		e.byteOffset = e.snapElementBoundary(target, text.OffsetAt(e.document().lines[target], column), forward)
+		e.byteOffset = e.document().snapElementBoundary(target, text.OffsetAt(e.document().lines[target], column), forward)
 		e.desiredColumn = editorColumn{cells: column, valid: true}
 		return
 	}
@@ -1236,7 +796,7 @@ func (e *Editor) moveRow(delta int) {
 		return
 	}
 	e.line, e.byteOffset = e.offsetIn(width, target, column)
-	e.byteOffset = e.snapElementBoundary(e.line, e.byteOffset, forward)
+	e.byteOffset = e.document().snapElementBoundary(e.line, e.byteOffset, forward)
 	e.desiredColumn = editorColumn{cells: column, valid: true}
 }
 
@@ -1458,7 +1018,7 @@ func (e *Editor) lineAt(at int) int {
 
 func (e *Editor) atLine(x int) Caret {
 	byteOffset := e.lineAt(text.OffsetAt(e.shown(), layout.Translate(x, e.geometry.read(&e.presentation).left)))
-	return Caret{Byte: e.snapElement(0, byteOffset, true)}
+	return Caret{Byte: e.document().snapElement(0, byteOffset, true)}
 }
 
 // Anchor begins or continues a selection at the cursor.
@@ -1520,23 +1080,7 @@ func (e *Editor) Selected() string {
 	if !ok {
 		return ""
 	}
-	return e.textBetween(start, end)
-}
-
-func (e *Editor) textBetween(start, end Caret) string {
-	e.ensure()
-	if start.Line == end.Line {
-		return e.document().lines[start.Line][start.Byte:end.Byte]
-	}
-	var b strings.Builder
-	b.WriteString(e.document().lines[start.Line][start.Byte:])
-	for i := start.Line + 1; i < end.Line; i++ {
-		b.WriteByte('\n')
-		b.WriteString(e.document().lines[i])
-	}
-	b.WriteByte('\n')
-	b.WriteString(e.document().lines[end.Line][:end.Byte])
-	return b.String()
+	return e.document().textBetween(start, end)
 }
 
 func (e *Editor) DeleteSelection() bool {
@@ -1546,77 +1090,8 @@ func (e *Editor) DeleteSelection() bool {
 	if !ok {
 		return false
 	}
-	e.snapshot()
-	e.endTyping()
-	e.replaceRange(start, end, "")
+	e.document().replace(e, editReplacement{start: start, end: end}, e.finishReplacement)
 	return true
-}
-
-// Equal replacement text can still remove an element identity; an empty edit must not.
-func (e *Editor) prepareReplacement(start, end Caret, s string) (string, bool) {
-	s = e.canonicalText(s)
-	if e.textBetween(start, end) != s {
-		e.requireContentRevision()
-		return s, true
-	}
-	if start == end && s == "" {
-		return s, false
-	}
-	from, to := e.offsetOf(start), e.offsetOf(end)
-	for _, mark := range e.document().marks {
-		if from < mark.End && to > mark.Start {
-			e.requireContentRevision()
-			return s, true
-		}
-	}
-	return s, false
-}
-
-// Settle elements before the cursor so it cannot snap over an element the edit destroyed.
-// An identity replacement leaves revision, history and layout unchanged.
-func (e *Editor) finishReplacement(at Caret) {
-	defer e.revealCursor()
-	e.settleMarks()
-	e.selecting = false
-	e.line = min(max(at.Line, 0), len(e.document().lines)-1)
-	e.byteOffset = e.snapElement(e.line, at.Byte, true)
-	e.desiredColumn = editorColumn{}
-}
-
-// The caller has proved a semantic change and taken any required undo snapshot.
-func (e *Editor) replaceRange(start, end Caret, s string) {
-	before, change := e.applyRange(start, end, s)
-	e.document().commit(e, before, change, true)
-}
-
-// Separate application from publication so metadata such as an element mark
-// joins the same revision before any subscriber or scene predicate can run.
-func (e *Editor) applyRange(start, end Caret, s string) ([]string, ChangeMap) {
-	e.requireContentRevision()
-	e.layout.stale = true
-	before := slices.Clone(e.document().lines)
-	edit := text.Edit{Start: e.offsetOf(start), End: e.offsetOf(end), Text: s}
-	e.edited(edit)
-	change := ChangeMap{Start: edit.Start, OldEnd: edit.End, NewEnd: edit.Start + len(s)}
-	head := e.document().lines[start.Line][:start.Byte]
-	tail := e.document().lines[end.Line][end.Byte:]
-	if !strings.Contains(s, "\n") {
-		e.document().lines = slices.Replace(e.document().lines, start.Line, end.Line+1, ownedEditorLine(head, s, tail))
-		e.finishReplacement(Caret{Line: start.Line, Byte: start.Byte + len(s)})
-		return before, change
-	}
-	parts := strings.Split(s, "\n")
-	inserted := make([]string, len(parts))
-	inserted[0] = ownedEditorLine(head, parts[0])
-	for i := 1; i < len(parts); i++ {
-		inserted[i] = strings.Clone(parts[i])
-	}
-	last := len(inserted) - 1
-	cursor := Caret{Line: start.Line + last, Byte: len(inserted[last])}
-	inserted[last] = ownedEditorLine(inserted[last], tail)
-	e.document().lines = slices.Replace(e.document().lines, start.Line, end.Line+1, inserted...)
-	e.finishReplacement(cursor)
-	return before, change
 }
 
 // Copy sends the selection to the clipboard. Masked sessions never export their
@@ -1629,7 +1104,7 @@ func (e *Editor) Copy() bool {
 }
 
 func (e *Editor) copyRange(start, end Caret) bool {
-	return e.Mask() == "" && e.Clipboard != nil && e.Clipboard.Copy(e.textBetween(start, end))
+	return e.Mask() == "" && e.Clipboard != nil && e.Clipboard.Copy(e.document().textBetween(start, end))
 }
 
 // Cut copies and removes the selection only after clipboard acceptance. Clipboard
@@ -1778,7 +1253,7 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 		first = presented.first
 	}
 	position := e.layout.projection.Hit(image.Pt(x, layout.Sum(first, y)))
-	return Caret{Line: position.Line, Byte: e.snapElement(position.Line, position.Byte, true)}, true
+	return Caret{Line: position.Line, Byte: e.document().snapElement(position.Line, position.Byte, true)}, true
 }
 
 func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -225,9 +226,9 @@ func (d *dashboard) changePreference(_ int, item preference, action keymap.Actio
 }
 
 type taskColumn struct {
-	header kit.Column
-	less   func(task, task) bool
-	cell   func(task) kit.Cell
+	header  kit.Column
+	compare func(task, task) int
+	cell    func(task) kit.Cell
 }
 
 type queue struct {
@@ -245,7 +246,7 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 	q := &queue{theme: theme}
 	q.rows = new(base.Table[task])
 	q.definitions = q.taskColumns()
-	q.rows.SetLess(q.less)
+	q.rows.SetSortColumns(q.sortColumn)
 	q.rows.SetItems(tasks())
 	headers := make([]kit.Column, len(q.definitions))
 	for i, column := range q.definitions {
@@ -294,29 +295,32 @@ const progressCellWidth = 12
 func (q *queue) taskColumns() []taskColumn {
 	return []taskColumn{
 		{
-			header: kit.Column{Title: "task", Size: layout.Flex(2).AtLeast(8)},
-			less:   func(a, b task) bool { return a.name < b.name },
+			header:  kit.Column{Title: "task", Size: layout.Flex(2).AtLeast(8)},
+			compare: func(a, b task) int { return cmp.Compare(a.name, b.name) },
 			cell: func(item task) kit.Cell {
 				return kit.LabelCell(kit.Label{Text: item.name, Ellipsis: q.view.Glyphs.Ellipsis})
 			},
 		},
 		{
-			header: kit.Column{Title: "state", Size: layout.Fixed(9)},
-			less:   func(a, b task) bool { return a.state() < b.state() },
+			header:  kit.Column{Title: "state", Size: layout.Fixed(9)},
+			compare: func(a, b task) int { return cmp.Compare(a.state(), b.state()) },
 			cell: func(item task) kit.Cell {
 				return kit.LabelCell(kit.Label{Text: item.state(), Style: q.stateStyle(item), Ellipsis: q.view.Glyphs.Ellipsis})
 			},
 		},
 		{
-			header: kit.Column{Title: "progress", Size: layout.Flex(3).AtLeast(progressCellWidth)},
-			less:   func(a, b task) bool { return a.done*b.total < b.done*a.total },
-			cell:   q.progressCell,
+			header:  kit.Column{Title: "progress", Size: layout.Flex(3).AtLeast(progressCellWidth)},
+			compare: func(a, b task) int { return cmp.Compare(a.done*b.total, b.done*a.total) },
+			cell:    q.progressCell,
 		},
 	}
 }
 
-func (q *queue) less(a, b task, column int) bool {
-	return column >= 0 && column < len(q.definitions) && q.definitions[column].less(a, b)
+func (q *queue) sortColumn(column int) func(task, task) int {
+	if column < 0 || column >= len(q.definitions) {
+		return nil
+	}
+	return q.definitions[column].compare
 }
 
 func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, selected bool) {
@@ -396,8 +400,10 @@ func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 		samples: make([]float64, 0, 64),
 	}
 	activity.rate = kit.NewSlider(kit.SliderConfig{
-		Theme: theme, Glyphs: glyphs, Initial: 1,
-		Minimum: 1, Maximum: 4, Label: "rate",
+		Behavior: base.SliderConfig{
+			Initial: 1,
+			Minimum: 1, Maximum: 4, Label: "rate",
+		}, Theme: theme, Glyphs: glyphs,
 	})
 	activity.rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }
 	activity.spinner = kit.Spinner{

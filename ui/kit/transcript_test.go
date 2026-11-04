@@ -166,7 +166,7 @@ func TestTranscriptRetainsUnsupportedContentAndAcceptedPrefixOnly(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	skin, root := transcriptSkin(t, kit.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted})
+	skin, root := transcriptSkin(t, kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted}})
 	model := skin.Controller()
 	first, err := model.Add(&said{rows: []string{"first"}})
 	if err != nil {

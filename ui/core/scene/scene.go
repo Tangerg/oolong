@@ -85,15 +85,16 @@ type ElementConfig struct {
 }
 
 type node struct {
-	config       ElementConfig
-	group        *Group
-	parent       *node
-	root         *Root
-	identityRoot *namespace
-	id           NodeID
-	generation   Generation
-	done         chan struct{}
-	observing    bool
+	config        ElementConfig
+	group         *Group
+	parent        *node
+	root          *Root
+	identityRoot  *namespace
+	id            NodeID
+	generation    Generation
+	done          chan struct{}
+	keyboardEpoch *byte
+	observing     bool
 	// lifecycle counts callbacks queued or running for this node's generation.
 	lifecycle int
 }
@@ -145,12 +146,64 @@ func (e Element) FocusedWithin() bool {
 	if e.node == nil || e.node.root == nil {
 		return false
 	}
-	for n := e.node.root.resolve(e.node.root.focus); n != nil; n = n.parent {
-		if n == e.node {
-			return true
-		}
+	return containsNode(e.node, e.node.root.resolve(e.node.root.focus))
+}
+
+// KeyboardLease binds input to its receiver and a continuous keyboard route.
+// A receiver on that route owns its subtree's lifetime; a delegated receiver
+// borrows the current origin's lifetime. With no focus, the active modal or root
+// content is the origin. Leaving that route or remounting never revives a lease.
+// Standalone input lasts until attachment. Queries belong to the UI owner sequence.
+type KeyboardLease struct {
+	element Element
+	target  Target
+	scope   Target
+	epoch   *byte
+}
+
+func (e Element) KeyboardLease() KeyboardLease {
+	if e.node == nil {
+		return KeyboardLease{}
 	}
-	return false
+	lease := KeyboardLease{element: e, target: e.Target(), epoch: e.node.keyboardEpoch}
+	if r := e.node.root; r != nil {
+		route := r.keyboardRoute(r.focus, r.modal())
+		if len(route) == 0 {
+			return KeyboardLease{}
+		}
+		lease.scope = lease.target
+		if !slices.Contains(route, lease.scope) {
+			lease.scope = route[0]
+		}
+		scope := r.resolve(lease.scope)
+		if scope == nil {
+			return KeyboardLease{}
+		}
+		lease.epoch = scope.keyboardEpoch
+	}
+	return lease
+}
+
+func (l KeyboardLease) Valid() bool {
+	n := l.element.node
+	if n == nil {
+		return false
+	}
+	if l.target.IsZero() {
+		return n.root == nil && n.keyboardEpoch == l.epoch
+	}
+	r := l.target.root
+	scope := r.resolve(l.scope)
+	if r.resolve(l.target) != n || scope == nil || scope.keyboardEpoch != l.epoch {
+		return false
+	}
+	return slices.Contains(r.keyboardRoute(r.focus, r.modal()), l.scope)
+}
+
+// FocusNext lets a deferred key operation traverse only while its original
+// keyboard scope still owns input.
+func (l KeyboardLease) FocusNext(backward bool) bool {
+	return l.target.root != nil && l.Valid() && l.target.root.FocusNext(backward)
 }
 
 func (e Element) RequestFocusFirst() error {

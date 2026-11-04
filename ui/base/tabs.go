@@ -243,12 +243,13 @@ func (t *Tabs) handleEvent(event scene.Event) scene.EventResult {
 	if !ok {
 		return scene.EventResult{}
 	}
-	_, handled := t.matcher.Handle(t.keys(), key, func(action keymap.Action) bool {
+	keyboard := t.Element().KeyboardLease()
+	_, handled := t.matcher.Handle(t.keys(), key, keyboard.Valid, func(action keymap.Action) bool {
 		if action == FocusNext {
-			return event.FocusNext(false)
+			return keyboard.FocusNext(false)
 		}
 		if action == FocusPrev {
-			return event.FocusNext(true)
+			return keyboard.FocusNext(true)
 		}
 		return t.Do(action)
 	})
@@ -327,7 +328,7 @@ func (t *Tabs) newPart(key string) *tabPart {
 			if !ok {
 				return scene.EventResult{}
 			}
-			_, handled := part.matcher.Handle(activationKeys(), key, func(action keymap.Action) bool {
+			_, handled := part.matcher.Handle(activationKeys(), key, part.element.KeyboardLease().Valid, func(action keymap.Action) bool {
 				if action != Activate {
 					return false
 				}

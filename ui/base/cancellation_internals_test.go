@@ -1,6 +1,7 @@
 package base
 
 import (
+	"cmp"
 	"slices"
 	"testing"
 	"time"
@@ -68,7 +69,7 @@ func TestMatcherCancellationPreservesSceneFocus(t *testing.T) {
 					}
 				}
 			}
-			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, func(keymap.Action) bool { return true })
+			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 			if err := other.RequestFocus(); err != nil {
 				t.Fatal(err)
 			}
@@ -91,7 +92,7 @@ func TestOptionReplacementCancelsAfterRestoringSelection(t *testing.T) {
 	keys.Resolve = func(time.Duration, func()) func() {
 		return func() { observed = many.Taken() }
 	}
-	many.matcher.Handle(&keys, input.Key{Rune: 'g'}, func(keymap.Action) bool { return true })
+	many.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 	many.SetOptions(Options("b", "a"))
 	if !slices.Equal(observed, []string{"a"}) || !slices.Equal(many.Taken(), observed) {
 		t.Fatalf("cancellation saw an unfinished selection: observed=%v current=%v", observed, many.Taken())
@@ -107,7 +108,7 @@ func TestCompletionDismissCancellationMayReopen(t *testing.T) {
 	keys.Resolve = func(time.Duration, func()) func() {
 		return func() { completion.Offer(Token{Query: "new"}, []Candidate{{Text: "new"}}) }
 	}
-	completion.matcher.Handle(&keys, input.Key{Rune: 'g'}, func(keymap.Action) bool { return true })
+	completion.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 	if completion.Dismiss() {
 		t.Fatal("superseded dismissal retained acceptance ownership")
 	}
@@ -122,7 +123,12 @@ func TestDerivedCollectionsCancelAfterTheirCompleteTransition(t *testing.T) {
 	var filter Filter[string]
 	filter.SetItems([]string{"aa", "ab", "ba", "bb"}, func(s string) string { return s })
 	var table Table[int]
-	table.SetLess(func(a, b, _ int) bool { return a < b })
+	table.SetSortColumns(func(column int) func(int, int) int {
+		if column != 0 {
+			return nil
+		}
+		return cmp.Compare[int]
+	})
 	table.SetItems([]int{3, 2, 1})
 	table.Select(0)
 	for _, test := range []struct {
@@ -152,7 +158,7 @@ func TestDerivedCollectionsCancelAfterTheirCompleteTransition(t *testing.T) {
 			keys.Bind("prefix", input.Chord{Rune: 'g'})
 			keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 			keys.Resolve = func(time.Duration, func()) func() { return test.cancel }
-			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, func(keymap.Action) bool { return true })
+			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 			test.change()
 			if !test.verify() {
 				t.Fatal("older derived-collection operation overwrote cancellation's completed transition")
@@ -206,7 +212,7 @@ func TestCollectionReplacementPublishesBeforeMatcherCancellation(t *testing.T) {
 			keys.Bind("prefix", input.Chord{Rune: 'g'})
 			keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 			keys.Resolve = func(time.Duration, func()) func() { return func() { test.set("newest") } }
-			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, func(keymap.Action) bool { return true })
+			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 			test.set("outer")
 			if test.current() != "newest" {
 				t.Fatalf("cancellation replacement overwritten: %q", test.current())

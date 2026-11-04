@@ -88,7 +88,7 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	if err != nil {
 		panic(err)
 	}
-	r.view, err = kit.NewTranscript(kit.TranscriptConfig{Theme: theme, Glyphs: glyphs, Publisher: runtime.Publisher(), Retention: base.PublishCompleted})
+	r.view, err = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: runtime.Publisher(), Retention: base.PublishCompleted}, Theme: theme, Glyphs: glyphs})
 	if err != nil {
 		panic(err)
 	}

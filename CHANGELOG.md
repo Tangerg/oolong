@@ -10,6 +10,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### ui
 
+- `core/keymap.(*Matcher).Handle` now accepts `(bindings, key, current, do)`. Capture `element.KeyboardLease()` for retained input and pass its `Valid` method. Only a standalone caller with no scene lifetime should pass nil. A lease follows the actual keyboard route; leaving that route, detaching or closing the root permanently revokes the sequence. Deferred focus traversal uses the same lease's `FocusNext` operation.
+- Rename `core/program.DeliveryApplied` to `core/program.DeliveryDelivered`. The receipt records entry into `Work.Apply`, including a callback that later panics or calls `runtime.Goexit`. `Task.Settled` closes after that callback unwinds; it does not assert successful application effects or a published frame. Revocation is possible only before delivery begins.
+- Replace `base.(*Table[T]).SetLess` with `SetSortColumns(func(column int) func(a, b T) int)`. The column owner returns its pure three-way comparator or nil for an unsupported column. Keyboard, pointer and semantic sorting share this resolver; there is no separately configured column count or validity table. Replacing the resolver clears an active order whose column was removed.
+- Move `kit.ButtonConfig.Key`, `kit.ButtonConfig.Label`, `kit.ButtonConfig.Keys`, `kit.ButtonConfig.Availability` and `kit.ButtonConfig.Activate` into `kit.ButtonConfig.Behavior`, a `base.ButtonConfig`. The skin passes that configuration intact to its sole behavior controller.
+- Move `kit.SliderConfig.Initial`, `kit.SliderConfig.Minimum`, `kit.SliderConfig.Maximum`, `kit.SliderConfig.Step`, `kit.SliderConfig.Label` and `kit.SliderConfig.Keys` into `kit.SliderConfig.Behavior`, a `base.SliderConfig`. Appearance and pure formatting remain in the kit configuration.
+- Move `kit.TranscriptConfig.Key`, `kit.TranscriptConfig.Name`, `kit.TranscriptConfig.Publisher`, `kit.TranscriptConfig.Retention`, `kit.TranscriptConfig.PublishPartial`, `kit.TranscriptConfig.KeepCompleted`, `kit.TranscriptConfig.MaxItems` and `kit.TranscriptConfig.Keys` into `kit.TranscriptConfig.Behavior`, a `base.TranscriptConfig`.
+
 - Rename `base.Caret.Col` to `base.Caret.Byte`. Carets address bytes in logical lines; `base.Point.Col` and `base.RowSpan.Col` remain terminal-cell columns. Update keyed caret literals and field access directly; there is no mirrored compatibility field.
 - Replace `core/graphics.ReplyPrefix` with `core/graphics.MatchReplyPrefix` when framing terminal responses. The matcher and `ParseReply` share the response grammar, including failures that carry only an image number. Low-level `ImagePlacement.Paint` now refuses dimensions or crop coordinates outside Kitty's unsigned integer range before writing; zero cell dimensions retain protocol automatic sizing.
 
@@ -40,19 +47,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 - Replace `ssh.Open`, `ssh.Config` and `ssh.NewAdapter(...)` with a server-scoped `var adapter ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. Use `server.PtyCallback` for admission decisions formerly made in `ssh.AdapterConfig.Allocate`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. Acquire and release application resources in this handler. The adapter owns emulated window intake from PTY acceptance through channel teardown. Each channel can open one host. Configure OS-allocated PTYs on a separate server.
 
+#### extensions/latex
+
+- `\hspace` is no longer accepted as successful output: the terminal layout has no TeX length model. Unsupported spacing preserves the source and returns the existing parse diagnostic rather than discarding its argument.
+
 #### extensions/mermaid
+
+- `mermaid.Config.Theme` now uses `mermaid.Theme`. Use `ThemeDefault`, `ThemeDark`, `ThemeForest`, `ThemeNeutral` or `ThemeBase`; convert a runtime string explicitly at the configuration boundary. Empty still selects the default, and construction rejects every unknown value.
 
 - Unix cancellation now retains the launcher identity until all group signals finish, then reaps that launcher and settles its pipes. Reaping non-child zombies belongs to their external reaper and no longer controls a render's outcome. Linux, Darwin, FreeBSD, NetBSD and DragonFly have the required non-reaping observation; other Unix hosts now reject construction with `errors.ErrUnsupported`. Windows retains its job-object ownership. The adapter now composes `ui/core/process`; release the updated UI module before publishing the adapter.
 
 ### Changed
 
-- Native Mermaid backend CI includes Linux alongside macOS and Windows, using the same CLI installation and rendering tests. Linux uses the runner's packaged Chrome sandbox after checking its ownership and permissions; the production browser sandbox remains enabled.
+- EditSession now owns normalization, document replacement, element identities, undo history, policy changes and transaction publication. Editors retain their own caret, selection and viewport state. Reset no longer constructs a synthetic editor, and each transaction settles peer views before notifying subscribers. Rejected edits preserve the existing typing group as well as text, identities and history.
+- Kit behavior configuration composes the corresponding base configuration instead of maintaining field-by-field mirrors. English and Chinese documentation navigation share one typed route tree and order. CI and release builds use one module-build script, including modules that mix commands and library packages.
+- ANSI palette forward and reverse mapping derive cube and gray-ramp bounds from the same protocol definitions.
+
+- Native Mermaid backend CI includes Linux alongside macOS and Windows. The backend resolves its installed Puppeteer headless shell for both rendering and Linux sandbox setup. A path-scoped AppArmor profile permits that executable's user namespace; browser sandboxing stays enabled, and native rendering remains a required gate.
 - Protocol bit fields, terminal queue capacities, tab part identity and example retention/source budgets have local semantic names. The state example derives its validation and visible length limit from one rune-count policy.
 
 - Windows command launchers and Mermaid compose one `core/process.Job` for atomic job membership, process observation, termination and handle cleanup. Each adapter retains its own standard streams, output delivery and cancellation policy. `process.JobStartConfig` borrows explicitly prepared files; the caller reaps the returned launcher and closes its job. This new UI capability must be published before updating independently released consumers.
 - LaTeX parses its expression subset directly into terminal layout. Command arguments, whitespace and scripts have one grammar owner; symbol names continue to use the dependency's symbol tables. Go literal rules, parser wrappers and process-global diagnostics no longer participate.
 
-- CI checks every module against its declared published dependencies with `GOWORK=off` and no local replacements, separately from workspace integration. Consumers now declare resolvable UI revisions matching the APIs and dependency graphs they use. Workspace replacements remain generated from those requirements.
+- CI checks every module against its declared published dependencies with `GOWORK=off` and no local replacements, separately from workspace integration. Coordinated API changes must first publish the lower UI implementation, then update each consumer's required revision and checksums before that gate can pass. The examples in this change require that dependency update after the new UI APIs become resolvable. Workspace replacements remain generated from those requirements.
 - Key help and sequence timing read the actual keymap. Dashboard tab ranges derive from the tab collection, and its activity panel composes real scene children so slider painting and input share the child layout's geometry.
 
 - Collection controllers expose bounded typed item reads and revision-qualified selection through their existing scene elements. Filter, MultiSelect, Tree, Table, Settings, Viewport and Form add their corresponding typed operations by calling the same owners as keyboard and pointer input. Form reads expose the opaque current submission ID before cancellation; no second semantic item or submission model is maintained.
@@ -69,6 +86,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - The agent example passes the selected planning mode to the backend when each run starts. Fast mode skips the optional inspection step. Both modes require approval before the mock tool call.
 
 ### Fixed
+
+- Delayed key prefixes and queued exact matches cannot act after their keyboard route expires. Form preserves accepted `Started`, `Applied` and `Unchanged` results alongside errors; a partially accepted pending submission can still be settled by its original identity.
+- Image resources retain only their lightweight allocation ledger, so a released or closed resource cannot keep its terminal, host callbacks and output buffers alive.
+- Rendering purity analysis resolves generic helpers, function aliases and actual imported declarations. Package loading and type checking fail closed; unrelated pure methods named Print or Commit no longer trigger spelling-based publication rules. Plain paragraph construction stays separate from semantic link detection, keeping Entry's presentation memo pure.
+- Transition and Timeline interpolate opposite-sign finite endpoints without overflowing their difference and preserve exact keyframe values. Spring response avoids overflow and cancellation in extreme damping and frequency regimes. Non-finite inputs and unrepresentable motion are rejected before state changes.
+- Task delivery remains delivered when an entered Apply callback unwinds abnormally, while its worker outcome and propagated panic remain independent.
 
 - Terminal shutdown revokes ordinary input delivery before draining image replies, so a full application event queue cannot block the sole input pump from settling and deleting acknowledged allocations.
 - Kitty failures without a physical image ID remain protocol responses, retain their request number and cannot become user keystrokes. Conflicting identities and successful replies without a physical ID remain invalid.

@@ -17,7 +17,7 @@ type ambiguousComponent struct {
 }
 
 func (c *ambiguousComponent) Handle(ev input.Event) bool {
-	_, c.consumed = c.matcher.Handle(&c.keys, ev.(input.Key), func(keymap.Action) bool { c.actions++; return true })
+	_, c.consumed = c.matcher.Handle(&c.keys, ev.(input.Key), nil, func(keymap.Action) bool { c.actions++; return true })
 	return c.consumed
 }
 

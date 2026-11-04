@@ -18,11 +18,11 @@ const (
 
 // cube holds the six channel values of the 6×6×6 colour cube that occupies
 // indices 16–231 of the xterm palette.
-var cube = [6]uint8{0, 95, 135, 175, 215, 255}
+var cube = [...]uint8{0, 95, 135, 175, 215, 255}
 
 // ANSI palette entries are themeable; these xterm defaults support estimates,
 // not a promise about the terminal's actual colors.
-var ansi16 = [16]RGB{
+var ansi16 = [...]RGB{
 	{0, 0, 0},
 	{128, 0, 0},
 	{0, 128, 0},
@@ -41,6 +41,17 @@ var ansi16 = [16]RGB{
 	{255, 255, 255},
 }
 
+const (
+	paletteSize     = 256
+	cubeStart       = uint8(len(ansi16))
+	cubeRowStride   = uint8(len(cube))
+	cubePlaneStride = cubeRowStride * cubeRowStride
+	grayRampStart   = cubeStart + cubePlaneStride*cubeRowStride
+	grayRampFirst   = 8
+	grayRampStep    = 10
+	grayRampLast    = paletteSize - int(grayRampStart) - 1
+)
+
 // PaletteRGB is what the xterm 256-colour palette holds at an index.
 //
 // The three regions are the sixteen ANSI colours, the 6×6×6 cube, and a 24-step
@@ -48,13 +59,13 @@ var ansi16 = [16]RGB{
 // values are what xterm uses and not a promise.
 func PaletteRGB(index uint8) RGB {
 	switch {
-	case index < 16:
+	case index < cubeStart:
 		return ansi16[index]
-	case index < 232:
-		n := index - 16
-		return RGB{cube[n/36], cube[(n%36)/6], cube[n%6]}
+	case index < grayRampStart:
+		n := index - cubeStart
+		return RGB{cube[n/cubePlaneStride], cube[(n%cubePlaneStride)/cubeRowStride], cube[n%cubeRowStride]}
 	default:
-		v := 8 + (index-232)*10
+		v := grayRampFirst + (index-grayRampStart)*grayRampStep
 		return RGB{v, v, v}
 	}
 }
@@ -71,12 +82,11 @@ func nearestCube(v uint8) uint8 {
 
 // Guard narrowing explicitly so readers and static analyzers can prove the ramp index fits.
 func clampStep(n int) uint8 {
-	const lastStep = 23
 	switch {
 	case n <= 0:
 		return 0
-	case n >= lastStep:
-		return lastStep
+	case n >= grayRampLast:
+		return uint8(grayRampLast)
 	default:
 		return uint8(n)
 	}

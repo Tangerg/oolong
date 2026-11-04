@@ -198,7 +198,7 @@ func (m *MultiSelect[T]) DrawWith(v scene.Frame, look Look) {
 func (m *MultiSelect[T]) Handle(ev input.Event) bool {
 	requireMutable(m.element)
 	if key, ok := ev.(input.Key); ok {
-		_, handled := m.matcher.Handle(m.keys(), key, m.Do)
+		_, handled := m.matcher.Handle(m.keys(), key, keyboardReceipt(&m.element), m.Do)
 		return handled
 	}
 	mouse, ok := ev.(input.Mouse)

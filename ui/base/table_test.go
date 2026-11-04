@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 	"testing"
@@ -16,11 +17,15 @@ type row struct {
 
 func table() *base.Table[row] {
 	t := new(base.Table[row])
-	t.SetLess(func(a, b row, column int) bool {
-		if column == 1 {
-			return a.size < b.size
+	t.SetSortColumns(func(column int) func(row, row) int {
+		switch column {
+		case 0:
+			return func(a, b row) int { return cmp.Compare(a.name, b.name) }
+		case 1:
+			return func(a, b row) int { return cmp.Compare(a.size, b.size) }
+		default:
+			return nil
 		}
-		return a.name < b.name
 	})
 	t.SetItems([]row{{"gamma", 2}, {"alpha", 30}, {"beta", 1}})
 	return t
@@ -29,7 +34,7 @@ func table() *base.Table[row] {
 func TestChangingTheComparisonKeepsTheReportedOrderTrue(t *testing.T) {
 	tbl := table()
 	tbl.SortBy(0)
-	tbl.SetLess(func(a, b row, _ int) bool { return a.size < b.size })
+	tbl.SetSortColumns(singleSortColumn(func(a, b row) int { return cmp.Compare(a.size, b.size) }))
 	if got := ordered(tbl); got != "beta gamma alpha" {
 		t.Fatalf("rows after changing the comparison are %q", got)
 	}
@@ -37,7 +42,7 @@ func TestChangingTheComparisonKeepsTheReportedOrderTrue(t *testing.T) {
 		t.Fatalf("table reports column %d, descending %v, sorted %v", column, descending, ok)
 	}
 
-	tbl.SetLess(nil)
+	tbl.SetSortColumns(nil)
 	if _, _, ok := tbl.Sorted(); ok {
 		t.Fatal("table without a comparison still reports a sorted order")
 	}
@@ -145,7 +150,7 @@ func TestATablesRowsCanOnlyBeReplacedThroughTheTable(t *testing.T) {
 	// the header saying the rows were sorted by a column they were no longer in the
 	// order of.
 	table := new(base.Table[string])
-	table.SetLess(func(a, b string, _ int) bool { return a < b })
+	table.SetSortColumns(singleSortColumn(strings.Compare))
 	table.SetItems([]string{"pear", "apple", "fig"})
 	table.SortBy(0)
 	if got := table.Items(); !slices.Equal(got, []string{"apple", "fig", "pear"}) {
@@ -159,5 +164,14 @@ func TestATablesRowsCanOnlyBeReplacedThroughTheTable(t *testing.T) {
 	}
 	if got := table.Items(); !slices.Equal(got, []string{"cherry", "plum"}) {
 		t.Fatalf("replaced rows = %v, want them in the order the header says", got)
+	}
+}
+
+func singleSortColumn[T any](compare func(T, T) int) func(int) func(T, T) int {
+	return func(column int) func(T, T) int {
+		if column != 0 {
+			return nil
+		}
+		return compare
 	}
 }

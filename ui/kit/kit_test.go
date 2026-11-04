@@ -1359,7 +1359,12 @@ func TestAPressOnAHeadingSortsTheRowsUnderIt(t *testing.T) {
 	// and a press is turned into a column by the one that knows where the columns
 	// went.
 	rows := new(base.Table[[2]string])
-	rows.SetLess(func(a, b [2]string, column int) bool { return a[column] < b[column] })
+	rows.SetSortColumns(func(column int) func([2]string, [2]string) int {
+		if column < 0 || column >= len([2]string{}) {
+			return nil
+		}
+		return func(a, b [2]string) int { return strings.Compare(a[column], b[column]) }
+	})
 	rows.SetItems([][2]string{{"b", "2"}, {"a", "1"}})
 
 	view := kit.Table{

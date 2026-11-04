@@ -14,7 +14,11 @@ UI 所有者通过 `Runtime.NewScope` 创建 `Scope`。`ScopeConfig.Attachment` 
 
 `Attachment` 为 nil 时，作用域跟随会话。要将任务绑定到已挂载的元素，先取 `lease := element.Attachment()`，再传入 `ScopeConfig{Attachment: &lease}`。构造时复制租约，因此调用方替换自己的变量不能改变已接纳任务的绑定。显式提供空租约、已卸载租约或其他运行时的租约会返回 `ErrScopeClosed`，不会回退到会话生命周期。元素卸载后重新挂载会产生新租约，旧作用域不能因此恢复。
 
-`TaskStatus` 将工作线程结果、`CancelRequested` 与结果交付分开。调用 `Cancel` 是请求协作，不能声称外部工作已经结束。视图卸载后，即使工作成功，UI 交付也可能被撤销。`Task.Done` 和 `Task.Settled` 暴露不同边界。普通 dispatcher 拥塞不会丢弃已接受任务的完成结果。
+`TaskStatus` 将工作线程结果、`CancelRequested` 与结果交付分开。调用 `Cancel` 是请求协作，不能声称外部工作已经结束。视图卸载后，即使工作成功，UI 交付也可能被撤销。`Task.Done` 和 `Task.Settled` 暴露不同边界。普通 dispatcher 拥塞不会丢弃已接受任务的完成结果。`DeliveryDelivered` 表示结果已经进入 `Apply`；即使回调随后 panic 或调用 `runtime.Goexit`，也不能把已交付的结果改称撤销。`Settled` 在回调栈展开后关闭，不表示应用副作用成功或帧已到达终端。
+
+## 延迟键盘输入
+
+按键序列通过 `element.KeyboardLease()` 捕获凭证，并向 `Matcher.Handle` 传入 `lease.Valid`。场景拥有连续的键盘路由事实，包括无焦点时的模态层或内容节点回退路由。焦点在子节点之间移动时，祖先凭证继续有效；离开其路由、卸载或关闭根节点则永久撤销。稍后返回也不能复活旧前缀或排队中的解析回调。延迟焦点遍历通过 `lease.FocusNext` 执行，因为原始事件的命令方法此时已过期。
 
 ## 已接纳的帧与指针输入
 

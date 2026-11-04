@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/layout"
@@ -17,14 +18,14 @@ func TestThemeCascadeSharesOneLiveOwnerAndOwnsOverrides(t *testing.T) {
 	branchText := grid.Style{FG: grid.RGBColor(1, 2, 3)}
 	branch := owner.Scope().With(kit.ThemeOverride{Text: &branchText})
 	instanceText := grid.Style{} // An explicit terminal-default style is an override.
-	first := kit.NewButton(kit.ButtonConfig{Label: "one", Scope: branch})
-	second := kit.NewButton(kit.ButtonConfig{Label: "two", Scope: branch, Appearance: kit.ThemeOverride{Text: &instanceText}})
+	first := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "one"}, Scope: branch})
+	second := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "two"}, Scope: branch, Appearance: kit.ThemeOverride{Text: &instanceText}})
 	// Disabled buttons use Muted; supply an action so this test observes Text.
 	active := func(context.Context) (scene.ActionResult[struct{}], error) {
 		return scene.ActionResult[struct{}]{State: scene.Applied}, nil
 	}
-	third := kit.NewButton(kit.ButtonConfig{Label: "three", Scope: branch, Activate: active})
-	fourth := kit.NewButton(kit.ButtonConfig{Label: "four", Scope: branch, Appearance: kit.ThemeOverride{Text: &instanceText}, Activate: active})
+	third := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "three", Activate: active}, Scope: branch})
+	fourth := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "four", Activate: active}, Scope: branch, Appearance: kit.ThemeOverride{Text: &instanceText}})
 	group := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{{Element: first.Element(), Size: layout.Fixed(1)}, {Element: second.Element(), Size: layout.Fixed(1)}, {Element: third.Element(), Size: layout.Fixed(1)}, {Element: fourth.Element(), Size: layout.Fixed(1)}}})
 	root := newTestRoot(group.Element())
 	if err := fourth.Element().RequestFocus(); err != nil {
@@ -73,7 +74,7 @@ func TestThemeCascadeSharesOneLiveOwnerAndOwnsOverrides(t *testing.T) {
 func TestThemeUpdateDuringPaintIsRejectedBeforeVersionOrPaletteChanges(t *testing.T) {
 	initial := kit.Dark()
 	owner := kit.NewThemeOwner(initial)
-	button := kit.NewButton(kit.ButtonConfig{Label: "save", Scope: owner.Scope()})
+	button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "save"}, Scope: owner.Scope()})
 	if err := button.Element().SetPaint(func(scene.Frame) { owner.Set(kit.Light()) }); err != nil {
 		t.Fatal(err)
 	}
@@ -93,10 +94,10 @@ func TestThemeUpdateDuringPaintIsRejectedBeforeVersionOrPaletteChanges(t *testin
 
 func TestKitButtonUsesOneControllerForKeysPointerAndAX(t *testing.T) {
 	calls := 0
-	button := kit.NewButton(kit.ButtonConfig{Label: "Save", Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
+	button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "Save", Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
 		calls++
 		return scene.ActionResult[struct{}]{State: scene.Applied}, nil
-	}})
+	}}})
 	if button.Element() != button.Controller().Element() {
 		t.Fatal("skin created a second behaviour identity")
 	}
@@ -152,7 +153,7 @@ func TestThemeHandleReassignmentCannotRebindMountedConsumers(t *testing.T) {
 	owner := kit.NewThemeOwner(kit.Dark())
 	branch := owner.Scope()
 	descendant := branch.With(kit.ThemeOverride{})
-	button := kit.NewButton(kit.ButtonConfig{Label: "one", Scope: branch})
+	button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "one"}, Scope: branch})
 	root := newTestRoot(button)
 	other := kit.NewThemeOwner(kit.Light())
 	*branch = *other.Scope()

@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"cmp"
 	"errors"
 	"slices"
 	"testing"
@@ -33,7 +34,7 @@ func TestCollectionFocusProjectionReadsOnlyThePublishedRowsAndSelection(t *testi
 			case "table":
 				b := new(base.Table[int])
 				b.SetItems([]int{3, 1, 2})
-				b.SetLess(func(a, b, _ int) bool { return a < b })
+				b.SetSortColumns(singleSortColumn(cmp.Compare[int]))
 				part, change = b.Element(), func() { b.SortBy(0) }
 				complete = func() bool {
 					n, ok := b.Current()
@@ -89,7 +90,7 @@ func TestCollectionSourceCommandsRejectProjectionBeforeChangingInputs(t *testing
 			if kind == "table" {
 				b := new(base.Table[int])
 				b.SetItems([]int{3, 1, 2})
-				b.SetLess(func(a, b, _ int) bool { return a < b })
+				b.SetSortColumns(singleSortColumn(cmp.Compare[int]))
 				b.SortBy(0)
 				part, change, unchanged = b.Element(), b.ClearSort, func() bool { _, _, sorted := b.Sorted(); return sorted }
 			} else {

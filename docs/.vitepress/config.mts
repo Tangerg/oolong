@@ -2,95 +2,88 @@ import { defineConfig, type DefaultTheme } from 'vitepress'
 
 const repository = 'https://github.com/Tangerg/oolong'
 
-const englishSidebar: DefaultTheme.SidebarItem[] = [
+type Locale = 'en' | 'zh'
+type LocalizedText = Readonly<Record<Locale, string>>
+type NavigationLink = Readonly<{ text: LocalizedText; link: string }>
+type NavigationGroup = Readonly<{ text: LocalizedText; items: readonly NavigationLink[] }>
+
+const gettingStarted: NavigationLink = {
+  text: { en: 'Build Your First Interface', zh: '构建第一个界面' },
+  link: '/guides/getting-started'
+}
+const architecture: NavigationLink = {
+  text: { en: 'Architecture', zh: '架构' },
+  link: '/core/architecture'
+}
+
+const sidebar: readonly NavigationGroup[] = [
   {
-    text: 'Start',
+    text: { en: 'Start', zh: '开始' },
     items: [
-      { text: 'Introduction', link: '/' },
-      { text: 'Build Your First Interface', link: '/guides/getting-started' },
-      { text: 'Choose Modules', link: '/guides/modules' }
+      { text: { en: 'Introduction', zh: '项目介绍' }, link: '/' },
+      gettingStarted,
+      { text: { en: 'Choose Modules', zh: '选择模块' }, link: '/guides/modules' }
     ]
   },
   {
-    text: 'Build',
+    text: { en: 'Build', zh: '构建' },
     items: [
-      { text: 'Compose Components', link: '/guides/components' },
-      { text: 'Render Rich Content', link: '/guides/content' },
-      { text: 'Stream Bounded Output', link: '/guides/streaming' },
-      { text: 'Build an Agent Interface', link: '/guides/agent' },
-      { text: 'History and Virtualization', link: '/guides/history' }
+      { text: { en: 'Compose Components', zh: '组合组件' }, link: '/guides/components' },
+      { text: { en: 'Render Rich Content', zh: '渲染富文本' }, link: '/guides/content' },
+      { text: { en: 'Stream Bounded Output', zh: '构建有界流式输出' }, link: '/guides/streaming' },
+      { text: { en: 'Build an Agent Interface', zh: '构建 Agent 界面' }, link: '/guides/agent' },
+      { text: { en: 'History and Virtualization', zh: '历史与虚拟化' }, link: '/guides/history' }
     ]
   },
   {
-    text: 'Validate',
+    text: { en: 'Validate', zh: '验证' },
     items: [
-      { text: 'Test an Interface', link: '/guides/testing' },
-      { text: 'Troubleshoot Applications', link: '/guides/troubleshooting' }
+      { text: { en: 'Test an Interface', zh: '测试界面' }, link: '/guides/testing' },
+      { text: { en: 'Troubleshoot Applications', zh: '排查应用问题' }, link: '/guides/troubleshooting' }
     ]
   },
   {
-    text: 'Understand',
+    text: { en: 'Understand', zh: '理解' },
     items: [
-      { text: 'Architecture', link: '/core/architecture' },
-      { text: 'Logical Text', link: '/core/text' },
-      { text: 'Lifetimes', link: '/core/lifetimes' },
-      { text: 'Base Behavior', link: '/base/' },
-      { text: 'Kit Appearance', link: '/kit/' },
-      { text: 'Ownership Decisions', link: '/decisions/ownership' },
-      { text: 'Prior Art', link: '/decisions/prior-art' },
-      { text: 'Brand', link: '/decisions/brand' }
+      architecture,
+      { text: { en: 'Logical Text', zh: '逻辑文本' }, link: '/core/text' },
+      { text: { en: 'Lifetimes', zh: '生命周期' }, link: '/core/lifetimes' },
+      { text: { en: 'Base Behavior', zh: 'Base 行为' }, link: '/base/' },
+      { text: { en: 'Kit Appearance', zh: 'Kit 外观' }, link: '/kit/' },
+      { text: { en: 'Ownership Decisions', zh: '所有权决策' }, link: '/decisions/ownership' },
+      { text: { en: 'Prior Art', zh: '既有设计' }, link: '/decisions/prior-art' },
+      { text: { en: 'Brand', zh: '品牌' }, link: '/decisions/brand' }
     ]
   },
   {
-    text: 'Maintain',
-    items: [{ text: 'Prepare a Release', link: '/guides/releasing' }]
+    text: { en: 'Maintain', zh: '维护' },
+    items: [{ text: { en: 'Prepare a Release', zh: '准备发布' }, link: '/guides/releasing' }]
   }
 ]
 
-const chineseSidebar: DefaultTheme.SidebarItem[] = [
-  {
-    text: '开始',
-    items: [
-      { text: '项目介绍', link: '/zh/' },
-      { text: '构建第一个界面', link: '/zh/guides/getting-started' },
-      { text: '选择模块', link: '/zh/guides/modules' }
-    ]
-  },
-  {
-    text: '构建',
-    items: [
-      { text: '组合组件', link: '/zh/guides/components' },
-      { text: '渲染富文本', link: '/zh/guides/content' },
-      { text: '构建有界流式输出', link: '/zh/guides/streaming' },
-      { text: '构建 Agent 界面', link: '/zh/guides/agent' },
-      { text: '历史与虚拟化', link: '/zh/guides/history' }
-    ]
-  },
-  {
-    text: '验证',
-    items: [
-      { text: '测试界面', link: '/zh/guides/testing' },
-      { text: '排查应用问题', link: '/zh/guides/troubleshooting' }
-    ]
-  },
-  {
-    text: '理解',
-    items: [
-      { text: '架构', link: '/zh/core/architecture' },
-      { text: '逻辑文本', link: '/zh/core/text' },
-      { text: '生命周期', link: '/zh/core/lifetimes' },
-      { text: 'Base 行为', link: '/zh/base/' },
-      { text: 'Kit 外观', link: '/zh/kit/' },
-      { text: '所有权决策', link: '/zh/decisions/ownership' },
-      { text: '既有设计', link: '/zh/decisions/prior-art' },
-      { text: '品牌', link: '/zh/decisions/brand' }
-    ]
-  },
-  {
-    text: '维护',
-    items: [{ text: '准备发布', link: '/zh/guides/releasing' }]
-  }
+const nav: readonly NavigationLink[] = [
+  { ...gettingStarted, text: { en: 'Guide', zh: '指南' } },
+  architecture,
+  { text: { en: 'Examples', zh: '示例' }, link: '/guides/examples' },
+  { text: { en: 'Go Reference', zh: 'Go 参考' }, link: 'https://pkg.go.dev/github.com/Tangerg/oolong/ui' }
 ]
+
+function localizeLink(item: NavigationLink, locale: Locale): DefaultTheme.NavItemWithLink {
+  return {
+    text: item.text[locale],
+    link: locale === 'zh' && item.link.startsWith('/') ? `/zh${item.link}` : item.link
+  }
+}
+
+function localizedNavigation(locale: Locale): Pick<DefaultTheme.Config, 'nav' | 'sidebar'> {
+  return {
+    nav: nav.map(item => localizeLink(item, locale)),
+    sidebar: sidebar.map(group => ({
+      text: group.text[locale],
+      items: group.items.map(item => localizeLink(item, locale))
+    }))
+  }
+}
 
 const sharedTheme: DefaultTheme.Config = {
   logo: {
@@ -156,13 +149,7 @@ export default defineConfig({
       description: 'A streaming-first terminal UI substrate for Go.',
       themeConfig: {
         ...sharedTheme,
-        nav: [
-          { text: 'Guide', link: '/guides/getting-started' },
-          { text: 'Architecture', link: '/core/architecture' },
-          { text: 'Examples', link: '/guides/examples' },
-          { text: 'Go Reference', link: 'https://pkg.go.dev/github.com/Tangerg/oolong/ui' }
-        ],
-        sidebar: englishSidebar,
+        ...localizedNavigation('en'),
         outline: { label: 'On this page', level: [2, 3] },
         docFooter: { prev: 'Previous page', next: 'Next page' }
       }
@@ -175,13 +162,7 @@ export default defineConfig({
       description: '面向 Go 的流式优先终端 UI 底座。',
       themeConfig: {
         ...sharedTheme,
-        nav: [
-          { text: '指南', link: '/zh/guides/getting-started' },
-          { text: '架构', link: '/zh/core/architecture' },
-          { text: '示例', link: '/zh/guides/examples' },
-          { text: 'Go 参考', link: 'https://pkg.go.dev/github.com/Tangerg/oolong/ui' }
-        ],
-        sidebar: chineseSidebar,
+        ...localizedNavigation('zh'),
         outline: { label: '本页内容', level: [2, 3] },
         docFooter: { prev: '上一页', next: '下一页' },
         editLink: {

@@ -1,11 +1,9 @@
 package kit
 
 import (
-	"context"
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/base"
-	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
@@ -15,15 +13,12 @@ import (
 // application theme; Theme is an alternative static palette. Appearance overrides
 // either source for this instance only.
 type ButtonConfig struct {
-	Key, Label string
-	Keys       *keymap.Map
+	Behavior   base.ButtonConfig
 	Theme      Theme
 	Scope      *ThemeScope
 	Appearance ThemeOverride
 	// Empty truncates silently; terminal character policy comes from the caller's Glyphs.
-	Ellipsis     string
-	Availability func() scene.Availability
-	Activate     func(context.Context) (scene.ActionResult[struct{}], error)
+	Ellipsis string
 }
 
 // Button dresses one base.Button. Its controller owns its action, pointer gesture,
@@ -55,7 +50,7 @@ func NewButton(config ButtonConfig) *Button {
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	b := &Button{controller: base.NewButton(base.ButtonConfig{Key: config.Key, Label: config.Label, Keys: config.Keys, Availability: config.Availability, Activate: config.Activate}), appearance: look, ellipsis: strings.Clone(config.Ellipsis)}
+	b := &Button{controller: base.NewButton(config.Behavior), appearance: look, ellipsis: strings.Clone(config.Ellipsis)}
 	element := b.controller.Element()
 	if err := element.SetPaint(b.Draw); err != nil {
 		panic(err)

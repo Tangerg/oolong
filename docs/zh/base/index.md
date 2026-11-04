@@ -45,7 +45,11 @@ Completion 激活动作在一次操作中接受地址指定的候选，不依赖
 
 Button 和 Confirm 即使在后续步骤返回错误时，也会发布已接受的 `Applied` 或 `Started` 结果。物理输入还会发布其保留的 UI 错误，包括值未改变但旧错误被清除的情况。`Button.Press`、`Confirm.Request` 与语义动作直接返回错误，并保留上一次物理输入的反馈。Confirm 将同步领域通知延迟到请求结果和 UI 反馈结算后统一发布，答案始终仅由领域所有者持有。
 
-Table 列索引的含义属于 `SetLess` 比较器。行控制器不拥有列 schema：排序可用性检查索引非负、存在比较器且行非空，调用方必须使用该比较器支持的列。
+`Table.SetSortColumns` 接受列所有者提供的查询，由列索引取得纯三路比较器。返回 nil 表示该列不可排序，直接排序和语义动作都在同一边界拒绝它。列是否受支持和如何比较来自同一个查询，Table 不再维护另一份列数或 schema。支持的列或比较规则变化时应替换查询；活动排序列被移除时，清除排序描述并保留当前行序。
+
+Form 即使同时收到错误，也保留回调报告的 `Applied` 或 `Started` 结果及提交 ID。`Started` 继续等待结算，其伴随错误可通过 `Submission` 和 `Error` 查询。显式取代旧提交时返回 `ErrSubmissionStale`，但不抹掉旧回调已经接受的效果。
+
+按键序列通过 `Matcher.Handle` 的生命周期谓词捕获 `scene.KeyboardLease`。键盘路由内的接收者在焦点移动于其后代之间时保留凭证；显式转交给路由外接收者的输入（例如补全弹层）借用当前输入起点的生命周期。没有焦点时，活动模态层或 root 内容提供这个起点。离开作用域、卸载或关闭 root 会永久撤销旧凭证，包括已排队的 resolver；焦点回来不会恢复旧输入。未挂载控件可以接收新的本地输入，直到下次挂载。独立 matcher 可传 nil，由直接调用方管理生命周期。
 
 `Settings.Change` 返回 `scene.ActionResult[bool]`：`Value` 表示是否接受输入，`State` 由领域所有者报告实际结果。到达值边界但仍接受按键时返回 `Value: true, State: scene.Unchanged`。Settings 不复制领域值，也不根据输入是否被消费猜测值是否改变。
 

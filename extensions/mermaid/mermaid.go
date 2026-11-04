@@ -38,6 +38,18 @@ const (
 	maxDiagnosticBytes    = 64 << 10
 )
 
+// Theme keeps Mermaid's closed value domain at the configuration boundary.
+// The zero value selects ThemeDefault.
+type Theme string
+
+const (
+	ThemeDefault Theme = "default"
+	ThemeDark    Theme = "dark"
+	ThemeForest  Theme = "forest"
+	ThemeNeutral Theme = "neutral"
+	ThemeBase    Theme = "base"
+)
+
 // Config treats Executable, Node and Browser as trusted application configuration because
 // source must never select code to execute. Zero limits choose bounded defaults.
 type Config struct {
@@ -48,7 +60,7 @@ type Config struct {
 	// An empty browser uses the installed headless shell to match the official CLI
 	// rendering mode.
 	Browser string
-	Theme   string
+	Theme   Theme
 	// The deadline includes admission waiting so queued renders cannot wait forever.
 	// Unix shutdown also allows bounded graceful and forced process-group cleanup.
 	Timeout        time.Duration
@@ -130,7 +142,7 @@ func absoluteBrowser(name string) (string, error) {
 
 func (c *Config) applyDefaults() {
 	if c.Theme == "" {
-		c.Theme = "default"
+		c.Theme = ThemeDefault
 	}
 	if c.Timeout == 0 {
 		c.Timeout = defaultRenderTimeout
@@ -158,7 +170,7 @@ func (c *Config) applyDefaults() {
 // Validate after defaults so zero values retain their useful construction meaning.
 func (c *Config) validate() error {
 	switch c.Theme {
-	case "default", "dark", "forest", "neutral", "base":
+	case ThemeDefault, ThemeDark, ThemeForest, ThemeNeutral, ThemeBase:
 	default:
 		return fmt.Errorf("mermaid: invalid theme %q", c.Theme)
 	}
@@ -243,7 +255,7 @@ func (r *Renderer) arguments(dir string) ([]string, string, error) {
 			SecurityLevel string `json:"securityLevel"`
 			MaxTextSize   int    `json:"maxTextSize"`
 			MaxEdges      int    `json:"maxEdges"`
-			Theme         string `json:"theme"`
+			Theme         Theme  `json:"theme"`
 		} `json:"mermaid"`
 	}{Browser: r.cfg.Browser, Profile: filepath.Join(dir, "browser"), Timeout: r.cfg.Timeout.Milliseconds(), Width: r.cfg.Width, Height: r.cfg.Height}
 	config.Mermaid.SecurityLevel = "strict"

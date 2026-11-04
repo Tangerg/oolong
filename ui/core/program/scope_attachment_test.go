@@ -72,7 +72,7 @@ func TestScopeAttachmentSeparatesTheSessionFromAnExplicitMount(t *testing.T) {
 		if status := mountedTask.Snapshot(); mountedApplied || status.State != program.TaskSucceeded || status.Delivery != program.DeliveryRevoked {
 			t.Fatalf("detached task = %+v, applied = %v", status, mountedApplied)
 		}
-		if status := sessionTask.Snapshot(); !sessionApplied || status.Delivery != program.DeliveryApplied {
+		if status := sessionTask.Snapshot(); !sessionApplied || status.Delivery != program.DeliveryDelivered {
 			t.Fatalf("session task = %+v, applied = %v", status, sessionApplied)
 		}
 	})

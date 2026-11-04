@@ -237,14 +237,9 @@ func (r *Root) HandleInput(event CapturedInput) bool {
 		}
 		consumed = r.mouse(mouse, event.layout)
 	} else {
-		n := r.resolve(r.focus)
-		if n == nil {
-			n = r.modal()
-			if n == nil {
-				n = r.content.node
-			}
-		}
-		if n != nil {
+		route := r.keyboardRoute(r.focus, r.modal())
+		if len(route) != 0 {
+			n := r.resolve(route[0])
 			consumed = r.route(n, event.input, nil).bubble(event.input)
 		}
 	}

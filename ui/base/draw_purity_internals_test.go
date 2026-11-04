@@ -212,7 +212,7 @@ type editorMeaning struct {
 	mask             string
 	gutter           RowGutter
 	cursor           grid.CursorStyle
-	undo, redo       []editorState
+	undo, redo       []editSnapshot
 	kills            []editorKill
 	typing           bool
 	continuation     editorContinuation
@@ -231,13 +231,13 @@ func meaningOfEditor(editor *Editor) editorMeaning {
 		keys: editor.Keys, clipboard: editor.Clipboard,
 		maxRows: editor.MaxRows, singleLine: editor.SingleLine(),
 		mask: editor.Mask(), gutter: editor.Gutter, cursor: editor.CursorStyle,
-		undo: cloneEditorStates(editor.document().history.undo), redo: cloneEditorStates(editor.document().history.redo),
+		undo: cloneEditSnapshots(editor.document().history.undo), redo: cloneEditSnapshots(editor.document().history.redo),
 		kills: cloneEditorKills(editor.kills.entries), typing: editor.document().history.typist.Value() == editor,
 		continuation: editor.continuation, yank: editor.yank,
 	}
 }
 
-func cloneEditorStates(states []editorState) []editorState {
+func cloneEditSnapshots(states []editSnapshot) []editSnapshot {
 	out := slices.Clone(states)
 	for i := range out {
 		out[i].lines = slices.Clone(out[i].lines)
@@ -317,7 +317,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 		}{list.Selected(), list.scroll.current, list.scroll.following}
 	}))
 	table := &Table[string]{Row: list.Row}
-	table.SetLess(func(a, b string, _ int) bool { return a < b })
+	table.SetSortColumns(func(int) func(string, string) int { return strings.Compare })
 	table.SetItems([]string{"two", "one"})
 	table.SortBy(0)
 	cases = append(cases, widgetPurityCase("*Table", table, func() any {

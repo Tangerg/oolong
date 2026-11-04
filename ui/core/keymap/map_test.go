@@ -38,13 +38,13 @@ func TestExactPrefixCallbackCannotContinueASupersededMatch(t *testing.T) {
 					case "replace map":
 						bindings.Bind("new", input.Chord{Rune: 'x'})
 					case "new sequence":
-						matcher.Handle(&bindings, input.Key{Rune: 'h'}, do)
+						matcher.Handle(&bindings, input.Key{Rune: 'h'}, nil, do)
 					}
 				}
 				return true
 			}
-			matcher.Handle(&bindings, input.Key{Rune: 'g'}, do)
-			matcher.Handle(&bindings, input.Key{Rune: 'x'}, do)
+			matcher.Handle(&bindings, input.Key{Rune: 'g'}, nil, do)
+			matcher.Handle(&bindings, input.Key{Rune: 'x'}, nil, do)
 			if !slices.Equal(actions, []keymap.Action{"prefix"}) {
 				t.Fatalf("superseded match dispatched actions %v", actions)
 			}
@@ -57,7 +57,7 @@ func TestExactPrefixCallbackCannotContinueASupersededMatch(t *testing.T) {
 
 func match(matcher *keymap.Matcher, bindings *keymap.Map, key input.Key) (keymap.Action, bool) {
 	var action keymap.Action
-	matched, _ := matcher.Handle(bindings, key, func(next keymap.Action) bool {
+	matched, _ := matcher.Handle(bindings, key, nil, func(next keymap.Action) bool {
 		action = next
 		return true
 	})
@@ -304,7 +304,7 @@ func TestAResolverMakesAnExactPrefixReachable(t *testing.T) {
 
 	var matcher keymap.Matcher
 	var actions []keymap.Action
-	matched, handled := matcher.Handle(m, input.Key{Rune: 'g'}, func(action keymap.Action) bool {
+	matched, handled := matcher.Handle(m, input.Key{Rune: 'g'}, nil, func(action keymap.Action) bool {
 		actions = append(actions, action)
 		return true
 	})
@@ -355,8 +355,8 @@ func TestAKeyThatBreaksAnAmbiguitySettlesItThenGetsAReading(t *testing.T) {
 		actions = append(actions, action)
 		return true
 	}
-	matcher.Handle(m, input.Key{Rune: 'g'}, do)
-	matched, handled := matcher.Handle(m, input.Key{Rune: 'q'}, do)
+	matcher.Handle(m, input.Key{Rune: 'g'}, nil, do)
+	matched, handled := matcher.Handle(m, input.Key{Rune: 'q'}, nil, do)
 	if !matched || !handled || !slices.Equal(actions, []keymap.Action{"short", "quit"}) {
 		t.Fatalf("breaking key matched=%v handled=%v actions=%v", matched, handled, actions)
 	}
@@ -365,7 +365,7 @@ func TestAKeyThatBreaksAnAmbiguitySettlesItThenGetsAReading(t *testing.T) {
 func TestACompletedActionCanDeclineTheEvent(t *testing.T) {
 	m := &keymap.Map{}
 	m.Bind("maybe", input.Chord{Rune: 'm'})
-	matched, handled := (&keymap.Matcher{}).Handle(m, input.Key{Rune: 'm'}, func(keymap.Action) bool {
+	matched, handled := (&keymap.Matcher{}).Handle(m, input.Key{Rune: 'm'}, nil, func(keymap.Action) bool {
 		return false
 	})
 	if !matched || handled {
@@ -523,7 +523,7 @@ func TestPendingSequenceCannotCrossBindingLifetimes(t *testing.T) {
 			var matcher keymap.Matcher
 			var called []keymap.Action
 			do := func(action keymap.Action) bool { called = append(called, action); return true }
-			matcher.Handle(bindings, input.Key{Code: input.Character, Rune: 'g'}, do)
+			matcher.Handle(bindings, input.Key{Code: input.Character, Rune: 'g'}, nil, do)
 			switch mode {
 			case "unbind":
 				bindings.Unbind(g)
@@ -532,9 +532,9 @@ func TestPendingSequenceCannotCrossBindingLifetimes(t *testing.T) {
 			case "replace map":
 				bindings = &keymap.Map{}
 				bindings.Bind("replacement", g, g)
-				matcher.Handle(bindings, input.Key{Code: input.Character, Rune: 'g'}, do)
+				matcher.Handle(bindings, input.Key{Code: input.Character, Rune: 'g'}, nil, do)
 			case "disable map":
-				matcher.Handle(nil, input.Key{Code: input.Character, Rune: 'g'}, do)
+				matcher.Handle(nil, input.Key{Code: input.Character, Rune: 'g'}, nil, do)
 			}
 			resolve()
 			if len(called) != 0 {
@@ -553,16 +553,16 @@ func TestResolverCancellationCannotOverwriteAReentrantSequence(t *testing.T) {
 	var actions []keymap.Action
 	do := func(action keymap.Action) bool { actions = append(actions, action); return true }
 	bindings.Resolve = func(time.Duration, func()) func() {
-		return func() { matcher.Handle(&bindings, input.Key{Rune: 'h'}, do) }
+		return func() { matcher.Handle(&bindings, input.Key{Rune: 'h'}, nil, do) }
 	}
-	matcher.Handle(&bindings, input.Key{Rune: 'g'}, do)
-	if _, handled := matcher.Handle(&bindings, input.Key{Rune: 'g'}, do); !handled {
+	matcher.Handle(&bindings, input.Key{Rune: 'g'}, nil, do)
+	if _, handled := matcher.Handle(&bindings, input.Key{Rune: 'g'}, nil, do); !handled {
 		t.Fatal("superseded key escaped")
 	}
 	if len(actions) != 0 || matcher.Keys().String() != "h" {
 		t.Fatalf("cancel overwrote its newer sequence: %v, %v", actions, matcher.Keys())
 	}
-	matcher.Handle(&bindings, input.Key{Rune: 'h'}, do)
+	matcher.Handle(&bindings, input.Key{Rune: 'h'}, nil, do)
 	if !slices.Equal(actions, []keymap.Action{"next"}) {
 		t.Fatalf("new sequence was lost: %v", actions)
 	}
@@ -586,7 +586,7 @@ func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) 
 				}
 			}
 			do := func(keymap.Action) bool { return true }
-			matcher.Handle(&bindings, input.Key{Rune: 'g'}, do)
+			matcher.Handle(&bindings, input.Key{Rune: 'g'}, nil, do)
 			func() {
 				defer func() {
 					if (recover() != nil) != panics {
@@ -598,7 +598,7 @@ func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) 
 						t.Fatal("old sequence survived into the transition")
 					}
 					changed = true
-					matcher.Handle(&bindings, input.Key{Rune: 'h'}, do)
+					matcher.Handle(&bindings, input.Key{Rune: 'h'}, nil, do)
 					if panics {
 						panic("transition failed")
 					}

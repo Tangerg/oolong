@@ -15,6 +15,7 @@ type Timeline struct {
 	frames []Keyframe
 	// Nil Ease is linear: each keyframe already specifies the duration, and
 	// easing every interval separately would introduce a stop at each boundary.
+	// Ease must produce a finite weight and result; Value panics otherwise.
 	Ease func(t float64) float64
 	Loop bool
 
@@ -31,12 +32,14 @@ func NewTimeline(frames ...Keyframe) *Timeline {
 // frames are copied; the caller may reuse or change its input after the call. Ticks
 // must be strictly increasing. A duplicate or decreasing tick is a programmer error
 // and panics here rather than producing an unsigned interpolation span later.
+// Values must be finite; invalid input leaves the previous timeline intact.
 func (t *Timeline) SetFrames(frames []Keyframe) {
 	if t == nil {
 		return
 	}
-	for i := 1; i < len(frames); i++ {
-		if frames[i].At <= frames[i-1].At {
+	for i, frame := range frames {
+		requireFinite(frame.Value)
+		if i > 0 && frame.At <= frames[i-1].At {
 			panic("anim: timeline frames are not strictly increasing")
 		}
 	}
@@ -104,10 +107,15 @@ func (t *Timeline) Value() float64 {
 		if t.tick > to.At {
 			continue
 		}
+		if t.tick == to.At {
+			return to.Value
+		}
 		from := t.frames[i-1]
 		span := to.At - from.At
 		at := float64(t.tick-from.At) / float64(span)
-		return from.Value + (to.Value-from.Value)*t.shape(at)
+		value := interpolate(from.Value, to.Value, t.shape(at))
+		requireFinite(value)
+		return value
 	}
 	return t.frames[len(t.frames)-1].Value
 }
@@ -116,5 +124,7 @@ func (t *Timeline) shape(at float64) float64 {
 	if t.Ease == nil {
 		return at
 	}
-	return t.Ease(at)
+	weight := t.Ease(at)
+	requireFinite(weight)
+	return weight
 }

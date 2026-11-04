@@ -88,3 +88,19 @@ func TestMathematicalTokensDoNotUseGoLiteralSyntax(t *testing.T) {
 		}
 	}
 }
+
+func TestUnsupportedHorizontalLengthsPreserveSource(t *testing.T) {
+	for _, length := range []string{"0pt", "1em", "10em", "-1em", "nonsense", `\frac{x}{y}`} {
+		source := `a\hspace{` + length + `}b`
+		formula := latex.Render(source, latex.Look{})
+		if formula.Err() == nil {
+			t.Fatalf("Render(%q) silently accepted an unsupported length", source)
+		}
+		if formula.Source() != source {
+			t.Fatalf("source changed: %q", formula.Source())
+		}
+		if lines := formula.Lines(); len(lines) != 1 || lines[0].String() != source {
+			t.Fatalf("fallback for %q lost source: %v", source, lines)
+		}
+	}
+}

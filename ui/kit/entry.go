@@ -7,24 +7,10 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Entry is one finished, labelled piece of text, ready for a transcript or the
-// terminal's own scrollback.
-//
-// It is the stable half of a streaming interface. A recent entry may remain in a
-// selectable transcript while interaction is worth its cost; an older one may be
-// committed to the terminal, where it survives the program. The same passive Block
-// works in both places and is measured before it is drawn because publication needs
-// a row count:
-//
-//	e := &kit.Entry{Theme: th, Label: "build", Body: line}
-//	output.Print(e)
-//
-// It owns no interaction lifecycle or routing state. Its transcript or printer
-// decides how long it remains live. Entry is a pointer only because wrapping is
-// memoised between HeightForWidth and Draw; that private cache is presentation state.
-//
-// Entry knows only labelled text. Whether a label denotes a person, process, log
-// source or anything else is application grammar and remains with the caller.
+// Entry leaves retention and permanent publication to its containing transcript
+// or publisher, so it carries no interaction lifecycle or routing state. Its
+// private wrapping memo serves both measurement and drawing. The label's domain
+// meaning belongs to the application, not to this passive text block.
 type Entry struct {
 	Theme Theme
 	// Label names the source or role of the body. Empty draws no label and no gutter.
@@ -125,7 +111,7 @@ func (e *Entry) wrapWidth(width int) int { return max(layout.Remaining(width, e.
 
 func (e *Entry) body() *Paragraph {
 	if !e.fresh || e.cachedBody != e.Body || e.cachedText != e.Theme.Text {
-		e.paragraph.SetText(linesOf(e.Body, e.Theme.Text))
+		e.paragraph = *NewParagraph(e.Body, e.Theme.Text)
 		e.cachedBody = e.Body
 		e.cachedText = e.Theme.Text
 		e.fresh = true

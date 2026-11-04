@@ -19,11 +19,11 @@ const (
 // value is settled at zero; new targets use non-overshooting defaults.
 type Spring struct {
 	// Frequency is how fast it moves, in radians per tick: higher is stiffer. A
-	// non-positive value uses the default.
+	// non-positive finite value uses the default. Tick rejects non-finite parameters.
 	Frequency float64
 	// Damping is how much it overshoots. One arrives and stops; below one it goes
 	// past and comes back, and the further below, the more it bounces; above one it
-	// creeps in slowly. A non-positive value uses the default, which is one.
+	// creeps in slowly. A non-positive finite value uses the default, which is one.
 	Damping float64
 
 	target   float64
@@ -31,13 +31,18 @@ type Spring struct {
 	velocity float64
 }
 
+// To preserves velocity when retargeting. Non-finite targets panic before the
+// motion changes.
 func (s *Spring) To(target float64) {
+	requireFinite(target)
 	s.target = target
 	s.settle()
 }
 
 // Set discards velocity so initialization and resizing do not animate.
+// Non-finite values panic before the motion changes.
 func (s *Spring) Set(value float64) {
+	requireFinite(value)
 	s.target, s.position, s.velocity = value, value, 0
 }
 
@@ -58,10 +63,12 @@ func (s *Spring) settle() {
 	}
 }
 
-// Tick uses the exact damped-oscillator solution: approximate integration can
-// make a stiff spring gain energy at ordinary tick rates.
+// Tick uses the damped-oscillator solution rather than unstable Euler steps.
+// Non-finite parameters or an unrepresentable result panic before state changes.
 func (s *Spring) Tick() {
 	frequency, damping := s.Frequency, s.Damping
+	requireFinite(frequency)
+	requireFinite(damping)
 	if frequency <= 0 {
 		frequency = defaultFrequency
 	}
@@ -71,45 +78,10 @@ func (s *Spring) Tick() {
 	if s.Done() {
 		return
 	}
-
-	// The oscillator equation is centered on zero; translate by the target.
-	u, v := s.position-s.target, s.velocity
-	switch {
-	case damping < 1:
-		u, v = ring(u, v, frequency, damping)
-	case damping == 1:
-		u, v = arrive(u, v, frequency)
-	default:
-		u, v = creep(u, v, frequency, damping)
-	}
-	s.position, s.velocity = s.target+u, v
+	step := springResponse(frequency, damping)
+	position, velocity := step.advance(s.position, s.target, s.velocity)
+	requireFinite(position)
+	requireFinite(velocity)
+	s.position, s.velocity = position, velocity
 	s.settle()
-}
-
-func ring(u, v, frequency, damping float64) (float64, float64) {
-	alpha := damping * frequency
-	beta := frequency * math.Sqrt(1-damping*damping)
-	decay := math.Exp(-alpha)
-	sin, cos := math.Sincos(beta)
-
-	position := decay * (u*cos + ((v+alpha*u)/beta)*sin)
-	velocity := decay * (v*cos - ((frequency*frequency*u+alpha*v)/beta)*sin)
-	return position, velocity
-}
-
-func arrive(u, v, frequency float64) (float64, float64) {
-	decay := math.Exp(-frequency)
-	c := v + frequency*u
-	return decay * (u + c), decay * (v - frequency*c)
-}
-
-// creep is the over-damped solution: two decaying exponentials, and no overshoot at
-// any speed.
-func creep(u, v, frequency, damping float64) (float64, float64) {
-	root := frequency * math.Sqrt(damping*damping-1)
-	r1, r2 := -frequency*damping+root, -frequency*damping-root
-	c1 := (v - r2*u) / (r1 - r2)
-	c2 := u - c1
-	e1, e2 := math.Exp(r1), math.Exp(r2)
-	return c1*e1 + c2*e2, c1*r1*e1 + c2*r2*e2
 }

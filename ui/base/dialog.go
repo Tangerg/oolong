@@ -235,7 +235,7 @@ func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
 	if keys == nil {
 		keys = dialogKeys()
 	}
-	_, handled := d.matcher.Handle(keys, key, func(action keymap.Action) bool {
+	_, handled := d.matcher.Handle(keys, key, d.Element().KeyboardLease().Valid, func(action keymap.Action) bool {
 		if action != Close {
 			return false
 		}

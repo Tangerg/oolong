@@ -22,7 +22,7 @@ func ExampleMap() {
 		{Code: input.Character, Rune: 'q'},
 	} {
 		var action keymap.Action
-		mine, _ := matcher.Handle(keys, key, func(next keymap.Action) bool {
+		mine, _ := matcher.Handle(keys, key, nil, func(next keymap.Action) bool {
 			action = next
 			return true
 		})
@@ -76,7 +76,7 @@ func ExampleMap_sequences() {
 	var matcher keymap.Matcher
 	for range 2 {
 		var action keymap.Action
-		mine, _ := matcher.Handle(keys, input.Key{Rune: 'g'}, func(next keymap.Action) bool {
+		mine, _ := matcher.Handle(keys, input.Key{Rune: 'g'}, nil, func(next keymap.Action) bool {
 			action = next
 			return true
 		})

@@ -16,7 +16,7 @@ func TestTranscriptRetainsNativeImagesThatScrollbackCannotOwn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	skin, root := transcriptSkin(t, kit.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted})
+	skin, root := transcriptSkin(t, kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted}})
 	model := skin.Controller()
 	t.Cleanup(model.Close)
 	first, err := model.Add(&said{rows: []string{"accepted"}})

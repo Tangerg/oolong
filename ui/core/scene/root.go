@@ -30,36 +30,37 @@ type RootConfig struct {
 // Except CaptureInput, its operations run on the UI owner sequence.
 // A Root must not be copied after first use.
 type Root struct {
-	noCopy           noCopy
-	content          Element
-	nodes            map[NodeID]*node
-	nextID           uint64
-	modelRevision    uint64
-	focus            Target
-	capture          capture
-	hover            Target
-	scopes           []focusScope
-	changes          chan struct{}
-	notifications    []lifecycleCall
-	flushing         bool
-	preparing        bool
-	observing        bool
-	closed           bool
-	pending          *Prepared
-	layout           *layoutSnapshot
-	written          *layoutSnapshot
-	inFlight         []*layoutSnapshot
-	maxPendingFrames int
-	lastSequence     uint64
-	writtenSequence  uint64
-	published        atomic.Pointer[writtenHistory]
-	inputHistory     int
-	now              func() time.Time
-	geometryEpoch    uint64
-	namespace        *namespace
-	delivery         uint64
-	inputTurn        uint64
-	focusTurn        uint64
+	noCopy                noCopy
+	content               Element
+	nodes                 map[NodeID]*node
+	nextID                uint64
+	modelRevision         uint64
+	focus                 Target
+	previousKeyboardRoute []Target
+	capture               capture
+	hover                 Target
+	scopes                []focusScope
+	changes               chan struct{}
+	notifications         []lifecycleCall
+	flushing              bool
+	preparing             bool
+	observing             bool
+	closed                bool
+	pending               *Prepared
+	layout                *layoutSnapshot
+	written               *layoutSnapshot
+	inFlight              []*layoutSnapshot
+	maxPendingFrames      int
+	lastSequence          uint64
+	writtenSequence       uint64
+	published             atomic.Pointer[writtenHistory]
+	inputHistory          int
+	now                   func() time.Time
+	geometryEpoch         uint64
+	namespace             *namespace
+	delivery              uint64
+	inputTurn             uint64
+	focusTurn             uint64
 }
 
 type namespace struct{ _ byte }
@@ -201,10 +202,11 @@ func (r *Root) attach(n *node) {
 func (r *Root) detach(n *node) {
 	previous := n.target()
 	if r.focus == previous {
-		r.setFocus(Target{})
+		r.setFocus(Target{}, nil)
 	}
 	delete(r.nodes, n.id)
 	n.root = nil
+	n.keyboardEpoch = new(byte)
 	close(n.done)
 	n.done = nil
 	if r.capture.target == previous {
@@ -326,14 +328,16 @@ func (r *Root) RequestFocus(target Target) error {
 	if n == nil {
 		return ErrStale
 	}
-	if !r.focusableIn(n, r.modal()) {
+	active := r.modal()
+	if !r.focusableIn(n, active) {
 		return ErrUnavailable
 	}
-	r.setFocus(target)
+	r.setFocus(target, r.keyboardRoute(target, active))
 	return nil
 }
 
-func (r *Root) setFocus(target Target) {
+func (r *Root) setFocus(target Target, keyboard []Target) {
+	r.recordKeyboardRoute(keyboard)
 	if r.focus == target {
 		return
 	}
@@ -358,10 +362,60 @@ func (r *Root) setFocus(target Target) {
 	r.signal()
 }
 
+func (r *Root) keyboardRoute(focus Target, modal *node) []Target {
+	origin := r.resolve(focus)
+	if origin == nil {
+		origin = modal
+		if origin == nil {
+			origin = r.content.node
+		}
+	}
+	var current []Target
+	if r.allowedIn(origin, modal) {
+		for n := origin; n != nil; n = n.parent {
+			current = append(current, n.target())
+			if n == modal {
+				break
+			}
+		}
+	}
+	return current
+}
+
+// History can revoke earlier scopes but cannot authorize input. Input and leases
+// derive current eligibility from focus, modals and the composition in keyboardRoute.
+func (r *Root) recordKeyboardRoute(current []Target) {
+	for _, previous := range r.previousKeyboardRoute {
+		if !slices.Contains(current, previous) {
+			if n := r.resolve(previous); n != nil {
+				n.keyboardEpoch = new(byte)
+			}
+		}
+	}
+	r.previousKeyboardRoute = current
+}
+
+func containsNode(ancestor, descendant *node) bool {
+	for n := descendant; n != nil; n = n.parent {
+		if n == ancestor {
+			return true
+		}
+	}
+	return false
+}
+
 // Each modal layer remembers the focus to restore when that layer disappears.
 type focusScope struct{ modal, opener Target }
 
 func (r *Root) settleFocus() {
+	settled := false
+	defer func() {
+		// Eligibility callbacks may exit after the composition changes. Without a
+		// completed route, returning to the old composition must not revive input.
+		if !settled {
+			r.recordKeyboardRoute(nil)
+		}
+	}()
 	var modals []Target
 	var active *node
 	r.walkModals(func(n *node) {
@@ -390,11 +444,13 @@ func (r *Root) settleFocus() {
 		}
 		if opener != r.focus {
 			if n := r.resolve(opener); n != nil && r.focusableIn(n, active) {
-				r.setFocus(opener)
+				r.setFocus(opener, r.keyboardRoute(opener, active))
 			}
 		}
 	}
 	if n := r.resolve(r.focus); n != nil && r.focusableIn(n, active) {
+		r.recordKeyboardRoute(r.keyboardRoute(r.focus, active))
+		settled = true
 		return
 	}
 	var first Target
@@ -405,7 +461,8 @@ func (r *Root) settleFocus() {
 		}
 		return true
 	})
-	r.setFocus(first)
+	r.setFocus(first, r.keyboardRoute(first, active))
+	settled = true
 }
 
 // FocusNext is a traversal mechanism. Composite controllers may request a
@@ -440,7 +497,7 @@ func (r *Root) FocusNext(backward bool) bool {
 	default:
 		at = (at + 1) % len(targets)
 	}
-	r.setFocus(targets[at])
+	r.setFocus(targets[at], r.keyboardRoute(targets[at], active))
 	return true
 }
 
@@ -566,6 +623,7 @@ func (r *Root) revoke() {
 	r.closed = true
 	r.capture = capture{}
 	r.scopes = nil
+	r.previousKeyboardRoute = nil
 	r.layout, r.written, r.inFlight = nil, nil, nil
 	r.published.Store(nil)
 	r.signal()

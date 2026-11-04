@@ -26,6 +26,8 @@ Kit retains its controller's typed collection actions and revision-qualified ite
 
 Box title and footer placement derive their minimum width, available text width and aligned origin from one border-label inset. Corners and the adjacent border remain visible under truncation and alignment.
 
+`ButtonConfig`, `SliderConfig` and `TranscriptConfig` carry their base configuration in `Behavior`. For example, `kit.SliderConfig{Behavior: base.SliderConfig{Minimum: 0, Maximum: 100}, Glyphs: glyphs}` defines the value range once, in the controller configuration; the kit adds only appearance and pure formatting.
+
 ## Theme ownership
 
 Create `kit.NewThemeOwner(initial)` for a live application palette, pass `owner.Scope()` through component Config values, and call `owner.Set(next)` on the UI owner turn. The owner invalidates attached consumers without rebuilding their elements or controllers. `scope.With(kit.ThemeOverride{...})` creates an immutable subtree branch; `Appearance` supplies an instance override. Resolution is application → ancestor scopes → local scope → instance.
@@ -36,6 +38,6 @@ Terminal-fitted neutral roles use named contrast policies. Selection, added-cont
 
 ## Transcript example
 
-`kit.NewTranscript(TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted})` returns a skin and an error. Add source documents through `skin.Controller().AddDocument(document)`, then attach `skin.Element()`. The controller owns reading, selection, sticky headers and retention. Kit adds visual selection, match decoration and pinned-header appearance from the same candidate layout.
+`kit.NewTranscript(TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted}})` returns a skin and an error. Add source documents through `skin.Controller().AddDocument(document)`, then attach `skin.Element()`. The controller owns reading, selection, sticky headers and retention. Kit adds visual selection, match decoration and pinned-header appearance from the same candidate layout.
 
 The renderer never retires content because it scrolled away, and a theme never finalizes a stream. See the tested [streaming example](https://github.com/Tangerg/oolong/tree/main/examples/streaming) and [streaming guide](../guides/streaming.md).

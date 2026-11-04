@@ -92,7 +92,7 @@ func (b *Button) handleEvent(event scene.Event) scene.EventResult {
 	if bindings == nil {
 		bindings = activationKeys()
 	}
-	_, handled := b.matcher.Handle(bindings, key, b.Do)
+	_, handled := b.matcher.Handle(bindings, key, keyboardReceipt(&b.element), b.Do)
 	return scene.EventResult{Consumed: handled}
 }
 

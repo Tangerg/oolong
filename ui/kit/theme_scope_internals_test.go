@@ -4,6 +4,8 @@ import (
 	"math"
 	"runtime"
 	"testing"
+
+	"github.com/Tangerg/oolong/ui/base"
 )
 
 func TestThemeRevisionExhaustionCannotWrapOrChangePalette(t *testing.T) {
@@ -27,12 +29,12 @@ func TestThemeConsumersArePrunedBeforeTheirRegistryGrows(t *testing.T) {
 	owner := NewThemeOwner(Dark())
 	for range 16 {
 		for range 32 {
-			NewButton(ButtonConfig{Scope: owner.Scope(), Label: "ephemeral"})
+			NewButton(ButtonConfig{Behavior: base.ButtonConfig{Label: "ephemeral"}, Scope: owner.Scope()})
 		}
 		runtime.GC()
 	}
 	// Register once more so pruning does not depend on a later palette update.
-	live := NewButton(ButtonConfig{Scope: owner.Scope(), Label: "live"})
+	live := NewButton(ButtonConfig{Behavior: base.ButtonConfig{Label: "live"}, Scope: owner.Scope()})
 	if len(owner.consumers) > 64 || cap(owner.consumers) > 128 {
 		t.Fatalf("retained weak handles grew with session age: len=%d cap=%d", len(owner.consumers), cap(owner.consumers))
 	}

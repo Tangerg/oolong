@@ -41,9 +41,9 @@ func FuzzEditSessionMapsCursorToRuneBoundary(f *testing.F) {
 		if len(after) > limit {
 			after = after[:limit]
 		}
-		var editor Editor
-		before = editor.canonicalText(before)
-		after = editor.canonicalText(after)
+		var session EditSession
+		before = session.canonicalText(before)
+		after = session.canonicalText(after)
 
 		got := mappedSessionOffset(before, after, at)
 		if got < 0 || got > len(after) {
@@ -60,9 +60,9 @@ func FuzzEditSessionMapsCursorToRuneBoundary(f *testing.F) {
 func mappedSessionOffset(before, after string, at int) int {
 	session := NewEditSession(EditSessionConfig{Initial: before})
 	view := NewEditor(EditorConfig{Session: session})
-	position := view.caretAt(min(max(at, 0), len(before)))
+	position := session.caretAt(min(max(at, 0), len(before)))
 	view.SetCursor(position.Line, position.Byte)
 	session.Reset(after)
 	line, byteOffset := view.Cursor()
-	return view.offsetOf(Caret{Line: line, Byte: byteOffset})
+	return session.offsetOf(Caret{Line: line, Byte: byteOffset})
 }

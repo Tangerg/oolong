@@ -3,6 +3,7 @@ package kit_test
 import (
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -23,7 +24,7 @@ func TestTruncationUsesTheSuppliedGlyphCapability(t *testing.T) {
 			if got := paragraph.Rows(4); len(got) != 1 || got[0].Text != tc.paragraph {
 				t.Fatalf("paragraph rows=%+v, want %q", got, tc.paragraph)
 			}
-			button := kit.NewButton(kit.ButtonConfig{Label: "abcdefgh", Ellipsis: tc.ellipsis})
+			button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "abcdefgh"}, Ellipsis: tc.ellipsis})
 			root, err := scene.NewRoot(scene.RootConfig{Element: button.Element()})
 			if err != nil {
 				t.Fatal(err)

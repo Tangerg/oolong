@@ -5,7 +5,6 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -13,18 +12,11 @@ import (
 
 // TranscriptConfig configures one base reading controller and the appearance of its existing scene element.
 type TranscriptConfig struct {
-	Key            string
-	Name           string
-	Publisher      base.TranscriptPublisher
-	Retention      base.Retention
-	PublishPartial bool
-	KeepCompleted  int
-	MaxItems       int
-	Keys           *keymap.Map
-	Theme          Theme
-	Scope          *ThemeScope
-	Appearance     ThemeOverride
-	Glyphs         Glyphs
+	Behavior   base.TranscriptConfig
+	Theme      Theme
+	Scope      *ThemeScope
+	Appearance ThemeOverride
+	Glyphs     Glyphs
 }
 
 // Transcript contributes appearance to one base controller. Reading, selection,
@@ -45,7 +37,7 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	if err != nil {
 		return nil, err
 	}
-	controller, err := base.NewTranscript(base.TranscriptConfig{Key: cfg.Key, Name: cfg.Name, Publisher: cfg.Publisher, Retention: cfg.Retention, PublishPartial: cfg.PublishPartial, KeepCompleted: cfg.KeepCompleted, MaxItems: cfg.MaxItems, Keys: cfg.Keys})
+	controller, err := base.NewTranscript(cfg.Behavior)
 	if err != nil {
 		return nil, err
 	}

@@ -14,7 +14,11 @@ The UI owner creates `Scope` with `Runtime.NewScope`. `ScopeConfig.Attachment` c
 
 Leave `Attachment` nil for a session-bound scope. To bind work to a mounted element, obtain `lease := element.Attachment()` and pass `ScopeConfig{Attachment: &lease}`. Construction copies the lease: replacing the caller's variable cannot rebind accepted work. An explicitly supplied empty, detached, or foreign lease returns `ErrScopeClosed`; it never falls back to session lifetime. Detaching and remounting an element creates a new lease and cannot revive an old scope.
 
-`TaskStatus` separates the worker outcome, `CancelRequested`, and result delivery. Calling `Cancel` requests cooperation; it cannot truthfully declare external work finished. A successful worker can have revoked UI delivery after its view is detached. `Task.Done` and `Task.Settled` expose those distinct boundaries. Ordinary dispatcher congestion does not discard an already accepted task's completion.
+`TaskStatus` separates the worker outcome, `CancelRequested`, and result delivery. Calling `Cancel` requests cooperation; it cannot truthfully declare external work finished. A successful worker can have revoked UI delivery after its view is detached. `Task.Done` and `Task.Settled` expose those distinct boundaries. Ordinary dispatcher congestion does not discard an already accepted task's completion. `DeliveryDelivered` means the result entered `Apply`; it remains delivered if that callback panics or calls `runtime.Goexit`. `Settled` closes after the callback unwinds, without claiming that its effects succeeded or a frame reached the terminal.
+
+## Delayed keyboard input
+
+A key sequence captures `element.KeyboardLease()` and passes `lease.Valid` to `Matcher.Handle`. The scene owns the continuous keyboard route, including modal or content fallback when nothing is focused. Moving focus between descendants preserves an ancestor's lease; leaving its route, detaching or closing the root permanently revokes it. Returning later cannot revive an old prefix or queued resolver. A deferred traversal uses `lease.FocusNext`, since the originating event's imperative methods have already expired.
 
 ## Admitted frames and pointer input
 

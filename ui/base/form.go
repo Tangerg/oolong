@@ -297,7 +297,9 @@ var (
 	ErrNotCancellable = errors.New("base: submission cannot be cancelled")
 )
 
-// FormConfig supplies one field relation and event-side submission policy. Submit returns Started only after accepting work; Settle may complete that attempt after the callback returns. PaintField is a pure optional appearance slot.
+// FormConfig keeps Submit's accepted effects independent of an accompanying error. Started
+// keeps the attempt pending until Settle, even when a later admission step failed.
+// PaintField must be a pure appearance projection.
 type FormConfig struct {
 	Key, Title string
 	Fields     []Field
@@ -458,23 +460,24 @@ func (f *Form) SubmitWith(collect func(Field) error) (scene.ActionResult[Submiss
 	}
 	f.submitted = versions
 	state, err := f.start(id)
-	if f.attempt.ID != id {
-		return scene.ActionResult[SubmissionID]{}, ErrSubmissionStale
-	}
-	if err == nil && state != scene.Started && state != scene.Applied && state != scene.Unchanged {
-		err = errors.New("base: submission callback returned an invalid action state")
-	}
-	if err != nil {
-		f.complete(SubmissionOutcome{Err: err})
+	if state != scene.Started && state != scene.Applied && state != scene.Unchanged {
+		err = errors.Join(err, errors.New("base: submission callback returned an invalid action state"))
+		if f.attempt.ID == id {
+			f.complete(SubmissionOutcome{Err: err})
+		}
 		return scene.ActionResult[SubmissionID]{}, err
 	}
+	result := scene.ActionResult[SubmissionID]{State: state, Value: id}
+	if f.attempt.ID != id {
+		return result, errors.Join(err, ErrSubmissionStale)
+	}
 	if state == scene.Started {
-		f.attempt.State = SubmissionPending
+		f.attempt.State, f.attempt.Err = SubmissionPending, err
 		f.Element().Invalidate()
 	} else {
-		f.complete(SubmissionOutcome{})
+		f.complete(SubmissionOutcome{Err: err})
 	}
-	return scene.ActionResult[SubmissionID]{State: state, Value: id}, nil
+	return result, err
 }
 
 // The callback decides admission. Only work it actually accepted may be settled
@@ -614,12 +617,13 @@ func (f *Form) handleEvent(event scene.Event) scene.EventResult {
 	if !ok {
 		return scene.EventResult{}
 	}
-	_, handled := f.matcher.Handle(f.keys(), key, func(action keymap.Action) bool {
+	keyboard := f.Element().KeyboardLease()
+	_, handled := f.matcher.Handle(f.keys(), key, keyboard.Valid, func(action keymap.Action) bool {
 		switch action {
 		case FocusNext:
-			return event.FocusNext(false)
+			return keyboard.FocusNext(false)
 		case FocusPrev:
-			return event.FocusNext(true)
+			return keyboard.FocusNext(true)
 		default:
 			return f.Do(action)
 		}

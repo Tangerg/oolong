@@ -144,9 +144,7 @@ func ExampleNewTabs_selection() {
 
 func ExampleNewSlider_value() {
 	value := 2
-	slider := kit.NewSlider(kit.SliderConfig{
-		Glyphs: kit.ASCII(), Initial: value, Minimum: 1, Maximum: 8, Label: "workers",
-	})
+	slider := kit.NewSlider(kit.SliderConfig{Behavior: base.SliderConfig{Initial: value, Minimum: 1, Maximum: 8, Label: "workers"}, Glyphs: kit.ASCII()})
 	slider.Controller().Move(2)
 	fmt.Println(slider.Controller().Value())
 	slider.Controller().Set(8)

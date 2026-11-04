@@ -62,7 +62,7 @@ func (s *Settings[T]) Handle(event input.Event) bool {
 	if s.list.revision != revision {
 		return true
 	}
-	_, handled := s.matcher.Handle(s.editKeys(), key, func(action keymap.Action) bool {
+	_, handled := s.matcher.Handle(s.editKeys(), key, keyboardReceipt(&s.list.element), func(action keymap.Action) bool {
 		// A delayed value action belongs to the row where its sequence began.
 		return s.list.revision == revision && s.Do(action)
 	})

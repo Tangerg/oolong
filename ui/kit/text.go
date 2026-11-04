@@ -109,12 +109,11 @@ type row struct {
 	elided bool
 }
 
-// NewParagraph is a paragraph of one plain styled string. Its newlines are line
-// breaks.
+// NewParagraph owns plain text without invoking link detection, so a presentation
+// memo can construct it without acquiring semantic callbacks. SetLinks enables
+// detection explicitly; cloned lines cannot retain a caller's larger allocation.
 func NewParagraph(s string, style grid.Style) *Paragraph {
-	p := &Paragraph{}
-	p.SetText(linesOf(s, style))
-	return p
+	return &Paragraph{lines: text.CloneLines(linesOf(s, style))}
 }
 
 // SetText replaces the logical lines. Paragraph copies lines and their spans; the

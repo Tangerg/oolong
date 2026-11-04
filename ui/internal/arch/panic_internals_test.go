@@ -20,6 +20,7 @@ import (
 // a panic that moves into caller-reachable code fails this test until it is either
 // documented on the exported API or explained here.
 var internalAssertions = map[string]string{
+	"ui/core/anim:requireFinite":                "Transition.To, Timeline.SetFrames and Value, and Spring.To, Set and Tick document non-finite input or unrepresentable motion refusal",
 	"ui/core/ansi:Scanner.requireIdle":          "Scanner documents that its active visitor cannot reenter Feed or Reset",
 	"ui/core/publication:Publisher.checkPrefix": "Commit and FailAdmission require the current pending prefix issued by this publisher",
 
@@ -52,13 +53,15 @@ var internalAssertions = map[string]string{
 	// Identity counters. These are uint64 and are consumed once per operation, so
 	// exhausting one is not a state a caller can arrange within a session; the
 	// exported operations that can plausibly approach one say so anyway.
-	"ui/base:Editor.requireContentRevision": "revisions are uint64 and consumed one per content change",
-	"ui/base:EditSession.commit":            "Editor.requireContentRevision checks identity space before any edit reaches the internal commit",
-	"ui/base:Transcript.changed":            "Transcript documents refusal to wrap its content revision and revive an old selection",
-	"ui/base:Transcript.publish":            "Transcript documents refusal of unrepresentable retired row coordinates",
-	"ui/core/scene:next":                    "scene identity and revision counters never wrap because wrapping could revive stale handles or snapshots",
-	"ui/core/term:Writer.enqueue":           "Queue and QueueControl document sequence exhaustion; accepted frame identities may never wrap",
-	"ui/base:treeCopy.identityAt":           "Tree.SetNodes documents identity exhaustion for node collections",
+	"ui/base:EditSession.requireRevision": "revisions are uint64 and consumed one per content change",
+	"ui/base:EditSession.commit":          "EditSession.requireRevision checks identity space before any edit reaches the internal commit",
+	"ui/base:EditSession.setPolicy":       "Editor.SetMask documents refusal before changing an invalid mask policy",
+	"ui/base:EditSession.insertElement":   "Editor.InsertElement documents identity exhaustion before mutation",
+	"ui/base:Transcript.changed":          "Transcript documents refusal to wrap its content revision and revive an old selection",
+	"ui/base:Transcript.publish":          "Transcript documents refusal of unrepresentable retired row coordinates",
+	"ui/core/scene:next":                  "scene identity and revision counters never wrap because wrapping could revive stale handles or snapshots",
+	"ui/core/term:Writer.enqueue":         "Queue and QueueControl document sequence exhaustion; accepted frame identities may never wrap",
+	"ui/base:treeCopy.identityAt":         "Tree.SetNodes documents identity exhaustion for node collections",
 
 	// Cycle detection during the ownership copy, which Tree.SetNodes documents.
 	"ui/base:treeCopy.copyNext": "Tree.SetNodes documents the cyclic-graph panic",

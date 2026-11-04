@@ -73,7 +73,7 @@ func TestTaskCompletionHasReservedCapacity(t *testing.T) {
 	close(release)
 	settleTask(t, p, task)
 	status := task.Snapshot()
-	if got != 42 || status.State != TaskSucceeded || status.Delivery != DeliveryApplied {
+	if got != 42 || status.State != TaskSucceeded || status.Delivery != DeliveryDelivered {
 		t.Fatalf("value=%d status=%+v", got, status)
 	}
 }
@@ -123,7 +123,7 @@ func TestTaskCancellationDoesNotInventOutcomeOrRevokeDelivery(t *testing.T) {
 				want = TaskCancelled
 			}
 			status := task.Snapshot()
-			if !status.CancelRequested || status.State != want || status.Delivery != DeliveryApplied || !applied {
+			if !status.CancelRequested || status.State != want || status.Delivery != DeliveryDelivered || !applied {
 				t.Fatalf("cancellation conflated independent facts: %+v, applied=%v", status, applied)
 			}
 			if scope.Context().Err() != nil || task.Cancel() {
@@ -252,7 +252,7 @@ func TestWorkerOutcomeKeepsDiagnosticCancellationErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			settleTask(t, p, task)
-			if status := task.Snapshot(); status.State != test.state || !errors.Is(status.Err, test.err) || status.CancelRequested || status.Delivery != DeliveryApplied {
+			if status := task.Snapshot(); status.State != test.state || !errors.Is(status.Err, test.err) || status.CancelRequested || status.Delivery != DeliveryDelivered {
 				t.Fatalf("worker outcome=%+v", status)
 			}
 		})

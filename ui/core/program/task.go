@@ -133,9 +133,10 @@ const (
 type DeliveryState uint8
 
 // Delivery has its own terminal state because successful work can outlive a view.
+// Delivered means Apply was entered, even if it exited by panic or runtime.Goexit.
 const (
 	DeliveryPending DeliveryState = iota
-	DeliveryApplied
+	DeliveryDelivered
 	DeliveryRevoked
 )
 
@@ -163,7 +164,9 @@ type Task struct {
 // Work transfers a result from Run on a worker to Apply on the UI owner. Run
 // must cooperate with cancellation. A Run panic becomes an ErrTaskAborted failure
 // on that task; an error panic remains discoverable via errors.Is. Apply runs
-// synchronously, must not block, and may be revoked.
+// synchronously, must not block, and may be revoked before entry. An Apply panic
+// propagates on the UI owner; it does not change the worker outcome or revoke a
+// result already delivered to application code.
 type Work[T any] struct {
 	Run   func(context.Context) (T, error)
 	Apply func(T, error)
@@ -233,13 +236,13 @@ func (t *Task) run[T any](ctx context.Context, scope *Scope, p *program, slot *r
 		}
 		if !slot.post(func() bool {
 			defer slot.close()
-			applied := false
-			defer func() { t.settle(applied) }()
+			delivered := false
+			defer func() { t.settle(delivered) }()
 			if scope.eligible(p) && t.claimDelivery() {
+				delivered = true
 				work.Apply(value, err)
-				applied = true
 			}
-			return applied
+			return delivered
 		}) {
 			slot.close()
 			t.settle(false)
@@ -301,9 +304,9 @@ func (t *Task) Done() <-chan struct{} {
 	return t.done
 }
 
-// Settled closes when delivery is applied or revoked, even if a revoked worker
-// is still running. It does not promise that
-// a resulting frame has reached the terminal.
+// Settled closes after Apply unwinds or delivery is revoked. A revoked worker
+// may still be running. DeliveryDelivered records entry into Apply, not successful
+// completion of application effects or publication of a resulting frame.
 func (t *Task) Settled() <-chan struct{} {
 	if t == nil {
 		return closedSignal
@@ -348,15 +351,15 @@ func (t *Task) revoke() {
 	t.finishDelivery(DeliveryRevoked)
 }
 
-func (t *Task) settle(applied bool) {
+func (t *Task) settle(delivered bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.status.Delivery != DeliveryPending {
 		return
 	}
 	state := DeliveryRevoked
-	if applied {
-		state = DeliveryApplied
+	if delivered {
+		state = DeliveryDelivered
 	}
 	t.finishDelivery(state)
 }

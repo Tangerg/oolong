@@ -26,6 +26,8 @@ Kit 替换绘制槽后仍保留控制器的类型化集合动作和带修订的�
 
 Box 标题和页脚的最小宽度、可用文字宽度与对齐起点，都由同一个边框标签内缩策略推导。截断与对齐始终保留角点及其相邻边框。
 
+`ButtonConfig`、`SliderConfig` 和 `TranscriptConfig` 通过 `Behavior` 组合对应的 base 配置。例如，`kit.SliderConfig{Behavior: base.SliderConfig{Minimum: 0, Maximum: 100}, Glyphs: glyphs}` 只在控制器配置中定义数值范围，kit 只补充外观与纯格式化能力。
+
 ## 主题所有权
 
 通过 `kit.NewThemeOwner(initial)` 创建应用的动态调色板，将 `owner.Scope()` 传入组件 Config，并在 UI owner turn 调用 `owner.Set(next)`。所有者使已挂载消费者失效重绘，不重建元素或控制器。`scope.With(kit.ThemeOverride{...})` 创建不可变子树分支；`Appearance` 提供实例覆盖。解析顺序为应用 → 祖先 scope → 当前 scope → 实例。
@@ -36,6 +38,6 @@ Box 标题和页脚的最小宽度、可用文字宽度与对齐起点，都由�
 
 ## Transcript 示例
 
-`kit.NewTranscript(TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted})` 返回皮肤与错误。通过 `skin.Controller().AddDocument(document)` 添加源文档，再挂载 `skin.Element()`。控制器拥有阅读、选择、固定标题与保留策略；kit 根据同一份候选布局绘制选区、匹配标记与固定标题。
+`kit.NewTranscript(TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted}})` 返回皮肤与错误。通过 `skin.Controller().AddDocument(document)` 添加源文档，再挂载 `skin.Element()`。控制器拥有阅读、选择、固定标题与保留策略；kit 根据同一份候选布局绘制选区、匹配标记与固定标题。
 
 渲染器不会因为内容滚出屏幕就让其退休，主题也不会最终化流。参见带测试的[流式示例](https://github.com/Tangerg/oolong/tree/main/examples/streaming)和[流式指南](../guides/streaming.md)。

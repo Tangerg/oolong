@@ -322,27 +322,47 @@ func noCopyStructProtection(structure *ast.StructType, imports map[string]string
 		return false, false
 	}
 	for _, field := range structure.Fields.List {
-		switch fieldType := field.Type.(type) {
-		case *ast.Ident:
-			if fieldType.Name == "noCopy" {
-				return true, true
-			}
-		case *ast.SelectorExpr:
-			packageName, ok := fieldType.X.(*ast.Ident)
-			if !ok {
-				continue
-			}
-			switch imports[packageName.Name] {
-			case "sync":
-				if isCopylockSyncType(fieldType.Sel.Name) {
-					return true, false
-				}
-			case "sync/atomic":
-				return true, false
-			}
+		if protected, marker := noCopyFieldProtection(field.Type, imports); protected {
+			return protected, marker
 		}
 	}
 	return false, false
+}
+
+func noCopyFieldProtection(expression ast.Expr, imports map[string]string) (protected, marker bool) {
+	switch expression := expression.(type) {
+	case *ast.Ident:
+		return expression.Name == "noCopy", expression.Name == "noCopy"
+	case *ast.SelectorExpr:
+		packageName, ok := expression.X.(*ast.Ident)
+		if !ok {
+			return false, false
+		}
+		switch imports[packageName.Name] {
+		case "sync":
+			return isCopylockSyncType(expression.Sel.Name), false
+		case "sync/atomic":
+			return isCopylockAtomicType(expression.Sel.Name), false
+		}
+	case *ast.IndexExpr:
+		return noCopyFieldProtection(expression.X, imports)
+	case *ast.IndexListExpr:
+		return noCopyFieldProtection(expression.X, imports)
+	case *ast.ParenExpr:
+		return noCopyFieldProtection(expression.X, imports)
+	}
+	return false, false
+}
+
+func isCopylockAtomicType(name string) bool {
+	// Value has a no-copy usage contract but lacks the marker that copylocks
+	// checks. Its spelling alone cannot mechanically protect a containing owner.
+	switch name {
+	case "Bool", "Int32", "Int64", "Uint32", "Uint64", "Uintptr", "Pointer":
+		return true
+	default:
+		return false
+	}
 }
 
 func isCopylockSyncType(name string) bool {
@@ -417,6 +437,10 @@ func TestNonCopyableOwnerRuleRecognizesProtection(t *testing.T) {
 		{name: "marker", source: "type Owner struct { guard noCopy }", want: true},
 		{name: "mutex", source: "type Owner struct { mu sync.Mutex }", want: true},
 		{name: "atomic", source: "type Owner struct { generation atomic.Uint64 }", want: true},
+		{name: "generic atomic", source: "type Owner struct { ledger atomic.Pointer[int] }", want: true},
+		{name: "parenthesized atomic", source: "type Owner struct { ledger (atomic.Pointer[int]) }", want: true},
+		{name: "atomic pointer reference is copyable", source: "type Owner struct { ledger *atomic.Pointer[int] }", want: false},
+		{name: "atomic value has no marker", source: "type Owner struct { data atomic.Value }", want: false},
 		{name: "pointer is copyable", source: "type Owner struct { mu *sync.Mutex }", want: false},
 		{name: "unprotected storage", source: "type Owner struct { values []int }", want: false},
 	}

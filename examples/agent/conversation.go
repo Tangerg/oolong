@@ -49,10 +49,7 @@ func (c *conversation) resetView() {
 	if c.publisher != nil {
 		retention, keep = base.PublishCompleted, retainedCompletedItems
 	}
-	view, err := kit.NewTranscript(kit.TranscriptConfig{
-		Theme: c.theme, Glyphs: c.glyphs,
-		Publisher: c.publisher, Retention: retention, PublishPartial: true, KeepCompleted: keep,
-	})
+	view, err := kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: c.publisher, Retention: retention, PublishPartial: true, KeepCompleted: keep}, Theme: c.theme, Glyphs: c.glyphs})
 	if err != nil {
 		panic(err)
 	}

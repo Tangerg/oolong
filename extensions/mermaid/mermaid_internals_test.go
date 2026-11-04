@@ -85,7 +85,7 @@ func TestZeroRendererRejectsUse(t *testing.T) {
 }
 
 func TestRenderOwnsBrowserProfileAndSecurityConfiguration(t *testing.T) {
-	renderer := &Renderer{cfg: Config{Theme: "dark", MaxSourceBytes: 1024, MaxEdges: 10, Width: 100, Height: 100}}
+	renderer := &Renderer{cfg: Config{Theme: ThemeDark, MaxSourceBytes: 1024, MaxEdges: 10, Width: 100, Height: 100}}
 	directory := t.TempDir()
 	_, output, err := renderer.arguments(directory)
 	if err != nil {
@@ -101,6 +101,7 @@ func TestRenderOwnsBrowserProfileAndSecurityConfiguration(t *testing.T) {
 	var config struct {
 		Profile string `json:"profile"`
 		Mermaid struct {
+			Theme         Theme  `json:"theme"`
 			SecurityLevel string `json:"securityLevel"`
 			MaxTextSize   int    `json:"maxTextSize"`
 			MaxEdges      int    `json:"maxEdges"`
@@ -109,7 +110,7 @@ func TestRenderOwnsBrowserProfileAndSecurityConfiguration(t *testing.T) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatal(err)
 	}
-	if config.Profile != filepath.Join(directory, "browser") || config.Mermaid.SecurityLevel != "strict" || config.Mermaid.MaxTextSize != 1024 || config.Mermaid.MaxEdges != 10 {
+	if config.Profile != filepath.Join(directory, "browser") || config.Mermaid.Theme != ThemeDark || config.Mermaid.SecurityLevel != "strict" || config.Mermaid.MaxTextSize != 1024 || config.Mermaid.MaxEdges != 10 {
 		t.Fatalf("config=%+v", config)
 	}
 }

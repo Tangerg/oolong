@@ -292,7 +292,7 @@ func (c *Completion) Handle(ev input.Event) bool {
 		// pointer is.
 		return c.list.Handle(ev)
 	}
-	_, handled := c.matcher.Handle(c.keys(), key, c.Do)
+	_, handled := c.matcher.Handle(c.keys(), key, keyboardReceipt(&c.element), c.Do)
 	return handled
 }
 

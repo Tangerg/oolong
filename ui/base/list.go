@@ -153,7 +153,7 @@ func (l *List[T]) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := l.matcher.Handle(l.keys(), key, l.Do)
+	_, handled := l.matcher.Handle(l.keys(), key, keyboardReceipt(&l.element), l.Do)
 	return handled
 }
 

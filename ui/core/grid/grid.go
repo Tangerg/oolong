@@ -231,17 +231,17 @@ func (c RGB) Index256() uint8 {
 	// Palette arithmetic fits uint8: cube entries end at 231 and the ramp
 	// ends at 255, so no narrowing can wrap a selected index.
 	r, g, b := nearestCube(c.R), nearestCube(c.G), nearestCube(c.B)
-	best := 16 + 36*r + 6*g + b
+	best := cubeStart + cubePlaneStride*r + cubeRowStride*g + b
 	bestDist := distance(c, RGB{cube[r], cube[g], cube[b]})
 
 	// The ramp runs 8, 18, 28 … 238. Rounding the luminance to the nearest step
 	// finds the candidate without walking all twenty-four.
 	lum := (int(c.R) + int(c.G) + int(c.B)) / 3
-	step := clampStep((lum - 8 + 5) / 10)
+	step := clampStep((lum - grayRampFirst + grayRampStep/2) / grayRampStep)
 
-	grey := 8 + step*10
+	grey := grayRampFirst + step*grayRampStep
 	if d := distance(c, RGB{grey, grey, grey}); d < bestDist {
-		return 232 + step
+		return grayRampStart + step
 	}
 	return best
 }

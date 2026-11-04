@@ -150,7 +150,7 @@ func (s *Select[T]) Handle(ev input.Event) bool {
 		if keys == nil {
 			keys = listKeys()
 		}
-		_, handled := s.matcher.Handle(keys, key, s.Do)
+		_, handled := s.matcher.Handle(keys, key, keyboardReceipt(&s.element), s.Do)
 		return handled
 	}
 	if mouse, ok := ev.(input.Mouse); ok {

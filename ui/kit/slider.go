@@ -7,7 +7,6 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
@@ -33,21 +32,13 @@ type Slider struct {
 }
 
 type SliderConfig struct {
+	Behavior   base.SliderConfig
 	Scope      *ThemeScope
 	Appearance ThemeOverride
 	Theme      Theme
 	Glyphs     Glyphs
-	// Initial seeds the controller-owned value, clamped to the configured range.
-	Initial int
-	// Minimum and Maximum are inclusive and may be equal.
-	Minimum, Maximum int
-	// Step is the keyboard increment. Zero means one.
-	Step  int
-	Label string
-	// Keys maps slider actions. Nil uses the base defaults.
-	Keys *keymap.Map
-	// Format renders the value at the right. Nil uses strconv.Itoa. It runs during
-	// drawing and must be observationally pure.
+	// Format runs during drawing and must be an observationally pure projection.
+	// Nil uses strconv.Itoa; an empty result reserves no room for a value label.
 	Format func(int) string
 }
 
@@ -59,10 +50,7 @@ func NewSlider(config SliderConfig) *Slider {
 		panic(appearanceErr)
 	}
 	slider := &Slider{
-		controller: base.NewSlider(base.SliderConfig{
-			Initial: config.Initial, Minimum: config.Minimum, Maximum: config.Maximum,
-			Step: config.Step, Label: config.Label, Keys: config.Keys,
-		}),
+		controller: base.NewSlider(config.Behavior),
 		appearance: look,
 		Glyphs:     config.Glyphs,
 		Format:     config.Format,

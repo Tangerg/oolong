@@ -216,7 +216,7 @@ func (t *Tree[T]) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := t.matcher.Handle(t.keys(), key, t.Do)
+	_, handled := t.matcher.Handle(t.keys(), key, keyboardReceipt(&t.element), t.Do)
 	return handled
 }
 

@@ -63,6 +63,16 @@ func requireProjection(element scene.Element, frame scene.Frame) {
 	}
 }
 
+// A raw atom may receive input before its containing element exists. Installing
+// that identity must revoke the earlier standalone sequence as well.
+func keyboardReceipt(owner *scene.Element) func() bool {
+	element := *owner
+	lease := element.KeyboardLease()
+	return func() bool {
+		return *owner == element && (element.IsZero() || lease.Valid())
+	}
+}
+
 func partEvent(event scene.Event, handle func(input.Event) bool, projections ...*eventGeometry) scene.EventResult {
 	previous := make([]*scene.Event, len(projections))
 	for i, projection := range projections {

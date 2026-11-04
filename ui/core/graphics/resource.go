@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
@@ -19,15 +20,21 @@ var (
 // ImageOwner binds successfully transmitted wire IDs to one terminal. Its zero
 // value is ready. An ImageOwner must not be copied after first use.
 type ImageOwner struct {
+	ledger atomic.Pointer[imageLedger]
+}
+
+// Handles may outlive the session that embeds ImageOwner. The ledger retains
+// only image identity and lifetime; it must never point back to that session.
+type imageLedger struct {
 	mu     sync.Mutex
 	target grid.NativeTarget
 	live   map[uint32]*imageRecord
 }
 
 type imageRecord struct {
-	owner *ImageOwner
-	wire  Image
-	state imageState
+	ledger *imageLedger
+	wire   Image
+	state  imageState
 }
 
 type imageState uint8
@@ -51,34 +58,45 @@ type UploadResult struct {
 // NativeTarget identifies the canvas on which this owner's resources may be
 // placed. It cannot release images or change their wire identity.
 func (o *ImageOwner) NativeTarget() grid.NativeTarget {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.target == (grid.NativeTarget{}) {
-		o.target = grid.NewNativeTarget()
+	return o.ensureLedger().target
+}
+
+func (o *ImageOwner) ensureLedger() *imageLedger {
+	if ledger := o.ledger.Load(); ledger != nil {
+		return ledger
 	}
-	return o.target
+	ledger := &imageLedger{target: grid.NewNativeTarget()}
+	if o.ledger.CompareAndSwap(nil, ledger) {
+		return ledger
+	}
+	return o.ledger.Load()
 }
 
 func (o *ImageOwner) Contains(id uint32) bool {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	_, found := o.live[id]
+	ledger := o.ledger.Load()
+	if ledger == nil {
+		return false
+	}
+	ledger.mu.Lock()
+	defer ledger.mu.Unlock()
+	_, found := ledger.live[id]
 	return found
 }
 
 // Bind records a successful transmission. It panics for a zero ID or if the
 // same ID is bound again before its previous resource is retired.
 func (o *ImageOwner) Bind(wire Image) Resource {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if wire.ID == 0 || o.live[wire.ID] != nil {
+	ledger := o.ensureLedger()
+	ledger.mu.Lock()
+	defer ledger.mu.Unlock()
+	if wire.ID == 0 || ledger.live[wire.ID] != nil {
 		panic("graphics: image ID must be nonzero and unbound")
 	}
-	if o.live == nil {
-		o.live = make(map[uint32]*imageRecord)
+	if ledger.live == nil {
+		ledger.live = make(map[uint32]*imageRecord)
 	}
-	r := &imageRecord{owner: o, wire: wire}
-	o.live[wire.ID] = r
+	r := &imageRecord{ledger: ledger, wire: wire}
+	ledger.live[wire.ID] = r
 	return Resource{record: r}
 }
 
@@ -90,25 +108,26 @@ func (o *ImageOwner) Release(r Resource, send func(Image) error) error {
 		return errors.New("graphics: image release requires transport admission")
 	}
 	record := r.record
-	if record == nil || record.owner != o {
+	ledger := o.ledger.Load()
+	if record == nil || record.ledger != ledger {
 		return ErrForeignImage
 	}
-	o.mu.Lock()
+	ledger.mu.Lock()
 	if err := record.available(); err != nil {
-		o.mu.Unlock()
+		ledger.mu.Unlock()
 		return err
 	}
 	record.state = imageReleasing
-	o.mu.Unlock()
+	ledger.mu.Unlock()
 	refused := false
 	defer func() {
-		o.mu.Lock()
-		defer o.mu.Unlock()
+		ledger.mu.Lock()
+		defer ledger.mu.Unlock()
 		if refused && record.state == imageReleasing {
 			record.state = imageLive
 			return
 		}
-		delete(o.live, record.wire.ID)
+		delete(ledger.live, record.wire.ID)
 	}()
 	err := send(record.wire)
 	refused = err != nil
@@ -119,12 +138,16 @@ func (o *ImageOwner) Release(r Resource, send func(Image) error) error {
 // successful admission retires that resource immediately. A refusal leaves
 // the remaining resources available for retry.
 func (o *ImageOwner) ReleaseAll(send func(Image) error) error {
-	o.mu.Lock()
-	resources := make([]Resource, 0, len(o.live))
-	for _, record := range o.live {
+	ledger := o.ledger.Load()
+	if ledger == nil {
+		return nil
+	}
+	ledger.mu.Lock()
+	resources := make([]Resource, 0, len(ledger.live))
+	for _, record := range ledger.live {
 		resources = append(resources, Resource{record: record})
 	}
-	o.mu.Unlock()
+	ledger.mu.Unlock()
 	for _, resource := range resources {
 		if err := o.Release(resource, send); err != nil {
 			return err
@@ -137,17 +160,21 @@ func (o *ImageOwner) ReleaseAll(send func(Image) error) error {
 // available. A deletion already inside its send callback keeps the wire ID
 // reserved until return, so it cannot erase a newly bound transmission.
 func (o *ImageOwner) RevokeAll() {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	for id, record := range o.live {
+	ledger := o.ledger.Load()
+	if ledger == nil {
+		return
+	}
+	ledger.mu.Lock()
+	defer ledger.mu.Unlock()
+	for id, record := range ledger.live {
 		if record.state == imageLive {
-			delete(o.live, id)
+			delete(ledger.live, id)
 		} else {
 			record.state = imageRevokedDuringRelease
 		}
 	}
-	if len(o.live) == 0 {
-		o.live = nil
+	if len(ledger.live) == 0 {
+		ledger.live = nil
 	}
 }
 
@@ -174,15 +201,15 @@ func (r Resource) availability() error {
 	if r.record == nil {
 		return ErrImageReleased
 	}
-	o := r.record.owner
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	ledger := r.record.ledger
+	ledger.mu.Lock()
+	defer ledger.mu.Unlock()
 	return r.record.available()
 }
 
 // The caller holds the owner's lock while testing or claiming the current ID.
 func (r *imageRecord) available() error {
-	if r.owner.live[r.wire.ID] != r || r.state == imageRevokedDuringRelease {
+	if r.ledger.live[r.wire.ID] != r || r.state == imageRevokedDuringRelease {
 		return ErrImageReleased
 	}
 	if r.state == imageReleasing {
@@ -242,7 +269,7 @@ func (p ResourcePlacement) target() grid.NativeTarget {
 	if p.resource.record == nil {
 		return grid.NativeTarget{}
 	}
-	return p.resource.record.owner.NativeTarget()
+	return p.resource.record.ledger.target
 }
 
 // Paint refuses a retired transmission rather than naming a reused wire ID.

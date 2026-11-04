@@ -23,7 +23,7 @@ import (
 // Owning a text field as well would make this two widgets in a trench coat, and
 // would decide where the field goes for everyone.
 //
-//	filter.SetPattern(composer.Editor().Text())
+//	filter.SetPattern(composer.Controller().Text())
 //
 // The zero Filter shows everything, in the order it was given. A Filter must not be
 // copied after first use: its source, ranked list and cursor are one mutable owner.

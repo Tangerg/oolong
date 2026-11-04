@@ -86,28 +86,32 @@ func fields(values *answers, glyphs kit.Glyphs) (*stateForm, *base.Text) {
 	accent := grid.Style{Attr: grid.Bold}
 	buttonScope := form.theme.Scope().With(kit.ThemeOverride{Accent: &accent})
 	reset := kit.NewButton(kit.ButtonConfig{
-		Key: "reset-domain", Label: "Reset domain", Scope: buttonScope, Ellipsis: glyphs.Ellipsis,
-		Availability: func() scene.Availability {
-			if !form.notifications.Snapshot().Value {
-				return scene.Availability{Disabled: true, Reason: "notifications are already off"}
-			}
-			return scene.Availability{}
-		},
-		Activate: func(ctx context.Context) (scene.ActionResult[struct{}], error) {
-			result, err := form.notifications.Change(ctx, base.ConfirmRequest{ExpectedRevision: form.notifications.Snapshot().Revision, Value: false})
-			return scene.ActionResult[struct{}]{State: result.State}, err
-		},
+		Behavior: base.ButtonConfig{
+			Key: "reset-domain", Label: "Reset domain",
+			Availability: func() scene.Availability {
+				if !form.notifications.Snapshot().Value {
+					return scene.Availability{Disabled: true, Reason: "notifications are already off"}
+				}
+				return scene.Availability{}
+			},
+			Activate: func(ctx context.Context) (scene.ActionResult[struct{}], error) {
+				result, err := form.notifications.Change(ctx, base.ConfirmRequest{ExpectedRevision: form.notifications.Snapshot().Revision, Value: false})
+				return scene.ActionResult[struct{}]{State: result.State}, err
+			},
+		}, Scope: buttonScope, Ellipsis: glyphs.Ellipsis,
 	})
 	palette := kit.NewButton(kit.ButtonConfig{
-		Key: "switch-palette", Label: "Switch palette", Scope: buttonScope, Ellipsis: glyphs.Ellipsis,
-		Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
-			next := kit.Light()
-			if form.theme.Scope().Snapshot().Palette == next {
-				next = kit.Dark()
-			}
-			form.theme.Set(next)
-			return scene.ActionResult[struct{}]{State: scene.Applied}, nil
-		},
+		Behavior: base.ButtonConfig{
+			Key: "switch-palette", Label: "Switch palette",
+			Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
+				next := kit.Light()
+				if form.theme.Scope().Snapshot().Palette == next {
+					next = kit.Dark()
+				}
+				form.theme.Set(next)
+				return scene.ActionResult[struct{}]{State: scene.Applied}, nil
+			},
+		}, Scope: buttonScope, Ellipsis: glyphs.Ellipsis,
 	})
 	form.buttons = scene.NewGroup(scene.GroupConfig{Axis: layout.Across, Gap: 2, Items: []scene.Item{
 		{Element: reset.Element(), Size: layout.Measured(0, 0)},

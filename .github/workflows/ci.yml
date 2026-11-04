@@ -53,27 +53,13 @@ jobs:
         with:
           node-version: "22"
 
-      # Built into a scratch directory rather than in place: a module whose
-      # only package is a command in a directory of the same name would
-      # otherwise try to write the binary over that directory.
       - name: Build
         shell: bash
         run: |
           set -euo pipefail
           modules=$(scripts/modules.sh)
           for m in $modules; do
-            (
-              cd "$m"
-              # A module holding a command builds into a scratch directory: the
-              # binary would otherwise be written next to, and over, the directory
-              # it was built from.
-              package_names=$(go list -f '{{.Name}}' ./...)
-              if grep -qx main <<<"$package_names"; then
-                go build -o "$RUNNER_TEMP/build/" ./...
-              else
-                go build ./...
-              fi
-            ) || exit 1
+            scripts/build-module.sh "$m"
           done
 
       - name: Vet
@@ -117,19 +103,28 @@ jobs:
           cli="$RUNNER_TEMP/mermaid/node_modules/.bin/mmdc"
           if [[ "$RUNNER_OS" == Windows ]]; then cli="$cli.cmd"; fi
           echo "OOLONG_MERMAID_CLI=$cli" >> "$GITHUB_ENV"
-      - name: Use the runner's Chrome sandbox on Linux
+      - name: Configure the installed browser's sandbox on Linux
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          # Ubuntu restricts namespaces for downloaded browsers. The runner's
-          # packaged setuid helper supplies Chrome's sandbox instead.
-          chrome_sandbox="$(dirname -- "$(readlink -f -- "$CHROME_BIN")")/chrome-sandbox"
-          if [[ ! -x "$chrome_sandbox" || "$(stat -Lc '%u:%a' -- "$chrome_sandbox")" != "0:4755" ]]; then
-            echo "Chrome sandbox must be executable, root-owned and mode 4755: $chrome_sandbox" >&2
+          browser=$(node extensions/mermaid/backend.mjs "$(readlink -f -- "$OOLONG_MERMAID_CLI")" --browser-path)
+          browser=$(readlink -f -- "$browser")
+          if [[ "$browser" != /* || ! -x "$browser" ]]; then
+            echo "The installed Mermaid browser is not executable: $browser" >&2
             exit 1
           fi
-          echo "CHROME_DEVEL_SANDBOX=$chrome_sandbox" >> "$GITHUB_ENV"
+          # Ubuntu restricts downloaded browsers' user namespaces. Permit only
+          # this executable so Chromium can keep its namespace sandbox enabled.
+          sudo tee /etc/apparmor.d/oolong-mermaid >/dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile oolong-mermaid "$browser" flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser --replace /etc/apparmor.d/oolong-mermaid
+          echo "OOLONG_MERMAID_BROWSER=$browser" >> "$GITHUB_ENV"
       - name: Test rendering, cancellation and process ownership
         shell: bash
         run: go -C extensions/mermaid test -race -v -count=1 ./...
@@ -430,16 +425,5 @@ jobs:
           set -euo pipefail
           modules=$(scripts/modules.sh)
           for m in $modules; do
-            (
-              cd "$m"
-              # A module holding a command builds into a scratch directory: the
-              # binary would otherwise be written next to, and over, the directory
-              # it was built from.
-              package_names=$(go list -f '{{.Name}}' ./...)
-              if grep -qx main <<<"$package_names"; then
-                go build -o "$RUNNER_TEMP/cross/" ./...
-              else
-                go build ./...
-              fi
-            ) || exit 1
+            scripts/build-module.sh "$m"
           done

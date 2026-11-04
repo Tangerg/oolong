@@ -107,9 +107,9 @@ func TestOfficialCLI(t *testing.T) {
 }
 
 func TestInstalledBackendPreservesThemePixels(t *testing.T) {
-	seen := make(map[[32]byte]string)
-	for _, theme := range []string{"default", "dark", "forest", "neutral", "base"} {
-		t.Run(theme, func(t *testing.T) {
+	seen := make(map[[32]byte]mermaid.Theme)
+	for _, theme := range []mermaid.Theme{mermaid.ThemeDefault, mermaid.ThemeDark, mermaid.ThemeForest, mermaid.ThemeNeutral, mermaid.ThemeBase} {
+		t.Run(string(theme), func(t *testing.T) {
 			pixels := renderInstalled(t, mermaid.Config{Theme: theme}, "flowchart LR; A[Owner] --> B[Worker]")
 			digest := sha256.Sum256(pixels.Pix)
 			if previous, exists := seen[digest]; exists {

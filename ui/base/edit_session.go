@@ -41,7 +41,7 @@ type EditSession struct {
 	marks        []text.Mark
 	elementIDs   identitySequence
 	elementOwner *byte
-	history      editorHistory
+	history      editHistory
 	revision     uint64
 	singleLine   bool
 	mask         string
@@ -57,8 +57,8 @@ type EditSessionConfig struct {
 
 // NewEditSession creates the sole document, revision and undo-history owner. Each Editor keeps its own selection and scroll intent.
 func NewEditSession(config EditSessionConfig) *EditSession {
-	s := &EditSession{singleLine: config.SingleLine}
-	s.Reset(config.Initial)
+	s := &EditSession{}
+	s.initialize(config)
 	return s
 }
 
@@ -92,61 +92,7 @@ func (s *EditSession) Reset(value string) {
 	if s == nil {
 		return
 	}
-	e := Editor{session: s}
-	e.replaceDocument(value, false)
-}
-
-// EditorConfig chooses the document owner. Initial is used only when Session is
-// absent; supplying both is a construction error rather than an arbitration rule.
-type EditorConfig struct {
-	Session     *EditSession
-	Initial     string
-	Placeholder string
-	MaxRows     int
-	SingleLine  bool
-}
-
-// NewEditor constructs one view. It panics if Session is combined with Initial or SingleLine, which would supply competing document owners.
-func NewEditor(config EditorConfig) *Editor {
-	if config.Session != nil && (config.Initial != "" || config.SingleLine) {
-		panic("base: editor Session cannot be combined with Initial or SingleLine")
-	}
-	e := &Editor{session: config.Session, Placeholder: strings.Clone(config.Placeholder), MaxRows: config.MaxRows}
-	if e.session == nil {
-		e.local.singleLine = config.SingleLine
-		e.replaceDocument(config.Initial, false)
-	}
-	e.connect()
-	return e
-}
-
-func (e *Editor) document() *EditSession {
-	if e.session != nil {
-		return e.session
-	}
-	return &e.local
-}
-
-// Session returns the document owner used by this view. Its subscriptions observe completed document transactions.
-func (e *Editor) Session() *EditSession { e.connect(); return e.document() }
-
-func (e *Editor) connect() {
-	if e.registered {
-		return
-	}
-	e.registered = true
-	session := e.document()
-	if len(session.views) == cap(session.views) {
-		live := session.views[:0]
-		for _, reference := range session.views {
-			if reference.Value() != nil {
-				live = append(live, reference)
-			}
-		}
-		clear(session.views[len(live):])
-		session.views = live
-	}
-	session.views = append(session.views, weak.Make(e))
+	s.replace(nil, editReplacement{text: value, whole: true, history: discardEdits}, nil)
 }
 
 func (s *EditSession) commit(initiator *Editor, oldLines []string, change ChangeMap, extendHistory bool) {
@@ -164,29 +110,12 @@ func (s *EditSession) commit(initiator *Editor, oldLines []string, change Change
 			continue
 		}
 		kept = append(kept, reference)
-		if view == initiator {
-			view.layout.stale = true
-			view.desiredColumn = editorColumn{}
-			continue
-		}
-		cursor := change.Position(offsetInLines(oldLines, Caret{Line: view.line, Byte: view.byteOffset}))
-		anchor := change.Position(offsetInLines(oldLines, view.anchor))
-		position := view.caretAt(cursor)
-		view.line, view.byteOffset = position.Line, view.snapElement(position.Line, position.Byte, true)
-		view.anchor = view.caretAt(anchor)
-		view.anchor.Byte = view.snapElement(view.anchor.Line, view.anchor.Byte, false)
-		view.endTyping()
-		view.layout.stale = true
-		view.desiredColumn = editorColumn{}
-		view.revealCursor()
+		view.documentChanged(oldLines, change, view == initiator)
 	}
 	clear(s.views[len(kept):])
 	s.views = kept
 	s.lastChange = change
 	s.revision = change.After
-	if initiator != nil {
-		initiator.revealCursor()
-	}
 	s.changes.publish(change, s.invalidateViews)
 }
 
@@ -199,9 +128,8 @@ func (s *EditSession) invalidateViews() {
 	}
 }
 
-func (e *Editor) requireMutable() {
-	requireMutable(e.element)
-	for _, reference := range e.document().views {
+func (s *EditSession) requireMutable() {
+	for _, reference := range s.views {
 		if view := reference.Value(); view != nil {
 			requireMutable(view.element)
 		}
@@ -216,4 +144,48 @@ func (s *EditSession) Subscribe(callback func(ChangeMap)) func() {
 		panic("base: nil edit session subscriber")
 	}
 	return s.changes.add(callback)
+}
+
+func (s *EditSession) initialize(config EditSessionConfig) {
+	s.singleLine = config.SingleLine
+	s.Reset(config.Initial)
+}
+
+func (s *EditSession) attach(view *Editor) {
+	if len(s.views) == cap(s.views) {
+		live := s.views[:0]
+		for _, reference := range s.views {
+			if reference.Value() != nil {
+				live = append(live, reference)
+			}
+		}
+		clear(s.views[len(live):])
+		s.views = live
+	}
+	s.views = append(s.views, weak.Make(view))
+}
+
+func (s *EditSession) ensure() {
+	if len(s.lines) == 0 {
+		s.lines = []string{""}
+	}
+}
+
+func (s *EditSession) end() Caret {
+	if len(s.lines) == 0 {
+		return Caret{}
+	}
+	last := len(s.lines) - 1
+	return Caret{Line: last, Byte: len(s.lines[last])}
+}
+
+func (s *EditSession) oneLine() bool { return s.singleLine || s.mask != "" }
+
+// Refusal must precede every owned change, including history and element identity,
+// so recovering a panic cannot expose a partial transaction under an old revision.
+func (s *EditSession) requireRevision() {
+	s.requireMutable()
+	if s.revision == math.MaxUint64 {
+		panic("base: edit session exhausted revisions")
+	}
 }

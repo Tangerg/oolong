@@ -1,9 +1,6 @@
 package base
 
-import (
-	"context"
-	"strings"
-)
+import "context"
 
 // Caret is a position in an editor's text: a logical line, and a byte offset into it.
 //
@@ -31,20 +28,4 @@ type Clipboard interface {
 	// Caller cancellation or this provider's owner ending revokes receive; no
 	// callback is promised afterward. A returned error means no read was accepted.
 	Read(ctx context.Context, receive func(string, error)) error
-}
-
-// ownedEditorLine joins pieces into storage owned by the surviving document. A range
-// edit commonly keeps only the prefix or suffix of a large source line; retaining the
-// source allocation would make deleting text keep the deleted bytes alive.
-func ownedEditorLine(parts ...string) string {
-	length := 0
-	for _, part := range parts {
-		length += len(part)
-	}
-	var line strings.Builder
-	line.Grow(length)
-	for _, part := range parts {
-		line.WriteString(part)
-	}
-	return line.String()
 }

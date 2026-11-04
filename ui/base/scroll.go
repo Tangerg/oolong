@@ -226,7 +226,7 @@ func (s *Scroll) Handle(ev input.Event, keys *keymap.Map) bool {
 	if keys == nil {
 		keys = scrollKeys()
 	}
-	_, handled := s.matcher.Handle(keys, key, s.Do)
+	_, handled := s.matcher.Handle(keys, key, keyboardReceipt(&s.element), s.Do)
 	return handled
 }
 

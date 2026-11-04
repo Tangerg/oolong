@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"cmp"
 	"slices"
 	"testing"
 
@@ -12,12 +13,12 @@ func TestTableComparisonFailureLeavesThePublishedOrderIntact(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			var table base.Table[int]
 			fail := false
-			table.SetLess(func(a, b int, _ int) bool {
+			table.SetSortColumns(singleSortColumn(func(a, b int) int {
 				if fail {
 					panic("comparison failed")
 				}
-				return a < b
-			})
+				return cmp.Compare(a, b)
+			}))
 			table.SetItems([]int{3, 1, 2})
 			if operation != "first sort" {
 				table.SortBy(0)
@@ -36,7 +37,7 @@ func TestTableComparisonFailureLeavesThePublishedOrderIntact(t *testing.T) {
 					fail = true
 					table.SortBy(0)
 				case "comparison":
-					table.SetLess(func(int, int, int) bool { panic("comparison failed") })
+					table.SetSortColumns(singleSortColumn(func(int, int) int { panic("comparison failed") }))
 				case "rows":
 					fail = true
 					table.SetItems([]int{9, 7, 8})
@@ -67,22 +68,22 @@ func TestTableComparisonCannotReplaceItsOwnOrderingInputs(t *testing.T) {
 			var table base.Table[int]
 			table.SetItems([]int{3, 1, 2})
 			entered := false
-			table.SetLess(func(a, b int, _ int) bool {
+			table.SetSortColumns(singleSortColumn(func(a, b int) int {
 				if !entered {
 					entered = true
 					switch operation {
 					case "rows":
 						table.SetItems([]int{6, 5, 4})
 					case "comparison":
-						table.SetLess(nil)
+						table.SetSortColumns(nil)
 					case "sort":
 						table.SortBy(1)
 					case "clear":
 						table.ClearSort()
 					}
 				}
-				return a < b
-			})
+				return cmp.Compare(a, b)
+			}))
 			func() {
 				defer func() {
 					if recover() == nil {
@@ -106,15 +107,15 @@ func TestTableComparisonReadsTheLastCompleteOrder(t *testing.T) {
 	var table base.Table[int]
 	table.SetItems([]int{3, 1, 2})
 	checking := false
-	table.SetLess(func(a, b int, _ int) bool {
+	table.SetSortColumns(singleSortColumn(func(a, b int) int {
 		if checking {
 			_, descending, sorted := table.Sorted()
 			if !sorted || descending || !slices.Equal(table.Items(), []int{1, 2, 3}) {
 				t.Fatal("comparison observed partial ordering publication")
 			}
 		}
-		return a < b
-	})
+		return cmp.Compare(a, b)
+	}))
 	table.SortBy(0)
 	checking = true
 	table.SortBy(0)

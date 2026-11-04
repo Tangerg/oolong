@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"cmp"
 	"errors"
 	"slices"
 	"testing"
@@ -168,7 +169,7 @@ func TestTreeActionsOperateOnCurrentBranches(t *testing.T) {
 func TestTableSemanticSortIsExplicitIdempotentAndInvalidatesRowAddresses(t *testing.T) {
 	var table base.Table[int]
 	table.SetItems([]int{3, 1, 2})
-	table.SetLess(func(a, b, _ int) bool { return a < b })
+	table.SetSortColumns(singleSortColumn(cmp.Compare[int]))
 	root := semanticOwner(t, table.Element())
 	before := semanticRevision(t, root, table.Element())
 	order := base.SortOrder{Column: 0, Descending: true}

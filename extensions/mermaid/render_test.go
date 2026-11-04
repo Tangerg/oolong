@@ -126,6 +126,37 @@ func backendConfig(t *testing.T, startupDelay time.Duration) mermaid.Config {
 	return mermaid.Config{Executable: filepath.Join(root, "node_modules", ".bin", bin), Node: node, Timeout: 30 * time.Second}
 }
 
+func TestSandboxSetupUsesTheRenderingBrowser(t *testing.T) {
+	cfg := backendConfig(t, 0)
+	command := exec.CommandContext(t.Context(), cfg.Node, "backend.mjs", cfg.Executable, "--browser-path") //nolint:gosec // The repository bridge resolves a browser from the test-owned installed-package fixture.
+	output, err := command.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(cfg.Node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := filepath.EvalSymlinks(strings.TrimSpace(string(output)))
+	if err != nil || got != want {
+		t.Fatalf("sandbox browser = %q, %v; rendering uses %q", output, err, want)
+	}
+}
+
+func TestThemeConfigurationHasAnExplicitDomain(t *testing.T) {
+	cfg := backendConfig(t, 0)
+	for _, theme := range []mermaid.Theme{"", mermaid.ThemeDefault, mermaid.ThemeDark, mermaid.ThemeForest, mermaid.ThemeNeutral, mermaid.ThemeBase} {
+		cfg.Theme = theme
+		if _, err := mermaid.New(cfg); err != nil {
+			t.Fatalf("theme %q: %v", theme, err)
+		}
+	}
+	cfg.Theme = mermaid.Theme("unknown")
+	if _, err := mermaid.New(cfg); err == nil {
+		t.Fatal("unsupported theme accepted")
+	}
+}
+
 func TestPublicBackendConfigurationAndResults(t *testing.T) {
 	cfg := backendConfig(t, 0)
 	renderer, err := mermaid.New(cfg)

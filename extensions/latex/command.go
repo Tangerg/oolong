@@ -53,9 +53,6 @@ func (p *formulaParser) command(name string, style formulaStyle) (box, error) {
 	case `\exp`:
 		content, err := p.argument(style)
 		return horizontal(atom("exp ", style.cell), content), err
-	case `\hspace`:
-		_, err := p.argument(style)
-		return atom(" ", style.cell), err
 	case `\,`, `\:`, `\;`:
 		return atom(" ", style.cell), nil
 	case `\quad`:

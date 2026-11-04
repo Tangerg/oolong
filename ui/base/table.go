@@ -26,7 +26,7 @@ type Table[T any] struct {
 
 	rows List[T]
 
-	less func(a, b T, column int) bool
+	sortColumns func(column int) func(a, b T) int
 
 	order *SortOrder
 }
@@ -41,25 +41,26 @@ const (
 	ActionClearSort scene.ActionID = "clear-sort"
 )
 
-// SetLess installs a pure strict weak ordering and reapplies the active sort. Nil
-// clears the sort without moving rows. Reentrant ordering mutations panic; comparison
-// panics leave rows, comparator and reported order intact.
-// Column interpretation belongs to the comparator because this row controller owns
-// no column schema; callers must use indices supported by that comparator.
-func (t *Table[T]) SetLess(less func(a, b T, column int) bool) {
+// SetSortColumns keeps availability and ordering with one column owner: nil means unsupported.
+// Columns and their pure strict weak comparators stay stable until replaced here.
+// A removed active column clears sort metadata without moving rows. Failed lookup
+// or comparison preserves the previous columns, rows and reported order.
+func (t *Table[T]) SetSortColumns(columns func(column int) func(a, b T) int) {
 	requireMutable(t.element)
-	if less == nil {
-		t.less = nil
+	if t.order == nil {
+		t.sortColumns = columns
+		t.element.Invalidate()
+		return
+	}
+	compare := t.columnComparator(columns, t.order.Column)
+	if compare == nil {
+		t.sortColumns = columns
 		t.ClearSort()
 		return
 	}
-	if t.order == nil {
-		t.less = less
-		return
-	}
-	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), less, *t.order)
+	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), compare, *t.order)
 	t.rows.matcher.Reset(func() {
-		t.less = less
+		t.sortColumns = columns
 		t.replaceRows(items, selected)
 	})
 }
@@ -78,10 +79,14 @@ func (t *Table[T]) SortBy(column int) bool {
 // SetSort keeps retries idempotent; interactive direction toggles belong to SortBy.
 func (t *Table[T]) SetSort(order SortOrder) bool {
 	requireMutable(t.element)
-	if !t.canSort(order.Column) || t.order != nil && *t.order == order {
+	if t.rows.Len() == 0 || t.order != nil && *t.order == order {
 		return false
 	}
-	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), t.less, order)
+	compare := t.columnComparator(t.sortColumns, order.Column)
+	if compare == nil {
+		return false
+	}
+	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), compare, order)
 	t.rows.matcher.Reset(func() {
 		t.order = &order
 		t.replaceRows(items, selected)
@@ -90,7 +95,14 @@ func (t *Table[T]) SetSort(order SortOrder) bool {
 }
 
 func (t *Table[T]) canSort(column int) bool {
-	return t.less != nil && column >= 0 && t.rows.Len() > 0
+	return t.rows.Len() > 0 && t.columnComparator(t.sortColumns, column) != nil
+}
+
+func (t *Table[T]) columnComparator(columns func(int) func(T, T) int, column int) func(T, T) int {
+	if columns == nil || column < 0 {
+		return nil
+	}
+	return readProjection(t.Element(), func() func(T, T) int { return columns(column) })
 }
 
 // Sorted returns the sort column, reverse flag and whether sorting is active.
@@ -111,13 +123,18 @@ func (t *Table[T]) ClearSort() {
 	}
 }
 
-// SetItems replaces rows and reapplies the active sort.
+// SetItems reapplies the active sort before publishing rows. A lookup that revokes
+// that column without SetSortColumns violates its stability contract and panics.
 func (t *Table[T]) SetItems(items []T) {
 	requireMutable(t.element)
 	items = slices.Clone(items)
 	selected := min(max(t.rows.selected, 0), max(len(items)-1, 0))
 	if t.order != nil {
-		items, selected = t.sortRows(items, selected, t.less, *t.order)
+		compare := t.columnComparator(t.sortColumns, t.order.Column)
+		if compare == nil {
+			panic("base: sort columns changed without SetSortColumns")
+		}
+		items, selected = t.sortRows(items, selected, compare, *t.order)
 	}
 	t.rows.matcher.Reset(func() {
 		t.replaceRows(items, selected)
@@ -135,10 +152,8 @@ func (t *Table[T]) Selected() int { return t.list().Selected() }
 
 func (t *Table[T]) Current() (T, bool) { return t.list().Current() }
 
-// Select puts the cursor on a row.
 func (t *Table[T]) Select(i int) { t.list().Select(i) }
 
-// Move steps the cursor by n rows.
 func (t *Table[T]) Move(n int) { t.configureRows(); t.rows.Move(n) }
 
 func (t *Table[T]) Scroll() *Scroll { return t.list().Scroll() }
@@ -177,7 +192,7 @@ func (t *Table[T]) replaceRows(items []T, selected int) {
 // Sorting a permutation preserves the selected row without requiring T equality.
 // Preparation borrows only private rows; publication and resolver cancellation wait
 // until the comparison has returned, so a failure cannot claim an unfinished order.
-func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, order SortOrder) ([]T, int) {
+func (t *Table[T]) sortRows(items []T, selected int, compare func(T, T) int, order SortOrder) ([]T, int) {
 	if len(items) < 2 {
 		return items, selected
 	}
@@ -186,21 +201,13 @@ func (t *Table[T]) sortRows(items []T, selected int, less func(T, T, int) bool, 
 	for i := range permutation {
 		permutation[i] = i
 	}
-	// Compare both directions to preserve ties and caller order in the stable sort.
 	t.Element().ReadOnly(func() {
 		slices.SortStableFunc(permutation, func(a, b int) int {
 			x, y := items[a], items[b]
 			if order.Descending {
 				x, y = y, x
 			}
-			switch {
-			case less(x, y, order.Column):
-				return -1
-			case less(y, x, order.Column):
-				return 1
-			default:
-				return 0
-			}
+			return compare(x, y)
 		})
 	})
 

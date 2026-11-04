@@ -96,7 +96,7 @@ func (k *keys) Handle(event input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := k.matcher.Handle(k.mapKeys, key, k.Do)
+	_, handled := k.matcher.Handle(k.mapKeys, key, k.Element().KeyboardLease().Valid, k.Do)
 	return handled
 }
 

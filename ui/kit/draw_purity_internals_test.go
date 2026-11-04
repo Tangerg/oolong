@@ -353,10 +353,10 @@ func kitDrawPurityCases() []drawPurityCase {
 		}{input.Controller().Text(), input.Controller().Revision()}
 	}))
 
-	button := NewButton(ButtonConfig{Label: "save"})
+	button := NewButton(ButtonConfig{Behavior: base.ButtonConfig{Label: "save"}})
 	cases = append(cases, widgetPurityCase("*Button", button, func() any { return button.Controller().Label() }))
 
-	slider := NewSlider(SliderConfig{Glyphs: Unicode(), Maximum: 10, Label: "speed"})
+	slider := NewSlider(SliderConfig{Behavior: base.SliderConfig{Maximum: 10, Label: "speed"}, Glyphs: Unicode()})
 	slider.Controller().Set(4)
 	testFocus(slider, true)
 	cases = append(cases, widgetPurityCase("*Slider", slider, func() any {

@@ -45,6 +45,7 @@ type Matcher struct {
 	at       time.Time
 	exact    Action
 	do       func(Action) bool
+	current  func() bool
 	cancel   func()
 	ticket   uint64
 }
@@ -98,7 +99,7 @@ func (m *Matcher) Reset(change func()) (current bool) {
 
 func (m *Matcher) abandon() func() {
 	cancel := m.cancel
-	m.keys, m.at, m.exact, m.do, m.cancel = nil, time.Time{}, "", nil, nil
+	m.keys, m.at, m.exact, m.do, m.current, m.cancel = nil, time.Time{}, "", nil, nil, nil
 	m.bindings, m.version = nil, nil
 	m.ticket++
 	return cancel
@@ -241,6 +242,10 @@ func (m *Map) ActionFor(key input.Key) (Action, bool) {
 }
 
 // Handle advances the matcher with key and runs a completed action through do.
+// current is an optional pure lifetime receipt captured for this input. Once it
+// becomes false it must stay false; the matcher cannot observe transitions between
+// calls. A revoked sequence cannot continue or dispatch, even if its resolver was
+// already queued. Nil leaves lifetime control with the direct caller.
 // Matched reports whether this key belonged to bindings. Handled reports the
 // callback's answer, except that an unfinished prefix is always handled.
 //
@@ -250,7 +255,7 @@ func (m *Map) ActionFor(key input.Key) (Action, bool) {
 // Map or callback handles nothing.
 // If resolving the older prefix cancels this matcher, replaces its map, or starts
 // another sequence, the interrupted key is consumed without further dispatch.
-func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (matched, handled bool) {
+func (m *Matcher) Handle(bindings *Map, key input.Key, current func() bool, do func(Action) bool) (matched, handled bool) {
 	if m == nil || !key.Down() {
 		return false, false
 	}
@@ -258,7 +263,7 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 		m.Clear()
 		return false, false
 	}
-	if !m.prepare(bindings, key.At) {
+	if !m.prepare(bindings, key.At, current) {
 		return true, true
 	}
 
@@ -281,6 +286,9 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 	if !m.Reset(nil) {
 		return true, true
 	}
+	if !lifetimeCurrent(current) {
+		return true, true
+	}
 	if len(node.next) == 0 {
 		if node.action == "" {
 			return false, false
@@ -292,6 +300,7 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 	m.keys = prefix
 	m.at = key.At
 	m.bindings, m.version = bindings, bindings.version
+	m.current = current
 	if node.action != "" {
 		m.deferExact(bindings, node.action, do)
 	}
@@ -300,12 +309,18 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, do func(Action) bool) (ma
 
 // Settle the previous sequence before matching another key. Its cancellation or
 // exact-prefix callback may replace the matcher, revoking the interrupted dispatch.
-func (m *Matcher) prepare(bindings *Map, at time.Time) bool {
-	if m.bindings != nil && (m.bindings != bindings || m.version != bindings.version) && !m.Reset(nil) {
+func (m *Matcher) prepare(bindings *Map, at time.Time, current func() bool) bool {
+	if m.bindings != nil && (m.bindings != bindings || m.version != bindings.version || !lifetimeCurrent(m.current)) && !m.Reset(nil) {
+		return false
+	}
+	if !lifetimeCurrent(current) {
+		m.Clear()
 		return false
 	}
 	return !m.expired(bindings.timeout(), at) || !m.resolveExact()
 }
+
+func lifetimeCurrent(current func() bool) bool { return current == nil || current() }
 
 // expired reports whether timed input can no longer continue the held sequence.
 // A chord arriving exactly at the timeout is still in the sequence: Timeout is an
@@ -350,7 +365,7 @@ func (m *Matcher) resolveExact() bool {
 	if m == nil {
 		return false
 	}
-	action, do := m.exact, m.do
+	action, do, current := m.exact, m.do, m.current
 	bindings, version := m.bindings, m.version
 	if m.bindings == nil || m.version != m.bindings.version {
 		do = nil
@@ -359,10 +374,10 @@ func (m *Matcher) resolveExact() bool {
 		return true
 	}
 	ticket := m.ticket
-	if action != "" && do != nil {
+	if action != "" && do != nil && lifetimeCurrent(current) {
 		do(action)
 	}
-	return m.ticket != ticket || bindings != nil && bindings.version != version
+	return m.ticket != ticket || bindings != nil && bindings.version != version || !lifetimeCurrent(current)
 }
 
 type trieNode struct {

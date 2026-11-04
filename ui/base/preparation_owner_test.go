@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"testing"
@@ -21,12 +22,12 @@ func TestCollectionPreparationCannotMutateTheSelectionItProjects(t *testing.T) {
 	t.Run("table", func(t *testing.T) {
 		var table base.Table[int]
 		table.SetItems([]int{3, 2, 1})
-		table.SetLess(func(a, b, _ int) bool {
+		table.SetSortColumns(singleSortColumn(func(a, b int) int {
 			if !denied(func() { table.Select(1) }) {
 				t.Fatal("comparator moved the cursor before ordering committed")
 			}
-			return a < b
-		})
+			return cmp.Compare(a, b)
+		}))
 		table.SortBy(0)
 		if value, _ := table.Current(); value != 3 {
 			t.Fatal(value)

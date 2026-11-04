@@ -112,10 +112,7 @@ func newChatWithSource(ctx context.Context, runtime *program.InlineRuntime, sour
 		keys:    keys,
 		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
 	}
-	c.view, err = kit.NewTranscript(kit.TranscriptConfig{
-		Theme: theme, Glyphs: glyphs,
-		Publisher: runtime.Publisher(), Retention: base.PublishCompleted, PublishPartial: true,
-	})
+	c.view, err = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: runtime.Publisher(), Retention: base.PublishCompleted, PublishPartial: true}, Theme: theme, Glyphs: glyphs})
 	if err != nil {
 		scope.Close()
 		return nil, err

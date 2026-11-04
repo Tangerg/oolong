@@ -214,7 +214,7 @@ func (s *Slider) Handle(event input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := s.matcher.Handle(s.keys(), key, s.Do)
+	_, handled := s.matcher.Handle(s.keys(), key, keyboardReceipt(&s.element), s.Do)
 	return handled
 }
 

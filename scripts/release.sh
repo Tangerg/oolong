@@ -104,7 +104,7 @@ for tool in apidiff deadcode golangci-lint gofumpt govulncheck npx shfmt; do
 done
 
 for directory in "${ALL_MODULES[@]}"; do
-	(cd "$directory" && go build ./... && go vet ./...) || die "$directory does not build or vet."
+	scripts/build-module.sh "$directory" && (cd "$directory" && go vet ./...) || die "$directory does not build or vet."
 done
 note "build and vet"
 
@@ -168,7 +168,7 @@ note "windows, darwin and linux source sets"
 while read -r goos goarch; do
 	for directory in "${ALL_MODULES[@]}"; do
 		(cd "$directory" && GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go vet ./... &&
-			GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build ./...) ||
+			GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 "$root/scripts/build-module.sh" .) ||
 			die "$directory does not build for $goos/$goarch."
 	done
 done <<'EOF'

@@ -212,7 +212,7 @@ func testReleaseGatesKeepTheSelectedModule(t *testing.T, root string) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"release.sh", "module-tag.sh"} {
+	for _, name := range []string{"release.sh", "module-tag.sh", "build-module.sh"} {
 		body, err := readRepositoryFile(filepath.Join(repoRoot(t), "scripts", name))
 		if err != nil {
 			t.Fatal(err)
@@ -286,6 +286,44 @@ esac
 	check.Dir, check.Env = command.Dir, command.Env
 	if out, err := check.CombinedOutput(); err == nil || !strings.Contains(string(out), "examples/go.mod contains a local replacement") {
 		t.Fatalf("release accepted or misdiagnosed a grouped replacement: %v\n%s", err, out)
+	}
+}
+
+func TestModuleBuildChecksLibrariesAndCommandsWithoutOutputCollisions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		sources map[string]string
+		valid   bool
+	}{
+		{"library", map[string]string{"library.go": "package library\n"}, true},
+		{"command", map[string]string{"main.go": "package main\nfunc main() {}\n", "command/source.txt": "preserve"}, true},
+		{"mixed", map[string]string{"cmd/main.go": "package main\nfunc main() {}\n", "library/library.go": "package library\nvar Value = missing\n"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			test.sources["go.mod"] = "module example.invalid/command\n\ngo 1.27.0\n"
+			for name, source := range test.sources {
+				path := filepath.Join(dir, name)
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			command := exec.CommandContext(t.Context(), "bash", filepath.Join(repoRoot(t), "scripts", "build-module.sh"), dir) //nolint:gosec // The repository build operation compiles only an isolated fixture.
+			command.Env = append(os.Environ(), "GOWORK=off")
+			output, err := command.CombinedOutput()
+			if (err == nil) != test.valid {
+				t.Fatalf("build: %v\n%s", err, output)
+			}
+			if test.name == "command" {
+				data, err := os.ReadFile(filepath.Join(dir, "command", "source.txt")) //nolint:gosec // G304: fixed source marker inside this test's temporary module.
+				if err != nil || string(data) != "preserve" {
+					t.Fatalf("command output changed source: %q, %v", data, err)
+				}
+			}
+		})
 	}
 }
 
