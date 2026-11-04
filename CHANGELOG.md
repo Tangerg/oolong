@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+## [ui/v0.27.0] — 2026-11-05
+
 ### Breaking API migration
 
 #### ui
@@ -43,51 +45,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Set `kit.ButtonConfig.Ellipsis` and `kit.Paragraph.Ellipsis` from the resolved `Glyphs.Ellipsis` when a truncation marker is desired. Their zero value now truncates silently, matching `kit.Label`; no component independently assumes Unicode support.
 - `term.Suspend` preserves host signal policy and relies on synchronous job-control delivery on Linux, Darwin and FreeBSD. An ignored or handled signal, or an orphaned process group, may leave the process running. A blocked stop signal and other platforms return `errors.ErrUnsupported` without queuing a delayed stop. `program.Session.Suspend` applies this contract inside terminal handover.
 
-#### extensions/ssh
-
-- Replace `ssh.(*Host).Paste` with `ReadClipboard(context.Context) (string, error)`. The read belongs to its caller and preserves unresolved OSC 52 queries across cancellation or terminal handover. Publish the updated UI module before resolving this adapter's new declared dependency.
-
-- Replace `ssh.Open`, `ssh.Config` and `ssh.NewAdapter(...)` with a server-scoped `var adapter ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. Use `server.PtyCallback` for admission decisions formerly made in `ssh.AdapterConfig.Allocate`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. Acquire and release application resources in this handler. The adapter owns emulated window intake from PTY acceptance through channel teardown. Each channel can open one host. Configure OS-allocated PTYs on a separate server.
-
-#### extensions/latex
-
-- Formula atoms whose joining moves any terminal column boundary now preserve the source and report `Formula.Err` instead of publishing shifted scripts or rules. Keep joined display graphemes within one syntax atom. `\exp` follows the common named-operator grammar; use an explicit spacing command when a space is required.
-
-- `\hspace` is no longer accepted as successful output: the terminal layout has no TeX length model. Unsupported spacing preserves the source and returns the existing parse diagnostic rather than discarding its argument.
-
-#### extensions/markdown
-
-- `Render` and `NewRenderer` reject more than 256 simultaneously open Markdown blocks with `ErrBlockNestingLimit`. The parser owns the nesting count, including paragraphs and list items; this bound does not claim to limit every inline construct or all parse work. A rejected parse returns no content, so a finalized stream document reports `Failed` instead of an empty `Partial` result.
-
-#### extensions/mermaid
-
-- `mermaid.Config.Theme` now uses `mermaid.Theme`. Use `ThemeDefault`, `ThemeDark`, `ThemeForest`, `ThemeNeutral` or `ThemeBase`; convert a runtime string explicitly at the configuration boundary. Empty still selects the default, and construction rejects every unknown value.
-
-- Unix cancellation now retains the launcher identity until all group signals finish, then reaps that launcher and settles its pipes. Reaping non-child zombies belongs to their external reaper and no longer controls a render's outcome. Linux, Darwin, FreeBSD, NetBSD and DragonFly have the required non-reaping observation; other Unix hosts now reject construction with `errors.ErrUnsupported`. Windows retains its job-object ownership. The adapter now composes `ui/core/process`; release the updated UI module before publishing the adapter.
-
 ### Changed
 
 - `core/text.Line.Pad` prepares independently aligned fields, completing edge graphemes before measuring and padding them. It preserves content styles and links while keeping padding separate.
-
-- `core/text.Fill` owns exact-column pattern filling for Markdown table rules and LaTeX fraction and overline rules. It shares text normalization and grapheme measurement, including tabs, zero-width patterns and joining repeats. Publish the updated UI module before updating these independently versioned extensions' required revisions and checksums; workspace integration alone does not satisfy the published-dependency gate.
-
+- `core/text.Fill` owns exact-column pattern filling for Markdown table rules and LaTeX fraction and overline rules. It shares text normalization and grapheme measurement, including tabs, zero-width patterns and joining repeats.
 - EditSession now owns normalization, document replacement, element identities, undo history, policy changes and transaction publication. Editors retain their own caret, selection and viewport state. Reset no longer constructs a synthetic editor, and each transaction settles peer views before notifying subscribers. Rejected edits preserve the existing typing group as well as text, identities and history.
 - Kit behavior configuration composes the corresponding base configuration instead of maintaining field-by-field mirrors. English and Chinese documentation navigation share one typed route tree and order. CI and release builds use one module-build script, including modules that mix commands and library packages.
 - ANSI palette forward and reverse mapping derive cube and gray-ramp bounds from the same protocol definitions.
-
-- Native Mermaid backend CI includes Linux alongside macOS and Windows. The backend resolves its installed Puppeteer headless shell for both rendering and Linux sandbox setup. A path-scoped AppArmor profile permits that executable's user namespace; browser sandboxing stays enabled, and native rendering remains a required gate.
 - Protocol bit fields, terminal queue capacities, tab part identity and example retention/source budgets have local semantic names. The state example derives its validation and visible length limit from one rune-count policy.
-
-- Windows command launchers and Mermaid compose one `core/process.Job` for atomic job membership, process observation, termination and handle cleanup. Each adapter retains its own standard streams, output delivery and cancellation policy. `process.JobStartConfig` borrows explicitly prepared files; the caller reaps the returned launcher and closes its job. This new UI capability must be published before updating independently released consumers.
-- LaTeX parses its expression subset directly into terminal layout. Command arguments, whitespace and scripts have one grammar owner; symbol names continue to use the dependency's symbol tables. Go literal rules, parser wrappers and process-global diagnostics no longer participate.
-
-- CI checks every module against its declared published dependencies with `GOWORK=off` and no local replacements, separately from workspace integration. Coordinated API changes must first publish the lower UI implementation, then update each consumer's required revision and checksums before that gate can pass. The examples in this change require that dependency update after the new UI APIs become resolvable. Workspace replacements remain generated from those requirements.
+- Windows command launchers and Mermaid compose one `core/process.Job` for atomic job membership, process observation, termination and handle cleanup. Each adapter retains its own standard streams, output delivery and cancellation policy. `process.JobStartConfig` borrows explicitly prepared files; the caller reaps the returned launcher and closes its job.
+- CI checks every module against its declared published dependencies with `GOWORK=off` and no local replacements, separately from workspace integration. Consumers declare the canonical UI revision they require; workspace replacements are generated from those requirements.
 - Key help and sequence timing read the actual keymap. Dashboard tab ranges derive from the tab collection, and its activity panel composes real scene children so slider painting and input share the child layout's geometry.
-
 - Collection controllers expose bounded typed item reads and revision-qualified selection through their existing scene elements. Filter, MultiSelect, Tree, Table, Settings, Viewport and Form add their corresponding typed operations by calling the same owners as keyboard and pointer input. Form reads expose the opaque current submission ID before cancellation; no second semantic item or submission model is maintained.
 - The dashboard defines each column's header, comparator and cell projection together. Completion totals and state styling have names matching their results. Composed-content format identities, Box border-label geometry and theme contrast policies have one named definition per independently varying rule.
 - Clipboard OSC 52 selection/encoding, terminal color queries/replies and Kitty reply grammar are shared by their protocol consumers. Legacy modified F3 is interpreted under the active keyboard dialect; Kitty negotiation switches that dialect in input order. Cursor-position clients must use private DEC reports to avoid the legacy unmarked F3 ambiguity.
-
 - Frame composition owns native placement order independently of upload identities. Text cells remain above native image layers; order within each plane follows composition. A change restores cells and redraws regions in order, so custom painters must tolerate repeated erasure and placement. An unchanged composition emits no output, and retained image data is not retransmitted.
 - Semantic observation has one per-page budget for all returned string payloads and one for actions plus live relations, in addition to node and display-text limits. `scene.Query.ByteLimit` and `scene.Query.DetailLimit` paginate complete nodes; a node that cannot fit on an empty page returns `scene.ErrObservationBudget`. Keys, target parts, content IDs, action IDs and type names remain complete. Action labels and availability reasons can be clipped with explicit `ActionDescription.TruncatedText` evidence.
 - The agent example defines workflow identities and step descriptions once. Backend events carry those identities; a typed session outcome owns idle feedback, styling and native progress. Composer attachments preserve original paste bytes while deriving line counts from CR, LF and CRLF boundaries.
@@ -104,73 +75,134 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Button, Confirm and Form cancellation retain feedback from the newest UI request when callbacks reenter. A successful form cancellation retry clears the earlier cancellation error.
 - Scene notifications pause when an earlier callback prepares a frame and resume in order after that candidate settles.
 - Accepted workers always settle their outcome, delivery and reserved capacity, even when formatting a recovered panic value exits the goroutine.
-- Markdown table fields complete boundary graphemes before column allocation, preserving alignment, separator styles and agreement between drawing and text rows. Each column also reserves its widest indivisible grapheme; tables use their existing record layout when those minimums cannot fit.
-
 - Tree branch changes preserve the selected node, select the closing ancestor when a selected descendant becomes hidden, and revoke deferred navigation before publishing the new rows. Subscribers see one settled selection.
 - A key resolver that retains its callback and then panics or exits its goroutine can no longer dispatch the abandoned sequence. A newer sequence created by resolver reentry keeps its own lifetime.
 - A physical pointer release, cancellation or replacement press ends its old capture even when an eligibility or content callback unwinds before routing. Cleanup cannot cancel a newer reentrant press.
 - Settled scene candidates release their root, transaction and layout. Closed roots release their projection clocks and node storage, and closed transcripts release their committed content projections without changing immutable layouts retained by callers.
 - Virtual windows reject typed-nil sources at construction instead of failing during a later resolution.
-- Markdown and LaTeX rules occupy exactly their allocated terminal columns for wide, zero-width, tabbed and joining divider patterns.
-- LaTeX named operators accept `\exp`, `\exp x` and `\exp^2(x)` through their shared grammar. Unsupported macro diagnostics quote control characters before exposing error text.
-
 - Darwin process-group cleanup recognizes irreversible exit before zombie state becomes visible. A retained leader is still required, and members without exit evidence preserve permission failures, avoiding a spurious permission error while descendants finish exiting.
-
 - Delayed key prefixes and queued exact matches cannot act after their keyboard route expires. Form preserves accepted `Started`, `Applied` and `Unchanged` results alongside errors; a partially accepted pending submission can still be settled by its original identity.
 - Image resources retain only their lightweight allocation ledger, so a released or closed resource cannot keep its terminal, host callbacks and output buffers alive.
 - Rendering purity analysis resolves generic helpers, function aliases and actual imported declarations. Package loading and type checking fail closed; unrelated pure methods named Print or Commit no longer trigger spelling-based publication rules. Plain paragraph construction stays separate from semantic link detection, keeping Entry's presentation memo pure.
 - Transition and Timeline interpolate opposite-sign finite endpoints without overflowing their difference and preserve exact keyframe values. Spring response avoids overflow and cancellation in extreme damping and frequency regimes. Non-finite inputs and unrepresentable motion are rejected before state changes.
 - Task delivery remains delivered when an entered Apply callback unwinds abnormally, while its worker outcome and propagated panic remain independent.
-
 - Terminal shutdown revokes ordinary input delivery before draining image replies, so a full application event queue cannot block the sole input pump from settling and deleting acknowledged allocations.
 - Kitty failures without a physical image ID remain protocol responses, retain their request number and cannot become user keystrokes. Conflicting identities and successful replies without a physical ID remain invalid.
 - `Scroll` alone owns end-following intent. Candidate reveal, resize and reading-anchor refinement contain geometry only and cannot cancel that intent.
 - Transcript publishes late publication errors through scene invalidation without replacing content revisions or disturbing selection. Publisher stores each closing refusal at its transition, so retries read the same error instead of manufacturing another observed change.
 - Editor vertical navigation preserves a valid desired column of zero across wrapped atomic elements. Movement selects the atomic boundary in its own direction, preventing upward navigation from sticking at the trailing boundary.
 - File detection consumes drive and backslash path prefixes before classification. Rooted and relative references preserve the complete source target and byte span; filesystem evidence is requested only for the complete relative path, independently of the host OS.
-- LaTeX symbol-cache keys detach from formula input at the sole insertion boundary, preventing a short macro name from retaining a large source allocation.
-
 - Clipboard read completion stays with the originating editor across focus changes. Detached or edited targets cannot inherit an earlier read, and an expired query cannot donate a late reply to a newer request. Invalid UTF-8 replacement cannot expand a received payload beyond the clipboard's byte limit.
 - Editor Fill always delegates replacement to the edit session. Equal displayed text still removes atomic element identity, records undo and reports the owner's revision change. Atomic labels normalize both grapheme edges in one segmentation instead of repeatedly scanning a shrinking string.
 - File detection consumes complete Unicode tokens, preserving original byte spans, quoted names and line/column suffixes. Rejected relative tokens cannot donate a rooted suffix or trigger a second filesystem query for a fragment.
-- Formula diagnostics remain in `Formula.Err` and never write stdout or stderr. Mathematical text such as `08`, `1e` and `0x` is not interpreted as a Go numeric literal. Formula atoms preserve complete display graphemes when computing geometry.
 - Windows descendant tests recognize both orderly TCP closure and connection reset as the witness connection ending; live connections, unexpected data and unrelated errors still fail. Unix command documentation describes process-group ownership without promising containment of processes that deliberately leave the group.
-
 - Button and confirmation changes publish applied or started effects even when the action also returns an error. UI error creation and clearing publish only after feedback is installed; synchronous confirmation-domain notifications share that settlement boundary without copying the domain answer.
 - Standalone `grid.EncodeRow` establishes default SGR and closes inherited OSC 8 links before emitting cells, including empty rows, and leaves the same clean boundary for subsequent output. Inline composition retains its existing known-rendition path.
 - Pending Kitty image acknowledgements retain their cleanup owner across handover refusal and shutdown. The terminal settles and precisely deletes allocations while it still owns the input and display, rather than discarding an unanswered request or deleting by an unconfirmed image number.
 - The run example owns its command's process group or Windows job until command and descendant cleanup settles. Cancelling its task no longer leaves an ordinary descendant alive merely because pipe waiting completed.
 - Windows job observers verify that an opened process handle belongs to their job before retaining it; a delayed notification containing a reused PID cannot make Mermaid or the run example wait on an unrelated process. Command launching preserves extension resolution for explicit paths that omit `.exe`.
 - The scope attachment regression waits for worker completion before asserting task outcome; delivery revocation remains independently observable and does not wait for a non-cooperative worker. Writer shutdown deadline coverage uses controlled virtual time, so scheduler delays cannot manufacture a timeout failure.
-
 - Independent grid atoms retain their coordinates when adjacent strings would otherwise form a larger Unicode grapheme on the wire. Full frames, diffs, inline rows and frozen publication use the same conditional cursor boundary. Extending a stored atom recomputes its width and continuation cells while preserving its appearance.
 - Multiline editors reserve a visible insertion row after a completely filled final visual row. Caret placement, measurement, hit testing, navigation, selection, gutters and scrolling share `text.LayoutConfig.ReserveCaret`; passive text layout keeps its ordinary row count.
 - Virtual-window geometry no longer forgets measured prefixes during scrolling or reverses a row's position on an identical resolve. Scope construction no longer treats an explicitly invalid attachment as an unbound session scope.
 - High-level Kitty uploads request terminal allocation with an image number and bind only the acknowledged physical image ID. Request correlation is monotonic across terminal instances in this process. Cancellation, timeout, writer failure, late acknowledgements, capacity pressure and handover settle through the same upload owner; deferred cleanup retains its capacity until admitted.
 - Clipboard routing no longer infers tmux passthrough from environment variables. Native tmux clipboard integration works without enabling passthrough, and SSH forwards the selected transport policy.
 - HTTP(S) schemes and the bare WWW prefix are recognized without regard to case. Original path/query spelling is preserved, and quoted URLs cannot trigger local filesystem evidence checks.
-- PTY and Mermaid cleanup no longer signal a numeric process group after releasing its leader identity. Failed exit observation revokes further numeric cleanup authority. Darwin zombie-only groups are distinguished from a real signal-permission failure while that identity is still reserved.
-
+- PTY cleanup no longer signals a numeric process group after releasing its leader identity. Failed exit observation revokes further numeric cleanup authority. Darwin zombie-only groups are distinguished from a real signal-permission failure while that identity is still reserved.
 - Suspend no longer waits forever for a continuation signal when the operating system did not stop the process. Linux, Darwin and FreeBSD share subprocess regression cases for stop/continue, orphaned groups and host signal policy.
 - Public editor, scroll, selection and sticky mutations invalidate their owning element only after the complete operation settles. No-op commands do not manufacture revisions. Editor page and bottom navigation use the scroll owner's effective viewport, including immediately after committed layout changes.
 - Transcript sticky headers, visible rows, pointer coordinates, paging and reading anchors share the full viewport's coordinate system. Following the end no longer feeds a reduced body height back into scroll state. Reveal positions are derived through that same viewport projection so a pinned header cannot hide the requested row or let a reading anchor override it.
 - Opaque painter callbacks start and end with reset SGR and closed OSC 8 state. Copied paint contexts cannot write into a later frame. Kitty image layers preserve composition order even when upload IDs are reversed.
 - Text decoding records explicit SGR attribute enable and disable decisions, so selective resets can clear attributes inherited from a base style. Encoder and decoder consume the same named protocol parameters.
-- Markdown entity decoding preserves inline word boundaries and interprets numeric entities as Unicode scalar values without HTML's Windows-1252 remapping. Entity text cannot create new Markdown structure.
 - URL detection preserves apostrophes inside paths and queries, including `O'Brien`, while recognizing surrounding single quotes as prose delimiters.
 - Large composer pastes containing carriage returns retain their original payload when attached, submitted and restored from history. ASCII glyph selection reaches button and paragraph truncation without a hidden Unicode ellipsis.
-
 - Terminal shutdown joins its input reader before restoring modes or returning ownership. Windows reads bounded virtual-terminal character records without entering a blocking character read after a non-character event; retained records drain before handover, and relaunch no longer guesses completion with a fixed delay.
 - Screen and inline rendering erase the previous native composition before restoring cells and painting the next one. Reordering, inserting, moving or removing regions preserves overlap order and restores covered text. Failed preparation and aborted output retain the same invalidation state.
 - Panel and tab measurement use the child geometry that layout actually allocates, including decoration and the tab strip. Line-number measurement normalizes the line count before subtracting, including the minimum integer.
 - `Editor.ElementAt` rejects invalid line and byte-column coordinates instead of clamping them onto a real element.
-- Markdown replaces NUL at the single source-normalization boundary, before parsing. Prose, code, reference identity, image labels and extension callbacks now consume the same normalized source.
-- Linux Mermaid shutdown tests collect their own orphaned browser in an isolated process. They verify completed cleanup and visible cleanup failure without depending on the host's process-reaping timing or relaxing the production deadline.
 - Startup probes yield to normal input after a bounded byte prefix and accept only well-formed terminal reports. An empty `NO_COLOR` leaves color detection enabled. Set it to a nonempty value to disable color.
 - Text decoding and terminal output use the same hyperlink target validation. Wrapped paragraph links use the displayed tab columns for both clicks and terminal hyperlinks.
 - Invalidating scene geometry ends the old hover. Assigning the same panel content preserves its focused child. Box padding and image placement use the same geometry for measurement and drawing.
-- Killing a word across a line break retains the newline for yank. Display math closes only at a valid delimiter, and fenced math recognizes tab-separated attributes.
+- Killing a word across a line break retains the newline for yank.
 - The image example retires its transmission on a caller-owned host. Visibility assertions wait for new output after an unsuccessful repaint.
+
+## [extensions/markdown/v0.27.0] — 2026-11-05
+
+### Breaking API migration
+
+#### extensions/markdown
+
+- `Render` and `NewRenderer` reject more than 256 simultaneously open Markdown blocks with `ErrBlockNestingLimit`. The parser owns the nesting count, including paragraphs and list items; this bound does not claim to limit every inline construct or all parse work. A rejected parse returns no content, so a finalized stream document reports `Failed` instead of an empty `Partial` result.
+
+### Fixed
+
+- Markdown table fields complete boundary graphemes before column allocation, preserving alignment, separator styles and agreement between drawing and text rows. Each column also reserves its widest indivisible grapheme; tables use their existing record layout when those minimums cannot fit.
+- Markdown rules occupy exactly their allocated terminal columns for wide, zero-width, tabbed and joining divider patterns.
+- Markdown entity decoding preserves inline word boundaries and interprets numeric entities as Unicode scalar values without HTML's Windows-1252 remapping. Entity text cannot create new Markdown structure.
+- Markdown replaces NUL at the single source-normalization boundary, before parsing. Prose, code, reference identity, image labels and extension callbacks now consume the same normalized source.
+- Display math closes only at a valid delimiter, and fenced math recognizes tab-separated attributes.
+
+## [extensions/latex/v0.27.0] — 2026-11-05
+
+### Breaking API migration
+
+#### extensions/latex
+
+- Formula atoms whose joining moves any terminal column boundary now preserve the source and report `Formula.Err` instead of publishing shifted scripts or rules. Keep joined display graphemes within one syntax atom. `\exp` follows the common named-operator grammar; use an explicit spacing command when a space is required.
+
+- `\hspace` is no longer accepted as successful output: the terminal layout has no TeX length model. Unsupported spacing preserves the source and returns the existing parse diagnostic rather than discarding its argument.
+
+### Changed
+
+- LaTeX parses its expression subset directly into terminal layout. Command arguments, whitespace and scripts have one grammar owner; symbol names continue to use the dependency's symbol tables. Go literal rules, parser wrappers and process-global diagnostics no longer participate.
+
+### Fixed
+
+- LaTeX rules occupy exactly their allocated terminal columns for wide, zero-width, tabbed and joining divider patterns.
+- LaTeX named operators accept `\exp`, `\exp x` and `\exp^2(x)` through their shared grammar. Unsupported macro diagnostics quote control characters before exposing error text.
+- LaTeX symbol-cache keys detach from formula input at the sole insertion boundary, preventing a short macro name from retaining a large source allocation.
+- Formula diagnostics remain in `Formula.Err` and never write stdout or stderr. Mathematical text such as `08`, `1e` and `0x` is not interpreted as a Go numeric literal. Formula atoms preserve complete display graphemes when computing geometry.
+
+## [extensions/mermaid/v0.27.0] — 2026-11-05
+
+### Breaking API migration
+
+#### extensions/mermaid
+
+- `mermaid.Config.Theme` now uses `mermaid.Theme`. Use `ThemeDefault`, `ThemeDark`, `ThemeForest`, `ThemeNeutral` or `ThemeBase`; convert a runtime string explicitly at the configuration boundary. Empty still selects the default, and construction rejects every unknown value.
+
+- Unix cancellation now retains the launcher identity until all group signals finish, then reaps that launcher and settles its pipes. Reaping non-child zombies belongs to their external reaper and no longer controls a render's outcome. Linux, Darwin, FreeBSD, NetBSD and DragonFly have the required non-reaping observation; other Unix hosts now reject construction with `errors.ErrUnsupported`. Windows retains its job-object ownership. The adapter now composes `ui/core/process`.
+
+### Changed
+
+- Native Mermaid backend CI includes Linux alongside macOS and Windows. The backend resolves its installed Puppeteer headless shell for both rendering and Linux sandbox setup. A path-scoped AppArmor profile permits that executable's user namespace; browser sandboxing stays enabled, and native rendering remains a required gate.
+
+### Fixed
+
+- Linux Mermaid shutdown tests collect their own orphaned browser in an isolated process. They verify completed cleanup and visible cleanup failure without depending on the host's process-reaping timing or relaxing the production deadline.
+- Process-group cleanup preserves the launcher identity through cancellation. Darwin recognizes irreversible exit before zombie state becomes visible without suppressing permission failures for live members.
+- Windows renderers share the UI job owner, which verifies process membership before retaining delayed process notifications. Explicit command paths retain extension resolution.
+
+## [extensions/ssh/v0.27.0] — 2026-11-05
+
+### Breaking API migration
+
+#### extensions/ssh
+
+- Replace `ssh.(*Host).Paste` with `ReadClipboard(context.Context) (string, error)`. The read belongs to its caller and preserves unresolved OSC 52 queries across cancellation or terminal handover.
+
+- Replace `ssh.Open`, `ssh.Config` and `ssh.NewAdapter(...)` with a server-scoped `var adapter ssh.Adapter`. Before serving, call `server.SetOption(adapter.Install)` with a vacant PTY handler slot. Use `server.PtyCallback` for admission decisions formerly made in `ssh.AdapterConfig.Allocate`. In the accepted handler call `adapter.Bind(session)` with the original session, then `terminal.Open(term.Config{...})`. Acquire and release application resources in this handler. The adapter owns emulated window intake from PTY acceptance through channel teardown. Each channel can open one host. Configure OS-allocated PTYs on a separate server.
+
+### Fixed
+
+- Clipboard reads preserve the selected transport policy and remain tied to the originating caller through cancellation and terminal handover.
+
+## [extensions/highlight/v0.26.1] — 2026-11-05
+
+### Fixed
+
+- Normalize CRLF and bare carriage returns at the source boundary while preserving every source row.
+- Bound stalled lexer output and fall back to the complete source when tokens are incomplete, altered or interrupted. Token styles can classify source bytes but cannot replace them.
 
 ## [ui/v0.26.0] — 2026-11-01
 
