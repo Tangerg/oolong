@@ -31,7 +31,7 @@ func TestMaskedSpansUseDisplayedGeometry(t *testing.T) {
 	var e base.Editor
 	e.SetText("中文")
 	e.SetMask("*")
-	spans := e.Spans(base.Caret{}, base.Caret{Col: len("中文")}, 12)
+	spans := e.Spans(base.Caret{}, base.Caret{Byte: len("中文")}, 12)
 	if len(spans) != 1 || spans[0].Width != 2 {
 		t.Fatalf("masked spans: %#v", spans)
 	}

@@ -45,7 +45,7 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 	}
 	target := pasteTarget{
 		attachment: element.Attachment(), session: e.document(), revision: e.Revision(),
-		cursor: Caret{Line: e.line, Col: e.col}, anchor: e.anchor, selecting: e.selecting,
+		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor, selecting: e.selecting,
 	}
 	return e.Clipboard.Read(ctx, func(value string, err error) {
 		if ctx.Err() != nil {
@@ -63,7 +63,7 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 
 func (p pasteTarget) current(e *Editor) bool {
 	if p.session != e.document() || p.revision != e.Revision() ||
-		p.cursor != (Caret{Line: e.line, Col: e.col}) || p.anchor != e.anchor || p.selecting != e.selecting {
+		p.cursor != (Caret{Line: e.line, Byte: e.byteOffset}) || p.anchor != e.anchor || p.selecting != e.selecting {
 		return false
 	}
 	target := p.attachment.Target()

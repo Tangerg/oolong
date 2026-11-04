@@ -111,7 +111,6 @@ type TableLayout struct {
 	boxes []image.Rectangle
 }
 
-// Layout measures the columns and fixes their boxes at width.
 func (t Table) Layout(width int) TableLayout {
 	t.Columns = slices.Clone(t.Columns)
 	for i := range t.Columns {

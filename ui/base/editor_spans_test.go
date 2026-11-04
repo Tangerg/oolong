@@ -79,7 +79,7 @@ func TestSpansFollowTheWrap(t *testing.T) {
 	// At width 10 the first row is "the quick " — the break takes the space with the
 	// row it ends, so the row is ten columns wide and the second begins at "brown".
 	const secondRow = len("the quick ")
-	spans := e.Spans(base.Caret{Line: 0, Col: 4}, base.Caret{Line: 0, Col: 15}, 10)
+	spans := e.Spans(base.Caret{Line: 0, Byte: 4}, base.Caret{Line: 0, Byte: 15}, 10)
 	if len(spans) != 2 {
 		t.Fatalf("the range covers %d rows, want 2: %+v", len(spans), spans)
 	}
@@ -95,7 +95,7 @@ func TestSpansFollowTheWrap(t *testing.T) {
 
 func TestSpansAcrossLines(t *testing.T) {
 	e := editorWith("first\nsecond\nthird")
-	spans := e.Spans(base.Caret{Line: 0, Col: 2}, base.Caret{Line: 2, Col: 3}, 20)
+	spans := e.Spans(base.Caret{Line: 0, Byte: 2}, base.Caret{Line: 2, Byte: 3}, 20)
 	if len(spans) != 3 {
 		t.Fatalf("got %+v, want three rows", spans)
 	}
@@ -111,7 +111,7 @@ func TestSpansAcrossLines(t *testing.T) {
 // a highlight is painted in columns.
 func TestSpansAreInColumnsAndNotBytes(t *testing.T) {
 	e := editorWith("中文ab")
-	spans := e.Spans(base.Caret{Line: 0, Col: 0}, base.Caret{Line: 0, Col: len("中文")}, 20)
+	spans := e.Spans(base.Caret{Line: 0, Byte: 0}, base.Caret{Line: 0, Byte: len("中文")}, 20)
 	if len(spans) != 1 {
 		t.Fatalf("got %+v", spans)
 	}
@@ -122,8 +122,8 @@ func TestSpansAreInColumnsAndNotBytes(t *testing.T) {
 
 func TestSpansOfABackwardsRangeAreTheSameRange(t *testing.T) {
 	e := editorWith("hello")
-	forward := e.Spans(base.Caret{Line: 0, Col: 1}, base.Caret{Line: 0, Col: 4}, 20)
-	back := e.Spans(base.Caret{Line: 0, Col: 4}, base.Caret{Line: 0, Col: 1}, 20)
+	forward := e.Spans(base.Caret{Line: 0, Byte: 1}, base.Caret{Line: 0, Byte: 4}, 20)
+	back := e.Spans(base.Caret{Line: 0, Byte: 4}, base.Caret{Line: 0, Byte: 1}, 20)
 	if len(forward) != 1 || len(back) != 1 || forward[0] != back[0] {
 		t.Errorf("forward %+v, backwards %+v", forward, back)
 	}
@@ -136,8 +136,8 @@ func TestSpansOfNothing(t *testing.T) {
 		from, to base.Caret
 		width    int
 	}{
-		{name: "no width", from: base.Caret{}, to: base.Caret{Line: 0, Col: 3}, width: 0},
-		{name: "an empty range", from: base.Caret{Line: 0, Col: 2}, to: base.Caret{Line: 0, Col: 2}, width: 20},
+		{name: "no width", from: base.Caret{}, to: base.Caret{Line: 0, Byte: 3}, width: 0},
+		{name: "an empty range", from: base.Caret{Line: 0, Byte: 2}, to: base.Caret{Line: 0, Byte: 2}, width: 20},
 	} {
 		if got := e.Spans(tc.from, tc.to, tc.width); len(got) != 0 {
 			t.Errorf("%s covered %+v", tc.name, got)

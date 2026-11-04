@@ -31,6 +31,8 @@ type pump struct {
 	// out receives the decoded events, and is closed when the pump returns so a
 	// consumer ranging over it learns that input is over.
 	out chan input.Event
+	// Protocol replies outlive application delivery during terminal cleanup.
+	deliveryStopped <-chan struct{}
 	// stream decodes the bytes. It is handed over rather than created here because a
 	// startup probe had to read the terminal before this goroutine could, and what it
 	// left behind is not only half a sequence: an escape it saw is already waiting on
@@ -133,7 +135,13 @@ func (p *pump) send(events []input.Event) bool {
 			}
 		}
 		select {
+		case <-p.deliveryStopped:
+			continue
+		default:
+		}
+		select {
 		case p.out <- ev:
+		case <-p.deliveryStopped:
 		case <-p.stop:
 			return false
 		}

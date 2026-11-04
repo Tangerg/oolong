@@ -51,6 +51,8 @@ Table column interpretation belongs to its `SetLess` comparator. The row control
 
 ## Editor insertion positions
 
+`base.Caret{Line, Byte}` addresses a byte offset in a logical line. `base.Point{Row, Col}` addresses terminal cells in a layout. The units remain explicit across wrapping and Unicode text. Vertical movement retains its desired cell column, including zero, while atomic elements snap to a boundary in the movement direction; layout queries do not reset that intent.
+
 Multiline editors opt into `text.LayoutConfig.ReserveCaret`. A full logical line receives an empty continuation row for its final insertion position. Height, scrolling, vertical movement, hit testing and selection all consume that same immutable projection, including gutter and resize handling. Ordinary text layouts keep their existing passive row count unless they request this editing policy.
 
 ## Rich content behavior
@@ -58,6 +60,8 @@ Multiline editors opt into `text.LayoutConfig.ReserveCaret`. A full logical line
 `Transcript.AddDocument` connects a `StreamDocument` once. Changes, EOF preparation, partial-result policy, publication admission, retirement and subscription cleanup then follow the owning objects. A caller does not repeat a Feed/Changed/Finish/Commit protocol.
 
 `Selection` stores content-relative logical endpoints. `Scroll` owns reading intent. `Sticky` owns content identities eligible for pinning. Transcript's frame candidate composes their projections; painting does not advance their state. `Scan` is a bounded synchronous search operation that callers may schedule as scoped work and accept only for the matching content revision.
+
+`ScrollLayout.Reveal`, `Resize` and `Anchor` refine candidate geometry without changing end-following intent. Explicit `Scroll` commands own that transition; an aborted frame cannot alter it. A late publication refusal invalidates Transcript's scene element after storing the error, while preserving the retained content revision and selection.
 
 Public controller commands publish invalidation through that same element after the entire mutation settles. A composite operation uses the atomic primitives internally and publishes once; callers do not add a second notification path. Commands that leave the value unchanged do not advance the model revision.
 

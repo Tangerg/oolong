@@ -128,6 +128,7 @@ func TestImageRequestsFailExplicitlyAndRetainNoInventedResource(t *testing.T) {
 		want error
 	}{
 		{"Gi=0,I=1;EINVAL:decoder refused PNG", graphics.ErrRejected},
+		{"G,I=1;ENOMEM:Out of memory", graphics.ErrRejected},
 		{"Gi=broken,I=1;OK", graphics.ErrMalformedReply},
 		{"Gi=42,I=1;", graphics.ErrMalformedReply},
 		{"Gi=42,I=1,p=3;OK", graphics.ErrMalformedReply},
@@ -199,6 +200,60 @@ func TestSilentImageRequestsTimeOut(t *testing.T) {
 		}
 		uploadOutcome(t, result, ErrImageResponseTimeout)
 	})
+}
+
+func TestImageCleanupContinuesAfterApplicationDeliveryStops(t *testing.T) {
+	for _, sameRead := range []bool{false, true} {
+		t.Run(fmt.Sprintf("same read=%t", sameRead), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var wire bytes.Buffer
+				terminal := uploadTerminal(t, &wire)
+				result, err := terminal.Transmit(t.Context(), uploadPNG(t))
+				if err != nil {
+					t.Fatal(err)
+				}
+				number := pendingImageNumber(t, terminal)
+				ack := fmt.Sprintf("\x1b_Gi=77,I=%d;OK\x1b\\", number)
+				raw := make(chan readResult, 2)
+				out := make(chan input.Event)
+				stop, deliveryStopped := make(chan struct{}), make(chan struct{})
+				pumpDone := make(chan struct{})
+				p := &pump{
+					raw: raw, out: out, stop: stop, deliveryStopped: deliveryStopped,
+					stream: &input.Stream{}, consume: terminal.takeImageReply,
+				}
+				go func() { _ = p.run(); close(pumpDone) }()
+				defer func() { close(stop); <-pumpDone }()
+				first := "x"
+				if sameRead {
+					first += ack
+				}
+				raw <- readResult{data: []byte(first), at: time.Now()}
+				synctest.Wait()
+				select {
+				case outcome := <-result:
+					t.Fatalf("ordinary delivery was not backpressured: %+v", outcome)
+				default:
+				}
+				terminal.writer.CloseAdmission()
+				terminal.cancelUploads(ErrClosed)
+				uploadOutcome(t, result, ErrClosed)
+				close(deliveryStopped)
+				if !sameRead {
+					raw <- readResult{data: []byte(ack), at: time.Now()}
+				}
+				if cleanupErr := terminal.awaitUploads(); cleanupErr != nil {
+					t.Fatal(cleanupErr)
+				}
+				if drainErr := terminal.writer.Drain(time.Second); drainErr != nil {
+					t.Fatal(drainErr)
+				}
+				if strings.Count(wire.String(), "a=d,d=I,i=77,") != 1 {
+					t.Fatalf("cleanup lost the acknowledged allocation: %q", wire.String())
+				}
+			})
+		})
+	}
 }
 
 func TestCancelledImageRetainsItsCleanupObligation(t *testing.T) {

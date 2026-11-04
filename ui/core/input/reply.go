@@ -108,13 +108,12 @@ func dcsHead(b []byte) (size int) {
 
 func graphicsHead(b []byte) int {
 	const introducer = 2
-	after := b[introducer:]
-	n := min(len(after), len(graphics.ReplyPrefix))
-	if string(after[:n]) != graphics.ReplyPrefix[:n] {
-		return -1
-	}
-	if n < len(graphics.ReplyPrefix) {
+	matched, pending := graphics.MatchReplyPrefix(b[introducer:])
+	if pending {
 		return 0
 	}
-	return introducer
+	if matched {
+		return introducer
+	}
+	return -1
 }

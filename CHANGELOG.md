@@ -10,6 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### ui
 
+- Rename `base.Caret.Col` to `base.Caret.Byte`. Carets address bytes in logical lines; `base.Point.Col` and `base.RowSpan.Col` remain terminal-cell columns. Update keyed caret literals and field access directly; there is no mirrored compatibility field.
+- Replace `core/graphics.ReplyPrefix` with `core/graphics.MatchReplyPrefix` when framing terminal responses. The matcher and `ParseReply` share the response grammar, including failures that carry only an image number. Low-level `ImagePlacement.Paint` now refuses dimensions or crop coordinates outside Kitty's unsigned integer range before writing; zero cell dimensions retain protocol automatic sizing.
+
 - Replace `core/clipboard.(*Channel).Request` with `core/clipboard.(*Channel).Read(ctx, selection, send)`. The call waits away from the UI owner and returns the read result or error. The send callback must atomically admit the query. Replace `core/clipboard.(*Channel).CancelPending` with `core/clipboard.(*Channel).Interrupt`; cancellation, interruption and the response deadline revoke delivery but retain an unanswered wire query. `core/clipboard.(*Channel).Answer` now returns only whether it consumed that query's reply. Handle `clipboard.ErrPending` until the old reply arrives; OSC 52 has no request identifier that would make timeout-based reuse safe.
 - Replace `core/program.PasteHost` with `core/program.ClipboardReader`, implementing `ReadClipboard(context.Context) (string, error)`. Replace `core/term.(*Terminal).Paste` with `ReadClipboard` and `core/program.Clipboard.Paste` with `Read(ctx, receive)`. Runtime completion runs on the owner; cancellation or runtime shutdown revokes the callback. `core/input.OSC.Paste` is removed: an OSC 52 reply settles its originating read and is never converted to ordinary `input.Paste`. Native bracketed paste remains normal input.
 - Implement `base.Clipboard.Read` with `Read(ctx, receive) error` in place of `base.Clipboard.Paste`. Call `base.(*Editor).Paste` with `(ctx, complete)` and a non-nil completion receiver. Admission errors return immediately; eligible completion reports the final result. A changed document, revision, selection or attachment returns `base.ErrPasteStale` instead of redirecting insertion. Keyboard paste failures are available through `base.(*Editor).PasteError`; `base.Text` exposes the same operations through its retained editor. A standalone editor can read only before it has ever been attached; `scene.Element.HasBeenAttached` projects that existing lifecycle fact.
@@ -43,6 +46,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Changed
 
+- Native Mermaid backend CI includes Linux alongside macOS and Windows, using the same CLI installation and rendering tests. Linux uses the runner's packaged Chrome sandbox after checking its ownership and permissions; the production browser sandbox remains enabled.
+- Protocol bit fields, terminal queue capacities, tab part identity and example retention/source budgets have local semantic names. The state example derives its validation and visible length limit from one rune-count policy.
+
 - Windows command launchers and Mermaid compose one `core/process.Job` for atomic job membership, process observation, termination and handle cleanup. Each adapter retains its own standard streams, output delivery and cancellation policy. `process.JobStartConfig` borrows explicitly prepared files; the caller reaps the returned launcher and closes its job. This new UI capability must be published before updating independently released consumers.
 - LaTeX parses its expression subset directly into terminal layout. Command arguments, whitespace and scripts have one grammar owner; symbol names continue to use the dependency's symbol tables. Go literal rules, parser wrappers and process-global diagnostics no longer participate.
 
@@ -63,6 +69,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - The agent example passes the selected planning mode to the backend when each run starts. Fast mode skips the optional inspection step. Both modes require approval before the mock tool call.
 
 ### Fixed
+
+- Terminal shutdown revokes ordinary input delivery before draining image replies, so a full application event queue cannot block the sole input pump from settling and deleting acknowledged allocations.
+- Kitty failures without a physical image ID remain protocol responses, retain their request number and cannot become user keystrokes. Conflicting identities and successful replies without a physical ID remain invalid.
+- `Scroll` alone owns end-following intent. Candidate reveal, resize and reading-anchor refinement contain geometry only and cannot cancel that intent.
+- Transcript publishes late publication errors through scene invalidation without replacing content revisions or disturbing selection. Publisher stores each closing refusal at its transition, so retries read the same error instead of manufacturing another observed change.
+- Editor vertical navigation preserves a valid desired column of zero across wrapped atomic elements. Movement selects the atomic boundary in its own direction, preventing upward navigation from sticking at the trailing boundary.
+- File detection consumes drive and backslash path prefixes before classification. Rooted and relative references preserve the complete source target and byte span; filesystem evidence is requested only for the complete relative path, independently of the host OS.
+- LaTeX symbol-cache keys detach from formula input at the sole insertion boundary, preventing a short macro name from retaining a large source allocation.
 
 - Clipboard read completion stays with the originating editor across focus changes. Detached or edited targets cannot inherit an earlier read, and an expired query cannot donate a late reply to a newer request. Invalid UTF-8 replacement cannot expand a received payload beyond the clipboard's byte limit.
 - Editor Fill always delegates replacement to the edit session. Equal displayed text still removes atomic element identity, records undo and reports the owner's revision change. Atomic labels normalize both grapheme edges in one segmentation instead of repeatedly scanning a shrinking string.

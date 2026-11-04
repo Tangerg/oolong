@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	xterm "golang.org/x/term"
 
 	"github.com/Tangerg/oolong/ui/core/graphics"
+	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/term"
 )
 
@@ -103,6 +105,64 @@ func TestCloseDeletesAnImageAcknowledgedDuringShutdown(t *testing.T) {
 	output := read(t, primary, 50*time.Millisecond)
 	if strings.Count(output, "a=d,d=I,i=77,") != 1 || strings.Count(output, "a=d") != 1 {
 		t.Fatalf("shutdown lost or guessed an allocation: %q", output)
+	}
+}
+
+func TestCloseDrainsImageRepliesAfterInputBackpressure(t *testing.T) {
+	const imageID = math.MaxUint32
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	tty, primary := open(t, term.Config{})
+	result, number := pendingUpload(t, tty, primary)
+	if _, err := fmt.Fprint(primary, strings.Repeat("x", cap(tty.Events())+1)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for len(tty.Events()) < cap(tty.Events()) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(tty.Events()) != cap(tty.Events()) {
+		t.Fatal("input did not fill the public event queue")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- tty.Close() }()
+	if outcome := <-result; !errors.Is(outcome.Err, term.ErrClosed) {
+		t.Fatalf("shutdown cancellation = %v", outcome.Err)
+	}
+	acknowledgeUpload(t, primary, number, imageID)
+	if err := <-closed; err != nil {
+		t.Fatal("acknowledged cleanup was blocked by application input:", err)
+	}
+	output := read(t, primary, 50*time.Millisecond)
+	if strings.Count(output, fmt.Sprintf("a=d,d=I,i=%d,", imageID)) != 1 || strings.Count(output, "a=d") != 1 {
+		t.Fatalf("shutdown failed to delete the exact allocation: %q", output)
+	}
+}
+
+func TestNumberOnlyImageRejectionSettlesWithoutUserInput(t *testing.T) {
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	tty, primary := open(t, term.Config{})
+	result, number := pendingUpload(t, tty, primary)
+	if _, err := fmt.Fprintf(primary, "\x1b_G,I=%s;ENOMEM:Out of memory\x1b\\", number); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case outcome := <-result:
+		if !errors.Is(outcome.Err, graphics.ErrRejected) || outcome.Resource.Live() {
+			t.Fatalf("image rejection = %+v", outcome)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("number-only rejection did not settle its request")
+	}
+	if err := tty.Close(); err != nil {
+		t.Fatal("rejected allocation retained cleanup capacity:", err)
+	}
+	for event := range tty.Events() {
+		if _, resize := event.(input.Resize); !resize {
+			t.Errorf("terminal rejection entered user input: %+v", event)
+		}
+	}
+	if output := read(t, primary, 50*time.Millisecond); strings.Contains(output, "a=d") {
+		t.Fatalf("rejection invented an allocation to delete: %q", output)
 	}
 }
 

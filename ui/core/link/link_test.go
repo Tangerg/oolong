@@ -298,6 +298,7 @@ func FuzzDetectNeverPanicsAndStaysInside(f *testing.F) {
 		"'https://example.com/O'Brien',next", "'(https://example.com/O'Brien)'",
 		"'https://example.com/path?'", "https://example.com/?q='value'&next=2",
 		"/tmp/目录/报告.go:42:7", "甲/乙", "见 /tmp/cafe\u0301.go。", "~/👩‍💻.go", `"目录/报告 副本.go":42`,
+		`C:/src/main.go:42`, `C:\src\main.go:42`, `C:src\main.go:42`, `\\server\share\main.go`, `\\?\C:\src\main.go`,
 	} {
 		f.Add(seed)
 	}

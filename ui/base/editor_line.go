@@ -18,11 +18,12 @@ import (
 // It owns no editor history, input matcher, mutable document or frame transaction.
 type editorLineView struct {
 	editorProjectionKey
-	value, placeholder   string
-	cursor, anchor, left int
-	selecting, focused   bool
-	gutter               RowGutter
-	cursorStyle          grid.CursorStyle
+	value, placeholder     string
+	cursorByte, anchorByte int
+	left                   int
+	selecting, focused     bool
+	gutter                 RowGutter
+	cursorStyle            grid.CursorStyle
 }
 
 func (e editorLineView) shown() string {
@@ -36,13 +37,13 @@ func (e editorLineView) shown() string {
 	return shown.String()
 }
 
-func (e editorLineView) shownAt(column int) int {
+func (e editorLineView) shownAt(byteOffset int) int {
 	if e.mask == "" {
-		return column
+		return byteOffset
 	}
 	at := 0
 	for offset := range text.Clusters(e.value) {
-		if offset >= column {
+		if offset >= byteOffset {
 			break
 		}
 		at += len(e.mask)
@@ -62,7 +63,7 @@ func (e editorLineView) draw(frame scene.Frame, look Look, presented *scene.Snap
 		return
 	}
 	shown := e.shown()
-	cursor := text.ColumnOf(shown, e.shownAt(e.cursor))
+	cursor := text.ColumnOf(shown, e.shownAt(e.cursorByte))
 	left := min(cursor, e.left)
 	if cursor > layout.Sum(left, width-1) {
 		left = layout.Remaining(cursor, width-1)
@@ -77,8 +78,8 @@ func (e editorLineView) draw(frame scene.Frame, look Look, presented *scene.Snap
 	} else {
 		text.Of(shown, look.Text).Draw(view, -left, 0)
 		if visible := view.Visible(); e.selecting && !visible.Empty() && visible.Min.Y == 0 {
-			from := text.ColumnOf(shown, e.shownAt(min(e.anchor, e.cursor))) - left
-			to := text.ColumnOf(shown, e.shownAt(max(e.anchor, e.cursor))) - left
+			from := text.ColumnOf(shown, e.shownAt(min(e.anchorByte, e.cursorByte))) - left
+			to := text.ColumnOf(shown, e.shownAt(max(e.anchorByte, e.cursorByte))) - left
 			for x := max(from, visible.Min.X); x < min(to, visible.Max.X); x++ {
 				view.MergeStyle(x, 0, look.Selection)
 			}

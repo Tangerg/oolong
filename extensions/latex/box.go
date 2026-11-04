@@ -196,8 +196,8 @@ func (b *box) lines() []text.Line {
 				run.write(strings.Repeat(" ", item.x-at), grid.Style{})
 				at = item.x
 			}
-			// Composition is built not to overlap. Be conservative if a malformed
-			// upstream tree does: the earlier mark owns the cells already occupied.
+			// Marks occupy complete terminal clusters; clipping an overlap could
+			// split a cluster in the later mark.
 			if item.x < at {
 				continue
 			}

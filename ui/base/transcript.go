@@ -358,8 +358,9 @@ func (t *Transcript) publish() {
 		var err error
 		t.element.ReadOnly(func() { receipt, err = t.cfg.Publisher.TryPublish(item.content().Body) })
 		if err != nil {
-			if !errors.Is(err, publication.ErrCapacity) {
+			if !errors.Is(err, publication.ErrCapacity) && !identity.Same(item.err, err) {
 				item.err = err
+				t.element.Invalidate()
 			}
 			return
 		}

@@ -37,8 +37,8 @@ func TestElementLookupRejectsCoordinatesOutsideTheDocument(t *testing.T) {
 			t.Fatalf("element lookup at its own start = %+v, %v; want %+v", found, ok, element)
 		}
 	}
-	for _, position := range []base.Caret{{Line: -1}, {Line: 2}, {Col: -1}, {Line: 1, Col: -1}, {Col: 100}, {Line: 1, Col: 100}} {
-		if found, ok := editor.ElementAt(position.Line, position.Col); ok {
+	for _, position := range []base.Caret{{Line: -1}, {Line: 2}, {Byte: -1}, {Line: 1, Byte: -1}, {Byte: 100}, {Line: 1, Byte: 100}} {
+		if found, ok := editor.ElementAt(position.Line, position.Byte); ok {
 			t.Errorf("invalid position %+v resolved to element %+v", position, found)
 		}
 	}

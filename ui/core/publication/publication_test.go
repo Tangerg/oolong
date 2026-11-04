@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/publication"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
 type block struct {
@@ -330,6 +331,32 @@ func TestKnownFailureRefusesBeforeContentCallbacksAndPreservesCause(t *testing.T
 	}
 	if err := p.SetGeometry(4, grid.Ground{}); !errors.Is(err, cause) || !errors.Is(err, publication.ErrClosed) {
 		t.Fatalf("geometry refusal lost cause=%v", err)
+	}
+}
+
+func TestClosedRefusalsKeepTheTransitionIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		close func(*publication.Publisher, error)
+	}{
+		{name: "admission", close: (*publication.Publisher).CloseAdmission},
+		{name: "failure", close: func(p *publication.Publisher, err error) { p.Fail(err, false) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newPublisher(t, publication.Config{})
+			cause := errors.New("output closed")
+			tc.close(p, cause)
+			_, first := p.TryPublish(&panicBody{})
+			if !errors.Is(first, publication.ErrClosed) || !errors.Is(first, cause) {
+				t.Fatalf("refusal lost its state or cause: %v", first)
+			}
+			for range 2 {
+				_, next := p.TryPublish(&panicBody{})
+				if !identity.Same(first, next) {
+					t.Fatal("reading a closed publisher created another refusal identity")
+				}
+			}
+		})
 	}
 }
 

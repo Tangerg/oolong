@@ -8,7 +8,13 @@ import (
 	"unicode/utf8"
 )
 
-const unquotedPathPunctuation = "/-._~%@+"
+const (
+	pathSeparators          = `/\`
+	unquotedPathPunctuation = pathSeparators + "-._~%@+"
+	homePathPrefix          = "~/"
+	extendedPathPrefix      = `\\?\`
+	devicePathPrefix        = `\\.\`
+)
 
 var linePattern = regexp.MustCompile(`^:([0-9]{1,9})(?::([0-9]{1,9}))?`)
 
@@ -33,6 +39,7 @@ func (s *pathScanner) next() (from, to int, quoted, ok bool) {
 		if !unquotedPathRune(r) {
 			continue
 		}
+		s.offset = from + max(size, pathPrefixLength(s.source[from:]))
 		for s.offset < len(s.source) {
 			r, size = utf8.DecodeRuneInString(s.source[s.offset:])
 			if !unquotedPathRune(r) {
@@ -43,6 +50,40 @@ func (s *pathScanner) next() (from, to int, quoted, ok bool) {
 		return from, s.offset, false, true
 	}
 	return 0, 0, false, false
+}
+
+// Volume and namespace prefixes belong to the token even though their punctuation
+// also separates ordinary prose and line references. Source paths need not use the
+// host operating system's grammar.
+func pathPrefixLength(target string) int {
+	for _, prefix := range [...]string{extendedPathPrefix, devicePathPrefix} {
+		if strings.HasPrefix(target, prefix) {
+			return len(prefix) + drivePrefixLength(target[len(prefix):])
+		}
+	}
+	return drivePrefixLength(target)
+}
+
+func drivePrefixLength(target string) int {
+	if len(target) < 2 || target[1] != ':' {
+		return 0
+	}
+	letter := target[0]
+	if letter >= 'a' && letter <= 'z' || letter >= 'A' && letter <= 'Z' {
+		return 2
+	}
+	return 0
+}
+
+func pathAnchorLength(target string) int {
+	if strings.HasPrefix(target, homePathPrefix) {
+		return len(homePathPrefix)
+	}
+	volume := drivePrefixLength(target)
+	if len(target) > volume && strings.ContainsRune(pathSeparators, rune(target[volume])) {
+		return volume + 1
+	}
+	return 0
 }
 
 func (s *pathScanner) quoteStarts(at int) bool {
@@ -101,12 +142,9 @@ func pathAt(source string, from, to int, quoted, allowBare bool) (Link, bool) {
 // Rooted paths supply their own evidence. Relative tokens need an extension to
 // exclude slashed prose; an unquoted bare name additionally requires caller evidence.
 func pathEvidence(target string, quoted, allowBare bool) bool {
-	if rest, rooted := strings.CutPrefix(target, "/"); rooted {
-		return strings.Trim(rest, "/") != ""
+	if anchor := pathAnchorLength(target); anchor > 0 {
+		return strings.Trim(target[anchor:], pathSeparators) != ""
 	}
-	if rest, homeRelative := strings.CutPrefix(target, "~/"); homeRelative {
-		return strings.Trim(rest, "/") != ""
-	}
-	slash, dot := strings.LastIndexByte(target, '/'), strings.LastIndexByte(target, '.')
+	slash, dot := strings.LastIndexAny(target, pathSeparators), strings.LastIndexByte(target, '.')
 	return dot > slash && dot+1 < len(target) && (quoted || slash >= 0 || allowBare)
 }

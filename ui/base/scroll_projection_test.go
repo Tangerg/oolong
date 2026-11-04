@@ -92,3 +92,64 @@ func TestZeroTranscriptUsesReadingIntentSetBeforeMount(t *testing.T) {
 		t.Fatal("initialization overwrote explicit reading intent")
 	}
 }
+
+func TestScrollLayoutRefinementPreservesFollowIntent(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		refine func(*base.ScrollLayout)
+		offset int
+	}{
+		{name: "visible row", refine: func(candidate *base.ScrollLayout) { candidate.Reveal(95, 95) }, offset: 90},
+		{name: "earlier row", refine: func(candidate *base.ScrollLayout) { candidate.Reveal(30, 30) }, offset: 30},
+		{name: "resize after reveal", refine: func(candidate *base.ScrollLayout) {
+			candidate.Reveal(95, 95)
+			candidate.Resize(20)
+		}, offset: 80},
+		{name: "anchor cannot override following", refine: func(candidate *base.ScrollLayout) { candidate.Anchor(30) }, offset: 90},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var scroll base.Scroll
+			scroll.ToBottom()
+			total := 100
+			refine := test.refine
+			element := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+				candidate := scroll.Stage(frame, total, 10)
+				if refine != nil {
+					refine(&candidate)
+				}
+			}})
+			root, err := scene.NewRoot(scene.RootConfig{Element: element})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(root.Close)
+			frame, err := root.Prepare(grid.NewSurface(8, 10).View())
+			if err != nil {
+				t.Fatal(err)
+			}
+			frame.Abort()
+			if !scroll.FollowingEnd() || scroll.Offset() != 0 {
+				t.Fatal("aborted refinement changed reading intent or committed position")
+			}
+			for sequence := uint64(1); sequence <= 2; sequence++ {
+				frame, err = root.Prepare(grid.NewSurface(8, 10).View())
+				if err != nil {
+					t.Fatal(err)
+				}
+				frame.Commit(sequence)
+				root.Wrote(sequence)
+				if !scroll.FollowingEnd() {
+					t.Fatal("candidate refinement changed following intent")
+				}
+				want := test.offset
+				if sequence == 2 {
+					want = 100
+				}
+				if scroll.Offset() != want {
+					t.Fatalf("frame %d offset = %d, want %d", sequence, scroll.Offset(), want)
+				}
+				total, refine = 110, nil
+			}
+		})
+	}
+}

@@ -102,7 +102,7 @@ func offsetInLines(lines []string, c Caret) int {
 	for i := range line {
 		at += len(lines[i]) + 1
 	}
-	return at + min(max(c.Col, 0), len(lines[line]))
+	return at + min(max(c.Byte, 0), len(lines[line]))
 }
 
 // Guard narrowing where mark labels return from the generic text model; this editor uses one byte.

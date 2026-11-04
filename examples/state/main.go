@@ -20,6 +20,8 @@ import (
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
+const maxGuardedRunes = 8
+
 func main() {
 	var values answers
 	var local *base.Text
@@ -53,9 +55,10 @@ func fields(values *answers, glyphs kit.Glyphs) (*stateForm, *base.Text) {
 	local := base.NewText(base.TextConfig{Label: "Local — the field owns this draft", Placeholder: "component state"})
 	exact := base.NewText(base.TextConfig{Label: "Exact — copied only on submission", Placeholder: "owned document"})
 	normalized := base.NewText(base.TextConfig{Label: "Normalized — submission stores uppercase", Placeholder: "domain normalization"})
-	guarded := base.NewText(base.TextConfig{Label: "Guarded — submit at most eight characters", Placeholder: "validation preserves the draft", Check: func(value string) error {
-		if utf8.RuneCountInString(value) > 8 {
-			return errors.New("at most eight characters")
+	guardedLengthHint := fmt.Sprintf("at most %d characters", maxGuardedRunes)
+	guarded := base.NewText(base.TextConfig{Label: "Guarded — submit " + guardedLengthHint, Placeholder: "validation preserves the draft", Check: func(value string) error {
+		if utf8.RuneCountInString(value) > maxGuardedRunes {
+			return errors.New(guardedLengthHint)
 		}
 		return nil
 	}})

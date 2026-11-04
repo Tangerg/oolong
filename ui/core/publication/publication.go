@@ -236,8 +236,17 @@ func (p *Publisher) closedError() error {
 	if cause == nil {
 		return ErrClosed
 	}
+	return cause
+}
+
+// A refusal belongs to its closing transition; reading it must not manufacture a
+// new error identity that observers would publish as another state change.
+func closedRefusal(cause error) error {
+	if cause == nil {
+		return ErrClosed
+	}
 	if errors.Is(cause, ErrClosed) {
-		return cause
+		return errors.Join(cause)
 	}
 	return errors.Join(ErrClosed, cause)
 }
@@ -250,10 +259,7 @@ func (p *Publisher) CloseAdmission(err error) {
 	if p == nil || p.admissionErr != nil || p.closed != nil {
 		return
 	}
-	if err == nil {
-		err = ErrClosed
-	}
-	p.admissionErr = err
+	p.admissionErr = closedRefusal(err)
 	p.dirty = true
 }
 
@@ -372,7 +378,7 @@ func (p *Publisher) fail(err error, unknownPartial bool, attempted Batch) {
 	if len(attempted.entries) > 0 {
 		p.checkPrefix(attempted)
 	}
-	p.closed = err
+	p.closed = closedRefusal(err)
 	for _, e := range attempted.entries {
 		e.receipt.settle(UnknownPartial, err)
 	}

@@ -354,3 +354,63 @@ func TestQuotedUnicodeNamesKeepSpacesAndPunctuation(t *testing.T) {
 		}
 	}
 }
+
+func TestDriveAndBackslashPathsKeepTheirSourceIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		target   string
+		relative bool
+	}{
+		{target: `C:/src/main.go`},
+		{target: `C:\src\main.go`},
+		{target: `d:\目录\报告.go`},
+		{target: `\src\main.go`},
+		{target: `\\server\share\main.go`},
+		{target: `\\?\C:\src\main.go`},
+		{target: `\\?\UNC\server\share\main.go`},
+		{target: `\\.\pipe\oolong`},
+		{target: `src\main.go`, relative: true},
+		{target: `C:src\main.go`, relative: true},
+		{target: `C:main.go`, relative: true},
+	} {
+		for _, quoted := range []bool{false, true} {
+			reference := tc.target
+			if quoted {
+				reference = `"` + reference + `"`
+			}
+			reference += ":42:7"
+			const prefix = "见 "
+			source := prefix + reference + "。"
+			var queried []string
+			found := link.Detect(source, func(candidate string) bool {
+				queried = append(queried, candidate)
+				return candidate == tc.target
+			})
+			if len(found) != 1 || found[0].Kind != link.File || found[0].Target != tc.target || found[0].Line != 42 || found[0].Column != 7 {
+				t.Fatalf("Detect(%q) = %+v; want complete source path %q", source, found, tc.target)
+			}
+			if found[0].Start != len(prefix) || found[0].End != len(prefix)+len(reference) || found[0].Text(source) != reference {
+				t.Fatalf("Detect(%q) changed the source byte range: %+v", source, found[0])
+			}
+			var wantQueries []string
+			if tc.relative {
+				wantQueries = []string{tc.target}
+			}
+			if !reflect.DeepEqual(queried, wantQueries) {
+				t.Fatalf("Detect(%q) requested evidence for %q, want %q", source, queried, wantQueries)
+			}
+		}
+	}
+}
+
+func TestRejectedBackslashPathsCannotDonateAnotherTarget(t *testing.T) {
+	for _, target := range []string{`src\main.go`, `C:src\main.go`, `C:main.go`} {
+		var queried []string
+		found := link.Detect(target+":42", func(candidate string) bool {
+			queried = append(queried, candidate)
+			return candidate == "main.go"
+		})
+		if len(found) != 0 || !reflect.DeepEqual(queried, []string{target}) {
+			t.Fatalf("rejected path %q donated a target: %+v, evidence=%q", target, found, queried)
+		}
+	}
+}

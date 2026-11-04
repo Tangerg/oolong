@@ -268,3 +268,158 @@ func TestTranscriptRejectsATypedNilPublisher(t *testing.T) {
 		t.Fatal("accepted a missing publication dependency")
 	}
 }
+
+func TestTranscriptPublicationFailureWakesSceneWithoutChangingContent(t *testing.T) {
+	publisher, err := publication.New(publication.Config{Width: 20, MaxItems: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = publisher.TryPublish(transcriptBody("occupied")); err != nil {
+		t.Fatal(err)
+	}
+	model := transcriptModel(t, base.TranscriptConfig{Retention: base.PublishCompleted, Publisher: publisher})
+	t.Cleanup(model.Close)
+	item := transcriptAdd(t, model, transcriptBody("waiting"))
+	root := transcriptScene(t, model)
+	transcriptCommit(t, root, 20, 4, 1)
+	span, ok := model.Layout().Hit(base.Point{})
+	if !ok {
+		t.Fatal("retained content has no selectable text")
+	}
+	model.Selection().Set(span)
+	changed := root.Changes()
+	before := root.Progress().ModelRevision
+	cause := errors.New("terminal output failed")
+	publisher.Fail(cause, false)
+	publisher.FlushNotifications()
+	if !errors.Is(item.Err(), cause) {
+		t.Fatalf("publication error not retained: %v", item.Err())
+	}
+	select {
+	case <-changed:
+	default:
+		t.Fatal("publication error changed the retained item without waking the scene")
+	}
+	if root.Progress().ModelRevision <= before {
+		t.Fatal("error notification did not advance the observable scene")
+	}
+	transcriptCommit(t, root, 20, 4, 2)
+	if _, ok := model.Layout().Caret(span.Start); !ok {
+		t.Fatal("publication error replaced the retained text revision")
+	}
+	if selected, err := model.Selection().Text(model.Layout()); err != nil || selected != "w" {
+		t.Fatalf("publication error disturbed selection: %q, %v", selected, err)
+	}
+	changed = root.Changes()
+	if publisher.FlushNotifications() {
+		t.Fatal("settled publisher manufactured another notification")
+	}
+	select {
+	case <-changed:
+		t.Fatal("settled failure kept invalidating the scene")
+	default:
+	}
+	before = root.Progress().ModelRevision
+	refusal := item.Err()
+	transcriptAdd(t, model, transcriptBody("another retained item"))
+	if root.Progress().ModelRevision != before+1 {
+		t.Fatal("retrying a settled refusal announced a second error change")
+	}
+	if !errors.Is(item.Err(), refusal) {
+		t.Fatal("retrying publication replaced the unchanged refusal identity")
+	}
+}
+
+type transcriptRefusalPublisher struct {
+	err    error
+	notify func()
+}
+
+func (p *transcriptRefusalPublisher) TryPublish(grid.Drawable) (publication.Receipt, error) {
+	return publication.Receipt{}, p.err
+}
+
+func (p *transcriptRefusalPublisher) Subscribe(notify func()) func() {
+	p.notify = notify
+	return func() { p.notify = nil }
+}
+
+type transcriptPublicationError []byte
+
+func (e transcriptPublicationError) Error() string { return string(e) }
+
+func TestTranscriptOnlyPublishesChangedRefusals(t *testing.T) {
+	publisher := &transcriptRefusalPublisher{err: publication.ErrCapacity}
+	model := transcriptModel(t, base.TranscriptConfig{Retention: base.PublishCompleted, Publisher: publisher})
+	t.Cleanup(model.Close)
+	item := transcriptAdd(t, model, transcriptBody("waiting"))
+	root := transcriptScene(t, model)
+	transcriptCommit(t, root, 20, 4, 1)
+	cause := errors.New("publication refused")
+	for _, test := range []struct {
+		name    string
+		err     error
+		changed bool
+	}{
+		{name: "capacity", err: publication.ErrCapacity},
+		{name: "first refusal", err: cause, changed: true},
+		{name: "same refusal", err: cause},
+		{name: "different cause with same message", err: errors.New(cause.Error()), changed: true},
+		{name: "noncomparable error", err: transcriptPublicationError("unavailable"), changed: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := root.Changes()
+			publisher.err = test.err
+			publisher.notify()
+			select {
+			case <-changed:
+				if !test.changed {
+					t.Fatal("unchanged refusal invalidated the scene")
+				}
+			default:
+				if test.changed {
+					t.Fatal("new refusal did not invalidate the scene")
+				}
+			}
+			if test.changed && item.Err().Error() != test.err.Error() {
+				t.Fatalf("retained error = %v, want %v", item.Err(), test.err)
+			}
+		})
+	}
+}
+
+type transcriptClosedError []byte
+
+func (e transcriptClosedError) Error() string { return string(e) }
+func (transcriptClosedError) Unwrap() error   { return publication.ErrClosed }
+
+func TestTranscriptDoesNotRepublishUncomparableClosedRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		close func(*publication.Publisher, error)
+	}{
+		{name: "admission", close: (*publication.Publisher).CloseAdmission},
+		{name: "failure", close: func(p *publication.Publisher, err error) { p.Fail(err, false) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			publisher, err := publication.New(publication.Config{Width: 20})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.close(publisher, transcriptClosedError("output closed"))
+			model := transcriptModel(t, base.TranscriptConfig{Retention: base.PublishCompleted, Publisher: publisher})
+			t.Cleanup(model.Close)
+			item := transcriptAdd(t, model, transcriptBody("waiting"))
+			if !errors.Is(item.Err(), publication.ErrClosed) {
+				t.Fatalf("retained refusal lost the closed state: %v", item.Err())
+			}
+			root := transcriptScene(t, model)
+			transcriptCommit(t, root, 20, 4, 1)
+			before := root.Progress().ModelRevision
+			transcriptAdd(t, model, transcriptBody("another retained item"))
+			if got := root.Progress().ModelRevision - before; got != 1 {
+				t.Fatalf("adding one item advanced scene revision by %d; unchanged terminal refusal was republished", got)
+			}
+		})
+	}
+}

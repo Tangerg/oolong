@@ -154,7 +154,7 @@ func assertEditorStorage(t *testing.T, editor *base.Editor) {
 	}
 	if start, end, ok := editor.Selection(); ok {
 		if start.Line < 0 || start.Line >= len(lines) || end.Line < 0 || end.Line >= len(lines) ||
-			!clusterBoundary(lines[start.Line], start.Col) || !clusterBoundary(lines[end.Line], end.Col) {
+			!clusterBoundary(lines[start.Line], start.Byte) || !clusterBoundary(lines[end.Line], end.Byte) {
 			t.Fatalf("selection [%+v,%+v) is outside cluster boundaries in %q", start, end, document)
 		}
 	}

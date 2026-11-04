@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"image"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -36,10 +38,11 @@ func TestOwnedDraftsValidateBeforePublishingANormalizedSubmission(t *testing.T) 
 	host.Press(input.Tab)
 	host.Type("mixed")
 	host.Press(input.Tab)
-	host.Type("123456789")
+	guardedValue := strings.Repeat("x", maxGuardedRunes)
+	host.Type(guardedValue + "x")
 	host.Press(input.Enter)
-	host.Shows(t, "at most eight characters")
-	host.Shows(t, "123456789")
+	host.Shows(t, fmt.Sprintf("at most %d characters", maxGuardedRunes))
+	host.Shows(t, guardedValue+"x")
 	host.Press(input.Backspace)
 	host.Press(input.Enter)
 
@@ -49,7 +52,7 @@ func TestOwnedDraftsValidateBeforePublishingANormalizedSubmission(t *testing.T) 
 	if got := local.Text(); got != "draft" {
 		t.Fatalf("local value = %q, want draft", got)
 	}
-	if values.exact != "owner" || values.normalized != "MIXED" || values.guarded != "12345678" {
+	if values.exact != "owner" || values.normalized != "MIXED" || values.guarded != guardedValue {
 		t.Fatalf("submitted values = %+v", values)
 	}
 }

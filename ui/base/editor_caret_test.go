@@ -21,7 +21,7 @@ func TestEditorFullRowsKeepTheInsertionCaretVisible(t *testing.T) {
 			if cursor := screen.Cursor(); !cursor.Visible || cursor.Pos != image.Pt(0, 0) {
 				t.Fatalf("full-row insertion cursor = %+v", cursor)
 			}
-			if at, ok := editor.At(0, 0, 4); !ok || at != (base.Caret{Col: len(value)}) {
+			if at, ok := editor.At(0, 0, 4); !ok || at != (base.Caret{Byte: len(value)}) {
 				t.Fatalf("scrolled insertion row hit = %+v, %t", at, ok)
 			}
 			editor.MoveUp()

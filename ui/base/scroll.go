@@ -50,10 +50,9 @@ type Scroll struct {
 	element scene.Element
 	noCopy  noCopy
 
-	// current is the committed position and bounds. Keeping the four values in the
-	// same entity used by a staged frame gives scrolling one implementation: input
-	// changes current, while Draw changes a copy until the root commits it.
-	current      scrollState
+	// Frames may refine geometry, but only commands may change reading intent.
+	current      scrollGeometry
+	following    bool
 	reveal       *scrollRange
 	revision     uint64
 	presentation scene.Snapshot[scrollProjection]
@@ -80,26 +79,29 @@ func (s *Scroll) Wheel(w input.Wheel) {
 // commits; use [List.Hit] or [Filter.Hit] to query rows in the presented frame.
 func (s *Scroll) Offset() int { return s.resolved().offset }
 
-func (s *Scroll) FollowingEnd() bool { return s.resolved().following }
+func (s *Scroll) FollowingEnd() bool { return s.following }
 
 // By scrolls a number of rows: negative towards the start, positive towards the end.
 //
 // Reaching the end starts following again, which is what every log viewer does and
 // what a reader means by scrolling to the bottom.
 func (s *Scroll) By(rows int) {
-	if s.change(func() {
-		s.reveal = nil
-		s.current.by(rows)
-	}) {
+	if s.change(func() { s.move(rows) }) {
 		s.element.Invalidate()
 	}
 }
 
-// ToBottom follows the end of the content.
+func (s *Scroll) move(rows int) {
+	s.reveal = nil
+	s.current.offset = scrollOffset(s.current.offset, rows, s.current.max())
+	s.following = s.current.offset == s.current.max()
+}
+
 func (s *Scroll) ToBottom() {
 	if s.change(func() {
 		s.reveal = nil
-		s.current.toBottom()
+		s.following = true
+		s.current.offset = s.current.max()
 	}) {
 		s.element.Invalidate()
 	}
@@ -114,7 +116,8 @@ func (s *Scroll) ToTop() {
 func (s *Scroll) toTop() bool {
 	return s.change(func() {
 		s.reveal = nil
-		s.current.toTop()
+		s.following = false
+		s.current.offset = 0
 	})
 }
 
@@ -132,6 +135,9 @@ func (s *Scroll) Discard(rows int) {
 func (s *Scroll) discard(rows int) bool {
 	return s.change(func() {
 		s.current.discard(rows)
+		if s.following {
+			s.current.offset = s.current.max()
+		}
 		if s.reveal != nil {
 			s.reveal = &scrollRange{
 				first: layout.Remaining(s.reveal.first, rows), last: layout.Remaining(s.reveal.last, rows),
@@ -171,14 +177,14 @@ func (s *Scroll) requestReveal(first, last int) bool {
 // viewport before moving. The containing transaction publishes the completed change.
 func (s *Scroll) revealContent(total, first, last int) bool {
 	return s.change(func() {
-		s.current.layout(total, s.current.window)
+		s.current = s.project(s.current, total, s.current.window, nil)
 		s.setReveal(first, last)
 	})
 }
 
 func (s *Scroll) setReveal(first, last int) {
 	s.reveal = &scrollRange{first: first, last: last, origin: s.current.offset}
-	s.current.following = false
+	s.following = false
 	s.current.revealRange(first, last)
 }
 
@@ -186,8 +192,7 @@ func (s *Scroll) setReveal(first, last int) {
 // something to recognise on the other side of the jump.
 func (s *Scroll) Pages(n int) {
 	if s.change(func() {
-		s.reveal = nil
-		s.current.pages(n)
+		s.move(scrollPages(n, max(s.current.window-1, 1)))
 	}) {
 		s.element.Invalidate()
 	}
@@ -260,58 +265,64 @@ func (s *Scroll) Stage(frame scene.Frame, total, window int) ScrollLayout {
 	if !s.element.IsZero() {
 		requireProjection(s.element, frame)
 	}
-	state, reveal := s.basis()
-	origin := state.offset
+	geometry, reveal := s.basis()
+	origin := geometry.offset
 	if reveal != nil {
 		origin = reveal.origin
 	}
-	state.project(total, window, reveal)
-	value := scrollProjection{state: state, revision: s.revision, reveal: s.reveal}
+	geometry = s.project(geometry, total, window, reveal)
+	if s.following {
+		origin = geometry.offset
+	}
+	value := scrollProjection{geometry: geometry, revision: s.revision, reveal: s.reveal}
 	staged := s.presentation.Stage(frame, value)
-	return ScrollLayout{staged: staged, reveal: reveal, origin: origin}
+	return ScrollLayout{scroll: s, staged: staged, reveal: reveal, origin: origin}
 }
 
 // Resolve is the pure layout projection used when a scene group positions content.
 func (s *Scroll) Resolve(total, window int) int {
-	state, reveal := s.basis()
-	state.project(total, window, reveal)
-	return state.offset
+	geometry, reveal := s.basis()
+	return s.project(geometry, total, window, reveal).offset
 }
 
-func (s *scrollState) project(total, window int, reveal *scrollRange) {
+func (s *Scroll) project(geometry scrollGeometry, total, window int, reveal *scrollRange) scrollGeometry {
 	if reveal != nil {
-		s.offset = reveal.origin
+		geometry.offset = reveal.origin
 	}
-	s.layout(total, window)
+	geometry.layout(total, window)
+	if s.following {
+		geometry.offset = geometry.max()
+	}
 	if reveal != nil {
-		s.revealRange(reveal.first, reveal.last)
+		geometry.revealRange(reveal.first, reveal.last)
 	}
+	return geometry
 }
 
-func (s *Scroll) resolved() scrollState {
-	state, _ := s.basis()
-	return state
+func (s *Scroll) resolved() scrollGeometry {
+	geometry, _ := s.basis()
+	return geometry
 }
 
 // The admitted offset and reveal receipt apply until a newer command supersedes
 // them. Both the next input and the next paint must start at that same position.
-func (s *Scroll) basis() (scrollState, *scrollRange) {
+func (s *Scroll) basis() (scrollGeometry, *scrollRange) {
 	shown := s.presentation.Value()
 	if shown.revision != s.revision {
 		return s.current, s.reveal
 	}
-	if shown.state.window > 0 && shown.reveal == s.reveal {
-		return shown.state, nil
+	if shown.geometry.window > 0 && shown.reveal == s.reveal {
+		return shown.geometry, nil
 	}
-	return shown.state, s.reveal
+	return shown.geometry, s.reveal
 }
 
 func (s *Scroll) change(apply func()) bool {
 	requireMutable(s.element)
 	s.current, s.reveal = s.basis()
-	before, reveal := s.current, s.reveal
+	before, following, reveal := s.current, s.following, s.reveal
 	apply()
-	if before == s.current && sameScrollRange(reveal, s.reveal) {
+	if before == s.current && following == s.following && sameScrollRange(reveal, s.reveal) {
 		s.reveal = reveal
 		return false
 	}
@@ -324,7 +335,7 @@ func sameScrollRange(a, b *scrollRange) bool {
 }
 
 type scrollProjection struct {
-	state    scrollState
+	geometry scrollGeometry
 	revision uint64
 	reveal   *scrollRange
 }
@@ -334,6 +345,7 @@ type scrollProjection struct {
 // returns; read Scroll.Offset for the current controller position.
 type ScrollLayout struct {
 	noCopy noCopy
+	scroll *Scroll
 	staged *scene.Staged[scrollProjection]
 	reveal *scrollRange
 	origin int
@@ -345,7 +357,7 @@ func (l *ScrollLayout) Offset() int {
 	if l == nil || l.staged == nil {
 		return 0
 	}
-	return l.staged.Value().state.offset
+	return l.staged.Value().geometry.offset
 }
 
 // Reveal refines this candidate to include the requested rows without changing scroll intent.
@@ -355,10 +367,10 @@ func (l *ScrollLayout) Reveal(first, last int) {
 		return
 	}
 	value := l.staged.Value()
-	value.state.offset = l.origin
-	value.state.revealRange(first, last)
+	value.geometry.offset = l.origin
+	value.geometry.revealRange(first, last)
 	l.staged.Set(value)
-	l.reveal = &scrollRange{first: first, last: last}
+	l.reveal = &scrollRange{first: first, last: last, origin: l.origin}
 }
 
 // Resize refines the candidate viewport, retaining its original offset before provisional clamping.
@@ -368,13 +380,8 @@ func (l *ScrollLayout) Resize(window int) {
 		return
 	}
 	value := l.staged.Value()
-	if !value.state.following {
-		value.state.offset = l.origin
-	}
-	value.state.layout(value.state.total, window)
-	if l.reveal != nil {
-		value.state.revealRange(l.reveal.first, l.reveal.last)
-	}
+	value.geometry.offset = l.origin
+	value.geometry = l.scroll.project(value.geometry, value.geometry.total, window, l.reveal)
 	l.staged.Set(value)
 }
 
@@ -385,54 +392,29 @@ type scrollRange struct {
 	origin int
 }
 
-type scrollState struct {
+type scrollGeometry struct {
 	offset, total, window int
-	following             bool
 }
 
-func (s *scrollState) layout(total, window int) {
+func (s *scrollGeometry) layout(total, window int) {
 	s.total, s.window = max(total, 0), max(window, 0)
-	if s.following {
-		s.offset = s.max()
-		return
-	}
 	s.clamp()
 }
 
-func (s *scrollState) by(rows int) {
-	s.offset = scrollOffset(s.offset, rows, s.max())
-	s.following = s.offset >= s.max()
-}
-
-func (s *scrollState) toBottom() {
-	s.following = true
-	s.offset = s.max()
-}
-
-func (s *scrollState) toTop() {
-	s.following = false
-	s.offset = 0
-}
-
-func (s *scrollState) discard(rows int) {
+func (s *scrollGeometry) discard(rows int) {
 	rows = max(rows, 0)
 	s.total = layout.Remaining(s.total, rows)
 	s.offset = layout.Remaining(s.offset, rows)
-	if s.following {
-		s.offset = s.max()
-		return
-	}
 	s.clamp()
 }
 
-func (s *scrollState) revealRange(first, last int) {
+func (s *scrollGeometry) revealRange(first, last int) {
 	if s.window <= 0 {
 		return
 	}
 	if last < first {
 		first, last = last, first
 	}
-	s.following = false
 	switch {
 	case first < s.offset:
 		s.offset = first
@@ -442,13 +424,9 @@ func (s *scrollState) revealRange(first, last int) {
 	s.clamp()
 }
 
-func (s *scrollState) pages(n int) {
-	s.by(scrollPages(n, max(s.window-1, 1)))
-}
+func (s *scrollGeometry) max() int { return layout.Remaining(s.total, s.window) }
 
-func (s *scrollState) max() int { return layout.Remaining(s.total, s.window) }
-
-func (s *scrollState) clamp() { s.offset = min(max(s.offset, 0), s.max()) }
+func (s *scrollGeometry) clamp() { s.offset = min(max(s.offset, 0), s.max()) }
 
 // scrollOffset applies a signed movement inside [0, limit] without letting either
 // direction wrap before it is clamped.
@@ -488,10 +466,10 @@ func (l *ScrollLayout) Anchor(offset int) {
 		return
 	}
 	value := l.staged.Value()
-	if value.state.following || l.reveal != nil {
+	if l.scroll.following || l.reveal != nil {
 		return
 	}
-	value.state.offset = min(max(offset, 0), value.state.max())
+	value.geometry.offset = min(max(offset, 0), value.geometry.max())
 	l.staged.Set(value)
 	l.origin = offset
 }

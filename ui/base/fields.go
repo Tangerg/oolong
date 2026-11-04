@@ -32,10 +32,10 @@ func (t *Text) Text() string { return t.editor.Text() }
 func (t *Text) SetText(value string) { t.configureEditor(); t.editor.SetText(value) }
 
 // Cursor returns the caret's byte offset in the answer.
-func (t *Text) Cursor() int { _, col := t.editor.Cursor(); return col }
+func (t *Text) Cursor() int { _, byteOffset := t.editor.Cursor(); return byteOffset }
 
 // SetCursor moves the view caret to a valid boundary. It does not change document revision.
-func (t *Text) SetCursor(column int) { t.editor.SetCursor(0, column) }
+func (t *Text) SetCursor(byteOffset int) { t.editor.SetCursor(0, byteOffset) }
 
 // Revision is the answer's document revision, independent of caret and scroll state.
 func (t *Text) Revision() uint64 { return t.editor.Revision() }

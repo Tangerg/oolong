@@ -81,7 +81,7 @@ func TestAnAnswerThatEndsWithNothingLeftStillEnds(t *testing.T) {
 	if first.State() == base.ContentLive {
 		t.Fatal("the answer remained live after EOF")
 	}
-	for range 20 {
+	for range retainedCompletedItems + 1 {
 		if err := c.Markdown(t.Context(), "a line\n\n"); err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +89,7 @@ func TestAnAnswerThatEndsWithNothingLeftStillEnds(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if c.content.Len() != 8 || first.State() != base.ContentRetired || first.Receipt().Snapshot().ID == 0 {
+	if c.content.Len() != retainedCompletedItems || first.State() != base.ContentRetired || first.Receipt().Snapshot().ID == 0 {
 		t.Fatal("settled content did not transfer to the publisher")
 	}
 }

@@ -55,7 +55,8 @@ const (
 	cancelReply keymap.Action = "cancel reply"
 	quit        keymap.Action = "quit"
 
-	ingressLimit = 64 << 10
+	ingressLimit        = 64 << 10
+	maxReplySourceBytes = 1 << 20
 )
 
 // chat owns the product state and composes the lower-level state machines. Each
@@ -246,7 +247,7 @@ func (c *chat) startReply(prompt string) {
 	}
 	c.composer.Controller().Clear()
 	c.content.Selection().Clear()
-	c.document, err = content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: 1 << 20})
+	c.document, err = content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: maxReplySourceBytes})
 	if err != nil {
 		c.setOutcome(err)
 		return

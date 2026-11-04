@@ -167,17 +167,23 @@ func TestBothStringsShareTheirBound(t *testing.T) {
 }
 
 func TestGraphicsReplyIsOneEventAcrossReadBoundaries(t *testing.T) {
-	const body = "Gi=31,p=7;ENOENT:missing image"
-	const sequence = "\x1b_" + body + "\x1b\\"
-	for split := 0; split <= len(sequence); split++ {
-		var p input.Parser
-		events := p.Feed([]byte(sequence[:split]))
-		events = append(events, p.Feed([]byte(sequence[split:]))...)
-		if !slices.Equal(events, []input.Event{input.APC{Body: body}}) || p.Pending() {
-			t.Fatalf("split %d: %#v", split, events)
-		}
-		if input.ByteSize(events[0]) <= len(body) {
-			t.Fatal("graphics reply payload was not charged")
+	for _, body := range []string{
+		"Gi=31,p=7;ENOENT:missing image",
+		"G,I=13;ENOMEM:Out of memory",
+		"GI=13;ENOMEM:Out of memory",
+		"G,I=broken;ENOMEM:Out of memory",
+	} {
+		sequence := "\x1b_" + body + "\x1b\\"
+		for split := 0; split <= len(sequence); split++ {
+			var p input.Parser
+			events := p.Feed([]byte(sequence[:split]))
+			events = append(events, p.Feed([]byte(sequence[split:]))...)
+			if !slices.Equal(events, []input.Event{input.APC{Body: body}}) || p.Pending() {
+				t.Fatalf("%q split %d: %#v", body, split, events)
+			}
+			if input.ByteSize(events[0]) <= len(body) {
+				t.Fatal("graphics reply payload was not charged")
+			}
 		}
 	}
 	var p input.Parser
@@ -193,6 +199,25 @@ func TestGraphicsReplyIsOneEventAcrossReadBoundaries(t *testing.T) {
 		input.Key{Code: input.Character, Rune: 'x'},
 	}) {
 		t.Fatalf("unrelated Alt+_ input: %#v", events)
+	}
+}
+
+func TestGraphicsPrefixKeepsUnrelatedAndIncompleteAltInput(t *testing.T) {
+	for _, suffix := range []string{"", "G", "Gi", "GI", "G,", "G,I", "Gx", "G,Ix", "hello"} {
+		sequence := "\x1b_" + suffix
+		for split := 0; split <= len(sequence); split++ {
+			var parser input.Parser
+			events := parser.Feed([]byte(sequence[:split]))
+			events = append(events, parser.Feed([]byte(sequence[split:]))...)
+			events = append(events, parser.Flush()...)
+			want := []input.Event{input.Key{Code: input.Character, Rune: '_', Mods: input.Alt}}
+			for _, character := range suffix {
+				want = append(want, input.Key{Code: input.Character, Rune: character})
+			}
+			if !slices.Equal(events, want) || parser.Pending() {
+				t.Fatalf("%q split %d: %#v", sequence, split, events)
+			}
+		}
 	}
 }
 

@@ -166,18 +166,18 @@ func (s *EditSession) commit(initiator *Editor, oldLines []string, change Change
 		kept = append(kept, reference)
 		if view == initiator {
 			view.layout.stale = true
-			view.wantColumn = -1
+			view.desiredColumn = editorColumn{}
 			continue
 		}
-		cursor := change.Position(offsetInLines(oldLines, Caret{Line: view.line, Col: view.col}))
+		cursor := change.Position(offsetInLines(oldLines, Caret{Line: view.line, Byte: view.byteOffset}))
 		anchor := change.Position(offsetInLines(oldLines, view.anchor))
 		position := view.caretAt(cursor)
-		view.line, view.col = position.Line, view.snapElement(position.Line, position.Col, true)
+		view.line, view.byteOffset = position.Line, view.snapElement(position.Line, position.Byte, true)
 		view.anchor = view.caretAt(anchor)
-		view.anchor.Col = view.snapElement(view.anchor.Line, view.anchor.Col, false)
+		view.anchor.Byte = view.snapElement(view.anchor.Line, view.anchor.Byte, false)
 		view.endTyping()
 		view.layout.stale = true
-		view.wantColumn = -1
+		view.desiredColumn = editorColumn{}
 		view.revealCursor()
 	}
 	clear(s.views[len(kept):])

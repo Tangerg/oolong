@@ -114,7 +114,7 @@ func (e *Editor) TokenAtCursor(triggers ...Trigger) (Token, bool) {
 	if e.Mask() != "" || e.line < 0 || e.line >= len(lines) {
 		return Token{}, false
 	}
-	token, ok := TokenAt(lines[e.line], e.col, triggers...)
+	token, ok := TokenAt(lines[e.line], e.byteOffset, triggers...)
 	if ok {
 		token.Line = e.line
 	}

@@ -86,7 +86,8 @@ func (r *symbolResolver) resolve(name string) (string, error) {
 	if r.cache == nil {
 		r.cache = make(map[string]string)
 	}
-	r.cache[name] = result.value
+	// A cached macro must not keep the formula's source allocation alive.
+	r.cache[strings.Clone(name)] = result.value
 	return result.value, nil
 }
 

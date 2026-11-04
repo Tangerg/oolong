@@ -26,6 +26,11 @@ import (
 
 var ErrNotTerminal = errors.New("term: not a terminal")
 
+const (
+	inputEventCapacity = 64
+	inputReadCapacity  = 4
+)
+
 // Features can cross transport boundaries without carrying screen ownership.
 // The zero value requests no optional capabilities.
 type Features struct {
@@ -78,6 +83,9 @@ type Terminal struct {
 
 	events chan input.Event
 	writer *Writer
+	// Closing application delivery must release its backpressure while the sole
+	// input pump still owns replies needed to settle terminal resources.
+	deliveryStopped chan struct{}
 	// waker owns interruptible input, including the platform's buffered characters.
 	// Only the reader may consume it; Close joins that owner before restoring modes.
 	waker  *waker
@@ -214,21 +222,22 @@ func newTerminal(
 	lookup func(string) (string, bool),
 ) *Terminal {
 	return &Terminal{
-		in:            in,
-		out:           out,
-		modes:         cfg.Modes(lookup),
-		events:        make(chan input.Event, 64),
-		resized:       make(chan input.Resize, 1),
-		stop:          make(chan struct{}),
-		readerDone:    make(chan struct{}),
-		pumpDone:      make(chan struct{}),
-		resizeDone:    make(chan struct{}),
-		task:          newTaskProgress(),
-		clipboard:     clipboard.New(cfg.Features.Clipboard),
-		locale:        DetectLocale(lookup),
-		color:         DetectDepth(lookup),
-		wheelProfile:  input.WheelFor(lookup, ""),
-		imageProtocol: graphics.Detect(lookup, "", false),
+		in:              in,
+		out:             out,
+		modes:           cfg.Modes(lookup),
+		events:          make(chan input.Event, inputEventCapacity),
+		deliveryStopped: make(chan struct{}),
+		resized:         make(chan input.Resize, 1),
+		stop:            make(chan struct{}),
+		readerDone:      make(chan struct{}),
+		pumpDone:        make(chan struct{}),
+		resizeDone:      make(chan struct{}),
+		task:            newTaskProgress(),
+		clipboard:       clipboard.New(cfg.Features.Clipboard),
+		locale:          DetectLocale(lookup),
+		color:           DetectDepth(lookup),
+		wheelProfile:    input.WheelFor(lookup, ""),
+		imageProtocol:   graphics.Detect(lookup, "", false),
 	}
 }
 
@@ -278,7 +287,7 @@ func (t *Terminal) start(cfg Config) {
 		t.events <- input.Resize{Width: w, Height: h}
 	}
 
-	raw := make(chan readResult, 4)
+	raw := make(chan readResult, inputReadCapacity)
 	go t.read(raw)
 
 	// Asking has to happen here, between the reader starting and the pump starting.
@@ -307,7 +316,8 @@ func (t *Terminal) start(cfg Config) {
 
 	p := &pump{
 		raw: raw, end: end, resized: t.resized, stop: t.stop,
-		out: t.events, stream: stream, early: early, consume: t.takeImageReply,
+		out: t.events, deliveryStopped: t.deliveryStopped,
+		stream: stream, early: early, consume: t.takeImageReply,
 	}
 	t.startResizeWatcher(resizes)
 	go func() {
@@ -522,6 +532,7 @@ func (t *Terminal) Close() error {
 		t.modeMu.Lock()
 		t.writer.CloseAdmission()
 		t.modeMu.Unlock()
+		close(t.deliveryStopped)
 		t.clipboard.Interrupt()
 		t.cancelUploads(ErrClosed)
 		uploadErr := t.awaitUploads()

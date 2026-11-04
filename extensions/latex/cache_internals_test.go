@@ -2,8 +2,11 @@ package latex
 
 import (
 	"fmt"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
+	"unsafe"
 )
 
 func TestSymbolResolverRetainsOnlySuccessfulSymbols(t *testing.T) {
@@ -56,4 +59,25 @@ func TestSymbolResolverSharesConcurrentSuccessfulLookups(t *testing.T) {
 	if got := cacheEntries(&resolver); got != 1 {
 		t.Fatalf("resolver retained %d symbols, want one shared success", got)
 	}
+}
+
+func TestSymbolResolverDetachesNamesFromFormulaSource(t *testing.T) {
+	const macro = `\alpha`
+	source := macro + "%" + strings.Repeat("discarded comment", 1<<12)
+	var resolver symbolResolver
+	if value, err := resolver.resolve(source[:len(macro)]); value != "α" || err != nil {
+		t.Fatalf("alpha = %q, error = %v", value, err)
+	}
+	if got := cacheEntries(&resolver); got != 1 {
+		t.Fatalf("resolver retained %d symbols, want one", got)
+	}
+	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(source))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+	sourceEnd := sourceStart + uintptr(len(source))
+	for name := range resolver.cache {
+		at := uintptr(unsafe.Pointer(unsafe.StringData(name))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
+		if at >= sourceStart && at < sourceEnd {
+			t.Errorf("cached name %q retains the %d-byte formula source", name, len(source))
+		}
+	}
+	runtime.KeepAlive(source)
 }

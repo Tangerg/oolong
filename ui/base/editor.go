@@ -38,14 +38,13 @@ type Editor struct {
 	Gutter      RowGutter
 	CursorStyle grid.CursorStyle
 
-	session    *EditSession
-	local      EditSession
-	registered bool
-	updates    editorViewUpdates
-	// line is the cursor's logical line; col is its byte offset within that line.
-	line, col int
-	// Short rows must not erase the desired column for later vertical moves. Negative means unset.
-	wantColumn int
+	session          *EditSession
+	local            EditSession
+	registered       bool
+	updates          editorViewUpdates
+	line, byteOffset int
+	// Short rows and atomic elements must not replace the intended visual column.
+	desiredColumn editorColumn
 
 	// The cursor is the other endpoint, so movement cannot leave a stale selection end.
 	anchor    Caret
@@ -77,6 +76,18 @@ type editorPresentation struct {
 	visible                    image.Rectangle
 }
 
+type editorColumn struct {
+	cells int
+	valid bool
+}
+
+func (c editorColumn) resolve(current int) int {
+	if c.valid {
+		return c.cells
+	}
+	return current
+}
+
 func (p editorPresentation) textPoint(point image.Point) (image.Point, bool) {
 	if p.width <= 0 || point.X < p.gutter {
 		return image.Point{}, false
@@ -86,10 +97,10 @@ func (p editorPresentation) textPoint(point image.Point) (image.Point, bool) {
 }
 
 type editorState struct {
-	view      weak.Pointer[Editor]
-	change    ChangeMap // maps this history snapshot to the state it replaces on undo or redo
-	lines     []string
-	line, col int
+	view             weak.Pointer[Editor]
+	change           ChangeMap // maps this history snapshot to the state it replaces on undo or redo
+	lines            []string
+	line, byteOffset int
 	// Text cannot reconstruct element identities, so undo must retain the marks.
 	marks []text.Mark
 }
@@ -162,10 +173,10 @@ func (e *Editor) setPolicy(singleLine bool, mask string) {
 		doc.history.clear()
 		if len(doc.lines) > 1 {
 			before := doc.lines
-			at := e.offsetOf(Caret{Line: e.line, Col: e.col})
+			at := e.offsetOf(Caret{Line: e.line, Byte: e.byteOffset})
 			flattened := strings.Join(before, " ")
 			doc.lines = []string{flattened}
-			e.line, e.col = 0, e.snapElement(0, at, true)
+			e.line, e.byteOffset = 0, e.snapElement(0, at, true)
 			e.selecting = false
 			e.endTyping()
 			doc.commit(e, before, ChangeMap{OldEnd: len(flattened), NewEnd: len(flattened)}, false)
@@ -192,7 +203,7 @@ func (e *Editor) replaceDocument(s string, remember bool) {
 	e.ensure()
 	e.endTyping()
 	start := Caret{}
-	end := Caret{Line: len(e.document().lines) - 1, Col: len(e.document().lines[len(e.document().lines)-1])}
+	end := Caret{Line: len(e.document().lines) - 1, Byte: len(e.document().lines[len(e.document().lines)-1])}
 	s, changed := e.prepareReplacement(start, end, s)
 	if !remember {
 		e.document().history.clear()
@@ -250,7 +261,7 @@ func (e *Editor) Clear() {
 	e.ensure()
 	e.endTyping()
 	start := Caret{}
-	end := Caret{Line: len(e.document().lines) - 1, Col: len(e.document().lines[len(e.document().lines)-1])}
+	end := Caret{Line: len(e.document().lines) - 1, Byte: len(e.document().lines[len(e.document().lines)-1])}
 	_, changed := e.prepareReplacement(start, end, "")
 	if !changed {
 		e.finishReplacement(start)
@@ -261,10 +272,10 @@ func (e *Editor) Clear() {
 }
 
 // Cursor returns the logical line and byte offset.
-func (e *Editor) Cursor() (line, col int) { return e.line, e.col }
+func (e *Editor) Cursor() (line, byteOffset int) { return e.line, e.byteOffset }
 
 // SetCursor clamps the logical line and byte offset, snapping backward to a grapheme boundary.
-func (e *Editor) SetCursor(line, col int) {
+func (e *Editor) SetCursor(line, byteOffset int) {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	defer e.revealCursor()
@@ -272,9 +283,9 @@ func (e *Editor) SetCursor(line, col int) {
 	e.endTyping()
 	e.line = min(max(line, 0), len(e.document().lines)-1)
 	current := e.document().lines[e.line]
-	col = min(max(col, 0), len(current))
-	e.col = e.snapElement(e.line, col, false)
-	e.wantColumn = -1
+	byteOffset = min(max(byteOffset, 0), len(current))
+	e.byteOffset = e.snapElement(e.line, byteOffset, false)
+	e.desiredColumn = editorColumn{}
 }
 
 // Insert inserts text at the cursor as one undo step, splitting lines at newlines.
@@ -294,7 +305,7 @@ func (e *Editor) insert(s string, typed bool) {
 	}
 	e.ensure()
 	e.breakContinuation()
-	start, end := Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}
+	start, end := Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: e.byteOffset}
 	if selected, selectedEnd, ok := e.Selection(); ok {
 		start, end = selected, selectedEnd
 	}
@@ -332,8 +343,8 @@ func (e *Editor) Replace(start, end int, s string) {
 	end = min(max(end, start), len(line))
 	start, end = completeClusters(line, start, end)
 	e.endTyping()
-	from := Caret{Line: e.line, Col: start}
-	to := Caret{Line: e.line, Col: end}
+	from := Caret{Line: e.line, Byte: start}
+	to := Caret{Line: e.line, Byte: end}
 	s, changed := e.prepareReplacement(from, to, s)
 	if !changed {
 		e.finishReplacement(to)
@@ -425,17 +436,17 @@ func (e *Editor) DeleteBack() {
 	defer e.endViewUpdate()
 	e.ensure()
 	e.breakContinuation()
-	if e.col > 0 {
+	if e.byteOffset > 0 {
 		if e.document().history.typist.Value() != e {
 			e.snapshot()
 		}
-		at := text.PrevCluster(e.document().lines[e.line], e.col)
+		at := text.PrevCluster(e.document().lines[e.line], e.byteOffset)
 		if el, inside := e.insideElement(e.line, at); inside {
 			at = el.Start
 		}
 		// Corrections extend the same undo group; settle it before publication.
 		e.document().history.typist = weak.Make(e)
-		e.replaceRange(Caret{Line: e.line, Col: at}, Caret{Line: e.line, Col: e.col}, "")
+		e.replaceRange(Caret{Line: e.line, Byte: at}, Caret{Line: e.line, Byte: e.byteOffset}, "")
 		return
 	}
 	if e.line == 0 {
@@ -444,7 +455,7 @@ func (e *Editor) DeleteBack() {
 	e.endTyping()
 	e.snapshot()
 	above := e.document().lines[e.line-1]
-	e.replaceRange(Caret{Line: e.line - 1, Col: len(above)}, Caret{Line: e.line, Col: 0}, "")
+	e.replaceRange(Caret{Line: e.line - 1, Byte: len(above)}, Caret{Line: e.line, Byte: 0}, "")
 }
 
 // DeleteForward removes the cluster after the cursor, or joins the line below.
@@ -454,34 +465,34 @@ func (e *Editor) DeleteForward() {
 	e.ensure()
 	e.endTyping()
 	current := e.document().lines[e.line]
-	if e.col < len(current) {
+	if e.byteOffset < len(current) {
 		e.snapshot()
-		at := nextClusterBoundary(current, e.col)
-		if el, inside := e.ElementAt(e.line, e.col); inside {
+		at := nextClusterBoundary(current, e.byteOffset)
+		if el, inside := e.ElementAt(e.line, e.byteOffset); inside {
 			at = el.End
 		}
-		e.replaceRange(Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: at}, "")
+		e.replaceRange(Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: at}, "")
 		return
 	}
 	if e.line == len(e.document().lines)-1 {
 		return
 	}
 	e.snapshot()
-	e.replaceRange(Caret{Line: e.line, Col: len(current)}, Caret{Line: e.line + 1, Col: 0}, "")
+	e.replaceRange(Caret{Line: e.line, Byte: len(current)}, Caret{Line: e.line + 1, Byte: 0}, "")
 }
 
 func (e *Editor) DeleteWordBack() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	end := Caret{Line: e.line, Col: e.col}
+	end := Caret{Line: e.line, Byte: e.byteOffset}
 	start := end
-	if start.Col > 0 {
-		at := wordStart(e.document().lines[e.line], e.col)
-		start.Col = e.snapElementBoundary(e.line, at, false)
+	if start.Byte > 0 {
+		at := wordStart(e.document().lines[e.line], e.byteOffset)
+		start.Byte = e.snapElementBoundary(e.line, at, false)
 	} else if start.Line > 0 {
 		start.Line--
-		start.Col = len(e.document().lines[start.Line])
+		start.Byte = len(e.document().lines[start.Line])
 	}
 	e.killRange(start, end, true)
 }
@@ -492,8 +503,8 @@ func (e *Editor) KillToEnd() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	start := Caret{Line: e.line, Col: e.col}
-	end := Caret{Line: e.line, Col: len(e.document().lines[e.line])}
+	start := Caret{Line: e.line, Byte: e.byteOffset}
+	end := Caret{Line: e.line, Byte: len(e.document().lines[e.line])}
 	if start == end && end.Line+1 < len(e.document().lines) {
 		end = Caret{Line: end.Line + 1}
 	}
@@ -505,7 +516,7 @@ func (e *Editor) KillToStart() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	e.killRange(Caret{Line: e.line}, Caret{Line: e.line, Col: e.col}, true)
+	e.killRange(Caret{Line: e.line}, Caret{Line: e.line, Byte: e.byteOffset}, true)
 }
 
 func (e *Editor) killRange(start, end Caret, prepend bool) {
@@ -529,7 +540,7 @@ func (e *Editor) Yank() {
 		return
 	}
 	e.ensure()
-	start, end := Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}
+	start, end := Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: e.byteOffset}
 	if first, last, selected := e.Selection(); selected {
 		start, end = first, last
 	}
@@ -578,14 +589,14 @@ func (e *Editor) MoveLeft() {
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
-	e.wantColumn = -1
-	if e.col > 0 {
-		e.col = e.snapElementBoundary(e.line, text.PrevCluster(e.document().lines[e.line], e.col), false)
+	e.desiredColumn = editorColumn{}
+	if e.byteOffset > 0 {
+		e.byteOffset = e.snapElementBoundary(e.line, text.PrevCluster(e.document().lines[e.line], e.byteOffset), false)
 		return
 	}
 	if e.line > 0 {
 		e.line--
-		e.col = len(e.document().lines[e.line])
+		e.byteOffset = len(e.document().lines[e.line])
 	}
 }
 
@@ -595,14 +606,14 @@ func (e *Editor) MoveRight() {
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
-	e.wantColumn = -1
-	if e.col < len(e.document().lines[e.line]) {
-		e.col = e.snapElementBoundary(e.line, nextClusterBoundary(e.document().lines[e.line], e.col), true)
+	e.desiredColumn = editorColumn{}
+	if e.byteOffset < len(e.document().lines[e.line]) {
+		e.byteOffset = e.snapElementBoundary(e.line, nextClusterBoundary(e.document().lines[e.line], e.byteOffset), true)
 		return
 	}
 	if e.line < len(e.document().lines)-1 {
 		e.line++
-		e.col = 0
+		e.byteOffset = 0
 	}
 }
 
@@ -612,12 +623,12 @@ func (e *Editor) MoveWordLeft() {
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
-	e.wantColumn = -1
-	if e.col == 0 {
+	e.desiredColumn = editorColumn{}
+	if e.byteOffset == 0 {
 		e.MoveLeft()
 		return
 	}
-	e.col = e.snapElementBoundary(e.line, wordStart(e.document().lines[e.line], e.col), false)
+	e.byteOffset = e.snapElementBoundary(e.line, wordStart(e.document().lines[e.line], e.byteOffset), false)
 }
 
 func (e *Editor) MoveWordRight() {
@@ -626,12 +637,12 @@ func (e *Editor) MoveWordRight() {
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
-	e.wantColumn = -1
-	if e.col == len(e.document().lines[e.line]) {
+	e.desiredColumn = editorColumn{}
+	if e.byteOffset == len(e.document().lines[e.line]) {
 		e.MoveRight()
 		return
 	}
-	e.col = e.snapElementBoundary(e.line, wordEnd(e.document().lines[e.line], e.col), true)
+	e.byteOffset = e.snapElementBoundary(e.line, wordEnd(e.document().lines[e.line], e.byteOffset), true)
 }
 
 func (e *Editor) MoveLineStart() {
@@ -640,8 +651,8 @@ func (e *Editor) MoveLineStart() {
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
-	e.wantColumn = -1
-	e.col = 0
+	e.desiredColumn = editorColumn{}
+	e.byteOffset = 0
 }
 
 func (e *Editor) MoveLineEnd() {
@@ -650,8 +661,8 @@ func (e *Editor) MoveLineEnd() {
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
-	e.wantColumn = -1
-	e.col = len(e.document().lines[e.line])
+	e.desiredColumn = editorColumn{}
+	e.byteOffset = len(e.document().lines[e.line])
 }
 
 func (e *Editor) Undo() {
@@ -690,10 +701,7 @@ func (e *Editor) ensure() {
 		e.document().lines = []string{""}
 	}
 	e.line = min(max(e.line, 0), len(e.document().lines)-1)
-	e.col = min(max(e.col, 0), len(e.document().lines[e.line]))
-	if e.wantColumn == 0 {
-		e.wantColumn = -1
-	}
+	e.byteOffset = min(max(e.byteOffset, 0), len(e.document().lines[e.line]))
 }
 
 // requireContentRevision keeps exhaustion on the caller's side of a mutation, so a
@@ -724,11 +732,11 @@ const maxUndo = 200
 
 func (e *Editor) state() editorState {
 	return editorState{
-		view:  weak.Make(e),
-		lines: append([]string(nil), e.document().lines...),
-		line:  e.line,
-		col:   e.col,
-		marks: append([]text.Mark(nil), e.document().marks...),
+		view:       weak.Make(e),
+		lines:      append([]string(nil), e.document().lines...),
+		line:       e.line,
+		byteOffset: e.byteOffset,
+		marks:      append([]text.Mark(nil), e.document().marks...),
 	}
 }
 
@@ -742,7 +750,7 @@ func (e *Editor) restore(s editorState) {
 	e.document().marks = append([]text.Mark(nil), s.marks...)
 	var restored *Editor
 	if s.view.Value() == e {
-		e.line, e.col = s.line, s.col
+		e.line, e.byteOffset = s.line, s.byteOffset
 		e.selecting = false
 		restored = e
 	}
@@ -814,7 +822,7 @@ func (e *Editor) InsertElement(kind ElementKind, body string) Element {
 	}
 	e.endTyping()
 	e.snapshot()
-	start, end := Caret{Line: e.line, Col: e.col}, Caret{Line: e.line, Col: e.col}
+	start, end := Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: e.byteOffset}
 	if selected, selectedEnd, ok := e.Selection(); ok {
 		start, end = selected, selectedEnd
 	}
@@ -856,7 +864,7 @@ func (e *Editor) joinsWhatPrecedes(at Caret, body string) bool {
 		return false
 	}
 	line := e.document().lines[at.Line]
-	before := line[:min(max(at.Col, 0), len(line))]
+	before := line[:min(max(at.Byte, 0), len(line))]
 	if before == "" {
 		return false
 	}
@@ -876,12 +884,12 @@ func (e *Editor) Elements() []Element {
 // ElementAt is the element covering a position, and whether there is one. The end is
 // exclusive, so the position just after an element is outside it. Out-of-range
 // positions return false.
-func (e *Editor) ElementAt(line, col int) (Element, bool) {
+func (e *Editor) ElementAt(line, byteOffset int) (Element, bool) {
 	lines := e.document().lines
-	if line < 0 || line >= len(lines) || col < 0 || col >= len(lines[line]) {
+	if line < 0 || line >= len(lines) || byteOffset < 0 || byteOffset >= len(lines[line]) {
 		return Element{}, false
 	}
-	at := offsetInLines(lines, Caret{Line: line, Col: col})
+	at := offsetInLines(lines, Caret{Line: line, Byte: byteOffset})
 	for _, m := range e.document().marks {
 		if m.Covers(at) {
 			return e.elementOf(m), true
@@ -910,7 +918,7 @@ func (e *Editor) RemoveElement(id ElementID) bool {
 		if line := e.document().lines[el.Line]; end < len(line) && line[end] == ' ' {
 			end++
 		}
-		e.replaceRange(Caret{Line: el.Line, Col: el.Start}, Caret{Line: el.Line, Col: end}, "")
+		e.replaceRange(Caret{Line: el.Line, Byte: el.Start}, Caret{Line: el.Line, Byte: end}, "")
 		return true
 	}
 	return false
@@ -918,8 +926,8 @@ func (e *Editor) RemoveElement(id ElementID) bool {
 
 // Element endpoints are valid caret positions; treating the start as interior would
 // prevent insertion before the element.
-func (e *Editor) insideElement(line, col int) (Element, bool) {
-	at := e.offsetOf(Caret{Line: line, Col: col})
+func (e *Editor) insideElement(line, byteOffset int) (Element, bool) {
+	at := e.offsetOf(Caret{Line: line, Byte: byteOffset})
 	for _, m := range e.document().marks {
 		if m.Within(at) {
 			return e.elementRange(m), true
@@ -928,27 +936,27 @@ func (e *Editor) insideElement(line, col int) (Element, bool) {
 	return Element{}, false
 }
 
-func (e *Editor) snapElement(line, col int, forward bool) int {
+func (e *Editor) snapElement(line, byteOffset int, forward bool) int {
 	// The zero editor has a conceptual empty line; a read projection must not initialize storage.
 	if len(e.document().lines) == 0 {
 		return 0
 	}
 	line = min(max(line, 0), len(e.document().lines)-1)
-	col = clusterPosition(e.document().lines[line], col, forward)
-	return e.snapElementBoundary(line, col, forward)
+	byteOffset = clusterPosition(e.document().lines[line], byteOffset, forward)
+	return e.snapElementBoundary(line, byteOffset, forward)
 }
 
 // These callers already own a grapheme boundary, so only element snapping is needed.
-func (e *Editor) snapElementBoundary(line, col int, forward bool) int {
+func (e *Editor) snapElementBoundary(line, byteOffset int, forward bool) int {
 	for {
-		el, inside := e.insideElement(line, col)
+		el, inside := e.insideElement(line, byteOffset)
 		if !inside {
-			return col
+			return byteOffset
 		}
 		if forward {
-			col = clusterPosition(e.document().lines[line], el.End, true)
+			byteOffset = clusterPosition(e.document().lines[line], el.End, true)
 		} else {
-			col = clusterPosition(e.document().lines[line], el.Start, false)
+			byteOffset = clusterPosition(e.document().lines[line], el.Start, false)
 		}
 	}
 }
@@ -972,8 +980,8 @@ func (e *Editor) spansWholeClusters(m text.Mark) bool {
 		return false
 	}
 	line := e.document().lines[start.Line]
-	return clusterPosition(line, start.Col, true) == start.Col &&
-		clusterPosition(line, end.Col, true) == end.Col
+	return clusterPosition(line, start.Byte, true) == start.Byte &&
+		clusterPosition(line, end.Byte, true) == end.Byte
 }
 
 func (e *Editor) byteLength() int {
@@ -994,12 +1002,12 @@ func (e *Editor) caretAt(at int) Caret {
 	e.ensure()
 	for i, line := range e.document().lines {
 		if at <= len(line) {
-			return Caret{Line: i, Col: max(at, 0)}
+			return Caret{Line: i, Byte: max(at, 0)}
 		}
 		at -= len(line) + 1
 	}
 	last := len(e.document().lines) - 1
-	return Caret{Line: last, Col: len(e.document().lines[last])}
+	return Caret{Line: last, Byte: len(e.document().lines[last])}
 }
 
 func (e *Editor) elementOf(m text.Mark) Element {
@@ -1015,14 +1023,14 @@ func (e *Editor) elementRange(m text.Mark) Element {
 		// An element never spans a line break, so a mark that reads as though it does
 		// is reported as far as the end of the line it began on. Nothing produces one:
 		// an edit that put a break inside a mark destroyed it.
-		end = Caret{Line: start.Line, Col: len(e.document().lines[start.Line])}
+		end = Caret{Line: start.Line, Byte: len(e.document().lines[start.Line])}
 	}
 	return Element{
 		ID:    ElementID{owner: e.document().elementOwner, serial: m.ID},
 		Kind:  kindOf(m.Kind),
 		Line:  start.Line,
-		Start: start.Col,
-		End:   end.Col,
+		Start: start.Byte,
+		End:   end.Byte,
 	}
 }
 
@@ -1181,11 +1189,11 @@ func (e *Editor) rowAt(width int) (row, column int) {
 	if e.prefersRowEnd() {
 		affinity = text.Backward
 	}
-	point := e.layout.projection.Caret(text.Position{Line: e.line, Byte: e.col, Affinity: affinity})
+	point := e.layout.projection.Caret(text.Position{Line: e.line, Byte: e.byteOffset, Affinity: affinity})
 	return point.Y, point.X
 }
 
-func (e *Editor) offsetIn(width, row, column int) (line, col int) {
+func (e *Editor) offsetIn(width, row, column int) (line, byteOffset int) {
 	e.rows(width)
 	position := e.layout.projection.Hit(image.Pt(column, row))
 	return position.Line, position.Byte
@@ -1203,35 +1211,33 @@ func (e *Editor) moveRow(delta int) {
 	e.ensure()
 	e.endTyping()
 	width := e.geometry.read(&e.presentation).width
+	// Snapping toward the movement avoids returning to the same wrapped atomic row.
+	forward := delta > 0
 	if width <= 0 {
 		// Nothing has been drawn yet, so there are no visual rows to move through.
 		// Logical lines are the best available answer, but the horizontal coordinate
 		// is still a terminal column rather than a byte offset. Copying the byte offset
 		// to a UTF-8 line can put the cursor in the middle of a rune.
-		column := text.ColumnOf(e.document().lines[e.line], e.col)
-		if e.wantColumn >= 0 {
-			column = e.wantColumn
-		}
+		column := text.ColumnOf(e.document().lines[e.line], e.byteOffset)
+		column = e.desiredColumn.resolve(column)
 		target := min(max(e.line+delta, 0), len(e.document().lines)-1)
 		if target == e.line {
 			return
 		}
 		e.line = target
-		e.col = e.snapElementBoundary(target, text.OffsetAt(e.document().lines[target], column), true)
-		e.wantColumn = column
+		e.byteOffset = e.snapElementBoundary(target, text.OffsetAt(e.document().lines[target], column), forward)
+		e.desiredColumn = editorColumn{cells: column, valid: true}
 		return
 	}
 	row, column := e.rowAt(width)
-	if e.wantColumn >= 0 {
-		column = e.wantColumn
-	}
+	column = e.desiredColumn.resolve(column)
 	target := row + delta
 	if target < 0 || target >= len(e.rows(width)) {
 		return
 	}
-	e.line, e.col = e.offsetIn(width, target, column)
-	e.col = e.snapElementBoundary(e.line, e.col, true)
-	e.wantColumn = column
+	e.line, e.byteOffset = e.offsetIn(width, target, column)
+	e.byteOffset = e.snapElementBoundary(e.line, e.byteOffset, forward)
+	e.desiredColumn = editorColumn{cells: column, valid: true}
 }
 
 func (e *Editor) HeightForWidth(width int) int {
@@ -1420,7 +1426,7 @@ func (e *Editor) lineView() editorLineView {
 	return editorLineView{
 		editorProjectionKey: e.projectionKey(),
 		value:               e.Text(), placeholder: e.Placeholder,
-		cursor: e.col, anchor: e.anchor.Col, selecting: e.selecting,
+		cursorByte: e.byteOffset, anchorByte: e.anchor.Byte, selecting: e.selecting,
 		focused: e.element.Focused(), left: e.geometry.read(&e.presentation).left,
 		gutter: e.Gutter, cursorStyle: e.CursorStyle,
 	}
@@ -1451,8 +1457,8 @@ func (e *Editor) lineAt(at int) int {
 }
 
 func (e *Editor) atLine(x int) Caret {
-	col := e.lineAt(text.OffsetAt(e.shown(), layout.Translate(x, e.geometry.read(&e.presentation).left)))
-	return Caret{Col: e.snapElement(0, col, true)}
+	byteOffset := e.lineAt(text.OffsetAt(e.shown(), layout.Translate(x, e.geometry.read(&e.presentation).left)))
+	return Caret{Byte: e.snapElement(0, byteOffset, true)}
 }
 
 // Anchor begins or continues a selection at the cursor.
@@ -1465,7 +1471,7 @@ func (e *Editor) Anchor() {
 	defer e.endViewUpdate()
 	e.breakContinuation()
 	if !e.selecting {
-		e.anchor, e.selecting = Caret{Line: e.line, Col: e.col}, true
+		e.anchor, e.selecting = Caret{Line: e.line, Byte: e.byteOffset}, true
 	}
 }
 
@@ -1485,8 +1491,8 @@ func (e *Editor) SelectAll() {
 	e.endTyping()
 	e.anchor, e.selecting = Caret{}, true
 	e.line = len(e.document().lines) - 1
-	e.col = len(e.document().lines[e.line])
-	e.wantColumn = -1
+	e.byteOffset = len(e.document().lines[e.line])
+	e.desiredColumn = editorColumn{}
 }
 
 // Selection is the selected range in reading order, and whether there is one.
@@ -1498,7 +1504,7 @@ func (e *Editor) Selection() (start, end Caret, ok bool) {
 	if !e.selecting {
 		return Caret{}, Caret{}, false
 	}
-	cursor := Caret{Line: e.line, Col: e.col}
+	cursor := Caret{Line: e.line, Byte: e.byteOffset}
 	if cursor == e.anchor {
 		return Caret{}, Caret{}, false
 	}
@@ -1520,16 +1526,16 @@ func (e *Editor) Selected() string {
 func (e *Editor) textBetween(start, end Caret) string {
 	e.ensure()
 	if start.Line == end.Line {
-		return e.document().lines[start.Line][start.Col:end.Col]
+		return e.document().lines[start.Line][start.Byte:end.Byte]
 	}
 	var b strings.Builder
-	b.WriteString(e.document().lines[start.Line][start.Col:])
+	b.WriteString(e.document().lines[start.Line][start.Byte:])
 	for i := start.Line + 1; i < end.Line; i++ {
 		b.WriteByte('\n')
 		b.WriteString(e.document().lines[i])
 	}
 	b.WriteByte('\n')
-	b.WriteString(e.document().lines[end.Line][:end.Col])
+	b.WriteString(e.document().lines[end.Line][:end.Byte])
 	return b.String()
 }
 
@@ -1573,8 +1579,8 @@ func (e *Editor) finishReplacement(at Caret) {
 	e.settleMarks()
 	e.selecting = false
 	e.line = min(max(at.Line, 0), len(e.document().lines)-1)
-	e.col = e.snapElement(e.line, at.Col, true)
-	e.wantColumn = -1
+	e.byteOffset = e.snapElement(e.line, at.Byte, true)
+	e.desiredColumn = editorColumn{}
 }
 
 // The caller has proved a semantic change and taken any required undo snapshot.
@@ -1592,11 +1598,11 @@ func (e *Editor) applyRange(start, end Caret, s string) ([]string, ChangeMap) {
 	edit := text.Edit{Start: e.offsetOf(start), End: e.offsetOf(end), Text: s}
 	e.edited(edit)
 	change := ChangeMap{Start: edit.Start, OldEnd: edit.End, NewEnd: edit.Start + len(s)}
-	head := e.document().lines[start.Line][:start.Col]
-	tail := e.document().lines[end.Line][end.Col:]
+	head := e.document().lines[start.Line][:start.Byte]
+	tail := e.document().lines[end.Line][end.Byte:]
 	if !strings.Contains(s, "\n") {
 		e.document().lines = slices.Replace(e.document().lines, start.Line, end.Line+1, ownedEditorLine(head, s, tail))
-		e.finishReplacement(Caret{Line: start.Line, Col: start.Col + len(s)})
+		e.finishReplacement(Caret{Line: start.Line, Byte: start.Byte + len(s)})
 		return before, change
 	}
 	parts := strings.Split(s, "\n")
@@ -1606,7 +1612,7 @@ func (e *Editor) applyRange(start, end Caret, s string) ([]string, ChangeMap) {
 		inserted[i] = strings.Clone(parts[i])
 	}
 	last := len(inserted) - 1
-	cursor := Caret{Line: start.Line + last, Col: len(inserted[last])}
+	cursor := Caret{Line: start.Line + last, Byte: len(inserted[last])}
 	inserted[last] = ownedEditorLine(inserted[last], tail)
 	e.document().lines = slices.Replace(e.document().lines, start.Line, end.Line+1, inserted...)
 	e.finishReplacement(cursor)
@@ -1699,8 +1705,8 @@ func (e *Editor) spans(from, to Caret, width int) []RowSpan {
 		if from.Line != 0 || to.Line != 0 {
 			return nil
 		}
-		start := text.ColumnOf(shown, view.shownAt(from.Col))
-		end := text.ColumnOf(shown, view.shownAt(to.Col))
+		start := text.ColumnOf(shown, view.shownAt(from.Byte))
+		end := text.ColumnOf(shown, view.shownAt(to.Byte))
 		if end <= start {
 			return nil
 		}
@@ -1715,18 +1721,18 @@ func (e *Editor) spans(from, to Caret, width int) []RowSpan {
 		}
 		lo, hi := r.start, r.end
 		if r.line == from.Line {
-			lo = max(lo, from.Col)
+			lo = max(lo, from.Byte)
 		}
 		if r.line == to.Line {
-			hi = min(hi, to.Col)
+			hi = min(hi, to.Byte)
 		}
 		if lo >= hi {
 			continue
 		}
 		line := e.document().lines[r.line]
-		col := text.ColumnOf(line[r.start:r.end], lo-r.start)
+		column := text.ColumnOf(line[r.start:r.end], lo-r.start)
 		end := text.ColumnOf(line[r.start:r.end], hi-r.start)
-		out = append(out, RowSpan{Row: i, Col: col, Width: end - col})
+		out = append(out, RowSpan{Row: i, Col: column, Width: end - column})
 	}
 	return out
 }
@@ -1772,7 +1778,7 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 		first = presented.first
 	}
 	position := e.layout.projection.Hit(image.Pt(x, layout.Sum(first, y)))
-	return Caret{Line: position.Line, Col: e.snapElement(position.Line, position.Byte, true)}, true
+	return Caret{Line: position.Line, Byte: e.snapElement(position.Line, position.Byte, true)}, true
 }
 
 func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool {
@@ -1818,7 +1824,8 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 		e.rowEnd, e.rowEndSet = at, e.pastRowEnd(point.X, point.Y, presented.width)
 		e.dragging = true
 	}
-	e.line, e.col, e.wantColumn = at.Line, at.Col, -1
+	e.line, e.byteOffset = at.Line, at.Byte
+	e.desiredColumn = editorColumn{}
 	e.revealCursor()
 	return true
 }
@@ -1839,7 +1846,7 @@ func (e *Editor) pastRowEnd(x, y, width int) bool {
 }
 
 func (e *Editor) prefersRowEnd() bool {
-	return e.rowEndSet && e.rowEnd == Caret{Line: e.line, Col: e.col}
+	return e.rowEndSet && e.rowEnd == Caret{Line: e.line, Byte: e.byteOffset}
 }
 
 var editorActions = map[keymap.Action]func(*Editor){

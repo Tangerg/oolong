@@ -59,7 +59,7 @@ func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
 		t.Fatal("mouse press in the committed gutter was consumed")
 	}
 
-	spans := editor.Spans(base.Caret{}, base.Caret{Col: 2}, 7)
+	spans := editor.Spans(base.Caret{}, base.Caret{Byte: 2}, 7)
 	if len(spans) != 1 || spans[0].Col != 2 {
 		t.Fatalf("Spans = %#v, want columns aligned past the gutter", spans)
 	}

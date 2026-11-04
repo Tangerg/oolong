@@ -13,6 +13,28 @@ import (
 // semantics only after Valid accepts the complete section, including unused fields.
 type params struct{ ansi.Params }
 
+const (
+	mouseLeftButton = iota
+	mouseMiddleButton
+	mouseRightButton
+	mouseNoButton
+)
+
+const (
+	mouseShiftBit = 1 << (iota + 2)
+	mouseAltBit
+	mouseCtrlBit
+	mouseMotionBit
+	mouseWheelBit
+)
+
+const (
+	mouseButtonMask = mouseNoButton
+	mouseReportMask = mouseButtonMask | mouseShiftBit | mouseAltBit | mouseCtrlBit | mouseMotionBit | mouseWheelBit
+	mouseWheelUp    = 0
+	mouseWheelDown  = 1
+)
+
 func parseParams(body string) params { return params{ansi.Parse(body)} }
 
 // Malformed capability claims are omitted independently: unlike malformed key
@@ -174,30 +196,30 @@ func (ps params) mouse(down bool) Event {
 		return nil
 	}
 	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
-	if bits & ^127 != 0 || x < 1 || y < 1 {
+	if bits & ^mouseReportMask != 0 || x < 1 || y < 1 {
 		return nil
 	}
 	// The terminal counts from one; everything above this package counts from zero.
 	ev := Mouse{Pos: image.Pt(x-1, y-1), Mods: mouseMods(bits)}
 	switch {
-	case bits&64 != 0:
-		switch bits & 3 {
-		case 0:
+	case bits&mouseWheelBit != 0:
+		switch bits & mouseButtonMask {
+		case mouseWheelUp:
 			ev.Action = WheelUp
-		case 1:
+		case mouseWheelDown:
 			ev.Action = WheelDown
 		default:
 			return nil // horizontal wheel, which nothing here reads
 		}
-	case bits&32 != 0:
-		ev.Button = mouseButton(bits & 3)
+	case bits&mouseMotionBit != 0:
+		ev.Button = mouseButton(bits & mouseButtonMask)
 		if ev.Button == ButtonNone {
 			ev.Action = MouseMove
 		} else {
 			ev.Action = MouseDrag
 		}
 	default:
-		ev.Button = mouseButton(bits & 3)
+		ev.Button = mouseButton(bits & mouseButtonMask)
 		if down {
 			ev.Action = MouseDown
 		} else {
@@ -235,7 +257,9 @@ func (d KeyboardDialect) modifiers(bits int) (Mods, bool) {
 	const basic = Shift | Alt | Ctrl
 	const legacyMetaBit = 1 << 3
 	const shortcutMods = basic | Super | Hyper | Meta
-	const lockBits = 1<<6 | 1<<7
+	const capsLockBit = 1 << 6
+	const numLockBit = 1 << 7
+	const lockBits = capsLockBit | numLockBit
 	switch d {
 	case XTermKeyboard:
 		if bits & ^(int(basic)|legacyMetaBit) != 0 {

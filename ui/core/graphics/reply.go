@@ -8,7 +8,13 @@ import (
 	"strings"
 )
 
-const ReplyPrefix = "Gi="
+const (
+	graphicsCommand  = 'G'
+	imageIDField     = "i"
+	imageNumberField = "I"
+	placementField   = "p"
+	wireIntegerBits  = 32
+)
 
 const replyAccepted = "OK"
 
@@ -31,36 +37,66 @@ func (r Reply) Err() error {
 	return fmt.Errorf("%w: %s", ErrRejected, r.Message)
 }
 
+func (r Reply) valid() bool {
+	return r.Message != "" && (r.ID != 0 || r.Message != replyAccepted && r.Number != 0)
+}
+
+// MatchReplyPrefix keeps a terminal response distinct from Alt+_ typing. A
+// pending prefix needs more bytes; an unmatched, nonpending prefix is ordinary
+// input. Only the response header is recognized here, not its field values.
+func MatchReplyPrefix(body []byte) (matched, pending bool) {
+	_, matched, pending = replyFields(string(body))
+	return matched, pending
+}
+
+func replyFields(body string) (fields string, matched, pending bool) {
+	if body == "" {
+		return "", false, true
+	}
+	if body[0] != graphicsCommand {
+		return "", false, false
+	}
+	// A failed allocation can omit i while retaining the separator before I.
+	fields, _ = strings.CutPrefix(body[1:], ",")
+	if fields == "" {
+		return "", false, true
+	}
+	if fields[0] != imageIDField[0] && fields[0] != imageNumberField[0] {
+		return "", false, false
+	}
+	if len(fields) == 1 {
+		return "", false, true
+	}
+	return fields, fields[1] == '=', false
+}
+
 // ParseReply preserves a readable request number when another field is malformed,
 // so its owner can fail the request instead of attributing a guessed identity.
 func ParseReply(body string) (Reply, error) {
 	var reply Reply
 	header, message, found := strings.Cut(body, ";")
-	fields, introduced := strings.CutPrefix(header, ReplyPrefix)
+	fields, introduced, _ := replyFields(header)
 	if !found || !introduced {
 		return reply, ErrMalformedReply
 	}
-	id, rest, more := strings.Cut(fields, ",")
-	value, err := strconv.ParseUint(id, 10, 32)
-	valid := err == nil
-	reply.ID, reply.Message = uint32(value), message
-	var number, placement replyNumber
-	if more {
-		for field := range strings.SplitSeq(rest, ",") {
-			key, raw, separated := strings.Cut(field, "=")
-			valid = separated && valid
-			switch key {
-			case "I":
-				valid = number.read(raw) && valid
-			case "p":
-				valid = placement.read(raw) && valid
-			default:
-				valid = false
-			}
+	valid := true
+	var id, number, placement replyNumber
+	for field := range strings.SplitSeq(fields, ",") {
+		key, raw, separated := strings.Cut(field, "=")
+		valid = separated && valid
+		switch key {
+		case imageIDField:
+			valid = id.read(raw) && valid
+		case imageNumberField:
+			valid = number.read(raw) && valid
+		case placementField:
+			valid = placement.read(raw) && valid
+		default:
+			valid = false
 		}
 	}
-	reply.Number, reply.Placement = number.identity(), placement.identity()
-	if !valid || message == "" || message == replyAccepted && reply.ID == 0 {
+	reply = Reply{ID: id.identity(), Number: number.identity(), Placement: placement.identity(), Message: message}
+	if !valid || !reply.valid() {
 		return reply, ErrMalformedReply
 	}
 	return reply, nil
@@ -72,7 +108,7 @@ type replyNumber struct {
 }
 
 func (n *replyNumber) read(raw string) bool {
-	value, err := strconv.ParseUint(raw, 10, 32)
+	value, err := strconv.ParseUint(raw, 10, wireIntegerBits)
 	if err != nil || n.seen {
 		n.conflict, n.seen = true, true
 		return false
@@ -94,5 +130,5 @@ func QueryPNG(w io.Writer, id uint32) error {
 	if id == 0 {
 		return errImageIdentity
 	}
-	return writeString(w, fmt.Sprintf("\x1b_%s%d,a=q,t=d,f=%d;%s\x1b\\", ReplyPrefix, id, kittyPNG, queryPixelPNG))
+	return writeString(w, fmt.Sprintf("\x1b_%c%s=%d,a=q,t=d,f=%d;%s\x1b\\", graphicsCommand, imageIDField, id, kittyPNG, queryPixelPNG))
 }

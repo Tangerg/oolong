@@ -14,6 +14,11 @@ import (
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
+const (
+	retainedCompletedItems = 8
+	maxMarkdownSourceBytes = 1 << 20
+)
+
 // conversation composes a stream document with one transcript and one publisher.
 // Only receiving source remains revisable; an accepted final capture has a receipt
 // and no longer keeps its source bytes alive through the live transcript.
@@ -42,7 +47,7 @@ func newConversation(theme kit.Theme, glyphs kit.Glyphs, wheel input.Wheel, publ
 func (c *conversation) resetView() {
 	retention, keep := base.Retain, 0
 	if c.publisher != nil {
-		retention, keep = base.PublishCompleted, 8
+		retention, keep = base.PublishCompleted, retainedCompletedItems
 	}
 	view, err := kit.NewTranscript(kit.TranscriptConfig{
 		Theme: c.theme, Glyphs: c.glyphs,
@@ -88,7 +93,7 @@ func (c *conversation) Append(ctx context.Context, blocks ...base.Block) error {
 }
 
 func (c *conversation) beginMarkdown() (*base.TranscriptItem, error) {
-	document, err := content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: 1 << 20})
+	document, err := content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: maxMarkdownSourceBytes})
 	if err != nil {
 		return nil, err
 	}

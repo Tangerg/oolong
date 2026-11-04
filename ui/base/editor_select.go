@@ -12,11 +12,10 @@ import (
 // wrapping turns into rows, and a position in the text has to survive the window
 // changing width. The two coordinate spaces are different questions, and one type for
 // both would let an answer to one be passed as an answer to the other.
-type Caret struct{ Line, Col int }
+type Caret struct{ Line, Byte int }
 
-// Before reports whether c comes earlier in the text than d.
 func (c Caret) Before(d Caret) bool {
-	return c.Line < d.Line || (c.Line == d.Line && c.Col < d.Col)
+	return c.Line < d.Line || (c.Line == d.Line && c.Byte < d.Byte)
 }
 
 // Clipboard supplies the user-facing copy and read capability.

@@ -13,6 +13,8 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
+const TabPart scene.PartID = "tab"
+
 // Tab identifies one logical pane. Key preserves trigger identity across reordering; empty keys use positional identity.
 type Tab struct {
 	Key     string
@@ -172,7 +174,6 @@ func (t *Tabs) Selected() int {
 	return t.selected
 }
 
-// Current returns the selected descriptor, if any.
 func (t *Tabs) Current() (Tab, bool) { return t.At(t.Selected()) }
 
 func (t *Tabs) selectedPart() *tabPart {
@@ -298,7 +299,7 @@ func (t *Tabs) newPart(key string) *tabPart {
 		return scene.ActionResult[int]{State: state, Value: t.Selected()}, nil
 	}})
 	part.element = scene.NewElement(scene.ElementConfig{
-		Key: key, Part: "tab", Focusable: func() bool { return true },
+		Key: key, Part: TabPart, Focusable: func() bool { return true },
 		FocusChanged: func(has bool) {
 			if !has {
 				part.matcher.Clear()

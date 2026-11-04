@@ -192,7 +192,8 @@ func sourceBounds(size image.Point, source image.Rectangle) image.Rectangle {
 
 // Paint preserves the cursor and keeps native layers below text but above cell
 // backgrounds. The composition owns layer; zero and out-of-range layers are refused
-// before writing bytes. A nonzero source must intersect the image.
+// before writing bytes. Zero cell dimensions retain the protocol's automatic sizing;
+// all geometry must fit its unsigned integers. A nonzero source must intersect the image.
 func (p ImagePlacement) Paint(w io.Writer, size image.Point, layer int) error {
 	if p.Image.ID == 0 {
 		return errImageIdentity
@@ -203,15 +204,25 @@ func (p ImagePlacement) Paint(w io.Writer, size image.Point, layer int) error {
 	if layer < minimumImageLayer || layer >= 0 {
 		return fmt.Errorf("graphics: native layer %d outside [%d, -1]: %w", layer, minimumImageLayer, errors.ErrUnsupported)
 	}
+	if !validKittyPoint(size) {
+		return fmt.Errorf("graphics: cell dimensions %v outside [0, %d]: %w", size, uint64(math.MaxUint32), errors.ErrUnsupported)
+	}
 	var crop string
 	if p.Source != (image.Rectangle{}) {
 		bounds := sourceBounds(p.Image.Size, p.Source)
 		if bounds.Empty() {
 			return errors.New("graphics: source rectangle contains no image pixels")
 		}
+		if !validKittyPoint(bounds.Min) || !validKittyPoint(bounds.Size()) {
+			return fmt.Errorf("graphics: source rectangle %v exceeds Kitty coordinate range: %w", bounds, errors.ErrUnsupported)
+		}
 		crop = fmt.Sprintf(",x=%d,y=%d,w=%d,h=%d", bounds.Min.X, bounds.Min.Y, bounds.Dx(), bounds.Dy())
 	}
 	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,p=%d%s,c=%d,r=%d,z=%d,C=%d,q=%d;\x1b\\", p.Image.ID, p.ID, crop, size.X, size.Y, layer, kittyPreserveCursor, kittySuppressReplies))
+}
+
+func validKittyPoint(point image.Point) bool {
+	return point.X >= 0 && point.Y >= 0 && uint64(point.X) <= math.MaxUint32 && uint64(point.Y) <= math.MaxUint32
 }
 
 // Erase removes only this placement, retaining the image for later Paint calls.

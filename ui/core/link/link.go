@@ -98,6 +98,7 @@ const (
 // URLs, rooted paths and home-relative paths never trigger it. A nil callback
 // leaves ambiguous bare filenames out. File names retain their Unicode spelling
 // and original byte ranges; quotes admit spaces and punctuation within a name.
+// Drive and backslash paths retain their source grammar regardless of the host OS.
 func Detect(s string, exists func(path string) bool) Links {
 	found := detectURLs(s)
 	found = append(found, detectPaths(s, exists != nil)...)
@@ -218,8 +219,7 @@ func inOrder(found []Link, exists func(string) bool) Links {
 		}
 		// A filesystem lookup can do I/O. Only a relative file that can
 		// actually win its range has anything for the caller to confirm.
-		if l.Kind == File && exists != nil && !strings.HasPrefix(l.Target, "/") &&
-			!strings.HasPrefix(l.Target, "~/") && !exists(l.Target) {
+		if l.Kind == File && exists != nil && pathAnchorLength(l.Target) == 0 && !exists(l.Target) {
 			continue
 		}
 		// Detection slices targets out of s. The result is the ownership boundary: a

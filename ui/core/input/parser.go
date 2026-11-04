@@ -325,11 +325,11 @@ func (p *Parser) decode(b []byte, final bool) (n int, ev Event, done bool) {
 	switch c := b[0]; {
 	case c == esc:
 		return p.decodeEscape(b, final)
-	case c == 0x0d:
+	case c == '\r':
 		return 1, Key{Code: Enter}, true
-	case c == 0x09:
+	case c == '\t':
 		return 1, Key{Code: Tab}, true
-	case c == 0x7f, c == 0x08:
+	case c == deleteByte, c == '\b':
 		return 1, Key{Code: Backspace}, true
 	case c >= 0x01 && c <= 0x1a:
 		// Ctrl with a letter, which is what the terminal sends for it. Enter, Tab
@@ -398,13 +398,13 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 		if len(b) < 3 {
 			return 0, nil, false
 		}
-		if code, ok := finalKeys[b[2]]; ok {
+		if code, ok := finalByteKeys[b[2]]; ok {
 			return 3, Key{Code: code}, true
 		}
 		return 3, nil, true
 	case second == esc:
 		return 1, Key{Code: Esc}, true
-	case second < 0x20, second == 0x7f:
+	case second < 0x20, second == deleteByte:
 		consumed, event, ready := p.decode(b[1:], false)
 		if key, ok := event.(Key); ok {
 			key.Mods |= Alt
@@ -513,7 +513,7 @@ func (p *Parser) controlEvent(ps params, final byte) Event {
 		// arrives under two names is one nothing can be bound to.
 		return ps.modifiedKey(Tab, Shift, p.keyboard)
 	default:
-		code, ok := finalKeys[final]
+		code, ok := finalByteKeys[final]
 		if !ok {
 			return nil
 		}
@@ -522,7 +522,7 @@ func (p *Parser) controlEvent(ps params, final byte) Event {
 }
 
 func (ps params) numberedKey(dialect KeyboardDialect) Event {
-	code, ok := numberedKeys[ps.At(0)]
+	code, ok := tildeKeyNumbers[ps.At(0)]
 	if !ok || ps.Group(0).Len() != 1 {
 		return nil
 	}
@@ -532,7 +532,7 @@ func (ps params) numberedKey(dialect KeyboardDialect) Event {
 // Unknown Kitty private-use key numbers are refused so unsupported keys do not
 // insert glyphs the user never typed.
 func extendedKeyCode(num int) (Code, rune, bool) {
-	if code, ok := extendedKeys[num]; ok {
+	if code, ok := kittyKeyNumbers[num]; ok {
 		return code, 0, true
 	}
 	// Kitty numbers the function row and then the keypad consecutively.
@@ -542,40 +542,21 @@ func extendedKeyCode(num int) (Code, rune, bool) {
 	// The private use area is where a terminal puts keys that are not characters,
 	// and this function has already taken the ones it knows about.
 	r, ok := codePoint(num)
-	if !ok || (num >= 0xe000 && num <= 0xf8ff) {
+	if !ok || (num >= kittyFunctionKeysFrom && num <= kittyFunctionKeysTo) {
 		return 0, 0, false
 	}
 	return Character, r, true
 }
 
-const kittyF1 = 57364
-
-var extendedKeys = map[int]Code{
-	8: Backspace, 127: Backspace, 57347: Backspace,
-	9: Tab, 57346: Tab,
-	13: Enter, 57345: Enter,
-	27: Esc, 57344: Esc,
-	57348: Insert,
-	57349: Delete,
-	57350: Left,
-	57351: Right,
-	57352: Up,
-	57353: Down,
-	57354: PageUp,
-	57355: PageDown,
-	57356: Home,
-	57357: End,
-}
-
 func mouseMods(bits int) Mods {
 	var mods Mods
-	if bits&4 != 0 {
+	if bits&mouseShiftBit != 0 {
 		mods |= Shift
 	}
-	if bits&8 != 0 {
+	if bits&mouseAltBit != 0 {
 		mods |= Alt
 	}
-	if bits&16 != 0 {
+	if bits&mouseCtrlBit != 0 {
 		mods |= Ctrl
 	}
 	return mods
@@ -583,11 +564,11 @@ func mouseMods(bits int) Mods {
 
 func mouseButton(bits int) Button {
 	switch bits {
-	case 0:
+	case mouseLeftButton:
 		return ButtonLeft
-	case 1:
+	case mouseMiddleButton:
 		return ButtonMiddle
-	case 2:
+	case mouseRightButton:
 		return ButtonRight
 	default:
 		return ButtonNone
@@ -602,26 +583,6 @@ func commonPrefix(a, b []byte) int {
 		}
 	}
 	return n
-}
-
-// SS3 final-byte identities are also used by CSI keys except for cursor-position replies.
-var finalKeys = map[byte]Code{
-	'A': Up, 'B': Down, 'C': Right, 'D': Left,
-	'H': Home, 'F': End, 'E': KeypadBegin,
-	'P': F1, 'Q': F2, 'R': F3, 'S': F4,
-}
-
-var numberedKeys = map[int]Code{
-	1: Home, 7: Home,
-	2: Insert,
-	3: Delete,
-	4: End, 8: End,
-	5:  PageUp,
-	6:  PageDown,
-	11: F1, 12: F2, 13: F3, 14: F4, 15: F5,
-	17: F6, 18: F7, 19: F8, 20: F9, 21: F10,
-	23: F11, 24: F12,
-	kittyF1 + int(KeypadBegin-F1): KeypadBegin,
 }
 
 func (p *Parser) introduceString(b []byte, kind stringKind, cmd, size int) (int, Event, bool) {

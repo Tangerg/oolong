@@ -190,41 +190,41 @@ func (w *purityWidget) Focus(has bool) { w.focused = has }
 func (*purityWidget) Handle(input.Event) bool { return false }
 
 type editorMeaning struct {
-	text         string
-	revision     uint64
-	line, column int
-	selection    string
-	anchor       Caret
-	selecting    bool
-	wantColumn   int
-	rowEnd       Caret
-	rowEndSet    bool
-	elements     []Element
-	elementIDs   identitySequence
-	matcherKeys  input.Keys
-	focused      bool
-	look         Look
-	placeholder  string
-	keys         *keymap.Map
-	clipboard    Clipboard
-	maxRows      int
-	singleLine   bool
-	mask         string
-	gutter       RowGutter
-	cursor       grid.CursorStyle
-	undo, redo   []editorState
-	kills        []editorKill
-	typing       bool
-	continuation editorContinuation
-	yank         editorYank
+	text             string
+	revision         uint64
+	line, byteOffset int
+	selection        string
+	anchor           Caret
+	selecting        bool
+	desiredColumn    editorColumn
+	rowEnd           Caret
+	rowEndSet        bool
+	elements         []Element
+	elementIDs       identitySequence
+	matcherKeys      input.Keys
+	focused          bool
+	look             Look
+	placeholder      string
+	keys             *keymap.Map
+	clipboard        Clipboard
+	maxRows          int
+	singleLine       bool
+	mask             string
+	gutter           RowGutter
+	cursor           grid.CursorStyle
+	undo, redo       []editorState
+	kills            []editorKill
+	typing           bool
+	continuation     editorContinuation
+	yank             editorYank
 }
 
 func meaningOfEditor(editor *Editor) editorMeaning {
-	line, column := editor.Cursor()
+	line, byteOffset := editor.Cursor()
 	return editorMeaning{
-		text: editor.Text(), revision: editor.Revision(), line: line, column: column,
+		text: editor.Text(), revision: editor.Revision(), line: line, byteOffset: byteOffset,
 		selection: editor.Selected(), anchor: editor.anchor, selecting: editor.selecting,
-		wantColumn: editor.wantColumn, rowEnd: editor.rowEnd, rowEndSet: editor.rowEndSet,
+		desiredColumn: editor.desiredColumn, rowEnd: editor.rowEnd, rowEndSet: editor.rowEndSet,
 		elements: editor.Elements(), elementIDs: editor.document().elementIDs,
 		matcherKeys: editor.matcher.Keys(), focused: editor.element.Focused(),
 		look: editor.Look, placeholder: editor.Placeholder,
@@ -311,9 +311,10 @@ func headlessDrawPurityCases() []drawPurityCase {
 	list.Select(1)
 	cases = append(cases, widgetPurityCase("*List", list, func() any {
 		return struct {
-			selected int
-			intent   scrollState
-		}{list.Selected(), list.scroll.current}
+			selected  int
+			geometry  scrollGeometry
+			following bool
+		}{list.Selected(), list.scroll.current, list.scroll.following}
 	}))
 	table := &Table[string]{Row: list.Row}
 	table.SetLess(func(a, b string, _ int) bool { return a < b })

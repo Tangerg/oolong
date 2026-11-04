@@ -15,7 +15,7 @@ type editorViewState struct {
 
 func (e *Editor) viewState() editorViewState {
 	return editorViewState{
-		cursor: Caret{Line: e.line, Col: e.col}, anchor: e.anchor, rowEnd: e.rowEnd,
+		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor, rowEnd: e.rowEnd,
 		selecting: e.selecting, dragging: e.dragging, affinity: e.rowEndSet,
 		scrollRevision: e.scroll.revision,
 	}
