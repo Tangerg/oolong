@@ -87,7 +87,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Fixed
 
-- Darwin process-group cleanup recognizes irreversible exit before zombie state becomes visible. A retained leader is still required, and members without exit evidence preserve permission failures, avoiding a spurious `EPERM` while descendants finish exiting.
+- Darwin process-group cleanup recognizes irreversible exit before zombie state becomes visible. A retained leader is still required, and members without exit evidence preserve permission failures, avoiding a spurious permission error while descendants finish exiting.
 
 - Delayed key prefixes and queued exact matches cannot act after their keyboard route expires. Form preserves accepted `Started`, `Applied` and `Unchanged` results alongside errors; a partially accepted pending submission can still be settled by its original identity.
 - Image resources retain only their lightweight allocation ledger, so a released or closed resource cannot keep its terminal, host callbacks and output buffers alive.
