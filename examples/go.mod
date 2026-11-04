@@ -3,10 +3,10 @@ module github.com/Tangerg/oolong/examples
 go 1.27.0
 
 require (
-	github.com/Tangerg/oolong/extensions/highlight v0.26.0
-	github.com/Tangerg/oolong/extensions/latex v0.26.0
-	github.com/Tangerg/oolong/extensions/markdown v0.26.0
-	github.com/Tangerg/oolong/extensions/mermaid v0.26.0
+	github.com/Tangerg/oolong/extensions/highlight v0.26.1
+	github.com/Tangerg/oolong/extensions/latex v0.27.0
+	github.com/Tangerg/oolong/extensions/markdown v0.27.0
+	github.com/Tangerg/oolong/extensions/mermaid v0.27.0
 	github.com/Tangerg/oolong/ui v0.27.0
 	golang.org/x/sys v0.48.0
 )
