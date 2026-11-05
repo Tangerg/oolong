@@ -154,9 +154,12 @@ type Look struct {
 	Code     grid.Style
 	Block    grid.Style
 	// Styled words retain their address so wrapping cannot change the hyperlink.
+	// A document is untrusted, so only http, https and mailto destinations become
+	// hyperlinks; any other keeps this style without one.
 	Link grid.Style
 	// An explicit address helps outputs without hyperlinks. A zero style omits that
-	// redundant text when the words already carry a usable link.
+	// redundant text when the words already carry a usable link. Words that show a
+	// different address carry no link and are always followed by the destination.
 	Target grid.Style
 	Quote  grid.Style
 	Rail   grid.Style

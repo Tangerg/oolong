@@ -21,14 +21,14 @@ func TestStreamingReferencesKeepTheirDocumentMeaning(t *testing.T) {
 		},
 		{
 			name:        "first normalized definition wins",
-			source:      "[A B]: /first\n\nfirst\n\n[a  b]: /second\n\n[link][a b]\n",
-			destination: "/first",
+			source:      "[A B]: https://example.test/first\n\nfirst\n\n[a  b]: https://example.test/second\n\n[link][a b]\n",
+			destination: "https://example.test/first",
 			labels:      "link",
 		},
 		{
 			name:        "unfinished definition is revised",
-			source:      "[ref]: /partial\n\n[link][ref]\n",
-			destination: "/partial",
+			source:      "[ref]: https://example.test/partial\n\n[link][ref]\n",
+			destination: "https://example.test/partial",
 			labels:      "link",
 		},
 	}

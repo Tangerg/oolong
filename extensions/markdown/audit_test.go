@@ -94,9 +94,9 @@ func TestFenceInfoHasSemanticTextButCodeKeepsItsSource(t *testing.T) {
 
 func TestLinkedImageKeepsItsLabelAndOuterDestination(t *testing.T) {
 	for _, tc := range []struct{ source, want string }{
-		{"[![<ada@example.test>](badge.png)](project)", "project"},
-		{"![<ada@example.test>](badge.png)", "badge.png"},
-		{"[![<ada@example.test>](badge.png)]()", ""},
+		{"[![<ada@example.test>](https://example.test/badge.png)](https://example.test/project)", "https://example.test/project"},
+		{"![<ada@example.test>](https://example.test/badge.png)", "https://example.test/badge.png"},
+		{"[![<ada@example.test>](https://example.test/badge.png)]()", ""},
 	} {
 		var doc markdown.Doc
 		doc.SetBlocks(mustRender(t, tc.source, markdown.Look{}))

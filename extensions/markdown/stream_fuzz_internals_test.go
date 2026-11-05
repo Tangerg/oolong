@@ -19,7 +19,8 @@ func FuzzStreamSaysTheSameThingHoweverItArrives(f *testing.F) {
 		"> - nested\n>\n> content\n", "```a`b\n\nafter\n\nmore\n", "<!--\n```\n-->\n\nafter\n",
 		"- ```go\n  x\n  ```\n\nafter\n", "one\n\ntwo\n\nthree\n",
 		"[ref]: /target\n\n[first][ref]\n\n[second][ref]\n\nend\n",
-		"[first][ref]\n\n[ref]: /late\n", "| a | b |\n| - | - |\n| 1 | 2 |\n\nafter\n",
+		"[first][ref]\n\n[ref]: /late\n", "[ref]: https://example.test/a\n\n[x][ref] [https://example.test](https://other.test/b)\n",
+		"| a | b |\n| - | - |\n| 1 | 2 |\n\nafter\n",
 		strings.Repeat("> ", maxBlockNesting) + "leaf",
 	} {
 		f.Add(source)

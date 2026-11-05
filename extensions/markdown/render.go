@@ -318,17 +318,18 @@ func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
 			// what an email autolink says, so the destination is built from it.
 			target = "mailto:" + label
 		}
-		out.add(label, action.style.Merge(r.look.Link), target)
+		out.add(label, action.style.Merge(r.look.Link), newHyperlink(target, label).labelLink())
 	case *ast.Image:
 		// A picture is not something a row of cells can hold — see the graphics
 		// package for what a terminal will take — so what is left is what it was
 		// called and where it is.
-		target := markdownText(string(node.Destination))
+		alt := r.plain(node)
+		image := newHyperlink(markdownText(string(node.Destination)), alt)
 		if action.link == nil {
-			link = target
+			link = image.labelLink()
 		}
-		out.add("["+r.plain(node)+"]", action.style.Merge(r.look.Link), link)
-		r.target(out, target, "", action.style)
+		out.add("["+alt+"]", action.style.Merge(r.look.Link), link)
+		r.target(out, image, "", action.style)
 	case *east.TaskCheckBox:
 		out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), link)
 	case *ast.RawHTML:
@@ -351,11 +352,13 @@ func (r *renderer) pushInline(stack *[]inlineAction, action inlineAction) {
 	case *ast.Link:
 		// Push the target before the children: the stack visits the words first and
 		// then writes the optional address, preserving document order.
-		target := markdownText(string(node.Destination))
+		shown := r.plain(node)
+		destination := newHyperlink(markdownText(string(node.Destination)), shown)
+		words := destination.labelLink()
 		*stack = append(*stack, inlineAction{
-			target: true, destination: target, shown: r.plain(node), style: action.style,
+			target: true, destination: destination, shown: shown, style: action.style,
 		})
-		pushInlineChildren(stack, node, action.style.Merge(r.look.Link), &target)
+		pushInlineChildren(stack, node, action.style.Merge(r.look.Link), &words)
 	default:
 		pushInlineChildren(stack, action.node, action.style, action.link)
 	}
@@ -411,7 +414,7 @@ type inlineAction struct {
 	link  *string
 
 	target      bool
-	destination string
+	destination hyperlink
 	shown       string
 }
 
@@ -422,12 +425,16 @@ func pushInlineChildren(stack *[]inlineAction, n ast.Node, style grid.Style, lin
 }
 
 // Hyperlinked words already carry their destination. Repeat the address only
-// when its appearance is explicitly configured and it adds information.
-func (r *renderer) target(out *inlineWriter, destination, shown string, style grid.Style) {
-	if destination == "" || destination == shown || r.look.Target == (grid.Style{}) {
+// when its appearance is explicitly configured and it adds information, or when
+// the label shows a different address and would otherwise be the only one seen.
+func (r *renderer) target(out *inlineWriter, destination hyperlink, shown string, style grid.Style) {
+	if destination.target == "" || destination.target == shown {
 		return
 	}
-	out.add(" ("+destination+")", style.Merge(r.look.Target), destination)
+	if r.look.Target == (grid.Style{}) && !destination.disguised {
+		return
+	}
+	out.add(" ("+destination.target+")", style.Merge(r.look.Target), destination.addressLink())
 }
 
 func (r *renderer) box(checked bool) string {
