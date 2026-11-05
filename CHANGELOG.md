@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+### Fixed
+
+- `base.Dialog` traverses focus only for a Tab or Shift+Tab going down. On terminals that report key events, a release that reaches the dialog after a field's keymap consumed the press no longer moves focus a second time.
+- `extensions/markdown` makes only `http`, `https` and `mailto` destinations clickable. A link, image or autolink to any other scheme, or to a relative address, keeps its text and link style without an OSC 8 hyperlink: such a destination could name a local file or launch a registered application. Words that show a URL on a different host than the destination no longer carry the link, and the real destination is written after them even when `Look.Target` is zero.
+- `core/grid.ClusterWidth` measures an emoji presentation sequence, a text-default symbol followed by VARIATION SELECTOR-16 such as `⚠️`, `❤️` or `#️⃣`, as two columns. iTerm2, Kitty, WezTerm, Ghostty, Windows Terminal, VS Code and tmux draw these sequences two columns wide, so a one-column measurement shifted the rest of the line and left stale cells on repaint. Text presentation (`⚠︎`) and ambiguous-width characters keep one column. Layouts containing such sequences change width.
+- `core/text` no longer lets a removed control join the clusters on either side of it. A variation selector stranded by a dropped newline used to attach to the symbol before the newline in wrapped, truncated and drawn text.
+- `core/input.Parser` decodes X10-encoded mouse reports (`CSI M Cb Cx Cy`) into `input.Mouse` events. Terminals that track pointer motion but not SGR coordinates previously typed three characters into the focused control for every report. In this encoding, a release does not identify its button. A report whose coordinate falls outside the encoding is consumed without producing an event.
+
 ## [ui/v0.27.0] — 2026-11-05
 
 ### Breaking API migration

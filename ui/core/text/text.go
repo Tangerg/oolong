@@ -486,8 +486,10 @@ func (l Line) eachCluster() iter.Seq2[string, *Span] {
 func (l Line) eachUnit() iter.Seq[unit] {
 	return func(yield func(unit) bool) {
 		col, at := 0, 0
+		var display displayFilter
 		for cluster, s := range l.eachCluster() {
 			switch {
+			case display.hides(cluster):
 			case cluster == "\t":
 				n := TabStop - col%TabStop
 				for range n {
@@ -496,7 +498,6 @@ func (l Line) eachUnit() iter.Seq[unit] {
 					}
 				}
 				col = layout.Sum(col, n)
-			case dropped(cluster):
 			default:
 				w := clusterWidth(cluster)
 				if !yield(unit{cluster: cluster, source: s, linked: true, width: w, space: cluster == " ", at: at, size: len(cluster)}) {
@@ -609,6 +610,37 @@ func dropped(cluster string) bool {
 // Tabs are expanded by layout; other controls must not reach terminal output.
 func droppedRune(r rune) bool { return r != '\t' && unicode.IsControl(r) }
 
+// displayFilter decides, cluster by cluster in line order, which clusters reach a
+// cell. Removing a control can leave a zero-width cluster against one that
+// segmentation kept it apart from: a variation selector after a newline would
+// turn the symbol before the newline into a wider emoji. Such a cluster shows
+// nothing of its own, so it is removed with the control instead of being allowed
+// to change its neighbor. Measurement is unaffected because it has no width.
+type displayFilter struct {
+	previous string
+	removed  bool
+}
+
+func (d *displayFilter) hides(cluster string) bool {
+	if dropped(cluster) || d.removed && clusterWidth(cluster) == 0 && joins(d.previous, cluster) {
+		d.removed = true
+		return true
+	}
+	d.previous, d.removed = cluster, false
+	return false
+}
+
+// joins reports whether segmentation would make next part of previous once the
+// two are adjacent.
+func joins(previous, next string) bool {
+	if previous == "" {
+		return false
+	}
+	clusters := grapheme.New(previous + next)
+	clusters.Next()
+	return clusters.End() > len(previous)
+}
+
 // printable is the line with the clusters that never reach a cell removed. Tabs
 // survive: an uncut line is laid out by whatever places it, and a tab's width
 // depends on the column it lands in.
@@ -632,6 +664,7 @@ func (l Line) printable() Line {
 	out := make(Line, 0, len(l))
 	var text strings.Builder
 	var from *Span
+	var display displayFilter
 	end := func() {
 		if text.Len() > 0 {
 			out = append(out, Span{Text: text.String(), Style: from.Style, Link: from.Link})
@@ -639,7 +672,7 @@ func (l Line) printable() Line {
 		}
 	}
 	for cluster, source := range l.eachCluster() {
-		if dropped(cluster) {
+		if display.hides(cluster) {
 			continue
 		}
 		if source != from {

@@ -56,13 +56,18 @@ func TestTheWidthTableHasNotChangedItsMind(t *testing.T) {
 		{"voiced halfwidth katakana", "ｶﾞ", 2},
 		{"wide base with halfwidth voiced mark", "あﾞ", 3},
 
-		// Emoji are wide; a warning sign is not, with or without the variation
-		// selector that asks for an emoji presentation. That last one is the answer
-		// most likely to move, which is why it is written down.
+		// Emoji are wide. A text-default symbol is narrow until a variation
+		// selector asks for its emoji presentation, which terminals and
+		// multiplexers now draw two columns wide; asking for text keeps it narrow.
 		{"emoji", "🙂", 2},
 		{"thumbs up", "👍", 2},
 		{"warning sign", "⚠", 1},
-		{"warning sign asking to be emoji", "⚠️", 1},
+		{"warning sign asking to be emoji", "⚠️", 2},
+		{"warning sign asking to be text", "⚠︎", 1},
+		{"heart asking to be emoji", "❤️", 2},
+		{"keycap", "#️⃣", 2},
+		{"wide emoji asking to be emoji", "🙂️", 2},
+		{"a selector with no base", "\ufe0f", 0},
 
 		// What this repository draws its own furniture with.
 		{"braille spinner", "⠋", 1},

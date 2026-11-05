@@ -575,15 +575,25 @@ func graphemeWidth(s string) int {
 // may differ from the terminal being drawn and would change identical layouts.
 var columns = &runewidth.Condition{EastAsianWidth: false, StrictEmojiNeutral: false}
 
+// emojiPresentation is VARIATION SELECTOR-16. Following a text-default base such
+// as U+26A0, it forms an emoji presentation sequence, which current terminals and
+// multiplexers draw two columns wide; go-runewidth measures the base alone. A
+// selector with nothing before it is a lone extender and presents nothing.
+const emojiPresentation = "\ufe0f"
+
 // ClusterWidth is shared by measurement and drawing so terminal-column
 // geometry has one authority. Width remains an estimate of terminal behavior:
-// ambiguous characters use one column, while halfwidth-katakana sound marks
-// U+FF9E and U+FF9F contribute their own spacing columns. Controls measure zero.
+// ambiguous characters use one column, an emoji presentation sequence uses two,
+// and halfwidth-katakana sound marks U+FF9E and U+FF9F contribute their own
+// spacing columns. Controls measure zero.
 func ClusterWidth(cluster string) int {
 	if control(cluster) {
 		return 0
 	}
 	width := max(columns.StringWidth(cluster), 0)
+	if strings.Index(cluster, emojiPresentation) > 0 {
+		return max(width, 2)
+	}
 	// A sound mark alone, or one after an ASCII base, is the only adjusted shape that
 	// fits in four UTF-8 bytes, and go-runewidth measures both correctly.
 	if len(cluster) <= utf8.UTFMax {

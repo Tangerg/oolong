@@ -76,6 +76,25 @@ func TestFilteredBytesCannotReassembleIntoWiderText(t *testing.T) {
 	}
 }
 
+func TestARemovedControlLeavesItsNeighborsApart(t *testing.T) {
+	const source = "⚠\n\ufe0f!"
+	for name, shown := range map[string]string{
+		"wrapped":   text.Of(source, grid.Style{}).Wrap(10)[0].Line.String(),
+		"truncated": text.Truncate(source, 10, "…"),
+	} {
+		if shown != "⚠!" {
+			t.Errorf("%s text is %q, want the warning sign kept narrow", name, shown)
+		}
+	}
+	surface := grid.NewSurface(4, 1)
+	if advanced := text.Of(source, grid.Style{}).Draw(surface.View(), 0, 0); advanced != 2 {
+		t.Errorf("drawing advanced %d columns, want 2", advanced)
+	}
+	if got := text.Width(source); got != 2 {
+		t.Errorf("measured %d columns, want 2", got)
+	}
+}
+
 func TestDroppedControlsCannotAttachStandaloneVariationSelectors(t *testing.T) {
 	line := text.Of("❤\n\ufe0f", grid.Style{})
 	for _, row := range line.Wrap(1) {
