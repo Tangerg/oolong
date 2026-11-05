@@ -1,7 +1,6 @@
 package input
 
 import (
-	"image"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -12,28 +11,6 @@ import (
 // ansi.Params owns syntax validation; these readers interpret terminal report
 // semantics only after Valid accepts the complete section, including unused fields.
 type params struct{ ansi.Params }
-
-const (
-	mouseLeftButton = iota
-	mouseMiddleButton
-	mouseRightButton
-	mouseNoButton
-)
-
-const (
-	mouseShiftBit = 1 << (iota + 2)
-	mouseAltBit
-	mouseCtrlBit
-	mouseMotionBit
-	mouseWheelBit
-)
-
-const (
-	mouseButtonMask = mouseNoButton
-	mouseReportMask = mouseButtonMask | mouseShiftBit | mouseAltBit | mouseCtrlBit | mouseMotionBit | mouseWheelBit
-	mouseWheelUp    = 0
-	mouseWheelDown  = 1
-)
 
 func parseParams(body string) params { return params{ansi.Parse(body)} }
 
@@ -191,50 +168,20 @@ func (ps params) scalars(count int) bool {
 	return true
 }
 
-func (ps params) mouse(down bool) Event {
-	if !ps.scalars(3) {
+func (ps params) sgrMouse(final byte) Event {
+	if !ps.scalars(mouseReportFields) {
 		return nil
 	}
-	bits, x, y := ps.At(0), ps.At(1), ps.At(2)
-	if bits & ^mouseReportMask != 0 || x < 1 || y < 1 {
-		return nil
-	}
-	// The terminal counts from one; everything above this package counts from zero.
-	ev := Mouse{Pos: image.Pt(x-1, y-1), Mods: mouseMods(bits)}
-	switch {
-	case bits&mouseWheelBit != 0:
-		switch bits & mouseButtonMask {
-		case mouseWheelUp:
-			ev.Action = WheelUp
-		case mouseWheelDown:
-			ev.Action = WheelDown
-		default:
-			return nil // horizontal wheel, which nothing here reads
-		}
-	case bits&mouseMotionBit != 0:
-		ev.Button = mouseButton(bits & mouseButtonMask)
-		if ev.Button == ButtonNone {
-			ev.Action = MouseMove
-		} else {
-			ev.Action = MouseDrag
-		}
-	default:
-		ev.Button = mouseButton(bits & mouseButtonMask)
-		if down {
-			ev.Action = MouseDown
-		} else {
-			ev.Action = MouseUp
-		}
-	}
-	return ev
+	report := mouseReport{bits: ps.At(0), x: ps.At(1), y: ps.At(2), released: final == sgrMouseRelease}
+	return report.event()
 }
 
 // Private-marker sequences are terminal reports. Unknown reports cannot fall
 // through to keys without injecting unsolicited text into the focused control.
 func (ps params) report(final byte) Event {
 	switch {
-	case ps.Marker() == '<' && (final == 'M' || final == 'm'):
-		return ps.mouse(final == 'M')
+	case ps.Marker() == '<' && (final == sgrMousePress || final == sgrMouseRelease):
+		return ps.sgrMouse(final)
 	case ps.Marker() == '?' && final == 'c':
 		return ps.deviceAttributes()
 	case ps.Marker() == '?' && final == 'u' && ps.scalars(1):

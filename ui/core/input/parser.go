@@ -453,9 +453,12 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 		return i, nil, true
 	}
 	n = i + 1
-	if string(b[:n]) == pasteOpen {
+	switch string(b[:n]) {
+	case pasteOpen:
 		p.pasting = true
 		return n, nil, true
+	case x10MouseIntro:
+		return decodeX10Mouse(b)
 	}
 	piece, _, valid := ansi.Next(string(b[:n]))
 	if !valid || piece.Kind != ansi.Control || piece.Intermediates != "" {
@@ -546,33 +549,6 @@ func extendedKeyCode(num int) (Code, rune, bool) {
 		return 0, 0, false
 	}
 	return Character, r, true
-}
-
-func mouseMods(bits int) Mods {
-	var mods Mods
-	if bits&mouseShiftBit != 0 {
-		mods |= Shift
-	}
-	if bits&mouseAltBit != 0 {
-		mods |= Alt
-	}
-	if bits&mouseCtrlBit != 0 {
-		mods |= Ctrl
-	}
-	return mods
-}
-
-func mouseButton(bits int) Button {
-	switch bits {
-	case mouseLeftButton:
-		return ButtonLeft
-	case mouseMiddleButton:
-		return ButtonMiddle
-	case mouseRightButton:
-		return ButtonRight
-	default:
-		return ButtonNone
-	}
 }
 
 func commonPrefix(a, b []byte) int {

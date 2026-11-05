@@ -3,6 +3,7 @@ package input_test
 import (
 	"image"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -218,6 +219,96 @@ func TestMouseReportsThatMustBeRefused(t *testing.T) {
 	} {
 		if events := feed(in); len(events) != 0 {
 			t.Errorf("%q produced %+v, want nothing", in, events)
+		}
+	}
+}
+
+// x10 encodes a report the way a terminal without SGR coordinates writes it.
+func x10(bits, column, row byte) string {
+	const offset = ' '
+	return "\x1b[M" + string([]byte{offset + bits, offset + column, offset + row})
+}
+
+func TestX10MouseReports(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want input.Mouse
+	}{
+		{"left press", x10(0, 10, 5), input.Mouse{Pos: image.Pt(9, 4), Action: input.MouseDown, Button: input.ButtonLeft}},
+		{"middle press", x10(1, 1, 1), input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonMiddle}},
+		{"right press", x10(2, 1, 1), input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonRight}},
+		{"release names no button", x10(3, 10, 5), input.Mouse{Pos: image.Pt(9, 4), Action: input.MouseUp}},
+		{"release with ctrl", x10(19, 1, 1), input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseUp, Mods: input.Ctrl}},
+		{"drag", x10(32, 3, 4), input.Mouse{Pos: image.Pt(2, 3), Action: input.MouseDrag, Button: input.ButtonLeft}},
+		{"move", x10(35, 3, 4), input.Mouse{Pos: image.Pt(2, 3), Action: input.MouseMove}},
+		{"wheel up", x10(64, 3, 4), input.Mouse{Pos: image.Pt(2, 3), Action: input.WheelUp}},
+		{"wheel down", x10(65, 3, 4), input.Mouse{Pos: image.Pt(2, 3), Action: input.WheelDown}},
+		{"every modifier", x10(28, 1, 1), input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonLeft, Mods: input.Shift | input.Alt | input.Ctrl}},
+		{"highest encodable cell", x10(0, 223, 223), input.Mouse{Pos: image.Pt(222, 222), Action: input.MouseDown, Button: input.ButtonLeft}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := one(t, tc.in).(input.Mouse); got != tc.want {
+				t.Errorf("%q = %+v, want %+v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestX10MouseReportsThatMustBeRefusedConsumeTheirFields(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+	}{
+		// xterm writes a NUL for a coordinate past what a byte can encode.
+		{"column past the encoding", "\x1b[M " + "\x00" + "!"},
+		{"row past the encoding", "\x1b[M !" + "\x00"},
+		{"column zero", x10(0, 0, 1)},
+		{"extra buttons", x10(128, 1, 1)},
+		{"horizontal wheel", x10(66, 1, 1)},
+		{"fields that look like an escape", "\x1b[M\x1b[A"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events := feed(tc.in + "z")
+			if len(events) != 1 || !events[0].(input.Key).IsRune('z', 0) {
+				t.Fatalf("%q followed by z produced %+v, want only the z", tc.in, events)
+			}
+		})
+	}
+}
+
+func TestX10MouseReportsDoNotCareHowBytesArrive(t *testing.T) {
+	// Every field byte is printable, so a report read in pieces must not leak any of
+	// them into the focused control as typing — under any-event tracking that is
+	// three characters for every movement of the pointer.
+	in := x10(0, 35, 40) + x10(35, 36, 40) + x10(32, 37, 41) + x10(3, 37, 41) + x10(64, 37, 41)
+	var whole input.Parser
+	want := append(whole.Feed([]byte(in)), whole.Flush()...)
+	if len(want) != 5 {
+		t.Fatalf("whole read produced %+v, want five reports", want)
+	}
+	for _, event := range want {
+		if _, ok := event.(input.Mouse); !ok {
+			t.Fatalf("whole read produced %+v, which is not a mouse report", event)
+		}
+	}
+
+	chunkings := map[string][][]byte{"byte by byte": nil}
+	for i := range len(in) {
+		chunkings["byte by byte"] = append(chunkings["byte by byte"], []byte{in[i]})
+	}
+	for split := 1; split < len(in); split++ {
+		chunkings["split at "+strconv.Itoa(split)] = [][]byte{[]byte(in[:split]), []byte(in[split:])}
+	}
+	for name, chunks := range chunkings {
+		var p input.Parser
+		var got []input.Event
+		for _, chunk := range chunks {
+			got = append(got, p.Feed(chunk)...)
+		}
+		got = append(got, p.Flush()...)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s produced %+v, want %+v", name, got, want)
 		}
 	}
 }
