@@ -18,7 +18,11 @@ func TestDriverFollowsItsRuntimeThroughShutdown(t *testing.T) {
 	ready := make(chan *automation.Driver, 1)
 	failure := errors.New("follow-up operation failed")
 	screen, err := program.NewScreen(program.ScreenConfig{Host: uitest.New(t, uitest.Config{Width: 3, Height: 1}), Build: func(rt *program.Runtime) (scene.Element, error) {
-		ready <- automation.NewDriver(rt)
+		driver, buildErr := automation.NewDriver(rt)
+		if buildErr != nil {
+			return scene.Element{}, buildErr
+		}
+		ready <- driver
 		unchanged := scene.NewAction(scene.ActionConfig[struct{}, struct{}]{ID: scene.ActionActivate, Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
 			return scene.ActionResult[struct{}]{State: scene.Unchanged}, nil
 		}})

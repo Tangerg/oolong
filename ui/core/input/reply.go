@@ -31,15 +31,6 @@ const (
 	maxStringBody = 1 << 20
 )
 
-type stringKind uint8
-
-const (
-	noString stringKind = iota
-	oscString
-	dcsString
-	apcString
-)
-
 // oscHead reads the command number at the start of an operating system command.
 //
 // The returned size is how many bytes the introducer, the number and its separator

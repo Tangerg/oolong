@@ -40,6 +40,7 @@ var internalAssertions = map[string]string{
 	"ui/kit:Paragraph.requireIdle":                 "Paragraph, SetText and SetLinks document that link detection cannot reenter either setter",
 	"ui/base:requireMutable":                       "all live controllers require owner-phase mutation; this common guard checks scene phase before any controller state changes",
 	"ui/base:requireProjection":                    "Stage and drawing require the controller's mounted scene and refuse geometry writes during its read-only phase",
+	"ui/base:requireStickyOrder":                   "Sticky.SetBlocks and Add document strict nonzero identity ordering and validate the entire batch before mutation",
 	"ui/base:subscriptions.add":                    "public Subscribe operations reject nil callbacks before entering the subscription owner",
 	"ui/kit:Composer.ensure":                       "Composer.Element and Controller document that the compound element must be assembled before its editor is independently attached",
 	"ui/core/content:StreamDocument.assertMutable": "StreamDocument documents construction and prohibits reentrant source mutation from its synchronous change notification",

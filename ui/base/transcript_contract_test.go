@@ -404,6 +404,7 @@ func TestTranscriptSearchCopiesOnlyVisibleMatches(t *testing.T) {
 	for i := range matches {
 		matches[i] = base.Match{Row: i, Spans: []base.Span{{Width: 1}}}
 	}
+	transcriptAdd(t, m, &plain{lines: len(matches)})
 	transcriptCommit(t, transcriptScene(t, m), 20, 1, 1)
 	if err := m.SetMatches(m.Layout(), matches); err != nil {
 		t.Fatal(err)

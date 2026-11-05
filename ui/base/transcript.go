@@ -4,7 +4,6 @@ import (
 	"errors"
 	"image"
 	"math"
-	"slices"
 	"sort"
 
 	"github.com/Tangerg/oolong/ui/core/content"
@@ -18,9 +17,6 @@ import (
 	"github.com/Tangerg/oolong/ui/internal/fifo"
 	"github.com/Tangerg/oolong/ui/internal/identity"
 )
-
-// ErrStaleMatches rejects physical row and column matches from a different transcript, content revision or width.
-var ErrStaleMatches = errors.New("base: search result does not match the transcript projection")
 
 // ErrTranscriptCapacity refuses another retained reference without discarding existing content.
 var ErrTranscriptCapacity = errors.New("base: transcript item budget exhausted")
@@ -148,7 +144,7 @@ func (i *TranscriptItem) retire() {
 // A Transcript must not be copied after first use.
 type Transcript struct {
 	namespace       *byte // Does not retain content when an endpoint outlives the transcript.
-	matchLayout     transcriptLayoutKey
+	search          transcriptSearch
 	noCopy          noCopy
 	cfg             TranscriptConfig
 	initialized     bool
@@ -162,8 +158,6 @@ type Transcript struct {
 	scroll          Scroll
 	selection       Selection
 	sticky          Sticky
-	matches         []Match
-	current         int
 	geometry        scene.Snapshot[TranscriptLayout]
 	presentation    scene.Snapshot[transcriptPresentation]
 	clicked         uint64
@@ -202,7 +196,6 @@ func (t *Transcript) initialize() {
 		t.cfg.MaxItems = defaultTranscriptItems
 	}
 	t.next = 1
-	t.current = -1
 	t.scroll.ToBottom()
 	t.element = scene.NewElement(scene.ElementConfig{
 		Key:       t.cfg.Key,
@@ -246,8 +239,7 @@ func (t *Transcript) changed() {
 		panic("base: transcript revisions exhausted")
 	}
 	t.revision++
-	t.matches = nil
-	t.current = -1
+	t.search = transcriptSearch{}
 	t.element.Invalidate()
 }
 
@@ -594,79 +586,6 @@ func (t *Transcript) Visible(from, rows int) (BlockID, BlockID) {
 
 // Rows projects text from the last committed row space without advancing document state.
 func (t *Transcript) Rows(from, count int) []text.Row { return t.geometry.Value().Rows(from, count) }
-
-// Matches returns a detached copy of the current search projection.
-func (t *Transcript) Matches() []Match {
-	if t.matchLayout != t.Layout().key {
-		return nil
-	}
-	out := slices.Clone(t.matches)
-	for i := range out {
-		out[i].Spans = slices.Clone(out[i].Spans)
-	}
-	return out
-}
-
-// MatchesIn copies only the visible projection; archived search results do not
-// make painting a fixed viewport proportional to the age of a transcript.
-func (t *Transcript) MatchesIn(source TranscriptLayout, from, to int) (first int, matches []Match) {
-	if t.matchLayout != source.key || len(t.matches) == 0 || from >= to {
-		return 0, nil
-	}
-	first = sort.Search(len(t.matches), func(i int) bool { return t.matches[i].Row >= from })
-	if first > 0 {
-		previous := t.matches[first-1]
-		if layout.Sum(previous.Row, len(previous.Spans)) > from {
-			first--
-		}
-	}
-	last := sort.Search(len(t.matches), func(i int) bool { return t.matches[i].Row >= to })
-	matches = slices.Clone(t.matches[first:max(first, last)])
-	for i := range matches {
-		matches[i].Spans = slices.Clone(matches[i].Spans)
-	}
-	return first, matches
-}
-
-// CurrentMatch returns the revealed match index, or -1 when no match is current.
-func (t *Transcript) CurrentMatch(source TranscriptLayout) int {
-	if t.matchLayout != source.key || len(t.matches) == 0 {
-		return -1
-	}
-	return t.current
-}
-
-// SetMatches installs sorted physical matches computed from source.Rows. The
-// source must still describe the current committed content and width; a stale
-// or foreign result returns ErrStaleMatches without disturbing newer results.
-func (t *Transcript) SetMatches(source TranscriptLayout, matches []Match) error {
-	t.assertMutable()
-	if source.key.owner != t.namespace || source.key.revision != t.revision || source.key != t.Layout().key {
-		return ErrStaleMatches
-	}
-	t.matchLayout = source.key
-	t.matches = slices.Clone(matches)
-	for i := range t.matches {
-		t.matches[i].Spans = slices.Clone(t.matches[i].Spans)
-	}
-	t.current = -1
-	t.element.Invalidate()
-	return nil
-}
-
-// RevealMatch selects a valid match and asks the scroll owner to reveal its complete row span.
-func (t *Transcript) RevealMatch(index int) bool {
-	t.assertMutable()
-	if t.matchLayout != t.Layout().key || index < 0 || index >= len(t.matches) || len(t.matches[index].Spans) == 0 {
-		return false
-	}
-	match := t.matches[index]
-	t.current = index
-	first := match.Row - t.StartRow()
-	t.scroll.requestReveal(first, layout.Sum(first, len(match.Spans)-1))
-	t.element.Invalidate()
-	return true
-}
 
 // TranscriptView is a single candidate shared by paint and pointer projection.
 // The borrowed Body remains writable only during its scene Prepare call.

@@ -6,8 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+### Breaking API migration
+
+#### ui
+
+- `automation.NewDriver` now returns `(*Driver, error)`. Handle `automation.ErrInvalid` when the session, its scene or its automation owner is absent, including typed nil values. Invalid construction no longer returns a driver that fails only at its first observation.
+- Remove `kit.Composer.MaxRows` field access and keyed literals. Use `kit.ComposerConfig.MaxRows` at construction and `composer.Controller().MaxRows` for later changes. The retained Editor is the sole owner of the limit; setting its limit to zero after initialization now removes the cap instead of competing with a second Composer limit.
+- `base.(*Transcript).SetMatches` returns `base.ErrInvalidMatches` for unordered or out-of-range rows, empty row spans, negative cell ranges and overflowing cell endpoints. Handle the admission error: the owner validates the complete candidate before publishing it. Rejected results leave the previous search state unchanged; overlapping matches and zero-width spans remain valid.
+- `base.(*Sticky).SetBlocks` and `Add` panic before mutation when block identities are zero, duplicated or out of order. An appended batch must follow the current last identity. Supply strictly increasing identities; the owner does not sort or silently accept invalid input.
+
+#### extensions/markdown
+
+- `markdown.(*Look).SetRenderer` panics before mutation for an unknown extension identity, including removal with a nil renderer. Use `markdown.FencedCode` or `markdown.DisplayMath`: these identify Markdown-owned syntax, not user-defined grammar. The method keeps its void signature, and rejected configuration leaves existing renderers unchanged. Renderer and source failures still use their existing error results.
+
+### Changed
+
+- Transcript search results, their source identity and current selection belong to one private search aggregate. Its prefix-end index is derived only from an accepted result snapshot, so overlapping matches can be queried without a second source of truth.
+- Program frame composition and final output now live together in `core/program/compositor.go`; runtime state and ownership stay unchanged. Private forwarding aliases with no additional contract were removed from program and text paths.
+- Emoji variation bases are generated offline from the pinned Unicode 17 source data that matches the width dependency. The generated table has no independent editing path; its provenance, license and source-to-table equivalence are checked in the repository.
+
 ### Fixed
 
+- `core/input.Parser` retains exclusive ownership of an X10 mouse payload after its introducer is recognized. A pause between payload bytes no longer lets an Escape deadline reinterpret them as keyboard input; an incomplete report at EOF is discarded.
+- `core/grid.ClusterWidth` requires a valid, adjacent Unicode emoji variation base before a selector can widen it. Ordinary text followed by VARIATION SELECTOR-16 stays at its original width, and spacing kana marks add their own columns after emoji presentation is resolved.
+- `base.(*Transcript).MatchesIn` includes earlier long matches that overlap a viewport even when intervening matches end before it. The returned contiguous range preserves the original result indices used to highlight the current match.
 - `base.Dialog` traverses focus only for a Tab or Shift+Tab going down. On terminals that report key events, a release that reaches the dialog after a field's keymap consumed the press no longer moves focus a second time.
 - `extensions/markdown` makes only `http`, `https` and `mailto` destinations clickable. A link, image or autolink to any other scheme, or to a relative address, keeps its text and link style without an OSC 8 hyperlink: such a destination could name a local file or launch a registered application. Words that show a URL on a different host than the destination no longer carry the link, and the real destination is written after them even when `Look.Target` is zero.
 - `core/grid.ClusterWidth` measures an emoji presentation sequence, a text-default symbol followed by VARIATION SELECTOR-16 such as `⚠️`, `❤️` or `#️⃣`, as two columns. iTerm2, Kitty, WezTerm, Ghostty, Windows Terminal, VS Code and tmux draw these sequences two columns wide, so a one-column measurement shifted the rest of the line and left stale cells on repaint. Text presentation (`⚠︎`) and ambiguous-width characters keep one column. Layouts containing such sequences change width.

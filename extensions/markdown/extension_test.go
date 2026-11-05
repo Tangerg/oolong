@@ -3,6 +3,8 @@ package markdown_test
 import (
 	"context"
 	"errors"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,6 +14,57 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
+
+func TestLookUnknownExtensionsPanicWithoutChangingRenderers(t *testing.T) {
+	var appearance markdown.Look
+	var invoked []markdown.Extension
+	var invalidInvocations int
+	want := []markdown.Extension{markdown.FencedCode, markdown.DisplayMath}
+	for _, extension := range want {
+		appearance.SetRenderer(extension, func(string, string) (grid.Drawable, error) {
+			invoked = append(invoked, extension)
+			return nil, markdown.ErrUnhandled
+		})
+	}
+	for _, extension := range []markdown.Extension{0, markdown.DisplayMath + 1, 255} {
+		for _, operation := range []struct {
+			name     string
+			renderer markdown.Renderer
+		}{
+			{name: "remove"},
+			{name: "register", renderer: func(string, string) (grid.Drawable, error) {
+				invalidInvocations++
+				return drawing{}, nil
+			}},
+		} {
+			t.Run(strconv.Itoa(int(extension))+"/"+operation.name, func(t *testing.T) {
+				invalidInvocations = 0
+				func() {
+					defer func() {
+						if recover() == nil {
+							t.Error("unrecognized extension was accepted")
+						}
+					}()
+					appearance.SetRenderer(extension, operation.renderer)
+				}()
+				if invalidInvocations != 0 {
+					t.Fatal("rejected renderer was invoked")
+				}
+				invoked = nil
+				_ = mustRender(t, "```custom\nsource\n```\n\n$$\nx\n$$", appearance)
+				if !slices.Equal(invoked, want) {
+					t.Fatalf("invalid registration changed the active renderers: %v", invoked)
+				}
+			})
+		}
+	}
+	appearance.SetRenderer(markdown.FencedCode, nil)
+	invoked = nil
+	_ = mustRender(t, "```custom\nsource\n```\n\n$$\nx\n$$", appearance)
+	if !slices.Equal(invoked, []markdown.Extension{markdown.DisplayMath}) {
+		t.Fatalf("valid removal changed the remaining renderer: %v", invoked)
+	}
+}
 
 type drawing struct{}
 

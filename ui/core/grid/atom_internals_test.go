@@ -21,7 +21,7 @@ func FuzzSurfaceMaintainsDisplayAtoms(f *testing.F) {
 		f.Add(seed)
 	}
 
-	texts := [...]string{"x", "中", "ｶﾞ", "あﾞ", "é", "🙂", "\t", "\u200d", "\u0301", "\ufe0f", "👋", "🏽"}
+	texts := [...]string{"x", "中", "ｶﾞ", "あﾞ", "é", "🙂", "\t", "\u200d", "\u0301", "\ufe0f", "👋", "🏽", "⚠️ﾞﾟ", "A\ufe0f", "\u0301\ufe0f"}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) == 0 {
 			return
@@ -78,7 +78,7 @@ func FuzzAppearancePartitionsMatchWhole(f *testing.F) {
 	f.Add(byte(7), byte(3), []byte{0, 0, 3, 0, 0, 0}, false)
 	f.Add(byte(15), byte(8), []byte{1, 2, 4, 5, 0, 3}, true)
 
-	clusters := [...]string{"x", "中", "ｶﾞ", "あﾞ", "é", "🙂"}
+	clusters := [...]string{"x", "中", "ｶﾞ", "あﾞ", "é", "🙂", "⚠️ﾞﾟ", "A\ufe0f"}
 	base := Style{FG: RGBColor(200, 200, 200), BG: RGBColor(0, 0, 0)}
 	f.Fuzz(func(t *testing.T, widthByte, splitByte byte, data []byte, fade bool) {
 		width := 1 + int(widthByte)%16

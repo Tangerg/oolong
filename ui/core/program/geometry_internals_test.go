@@ -48,7 +48,7 @@ func TestPhysicalGeometryChangesRevokeCaptureAndQueuedCoordinates(t *testing.T) 
 			t.Fatal("initial written target did not capture")
 		}
 		old := p.root.CaptureInput(mouse)
-		if err := p.handle(event); err != nil {
+		if err := p.handleInput(p.root.CaptureInput(event)); err != nil {
 			t.Fatal(err)
 		}
 		if *cancellations != 1 {

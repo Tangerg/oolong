@@ -117,17 +117,10 @@ func (c Clipboard) Read(ctx context.Context, receive func(string, error)) error 
 // cannot continue changing an externally owned host after that program ends.
 type Session struct{ runtime *Runtime }
 
-// host is the services of a runtime that may not be there. [Runtime.services] takes
-// a nil receiver, so a zero Session answers as a host with no optional services —
-// which is the right answer for every method that only asks the host something.
-//
-// [Session.Hand] is not one of those and does not come through here.
-func (s Session) host() hostServices {
-	return s.runtime.services()
-}
-
 // ReportDirectory tells the host which directory relative links belong to.
-func (s Session) ReportDirectory(path string) error { return s.host().reportDirectory(path) }
+func (s Session) ReportDirectory(path string) error {
+	return s.runtime.services().reportDirectory(path)
+}
 
 // Hand gives exclusive display ownership to run and repaints after it returns. If
 // pending frames cannot drain, it returns [ErrFrameTimeout] without calling run.
@@ -174,16 +167,18 @@ func (s Session) Hand(run func() error) error {
 // preserves the host's signal policy and owns the platform's delivery boundary.
 func (s Session) Suspend() error { return s.Hand(term.Suspend) }
 
-func (s Session) SetTitle(title string) error { return s.host().setTitle(title) }
+func (s Session) SetTitle(title string) error { return s.runtime.services().setTitle(title) }
 
 // SetProgress presents task progress outside the cell grid when supported. The
 // zero value clears an earlier value. It is independent of progress drawn inside
 // the interface, which remains ordinary component state.
-func (s Session) SetProgress(progress term.Progress) error { return s.host().setProgress(progress) }
+func (s Session) SetProgress(progress term.Progress) error {
+	return s.runtime.services().setProgress(progress)
+}
 
-func (s Session) Bell() error { return s.host().bell() }
+func (s Session) Bell() error { return s.runtime.services().bell() }
 
-func (s Session) Notify(text string) error { return s.host().notify(text) }
+func (s Session) Notify(text string) error { return s.runtime.services().notify(text) }
 
 // Images is the host's image transport. Its zero value reports no protocol and
 // refuses transmission.

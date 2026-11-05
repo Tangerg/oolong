@@ -39,13 +39,13 @@ func TestDeclinedInputStillPresentsResolvedPrefixAction(t *testing.T) {
 		}
 		return drawn
 	}
-	if err := p.handle(input.Key{Code: input.Character, Rune: 'g'}); err != nil {
+	if err := p.handleInput(p.root.CaptureInput(input.Key{Code: input.Character, Rune: 'g'})); err != nil {
 		t.Fatal(err)
 	}
 	if !present() || c.actions != 0 {
 		t.Fatal("prefix did not wait for a continuation")
 	}
-	if err := p.handle(input.Key{Code: input.Character, Rune: 'x'}); err != nil {
+	if err := p.handleInput(p.root.CaptureInput(input.Key{Code: input.Character, Rune: 'x'})); err != nil {
 		t.Fatal(err)
 	}
 	if c.actions != 1 || c.consumed {

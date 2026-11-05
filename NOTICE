@@ -6,13 +6,12 @@ This product includes work derived from agentui
 (https://github.com/minoism/agentui), licensed under the Apache License,
 Version 2.0.
 
-The packages under primitives/ are a reimplementation of agentui's
-rendering substrate: the cell grid and its minimal escape-stream emission
-(primitives/grid, from agentui's cellbuf), column-aware wrapping (primitives/text,
-from agentui's textwrap), terminal ownership and input decoding (primitives/term and
-primitives/input, from agentui's term), frame pacing with in-flight gating
-(primitives/present, from agentui's present), and subsequence ranking
-(primitives/fuzzy, from agentui's fuzzy).
+The reimplementation of agentui's rendering substrate now lives under ui/core/:
+the cell grid and its minimal escape-stream emission (ui/core/grid, from
+agentui's cellbuf), column-aware wrapping (ui/core/text, from agentui's textwrap),
+terminal ownership and input decoding (ui/core/term and ui/core/input, from
+agentui's term), frame pacing with in-flight gating (ui/core/present, from
+agentui's present), and subsequence ranking (ui/core/fuzzy, from agentui's fuzzy).
 
 agentui states that it is itself an independent Go reimplementation of the
 terminal interface of Grok CLI (https://github.com/xai-org/grok-build), and is
@@ -20,3 +19,8 @@ not affiliated with or endorsed by xAI.
 
 A copy of the Apache License, Version 2.0 is available at
 https://www.apache.org/licenses/LICENSE-2.0
+
+This product includes Unicode 17 emoji variation data in
+ui/core/grid/testdata/emoji-variation-sequences.txt and a table generated from
+that data in ui/core/grid/emoji_table.go. The copyright and permission notice
+is preserved in ui/core/grid/UNICODE_LICENSE.

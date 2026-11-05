@@ -575,11 +575,10 @@ func graphemeWidth(s string) int {
 // may differ from the terminal being drawn and would change identical layouts.
 var columns = &runewidth.Condition{EastAsianWidth: false, StrictEmojiNeutral: false}
 
-// emojiPresentation is VARIATION SELECTOR-16. Following a text-default base such
-// as U+26A0, it forms an emoji presentation sequence, which current terminals and
-// multiplexers draw two columns wide; go-runewidth measures the base alone. A
-// selector with nothing before it is a lone extender and presents nothing.
-const emojiPresentation = "\ufe0f"
+const (
+	halfwidthKatakanaVoicedSoundMark     = '\uff9e'
+	halfwidthKatakanaSemivoicedSoundMark = '\uff9f'
+)
 
 // ClusterWidth is shared by measurement and drawing so terminal-column
 // geometry has one authority. Width remains an estimate of terminal behavior:
@@ -590,29 +589,23 @@ func ClusterWidth(cluster string) int {
 	if control(cluster) {
 		return 0
 	}
-	width := max(columns.StringWidth(cluster), 0)
-	if strings.Index(cluster, emojiPresentation) > 0 {
-		return max(width, 2)
-	}
-	// A sound mark alone, or one after an ASCII base, is the only adjusted shape that
-	// fits in four UTF-8 bytes, and go-runewidth measures both correctly.
-	if len(cluster) <= utf8.UTFMax {
-		return width
-	}
-	// The marks are Unicode extenders but spacing terminal characters, so segmentation
-	// keeps them with their base while terminal geometry gives each one a column.
-	// go-runewidth caps a complete grapheme at two columns, which would hide them.
-	marks := strings.Count(cluster, "ﾞ") + strings.Count(cluster, "ﾟ")
-	if marks == 0 {
-		return width
-	}
+	marks := 0
+	// The dependency caps a cluster at two columns. Count spacing marks as they
+	// leave the base so the same classification owns their additional columns.
 	base := strings.Map(func(r rune) rune {
-		if r == '\uff9e' || r == '\uff9f' {
+		if r == halfwidthKatakanaVoicedSoundMark || r == halfwidthKatakanaSemivoicedSoundMark {
+			marks++
 			return -1
 		}
 		return r
 	}, cluster)
-	return layout.Sum(max(columns.StringWidth(base), 0), marks)
+	width := max(columns.StringWidth(base), 0)
+	// Test the original adjacency: removing a spacing mark cannot turn a
+	// selector after that mark into a presentation request for an earlier base.
+	if hasEmojiPresentation(cluster) {
+		width = max(width, 2)
+	}
+	return layout.Sum(width, marks)
 }
 
 // Reject control bytes before they enter a cell: repaint writes cell content

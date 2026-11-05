@@ -14,7 +14,7 @@ contentType: How-to
 
 ## 观察不产生变更
 
-`automation.NewDriver(runtime)` 将查询和动作调度到 UI 所有者。可以在 Build 阶段保存语义句柄，挂载后再查询。它无法准备帧、推进写入水位或关闭程序的 Root。`Observe` 读取现有语义投影，不启动绘制、不填充隐藏内容、不创建后台工作。
+使用 `driver, err := automation.NewDriver(runtime)` 构造，并在保存 driver 之前处理错误。缺失会话、场景或 dispatcher 会在构造时返回 `automation.ErrInvalid`。Driver 将查询和动作调度到 UI 所有者；可以在 Build 阶段保存语义句柄，挂载后再查询。它无法准备帧、推进写入水位或关闭程序的 Root。`Observe` 读取现有语义投影，不启动绘制、不填充隐藏内容、不创建后台工作。
 
 `scene.Query` 限制深度与节点数量。`TextLimit` 限制每个显示字段，`ByteLimit` 限制返回节点与动作中全部字符串的总字节数，`DetailLimit` 限制动作和有效关系的合计数量。零值使用包内默认政策，正值不超过对应的包级上限。这些预算约束观察投影；应用回调内部的分配及传输序列化仍由各自边界负责。
 

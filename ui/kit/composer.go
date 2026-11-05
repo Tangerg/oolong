@@ -38,7 +38,6 @@ type Composer struct {
 	appearance appearance
 	Prompt     string
 	Hints      []keymap.Action
-	MaxRows    int
 	editor     base.Editor
 	group      *scene.Group
 }
@@ -49,9 +48,10 @@ func NewComposer(config ComposerConfig) *Composer {
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	c := &Composer{appearance: look, Prompt: config.Prompt, Hints: slices.Clone(config.Hints), MaxRows: config.MaxRows}
+	c := &Composer{appearance: look, Prompt: config.Prompt, Hints: slices.Clone(config.Hints)}
 	c.editor.SetText(config.Initial)
 	c.editor.ForgetHistory()
+	c.editor.MaxRows = config.MaxRows
 	c.editor.Placeholder = config.Placeholder
 	c.editor.Keys = config.Keys
 	c.editor.Clipboard = config.Clipboard
@@ -67,6 +67,9 @@ func (c *Composer) ensure() {
 	}
 	if c.group != nil {
 		return
+	}
+	if c.editor.MaxRows <= 0 {
+		c.editor.MaxRows = DefaultComposerRows
 	}
 	if err := c.editor.Element().SetPaint(func(frame scene.Frame) { c.editor.DrawWith(frame, c.appearance.palette().Look(Glyphs{})) }); err != nil {
 		panic(err)
@@ -100,7 +103,7 @@ func (c *Composer) ensure() {
 func (c *Composer) Element() scene.Element { c.ensure(); return c.group.Element() }
 
 func (c *Composer) HeightForWidth(width int) int {
-	rows := min(c.editor.HeightForWidth(layout.Remaining(width, c.markerWidth())), c.rows())
+	rows := c.editor.HeightForWidth(layout.Remaining(width, c.markerWidth()))
 	return layout.Sum(rows, c.help().HeightForWidth(width))
 }
 func (c *Composer) markerWidth() int { return text.Width(c.Prompt) }
@@ -115,11 +118,4 @@ func (c *Composer) keys() *keymap.Map {
 		return c.editor.Keys
 	}
 	return composerKeys()
-}
-
-func (c *Composer) rows() int {
-	if c.MaxRows > 0 {
-		return c.MaxRows
-	}
-	return DefaultComposerRows
 }

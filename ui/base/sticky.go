@@ -45,8 +45,9 @@ type Sticky struct {
 	Gap int
 }
 
-// SetBlocks replaces the identities that can be pinned. Sticky owns the slice; the
-// caller may reuse or change its input afterwards.
+// SetBlocks replaces the identities that can be pinned. It panics before mutation
+// unless identities are nonzero and strictly increasing in transcript order.
+// Sticky owns the slice; the caller may reuse or change its input afterwards.
 func (s *Sticky) SetBlocks(blocks []BlockID) {
 	if s.setBlocks(blocks) {
 		s.element.Invalidate()
@@ -55,6 +56,7 @@ func (s *Sticky) SetBlocks(blocks []BlockID) {
 
 func (s *Sticky) setBlocks(blocks []BlockID) bool {
 	requireMutable(s.element)
+	requireStickyOrder(blocks, 0)
 	if s.blocks.Len() == len(blocks) {
 		equal := true
 		for i, id := range blocks {
@@ -72,12 +74,27 @@ func (s *Sticky) setBlocks(blocks []BlockID) bool {
 	return true
 }
 
-// Add appends pinnable block identities in transcript order.
+// Add appends pinnable block identities in transcript order. It panics before
+// mutation unless every identity strictly follows the existing set and its predecessor.
 func (s *Sticky) Add(blocks ...BlockID) {
 	requireMutable(s.element)
+	var last BlockID
+	if s.blocks.Len() > 0 {
+		last = s.blocks.At(s.blocks.Len() - 1)
+	}
+	requireStickyOrder(blocks, last)
 	if len(blocks) > 0 {
 		s.blocks.Push(blocks...)
 		s.element.Invalidate()
+	}
+}
+
+func requireStickyOrder(blocks []BlockID, after BlockID) {
+	for _, id := range blocks {
+		if id <= after {
+			panic("base: sticky block identities must be nonzero and strictly increasing")
+		}
+		after = id
 	}
 }
 

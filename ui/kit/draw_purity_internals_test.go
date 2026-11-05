@@ -30,6 +30,20 @@ type drawPurityCase struct {
 	state   func() any
 }
 
+func TestZeroComposerMeasurementDoesNotInitializeOwners(t *testing.T) {
+	var composer Composer
+	before := meaningOfEditor(&composer.editor)
+	if got := composer.HeightForWidth(20); got != 1 {
+		t.Fatalf("empty composer height = %d, want 1", got)
+	}
+	if composer.group != nil || composer.appearance.scope.owner != nil {
+		t.Fatal("measurement initialized scene or theme ownership")
+	}
+	if after := meaningOfEditor(&composer.editor); !reflect.DeepEqual(after, before) {
+		t.Fatalf("measurement changed editor state: before=%+v after=%+v", before, after)
+	}
+}
+
 func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
 	cases := kitDrawPurityCases()
 	covered := make(map[string]bool, len(cases))
@@ -407,7 +421,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		},
 	})
 
-	composer := &Composer{Prompt: "> ", MaxRows: 3}
+	composer := NewComposer(ComposerConfig{Prompt: "> ", MaxRows: 3})
 	composer.Controller().Placeholder = "say something"
 	composer.Controller().SetText("hello")
 	composer.Controller().MoveLeft()

@@ -46,19 +46,20 @@ var (
 
 // NewDriver binds automation to one session. A program.Runtime can be passed
 // directly during Build; queries run on its own dispatcher after attachment.
-func NewDriver[S Scene, D Owner](session Session[S, D]) *Driver {
+// Missing capabilities return ErrInvalid before any driver can escape construction.
+func NewDriver[S Scene, D Owner](session Session[S, D]) (*Driver, error) {
 	if identity.IsNil(session) {
-		return &Driver{}
+		return nil, ErrInvalid
 	}
-	root, owner := session.Scene(), session.Dispatcher()
-	if identity.IsNil(root) || identity.IsNil(owner) {
-		return &Driver{}
+	driver := &Driver{root: session.Scene(), owner: session.Dispatcher()}
+	if err := driver.valid(); err != nil {
+		return nil, err
 	}
-	return &Driver{root: root, owner: owner}
+	return driver, nil
 }
 
 func (d *Driver) valid() error {
-	if d == nil || d.root == nil || d.owner == nil {
+	if d == nil || identity.IsNil(d.root) || identity.IsNil(d.owner) {
 		return ErrInvalid
 	}
 	return nil

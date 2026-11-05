@@ -102,10 +102,40 @@ func sendKeys() *keymap.Map {
 }
 
 func TestComposerGrowsWithItsTextUpToItsCap(t *testing.T) {
-	c := kit.Composer{MaxRows: 2}
-	typeInto(&c, "one two three four five six seven eight")
+	c := kit.NewComposer(kit.ComposerConfig{MaxRows: 2})
+	typeInto(c, "one two three four five six seven eight")
 	if got := c.HeightForWidth(10); got != 2 {
 		t.Fatalf("= %d rows, want it capped at 2", got)
+	}
+}
+
+func TestComposerEditorOwnsTheRowLimit(t *testing.T) {
+	c := kit.NewComposer(kit.ComposerConfig{MaxRows: 2, Initial: "one\ntwo\nthree\nfour\nfive\nsix"})
+	if got := c.Controller().MaxRows; got != 2 {
+		t.Fatalf("editor row limit = %d, want the configured limit", got)
+	}
+	for _, limit := range []int{2, 4, 0} {
+		c.Controller().MaxRows = limit
+		want := limit
+		if want == 0 {
+			want = 6
+		}
+		if got := c.HeightForWidth(20); got != want {
+			t.Fatalf("row limit %d: composer height = %d, want %d", limit, got, want)
+		}
+	}
+}
+
+func TestZeroComposerSeedsTheDefaultRowLimitOnce(t *testing.T) {
+	var c kit.Composer
+	c.HeightForWidth(20)
+	if got := c.Controller().MaxRows; got != kit.DefaultComposerRows {
+		t.Fatalf("default editor row limit = %d, want %d", got, kit.DefaultComposerRows)
+	}
+	c.Controller().MaxRows = 0
+	c.Controller().SetText(strings.Repeat("line\n", kit.DefaultComposerRows))
+	if got := c.HeightForWidth(20); got != kit.DefaultComposerRows+1 {
+		t.Fatalf("explicit unlimited editor height = %d, want %d", got, kit.DefaultComposerRows+1)
 	}
 }
 

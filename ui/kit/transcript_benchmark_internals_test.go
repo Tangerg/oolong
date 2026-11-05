@@ -8,6 +8,11 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
 
+type transcriptSearchRows int
+
+func (r transcriptSearchRows) HeightForWidth(int) int { return int(r) }
+func (transcriptSearchRows) Draw(grid.View)           {}
+
 // BenchmarkTranscriptMarkCommittedHistory asks the performance-model question
 // directly: does drawing a fixed viewport become more expensive as search matches
 // accumulate entirely before it?
@@ -20,6 +25,9 @@ func BenchmarkTranscriptMarkCommittedHistory(b *testing.B) {
 			}
 			transcript, err := NewTranscript(TranscriptConfig{})
 			if err != nil {
+				b.Fatal(err)
+			}
+			if _, err := transcript.Controller().Add(transcriptSearchRows(count)); err != nil {
 				b.Fatal(err)
 			}
 			newTestRoot(transcript.Element()).Draw(grid.NewSurface(80, 24).View())
@@ -45,6 +53,9 @@ func TestVisibleMatchesIncludesTheOneCrossingTheViewportEdge(t *testing.T) {
 	}
 	transcript, err := base.NewTranscript(base.TranscriptConfig{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transcript.Add(transcriptSearchRows(21)); err != nil {
 		t.Fatal(err)
 	}
 	newTestRoot(transcript.Element()).Draw(grid.NewSurface(20, 2).View())

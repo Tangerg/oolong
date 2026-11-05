@@ -26,7 +26,7 @@ func TestAnUnclosedPasteIsBounded(t *testing.T) {
 	if len(events) == 0 {
 		t.Fatal("an unbounded paste never delivered anything")
 	}
-	if !p.pasting {
+	if p.frame != pasteFrame {
 		t.Fatal("the allocation bound ended paste mode before its closing sequence")
 	}
 	if len(p.paste) >= maxPaste {
@@ -51,7 +51,7 @@ func TestALargePasteStaysTextUntilItsTerminator(t *testing.T) {
 	if got := pasted.String(); got != payload {
 		t.Fatalf("joined paste has %d bytes, want the original %d", len(got), len(payload))
 	}
-	if p.pasting || p.paste != nil {
+	if p.frame != noFrame || p.paste != nil {
 		t.Fatal("the closing sequence did not settle paste state")
 	}
 }

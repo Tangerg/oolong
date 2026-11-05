@@ -49,7 +49,10 @@ func TestWaitObservesRealModelChangesWithoutPolling(t *testing.T) {
 	}
 	defer r.Close()
 	o := &owner{root: r, done: make(chan struct{}), observed: make(chan struct{}, 1)}
-	driver := automation.NewDriver(o)
+	driver, err := automation.NewDriver(o)
+	if err != nil {
+		t.Fatal(err)
+	}
 	result := make(chan error, 1)
 	go func() {
 		_, err := driver.Wait(context.Background(), scene.Query{}, func(observation scene.Observation) bool {
@@ -83,7 +86,10 @@ func TestTargetExpiresWhileLocatorResolvesReplacement(t *testing.T) {
 	}
 	defer r.Close()
 	o := &owner{root: r, done: make(chan struct{}), observed: make(chan struct{}, 1)}
-	driver := automation.NewDriver(o)
+	driver, err := automation.NewDriver(o)
+	if err != nil {
+		t.Fatal(err)
+	}
 	target, err := driver.Find(context.Background(), scene.Query{}, scene.Match{Key: "save"})
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +120,10 @@ func TestLocatorRejectsAmbiguityAndTruncatedEvidence(t *testing.T) {
 	}
 	defer r.Close()
 	o := &owner{root: r, done: make(chan struct{}), observed: make(chan struct{}, 1)}
-	driver := automation.NewDriver(o)
+	driver, err := automation.NewDriver(o)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := driver.Find(context.Background(), scene.Query{}, scene.Match{Role: scene.RoleButton, Name: "Delete"}); !errors.Is(err, scene.ErrAmbiguous) {
 		t.Fatalf("ambiguous: %v", err)
 	}
@@ -130,7 +139,10 @@ func TestWaitHonorsCancellationWithoutChangingModel(t *testing.T) {
 	}
 	defer r.Close()
 	o := &owner{root: r, done: make(chan struct{}), observed: make(chan struct{}, 1)}
-	driver := automation.NewDriver(o)
+	driver, err := automation.NewDriver(o)
+	if err != nil {
+		t.Fatal(err)
+	}
 	before := r.Progress()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -163,9 +175,9 @@ func TestDriverRejectsAbsentSessionCapabilities(t *testing.T) {
 	}
 	defer root.Close()
 	for _, session := range []*customSession{nil, {root: root}, {dispatcher: &owner{}}} {
-		driver := automation.NewDriver(session)
-		if _, err := driver.Observe(t.Context(), scene.Query{}); !errors.Is(err, automation.ErrInvalid) {
-			t.Fatalf("absent capability: %v", err)
+		driver, err := automation.NewDriver(session)
+		if driver != nil || !errors.Is(err, automation.ErrInvalid) {
+			t.Fatalf("absent capability constructed a driver: %v, %v", driver, err)
 		}
 	}
 }

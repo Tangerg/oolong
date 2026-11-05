@@ -499,7 +499,7 @@ func (l Line) eachUnit() iter.Seq[unit] {
 				}
 				col = layout.Sum(col, n)
 			default:
-				w := clusterWidth(cluster)
+				w := grid.ClusterWidth(cluster)
 				if !yield(unit{cluster: cluster, source: s, linked: true, width: w, space: cluster == " ", at: at, size: len(cluster)}) {
 					return
 				}
@@ -579,7 +579,7 @@ func advanceCluster(cluster string, col int) int {
 	if cluster == "\t" {
 		return layout.Sum(col, TabStop-col%TabStop)
 	}
-	return layout.Sum(col, clusterWidth(cluster))
+	return layout.Sum(col, grid.ClusterWidth(cluster))
 }
 
 // plainASCII reports whether every byte is one printable, one-column cluster.
@@ -622,7 +622,7 @@ type displayFilter struct {
 }
 
 func (d *displayFilter) hides(cluster string) bool {
-	if dropped(cluster) || d.removed && clusterWidth(cluster) == 0 && joins(d.previous, cluster) {
+	if dropped(cluster) || d.removed && grid.ClusterWidth(cluster) == 0 && joins(d.previous, cluster) {
 		d.removed = true
 		return true
 	}
@@ -698,10 +698,6 @@ func prefix(s string, budget int) string {
 	}
 	return s[:end]
 }
-
-// clusterWidth is a cluster's column count. It defers to the grid, so text is
-// measured here exactly as it will be drawn there.
-func clusterWidth(cluster string) int { return grid.ClusterWidth(cluster) }
 
 // Clusters preserves grapheme boundaries because a cursor between a base and
 // its combining mark has no display position. Malformed bytes remain separate
@@ -785,7 +781,7 @@ func ColumnOf(s string, i int) int {
 			col = layout.Sum(col, TabStop-col%TabStop)
 			continue
 		}
-		col = layout.Sum(col, clusterWidth(cluster))
+		col = layout.Sum(col, grid.ClusterWidth(cluster))
 	}
 	return col
 }
@@ -806,7 +802,7 @@ func OffsetAt(s string, col int) int {
 	}
 	at, width := 0, 0
 	for offset, cluster := range Clusters(s) {
-		step := clusterWidth(cluster)
+		step := grid.ClusterWidth(cluster)
 		if cluster == "\t" {
 			step = TabStop - width%TabStop
 		}

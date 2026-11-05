@@ -63,6 +63,20 @@ type ParserConfig struct {
 
 func NewParser(cfg ParserConfig) *Parser { return &Parser{keyboard: cfg.Keyboard} }
 
+// Once a payload introducer is complete, its bytes cannot regain keyboard
+// meaning through a timeout. One frame kind owns that interpretation until the
+// payload ends; paste, mouse and control-string bodies are mutually exclusive.
+type frameKind uint8
+
+const (
+	noFrame frameKind = iota
+	pasteFrame
+	x10MouseFrame
+	oscFrame
+	dcsFrame
+	apcFrame
+)
+
 // Parser retains ambiguous bytes across arbitrary chunks so split escape sequences
 // and UTF-8 cannot lose keys. A lone escape needs an external deadline: Pending
 // reports it and Flush ends the wait. A Parser belongs to one reader goroutine,
@@ -74,15 +88,10 @@ type Parser struct {
 	buf       []byte
 	expiring  bool
 	controlAt int
-	// pasting is set between a paste's opening and closing sequences, when bytes
-	// are text rather than input to interpret.
-	pasting bool
-	paste   []byte
-	// str is the kind of string being accumulated, between its head and its
-	// terminator, when bytes are its body rather than input to interpret.
-	str     stringKind
-	oscCmd  int
-	strBody []byte
+	frame     frameKind
+	paste     []byte
+	oscCmd    int
+	strBody   []byte
 	// dropping is set when a sequence overran what one can hold, and stays set
 	// until that sequence ends. See [Parser.skipParams] and [Parser.skipString].
 	dropping dropping
@@ -107,6 +116,7 @@ func (p *Parser) Feed(b []byte) []Event {
 // ordinary input. A half-arrived character is dropped, since the rest is never
 // coming. A paste in progress is left alone: it is incomplete rather than
 // ambiguous, and cutting it short would corrupt the text.
+// A truncated X10 report is discarded because its raw fields cannot become keys.
 func (p *Parser) Flush() []Event { return p.drain(true) }
 
 // Pending reports whether the parser is waiting for more input. It does not
@@ -118,18 +128,18 @@ func (p *Parser) Flush() []Event { return p.drain(true) }
 // so a report drawn from the buffer alone would say a paste that had not reached
 // its terminator was nothing at all.
 func (p *Parser) Pending() bool {
-	return len(p.buf) > 0 || p.dropping != droppingNothing || p.pasting || p.str != noString
+	return len(p.buf) > 0 || p.dropping != droppingNothing || p.frame != noFrame
 }
 
 // Ambiguous reports whether an Escape timeout can resolve pending input.
-// Incomplete UTF-8, paste payloads and string bodies must wait for more bytes.
+// Incomplete UTF-8 and recognized paste, mouse or string payloads must wait for more bytes.
 func (p *Parser) Ambiguous() bool {
 	// A discarded OSC/DCS body still has framing. Silence in its payload
 	// grants no keyboard authority; only a trailing Escape is ambiguous.
 	if p.dropping == droppingParams {
 		return true
 	}
-	return !p.pasting && (p.str == noString || p.dropping == droppingString) && len(p.buf) > 0 && p.buf[0] == esc
+	return (p.frame == noFrame || p.dropping == droppingString) && len(p.buf) > 0 && p.buf[0] == esc
 }
 
 // Expire resolves Escape ambiguity without declaring the byte stream finished.
@@ -166,13 +176,16 @@ func (p *Parser) drain(final bool) (events []Event) {
 // advance makes one state transition. Its boolean distinguishes waiting from
 // consuming bytes that deliberately produce no event.
 func (p *Parser) advance(final bool) (Event, bool) {
-	switch {
-	case p.dropping != droppingNothing:
+	if p.dropping != droppingNothing {
 		return p.advanceRunaway(final)
-	case p.str != noString:
-		return p.readString()
-	case p.pasting:
+	}
+	switch p.frame {
+	case pasteFrame:
 		return p.advancePaste()
+	case x10MouseFrame:
+		return p.advanceX10Mouse(final)
+	case oscFrame, dcsFrame, apcFrame:
+		return p.readString()
 	default:
 		return p.advanceInput(final)
 	}
@@ -314,7 +327,7 @@ func (p *Parser) takePaste() string {
 }
 
 func (p *Parser) closePaste() string {
-	p.pasting = false
+	p.frame = noFrame
 	return p.takePaste()
 }
 
@@ -389,11 +402,11 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 		return p.decodeControl(b)
 	case second == oscIntro:
 		cmd, size := oscHead(b)
-		return p.introduceString(b, oscString, cmd, size)
+		return p.introduceString(b, oscFrame, cmd, size)
 	case second == dcsIntro:
-		return p.introduceString(b, dcsString, 0, dcsHead(b))
+		return p.introduceString(b, dcsFrame, 0, dcsHead(b))
 	case second == apcIntro:
-		return p.introduceString(b, apcString, 0, graphicsHead(b))
+		return p.introduceString(b, apcFrame, 0, graphicsHead(b))
 	case second == 'O':
 		if len(b) < 3 {
 			return 0, nil, false
@@ -455,10 +468,11 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	n = i + 1
 	switch string(b[:n]) {
 	case pasteOpen:
-		p.pasting = true
+		p.frame = pasteFrame
 		return n, nil, true
 	case x10MouseIntro:
-		return decodeX10Mouse(b)
+		p.frame = x10MouseFrame
+		return n, nil, true
 	}
 	piece, _, valid := ansi.Next(string(b[:n]))
 	if !valid || piece.Kind != ansi.Control || piece.Intermediates != "" {
@@ -561,14 +575,14 @@ func commonPrefix(a, b []byte) int {
 	return n
 }
 
-func (p *Parser) introduceString(b []byte, kind stringKind, cmd, size int) (int, Event, bool) {
+func (p *Parser) introduceString(b []byte, kind frameKind, cmd, size int) (int, Event, bool) {
 	switch {
 	case size < 0:
 		return decodeAlt(b)
 	case size == 0:
 		return 0, nil, false
 	default:
-		p.str, p.oscCmd, p.strBody = kind, cmd, nil
+		p.frame, p.oscCmd, p.strBody = kind, cmd, nil
 		return size, nil, true
 	}
 }
@@ -579,7 +593,7 @@ func (p *Parser) readString() (Event, bool) {
 	for i := 0; i < len(p.buf); {
 		c := p.buf[i]
 		switch {
-		case c == bel && p.str != apcString:
+		case c == bel && p.frame != apcFrame:
 			p.take(i + 1)
 			return p.endString(), true
 		case c == esc:
@@ -618,12 +632,12 @@ func (p *Parser) readString() (Event, bool) {
 // consumers can treat the result as displayable text.
 func (p *Parser) endString() Event {
 	body := strings.ToValidUTF8(string(p.strBody), "�")
-	kind, cmd := p.str, p.oscCmd
+	kind, cmd := p.frame, p.oscCmd
 	p.abandonString()
 	switch kind {
-	case apcString:
+	case apcFrame:
 		return APC{Body: body}
-	case dcsString:
+	case dcsFrame:
 		return DCS{Body: body}
 	default:
 		return OSC{Command: cmd, Params: body}
@@ -631,13 +645,13 @@ func (p *Parser) endString() Event {
 }
 
 func (p *Parser) abandonString() {
-	p.str, p.oscCmd, p.strBody = noString, 0, nil
+	p.frame, p.oscCmd, p.strBody = noFrame, 0, nil
 }
 
 func (p *Parser) skipString() bool {
 	for i := range len(p.buf) {
 		switch {
-		case p.buf[i] == bel && p.str != apcString:
+		case p.buf[i] == bel && p.frame != apcFrame:
 			p.take(i + 1)
 			p.abandonString()
 			p.dropping = droppingNothing

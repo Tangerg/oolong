@@ -213,7 +213,14 @@ func (e *ExtensionError) Unwrap() error { return e.Err }
 
 // SetRenderer copies the registry before mutation to keep copied Looks independent.
 // A nil renderer removes that extension; the zero Look is ready for registration.
+// It panics before mutation unless extension is FencedCode or DisplayMath, because
+// only Markdown's parser can define a semantic hook that rendering will invoke.
 func (l *Look) SetRenderer(extension Extension, renderer Renderer) {
+	switch extension {
+	case FencedCode, DisplayMath:
+	default:
+		panic(fmt.Sprintf("markdown: invalid extension %d", extension))
+	}
 	l.extensions = maps.Clone(l.extensions)
 	if renderer == nil {
 		delete(l.extensions, extension)

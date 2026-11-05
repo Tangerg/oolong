@@ -49,14 +49,18 @@ type mouseReport struct {
 	released bool
 }
 
-// decodeX10Mouse takes the fields whole or not at all: they are raw bytes that
-// can look like characters, and any left behind would be typed into the focus.
-func decodeX10Mouse(b []byte) (n int, ev Event, done bool) {
-	n = len(x10MouseIntro) + mouseReportFields
-	if len(b) < n {
-		return 0, nil, false
+// Recognized mouse payload is never Escape-ambiguous. At EOF discard an
+// incomplete report instead of interpreting its fields as keys.
+func (p *Parser) advanceX10Mouse(final bool) (Event, bool) {
+	if len(p.buf) < mouseReportFields {
+		if !final {
+			return nil, false
+		}
+		p.take(len(p.buf))
+		p.frame = noFrame
+		return nil, true
 	}
-	fields := b[len(x10MouseIntro):n]
+	fields := p.buf[:mouseReportFields]
 	bits := int(fields[0]) - x10MouseOffset
 	report := mouseReport{
 		bits: bits,
@@ -66,7 +70,9 @@ func decodeX10Mouse(b []byte) (n int, ev Event, done bool) {
 		// cannot say which one was let go.
 		released: bits&(mouseButtonMask|mouseMotionBit|mouseWheelBit) == mouseNoButton,
 	}
-	return n, report.event(), true
+	p.take(mouseReportFields)
+	p.frame = noFrame
+	return report.event(), true
 }
 
 func (r mouseReport) event() Event {

@@ -14,7 +14,7 @@ Run `go run ./examples/agent` and read the [agent example](https://github.com/Ta
 
 ## Observe without mutating
 
-`automation.NewDriver(runtime)` schedules queries and actions onto the UI owner. The semantic handle may be retained from Build; queries run after attachment. It cannot prepare frames, advance a transport watermark, or close the program’s root. `Observe` reads the existing semantic projection and does not start painting, populate hidden content or create background work.
+Construct the driver with `driver, err := automation.NewDriver(runtime)` and handle the error before retaining it. A missing session, scene or dispatcher returns `automation.ErrInvalid` at construction. The driver schedules queries and actions onto the UI owner. Its semantic handle may be retained from Build; queries run after attachment. It cannot prepare frames, advance a transport watermark, or close the program’s root. `Observe` reads the existing semantic projection and does not start painting, populate hidden content or create background work.
 
 A `scene.Query` bounds depth and node count. `TextLimit` bounds each display field, `ByteLimit` bounds all returned node and action strings together, and `DetailLimit` bounds actions plus live relations. Zero limits select package defaults and positive limits are capped by the corresponding package maximum. These are projection budgets; allocations inside application callbacks and transport serialization have their own owners.
 

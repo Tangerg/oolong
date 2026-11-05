@@ -53,8 +53,11 @@ func TestTheWidthTableHasNotChangedItsMind(t *testing.T) {
 		// exceed the usual two-column grapheme width.
 		{"halfwidth katakana", "ｶ", 1},
 		{"halfwidth voiced mark", "ﾞ", 1},
+		{"halfwidth semivoiced mark", "ﾟ", 1},
+		{"both halfwidth sound marks", "ﾞﾟ", 2},
 		{"voiced halfwidth katakana", "ｶﾞ", 2},
 		{"wide base with halfwidth voiced mark", "あﾞ", 3},
+		{"replacement character with a spacing mark", "\ufffdﾞ", 2},
 
 		// Emoji are wide. A text-default symbol is narrow until a variation
 		// selector asks for its emoji presentation, which terminals and
@@ -79,6 +82,10 @@ func TestTheWidthTableHasNotChangedItsMind(t *testing.T) {
 		{"a tab", "\t", 0},
 		{"an escape", "\x1b", 0},
 		{"a newline", "\n", 0},
+		{"malformed UTF-8", "\xff", 0},
+		{"malformed UTF-8 before a sound mark", "\xffﾞ", 0},
+		{"malformed UTF-8 after a sound mark", "ﾞ\xff", 0},
+		{"malformed UTF-8 between emoji and a sound mark", "⚠\ufe0f\xffﾞ", 0},
 	} {
 		if got := grid.ClusterWidth(tc.in); got != tc.want {
 			t.Errorf("%s (%q) is %d columns, want %d", tc.name, tc.in, got, tc.want)
