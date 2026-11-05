@@ -28,7 +28,9 @@ type FormConfig struct {
 	Gap        int
 	Check      func() error
 	Submit     func(base.SubmissionID) (scene.ActionState, error)
-	Cancel     func(base.SubmissionID) error
+	// Cancel follows [base.FormConfig] Cancel: it requests cancellation of a pending attempt only,
+	// and leaving an unsubmitted form belongs to the enclosing navigation.
+	Cancel func(base.SubmissionID) error
 }
 
 // Form composes one base.Form with a title, help and field appearance. It does not own a second field collection, validation state or submission attempt.

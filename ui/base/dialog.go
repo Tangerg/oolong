@@ -112,6 +112,9 @@ func (d *Dialog) Open() bool {
 }
 
 // Show opens the content and requests modal focus settlement. It panics for missing or foreign-owned content, or during presentation or observation.
+// It also panics with [scene.ErrCleanupPending] when the content was detached in the same owner turn and its
+// lifecycle callbacks have not been flushed: reopening must wait for that cleanup, and an open dialog replaces
+// its content through [Dialog.SetContent] instead of Dismiss followed by Show.
 func (d *Dialog) Show() {
 	if d == nil || d.Open() {
 		return
@@ -221,8 +224,10 @@ func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
 		}
 		return scene.EventResult{}
 	}
+	// Key.Is ignores the transition. A release can arrive here after a field's
+	// keymap consumed the same key's press, so only a key going down traverses.
 	key, ok := event.Input().(input.Key)
-	if !ok {
+	if !ok || !key.Down() {
 		return scene.EventResult{}
 	}
 	if key.Is(input.Tab, 0) {

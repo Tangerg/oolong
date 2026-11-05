@@ -80,6 +80,10 @@ func (e Event) Target() Target { return e.target }
 // Read returns a value staged in this pointer's arrival frame or, for other
 // input, the scene's current admitted frame. A missing projection is distinct
 // from a producer that deliberately staged the zero value.
+// After [Root.InvalidateGeometry], non-pointer input also reads false until a
+// replacing frame is admitted. That revokes coordinates only: keyboard routing
+// still follows focus, so a handler whose action does not depend on geometry
+// must not treat a false read as a rejected input.
 func (e Event) Read[T any](snapshot *Snapshot[T]) (T, bool) {
 	var zero T
 	layout := e.route.layout

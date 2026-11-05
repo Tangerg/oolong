@@ -2,6 +2,7 @@ package base_test
 
 import (
 	"context"
+	"errors"
 	"image"
 	"testing"
 
@@ -102,5 +103,73 @@ func TestDialogRejectsSemanticMutationDuringPaint(t *testing.T) {
 	}()
 	if !dialog.Open() {
 		t.Fatal("rejected phase changed open state before failure")
+	}
+}
+
+func TestDialogTraversesFocusOncePerKeyGoingDown(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		mods  input.Mods
+		steps []int
+	}{
+		{"tab", 0, []int{1, 2, 0}},
+		{"shift_tab", input.Shift, []int{2, 1, 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fields := []*base.Text{base.NewText(base.TextConfig{Key: "a"}), base.NewText(base.TextConfig{Key: "b"}), base.NewText(base.TextConfig{Key: "c"})}
+			form := base.NewForm(base.FormConfig{Fields: []base.Field{fields[0], fields[1], fields[2]}})
+			dialog := base.NewDialog(base.DialogConfig{Initial: true, Content: form.Element(), Place: func(image.Point) image.Rectangle { return image.Rect(0, 0, 20, 8) }})
+			root := newTestRoot(dialog)
+			root.Draw(grid.NewSurface(20, 8).View())
+			focused := func() int {
+				for i, field := range fields {
+					if field.Element().Focused() {
+						return i
+					}
+				}
+				return -1
+			}
+			if focused() != 0 {
+				t.Fatalf("initial focus = %d", focused())
+			}
+			press := func(transition input.Transition) {
+				root.Handle(input.Key{Code: input.Tab, Mods: tc.mods, Transition: transition})
+				root.root.FlushNotifications()
+			}
+			for step, transition := range []input.Transition{input.Press, input.Repeat, input.Repeat} {
+				press(transition)
+				if got, want := focused(), tc.steps[step]; got != want {
+					t.Fatalf("transition %d moved focus to %d, want %d", transition, got, want)
+				}
+			}
+			press(input.Release)
+			if got, want := focused(), tc.steps[2]; got != want {
+				t.Fatalf("release moved focus to %d, want it to stay on %d", got, want)
+			}
+		})
+	}
+}
+
+func TestDialogReopenWaitsForDetachedContentCleanup(t *testing.T) {
+	dialog, _, body, root := dialogFixture(t, true)
+	dialog.Show()
+	root.Draw(grid.NewSurface(12, 5).View())
+	dialog.Dismiss()
+	func() {
+		defer func() {
+			if err, _ := recover().(error); !errors.Is(err, scene.ErrCleanupPending) {
+				t.Fatalf("same-turn reopen recovered %v, want ErrCleanupPending", err)
+			}
+		}()
+		dialog.Show()
+	}()
+	if dialog.Open() {
+		t.Fatal("rejected reopen changed open state")
+	}
+	root.root.FlushNotifications()
+	dialog.Show()
+	root.root.FlushNotifications()
+	if !dialog.Open() || !body.Element().Focused() {
+		t.Fatal("reopen after cleanup did not restore content")
 	}
 }

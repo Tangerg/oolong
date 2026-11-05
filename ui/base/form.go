@@ -307,6 +307,10 @@ type FormConfig struct {
 	Gap        int
 	Check      func() error
 	Submit     func(SubmissionID) (scene.ActionState, error)
+	// Cancel receives a cancellation request for the pending attempt with that ID; it is never called
+	// while the form is idle. It does not settle the attempt; the attempt's owner still delivers Settle.
+	// Leaving an unsubmitted form is application navigation: the Cancel key is left unhandled when no
+	// attempt is pending, so an enclosing handler receives it.
 	Cancel     func(SubmissionID) error
 	PaintField func(scene.Frame, Field)
 }
