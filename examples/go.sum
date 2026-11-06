@@ -6,8 +6,8 @@ github.com/Tangerg/oolong/extensions/highlight v0.26.1 h1:IGTxleTwaunnRWtFaUAsYZ
 github.com/Tangerg/oolong/extensions/highlight v0.26.1/go.mod h1:iKOtgHpPLTyfodX1cBZ7sTs00Kyjvucyy0j9j3ObPo8=
 github.com/Tangerg/oolong/extensions/latex v0.27.0 h1:dAnCndHtJCEqJDsRD2s8kk7os3s9cEFKSDIs3JOvX8s=
 github.com/Tangerg/oolong/extensions/latex v0.27.0/go.mod h1:1B19S6Xr4MZrBWhnD9qioivIsRnYM51XAeCBod7/HCo=
-github.com/Tangerg/oolong/extensions/markdown v0.27.0 h1:ECaHv/013MggIhDIad14on++uUY6nuU8ePEw/I6bvUs=
-github.com/Tangerg/oolong/extensions/markdown v0.27.0/go.mod h1:yNL8/azL1lDTepIXTWF3E1jE9lEsb4SaC8lpgcL9g84=
+github.com/Tangerg/oolong/extensions/markdown v0.27.1-0.20261106061224-32f9fa739de7 h1:KVGC6zOpavy5DIpH7Nb7BRPcNuzuCIoL9rGYIkyGBX0=
+github.com/Tangerg/oolong/extensions/markdown v0.27.1-0.20261106061224-32f9fa739de7/go.mod h1:yNL8/azL1lDTepIXTWF3E1jE9lEsb4SaC8lpgcL9g84=
 github.com/Tangerg/oolong/extensions/mermaid v0.27.0 h1:RCeeJUiB1HDIQjCU50D+zm1p+f4BAV9hKliwiOJzlXU=
 github.com/Tangerg/oolong/extensions/mermaid v0.27.0/go.mod h1:HYaEEzqI+QV4bcMGwwrl0Jhv5wrovu73Meestvfx3cw=
 github.com/Tangerg/oolong/ui v0.27.0 h1:Biyp9W+KArUvgkfpF1DeoQhnr/4fF/THquO6PfSly+Q=
