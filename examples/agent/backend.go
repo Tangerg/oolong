@@ -9,17 +9,17 @@ import (
 	"github.com/Tangerg/oolong/ui/core/program"
 )
 
-type planMode string
+type planningMode string
 
 const (
-	planFast     planMode = "fast"
-	planCareful  planMode = "careful"
-	planArgument          = "<" + string(planFast) + "|" + string(planCareful) + ">"
+	planningFast     planningMode = "fast"
+	planningCareful  planningMode = "careful"
+	planningArgument              = "<" + string(planningFast) + "|" + string(planningCareful) + ">"
 )
 
 type runRequest struct {
-	prompt string
-	mode   planMode
+	prompt       string
+	planningMode planningMode
 }
 
 type changeProposal struct {
@@ -58,7 +58,7 @@ func (m mockBackend) Run(ctx context.Context, request runRequest, output agentOu
 	run.say(ctx, "# Working plan\n\nI\u2019ll inspect the parser boundary for **"+clip(request.prompt)+"**.\n\n")
 	run.step(ctx, stepUnderstand, stepDone)
 
-	if request.mode == planFast {
+	if request.planningMode == planningFast {
 		run.step(ctx, stepInspect, stepSkipped)
 	} else {
 		run.step(ctx, stepInspect, stepRunning)

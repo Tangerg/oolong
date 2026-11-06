@@ -6,15 +6,19 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestFilterHitUsesRankedIndicesWithoutChangingSelectionOrScroll(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var filter base.Filter[string]
 	assertRowHit(t, filter.Hit, image.Pt(0, 0), -1)
 	filter.SetItems([]string{"other", "a", "ab", "ac", "zz"}, func(s string) string { return s })
 	filter.SetPattern("a")
 	filter.Select(2)
-	root := newTestRoot(&filter)
+	root := scenes.Mount(&filter)
 	root.Draw(grid.NewSurface(4, 2).View())
 	assertRowHit(t, filter.Hit, image.Pt(0, 0), 1)
 	if filter.Selected() != 2 || filter.Scroll().Offset() != 1 {
@@ -33,10 +37,13 @@ func TestFilterHitUsesRankedIndicesWithoutChangingSelectionOrScroll(t *testing.T
 }
 
 func TestFilterHitSharesTheInnerListClipping(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var filter base.Filter[string]
 	filter.SetItems([]string{"zero", "one", "two", "three", "four"}, func(s string) string { return s })
 	view := grid.NewSurface(4, 2).View().Sub(image.Rect(-2, -1, 6, 4))
-	newTestRoot(&filter).Draw(view)
+	scenes.Mount(&filter).Draw(view)
 	for _, test := range []struct {
 		point image.Point
 		want  int
@@ -53,6 +60,9 @@ func TestFilterHitSharesTheInnerListClipping(t *testing.T) {
 }
 
 func TestFilterHitRejectsUnpresentedMatches(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, replaceSource := range []bool{false, true} {
 		var filter base.Filter[string]
 		calls := 0
@@ -63,7 +73,7 @@ func TestFilterHitRejectsUnpresentedMatches(t *testing.T) {
 		filter.SetItems([]string{"alpha", "beta"}, text)
 		filter.SetPattern("a")
 		probe := &hitFrameProbe{child: &filter}
-		root := newTestRoot(probe)
+		root := scenes.Mount(probe)
 		view := grid.NewSurface(4, 3).View()
 		root.Draw(view)
 		assertRowHit(t, filter.Hit, image.Pt(0, 1), 1)

@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 type confirmDomain struct {
@@ -52,12 +53,15 @@ func (d *confirmDomain) publish(value bool) {
 }
 
 func TestConfirmControlPublishesVersionsWithoutALocalMirror(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	domain := &confirmDomain{snapshot: base.ConfirmSnapshot{Revision: 10}}
 	field := base.NewConfirm(base.ConfirmConfig{Label: "Live", Control: domain})
 	defer field.Close()
-	root := newTestRoot(field)
+	root := scenes.Mount(field)
 	root.Draw(grid.NewSurface(12, 2).View())
-	wake := root.root.Changes()
+	wake := root.Changes()
 	domain.publish(true)
 	select {
 	case <-wake:
@@ -67,7 +71,7 @@ func TestConfirmControlPublishesVersionsWithoutALocalMirror(t *testing.T) {
 	if !field.Answer() || field.Revision() != 11 {
 		t.Fatal("field did not read the domain's atomic snapshot")
 	}
-	observation, err := root.root.Observe(scene.Query{})
+	observation, err := root.Observe(scene.Query{})
 	if err != nil || len(observation.Nodes) != 1 || observation.Nodes[0].Value != "true" {
 		t.Fatalf("semantic snapshot=%v err=%v", observation, err)
 	}
@@ -79,7 +83,7 @@ func TestConfirmControlPublishesVersionsWithoutALocalMirror(t *testing.T) {
 	if field.Answer() || domain.snapshot.Value || domain.requests != 1 {
 		t.Fatal("keyboard wrote a local mirror instead of the domain")
 	}
-	invoked, err := root.root.Invoke(context.Background(), field.Element().Target(), scene.ActionSetValue, true)
+	invoked, err := root.Invoke(context.Background(), field.Element().Target(), scene.ActionSetValue, true)
 	if err != nil || invoked.State != scene.Applied || !field.Answer() || domain.requests != 2 {
 		t.Fatalf("AX request=%v err=%v", invoked, err)
 	}
@@ -108,6 +112,9 @@ func TestConfirmControlStartedWaitsForDomainPublication(t *testing.T) {
 }
 
 func TestConfirmControlRejectsPaintRequestsBeforeCallingDomain(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	domain := &confirmDomain{snapshot: base.ConfirmSnapshot{Revision: 1}}
 	field := base.NewConfirm(base.ConfirmConfig{Control: domain})
 	defer field.Close()
@@ -115,7 +122,7 @@ func TestConfirmControlRejectsPaintRequestsBeforeCallingDomain(t *testing.T) {
 	if err := element.SetPaint(func(scene.Frame) { field.Say(true) }); err != nil {
 		t.Fatal(err)
 	}
-	root := newTestRoot(field)
+	root := scenes.Mount(field)
 	func() {
 		defer func() {
 			if recover() == nil {

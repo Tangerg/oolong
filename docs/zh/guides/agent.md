@@ -12,6 +12,8 @@ contentType: How-to
 
 运行 `go run ./examples/agent`，阅读 [agent 示例](https://github.com/Tangerg/oolong/tree/main/examples/agent)。领域任务、工具事件和持久化仍是应用策略。StreamDocument 拥有内容语义，Transcript 拥有阅读与保留，运行时拥有工作交付与终端输出。
 
+使用 `/plan fast` 或 `/plan careful` 选择下一次请求的规划深度。`/help` 列出当前会话注册的命令。
+
 ## 观察不产生变更
 
 使用 `driver, err := automation.NewDriver(runtime)` 构造，并在保存 driver 之前处理错误。缺失会话、场景或 dispatcher 会在构造时返回 `automation.ErrInvalid`。Driver 将查询和动作调度到 UI 所有者；可以在 Build 阶段保存语义句柄，挂载后再查询。它无法准备帧、推进写入水位或关闭程序的 Root。`Observe` 读取现有语义投影，不启动绘制、不填充隐藏内容、不创建后台工作。

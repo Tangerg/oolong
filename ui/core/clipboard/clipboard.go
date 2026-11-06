@@ -143,6 +143,19 @@ func (c *Channel) Read(ctx context.Context, sel Selection, send func(string) err
 // Foreign selections and bytes received before admission remain unrelated input.
 // at is transport receive time, not the time a queued read was decoded.
 func (c *Channel) Answer(params string, at time.Time) bool {
+	return c.answer(params, at, false)
+}
+
+// Reject consumes a complete reply whose payload the decoder refused to retain.
+// prefix must contain the complete selection and its semicolon. A partial frame
+// is not a reply: only its terminator authorizes this call. Matching and timing
+// follow Answer; a timely live result settles ErrResponse and a revoked result stays
+// revoked. An unrelated or incomplete selection cannot release the wire slot.
+func (c *Channel) Reject(prefix string, at time.Time) bool {
+	return c.answer(prefix, at, true)
+}
+
+func (c *Channel) answer(params string, at time.Time, rejected bool) bool {
 	if c == nil {
 		return false
 	}
@@ -157,12 +170,13 @@ func (c *Channel) Answer(params string, at time.Time) bool {
 		return false
 	}
 	c.pending = nil
+	result := readResult{err: ErrResponse}
 	if !at.Before(q.until) {
-		q.settle(readResult{err: context.DeadlineExceeded})
-		return true
+		result.err = context.DeadlineExceeded
+	} else if !rejected {
+		result.text, result.err = decodePayload(payload)
 	}
-	value, err := decodePayload(payload)
-	q.settle(readResult{text: value, err: err})
+	q.settle(result)
 	return true
 }
 

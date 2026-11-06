@@ -90,7 +90,7 @@ func (t *Transcript) drawHeader(window base.TranscriptView, view grid.View) {
 	view.Fade(visible, 1-window.Pinned.Fade)
 	headerRows := window.Pinned.Visible()
 	if window.Pinned.Rows > headerRows {
-		drawRule(view, headerRows, t.Glyphs.Horizontal, palette.Divider)
+		drawRule(view, headerRows, t.Glyphs.Rule, palette.Divider)
 	}
 }
 

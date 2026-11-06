@@ -4,25 +4,28 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/kit"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
-func typeInto(c *kit.Composer, s string) {
+func typeInto(scenes *scenetest.Scope, c *kit.Composer, s string) {
 	for _, r := range s {
-		newTestRoot(c).Handle(input.Key{Code: input.Character, Rune: r})
+		scenes.Mount(c).Handle(input.Key{Code: input.Character, Rune: r})
 	}
 }
 
 func TestAZeroComposerTakesText(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Every widget here is a struct a caller fills in, so the zero value has to work.
 	// One that looked finished and answered no keys would be the worse kind of broken.
 	var c kit.Composer
-	typeInto(&c, "hello")
+	typeInto(scenes, &c, "hello")
 	if got := c.Controller().Text(); got != "hello" {
 		t.Fatalf("text = %q, want what was typed", got)
 	}
@@ -32,8 +35,11 @@ func TestAZeroComposerTakesText(t *testing.T) {
 }
 
 func TestComposerResetEmptiesTheField(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var c kit.Composer
-	typeInto(&c, "sent")
+	typeInto(scenes, &c, "sent")
 	c.Controller().Clear()
 	if !c.Controller().Empty() {
 		t.Fatalf("text = %q, want nothing left after a reset", c.Controller().Text())
@@ -41,18 +47,24 @@ func TestComposerResetEmptiesTheField(t *testing.T) {
 }
 
 func TestComposerLeavesEnterToItsInterface(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Whether enter sends or breaks the line is the interface's decision. A composer
 	// that swallowed it would take that decision away from everything embedding one.
 	var c kit.Composer
-	if newTestRoot(&c).Handle(input.Key{Code: input.Enter}) {
+	if scenes.Mount(&c).Handle(input.Key{Code: input.Enter}) {
 		t.Fatal("the composer consumed enter")
 	}
 }
 
 func TestComposerDrawsItsPromptAndPlaceholder(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	c := kit.Composer{Prompt: "› "}
 	c.Controller().Placeholder = "ask"
-	rows := paintWidget(12, 1, &c)
+	rows := paintWidget(scenes, 12, 1, &c)
 	if !strings.HasPrefix(rows[0], "› ") {
 		t.Fatalf("row = %q, want the prompt marker first", rows[0])
 	}
@@ -62,10 +74,13 @@ func TestComposerDrawsItsPromptAndPlaceholder(t *testing.T) {
 }
 
 func TestComposerPlaceholderGivesWayToText(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	c := kit.Composer{Prompt: "› "}
 	c.Controller().Placeholder = "ask"
-	typeInto(&c, "hi")
-	rows := paintWidget(12, 1, &c)
+	typeInto(scenes, &c, "hi")
+	rows := paintWidget(scenes, 12, 1, &c)
 	if strings.Contains(rows[0], "ask") {
 		t.Fatalf("row = %q, want the placeholder gone once there is text", rows[0])
 	}
@@ -102,8 +117,11 @@ func sendKeys() *keymap.Map {
 }
 
 func TestComposerGrowsWithItsTextUpToItsCap(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	c := kit.NewComposer(kit.ComposerConfig{MaxRows: 2})
-	typeInto(c, "one two three four five six seven eight")
+	typeInto(scenes, c, "one two three four five six seven eight")
 	if got := c.HeightForWidth(10); got != 2 {
 		t.Fatalf("= %d rows, want it capped at 2", got)
 	}
@@ -140,30 +158,36 @@ func TestZeroComposerSeedsTheDefaultRowLimitOnce(t *testing.T) {
 }
 
 func TestComposerDrawsTheHintsUnderTheField(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	c := kit.Composer{
 		Prompt: "› ",
 		Hints:  []keymap.Action{"send"},
 	}
 	c.Controller().Keys = sendKeys()
-	rows := paintWidget(20, 2, &c)
+	rows := paintWidget(scenes, 20, 2, &c)
 	if !strings.Contains(rows[1], "send") {
 		t.Fatalf("second row = %q, want the hints under the field", rows[1])
 	}
 }
 
 func TestComposerUsesOneDefaultMapForEditingAndHints(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	c := kit.Composer{Hints: []keymap.Action{base.Yank}}
 	c.Controller().SetText("restored")
 	c.Controller().MoveLineStart()
 	c.Controller().KillToEnd()
 
-	if !newTestRoot(&c).Handle(input.Key{Code: input.Character, Rune: 'y', Mods: input.Ctrl}) {
+	if !scenes.Mount(&c).Handle(input.Key{Code: input.Character, Rune: 'y', Mods: input.Ctrl}) {
 		t.Fatal("the default editor binding was not active through Composer.Handle")
 	}
 	if got := c.Controller().Text(); got != "restored" {
 		t.Fatalf("text = %q, want the default yank binding to restore it", got)
 	}
-	rows := paintWidget(24, c.HeightForWidth(24), &c)
+	rows := paintWidget(scenes, 24, c.HeightForWidth(24), &c)
 	if !strings.Contains(rows[len(rows)-1], "y yank") {
 		t.Fatalf("hint row = %q, want the binding used by the editor", rows[len(rows)-1])
 	}

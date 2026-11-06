@@ -24,8 +24,8 @@ func New(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
 		Rule:     theme.Subtle,
 		Glyphs: markdown.Glyphs{
 			Bullet:    glyphs.Bullet,
-			Bar:       glyphs.Vertical,
-			Divider:   glyphs.Horizontal,
+			Bar:       glyphs.Vertical.String(),
+			Divider:   glyphs.Rule,
 			Checked:   glyphs.Taken,
 			Unchecked: glyphs.Free,
 		},

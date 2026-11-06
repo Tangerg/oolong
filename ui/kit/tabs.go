@@ -37,7 +37,7 @@ func NewTabs(config TabsConfig) *Tabs {
 	}
 	t := &Tabs{appearance: look}
 	if !config.NoRule {
-		t.rule = strings.Clone(config.Glyphs.Horizontal)
+		t.rule = strings.Clone(config.Glyphs.Rule)
 	}
 	t.controller = base.NewTabs(base.TabsConfig{
 		Items: config.Items, Initial: config.Initial, Keys: config.Keys, NoWrap: config.NoWrap, Gap: 2, StripRows: func() int {

@@ -77,7 +77,7 @@ type agent struct {
 	reviewPane    reviewPane
 	reviewDialog  *kit.Dialog
 
-	model             planMode
+	planningMode      planningMode
 	run               *agentRun
 	stopClock         func()
 	stopProgressReset func()
@@ -98,13 +98,13 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 	keys.Bind(quitAgent, input.Ctrl.Rune('c'))
 
 	a := &agent{
-		runtime: runtime,
-		backend: backend,
-		theme:   theme,
-		glyphs:  glyphs,
-		keys:    keys,
-		model:   planCareful,
-		status:  kit.Status{Theme: theme, Glyphs: glyphs},
+		runtime:      runtime,
+		backend:      backend,
+		theme:        theme,
+		glyphs:       glyphs,
+		keys:         keys,
+		planningMode: planningCareful,
+		status:       kit.Status{Theme: theme, Glyphs: glyphs},
 	}
 	var err error
 	a.scope, err = runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // ScopeConfig explicitly carries ctx; the analyser does not track context through config fields.
@@ -269,14 +269,14 @@ func (a *agent) registerCommands() {
 		}},
 	)
 	a.commands.Add(
-		base.Command{Name: "model", Title: "choose fast or careful planning"},
-		commandAction{argument: planArgument, run: func(arg string) {
-			switch mode := planMode(arg); mode {
-			case planFast, planCareful:
-				a.model = mode
-				a.inform("model: " + arg)
+		base.Command{Name: "plan", Title: "choose fast or careful planning"},
+		commandAction{argument: planningArgument, run: func(arg string) {
+			switch mode := planningMode(arg); mode {
+			case planningFast, planningCareful:
+				a.planningMode = mode
+				a.inform("planning mode: " + arg)
 			default:
-				a.inform("usage: /model " + planArgument)
+				a.inform("usage: /plan " + planningArgument)
 			}
 		}},
 	)
@@ -353,8 +353,8 @@ func (a *agent) startRun(prompt string) {
 	a.composer.Controller().Clear()
 	a.completion.Dismiss()
 	a.workflow.Reset()
-	request := runRequest{prompt: prompt, mode: a.model}
-	a.inform("planning with " + string(request.mode))
+	request := runRequest{prompt: prompt, planningMode: a.planningMode}
+	a.inform("planning with " + string(request.planningMode))
 	a.setProgress(term.Progress{State: term.ProgressIndeterminate})
 	a.started = time.Now()
 	timer, err := a.runtime.Every(a.scope, statusTickInterval, a.tick)

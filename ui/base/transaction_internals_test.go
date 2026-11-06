@@ -3,6 +3,7 @@ package base
 import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 type transcriptTestFrame struct {
@@ -25,8 +26,10 @@ func (f *transcriptTestFrame) Draw(frame scene.Frame) {
 }
 
 func stageTranscriptForTest(transcript *Transcript, width int) {
+	scenes := scenetest.New()
+	defer scenes.Close()
+
 	frame := &transcriptTestFrame{transcript: transcript, width: width}
-	root := newTestRoot(frame)
-	defer root.root.Close()
+	root := scenes.Mount(frame)
 	root.Draw(grid.NewSurface(max(width, 1), 1).View())
 }

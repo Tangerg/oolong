@@ -24,6 +24,8 @@ contentType: How-to
 
 Markdown 解析最多接受 256 个同时打开的块，包含段落和列表项。结构由 Goldmark 拥有；超过边界时，在继续嵌套或递归遍历块之前返回 `ErrBlockNestingLimit`。代码围栏中的引用标记仍是普通正文。这是块嵌套预算，不代表对全部行内语法或所有解析成本的限制。被拒绝的解析不返回 drawable，已结束的 `StreamDocument` 会以准备错误报告 `Failed`。
 
+Markdown 链接只允许 `http`、`https` 和 `mailto` 目标。地址形式的标签必须与目标指向同一规范化网站主机或完整邮箱收件人集合。校验使用文字渲染器的可见文本投影，因此被丢弃的控制字符不能掩盖待判断的地址。不同或歧义的标签不携带隐藏的点击目标；即使 `Look.Target` 使用零值样式，也会显示实际目标。
+
 Markdown 表格在测量前，将单元格与配置的规则图案准备为独立文字字段。边缘结合字符与前置字符获得保留原样式和链接的空格基底，让补白与分隔符保有自己的列。每列除了可读下限，还为最宽的不可分割字素预留空间；这些下限无法同时容纳时，表格采用记录布局，不丢弃单元格内容。
 
 Markdown 扩展钩子接收应用提供的被动渲染函数。`Look.SetRenderer` 只接收 `markdown.FencedCode` 和 `markdown.DisplayMath`：语法识别归 Markdown 所有，未知标识属于程序配置错误，会在改变已有注册之前 panic。传入 nil renderer 会移除对应的有效钩子；渲染失败仍通过 renderer 的 error 结果返回。这样代码围栏可以使用高亮、数学使用 LaTeX，同时不要求 Markdown 模块导入其同级模块。准备 Mermaid 输出涉及外部进程，应在绘制前作为作用域工作完成。

@@ -60,6 +60,7 @@ func captured(tb testing.TB, body grid.Drawable, width int) [][]grid.Cell {
 func TestStreamingFinalSemanticsEqualWholeSource(t *testing.T) {
 	sources := []string{
 		"[earlier][ref]\n\nsecond\n\n[ref]: https://example.test/final\n",
+		"[h**t&#1;**\u200dtps://trusted.example][ref]\n\n[ref]: https://evil.example\n",
 		"[A B]: /first\n\nfirst\n\n[a  b]: /second\n\n[link][a b]\n",
 		"- ```\n  first\n\n  *second*\n  ```\n\nafter\n",
 		"```\nfirst\n    ```\n\n*second*\n```\n\nafter\n",

@@ -7,17 +7,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
-	"github.com/Tangerg/oolong/ui/kit"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
+	"github.com/Tangerg/oolong/ui/kit"
 )
 
 type cellReader interface {
@@ -55,8 +54,8 @@ func paint(w, h int, draw func(grid.View)) []string {
 	return rows
 }
 
-func paintWidget(w, h int, widget any) []string {
-	return paint(w, h, newTestRoot(widget).Draw)
+func paintWidget(scenes *scenetest.Scope, w, h int, widget any) []string {
+	return paint(w, h, scenes.Mount(widget).Draw)
 }
 
 func equalRows(t *testing.T, got, want []string) {
@@ -170,10 +169,13 @@ func (*passiveFocusBody) Draw(scene.Frame) {}
 func (p *passiveFocusBody) Focus(bool)     { p.calls++ }
 
 func TestPanelDoesNotFocusAPassiveBody(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	body := &passiveFocusBody{}
-	panel := kit.NewPanel(kit.PanelConfig{Content: testElement(body)})
-	testFocus(panel, true)
-	testFocus(panel, false)
+	panel := kit.NewPanel(kit.PanelConfig{Content: scenes.Element(body)})
+	scenes.Focus(panel, true)
+	scenes.Focus(panel, false)
 	if body.calls != 0 {
 		t.Fatal("a passive body received keyboard focus")
 	}
@@ -188,14 +190,17 @@ func (c *callbackChild) Focus(has bool) {
 }
 
 func TestPanelReplacementCallbackOwnsTheFinalChild(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	a, b, c := &callbackChild{}, &callbackChild{}, &callbackChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Content: testElement(a)})
-	root := newTestRoot(panel)
-	a.on = func(bool) { panel.SetContent(testElement(c)) }
-	panel.SetContent(testElement(b))
-	root.root.FlushNotifications()
-	root.root.FlushNotifications()
-	if panel.Content() != testElement(c) || a.focused || b.focused || !c.focused {
+	panel := kit.NewPanel(kit.PanelConfig{Content: scenes.Element(a)})
+	root := scenes.Mount(panel)
+	a.on = func(bool) { panel.SetContent(scenes.Element(c)) }
+	panel.SetContent(scenes.Element(b))
+	root.FlushNotifications()
+	root.FlushNotifications()
+	if panel.Content() != scenes.Element(c) || a.focused || b.focused || !c.focused {
 		t.Fatalf("content=%v focus=%v/%v/%v", panel.Content(), a.focused, b.focused, c.focused)
 	}
 }
@@ -223,12 +228,15 @@ func (c *panelChild) Handle(event input.Event) bool {
 }
 
 func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: testElement(child)})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
 	panel.Box.Padding = layout.Uniform(1)
 	panel.Box.Title = "pane"
 
-	rows := paintWidget(12, 5, panel)
+	rows := paintWidget(scenes, 12, 5, panel)
 	if !strings.Contains(rows[0], "pane") || !strings.Contains(rows[2], "inside") {
 		t.Fatalf("panel drew:\n%s\nwant its title and child inside the frame", strings.Join(rows, "\n"))
 	}
@@ -241,20 +249,23 @@ func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
 }
 
 func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: testElement(child)})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
 	panel.Box.Padding = layout.Uniform(1)
-	root := newTestRoot(panel)
+	root := scenes.Mount(panel)
 	root.Draw(grid.NewSurface(12, 6).View())
 
-	testFocus(panel, true)
+	scenes.Focus(panel, true)
 	if !child.focused {
 		t.Fatal("panel did not pass keyboard ownership to its child")
 	}
-	if newTestRoot(panel).Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown}) {
+	if scenes.Mount(panel).Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown}) {
 		t.Fatal("panel passed a press on its border to its child")
 	}
-	if !newTestRoot(panel).Handle(input.Mouse{Pos: image.Pt(3, 2), Action: input.MouseDown}) {
+	if !scenes.Mount(panel).Handle(input.Mouse{Pos: image.Pt(3, 2), Action: input.MouseDown}) {
 		t.Fatal("panel declined a press inside its content")
 	}
 	got, ok := child.event.(input.Mouse)
@@ -264,28 +275,31 @@ func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
 }
 
 func TestPanelTransfersFocusWhenItsContentChanges(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	first := &panelChild{}
 	second := &panelChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: testElement(first)})
-	root := newTestRoot(panel)
-	if panel.Content() != testElement(first) || !first.focused {
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(first)})
+	root := scenes.Mount(panel)
+	if panel.Content() != scenes.Element(first) || !first.focused {
 		t.Fatal("a new panel did not give its content the keyboard")
 	}
-	panel.SetContent(testElement(first))
-	root.root.FlushNotifications()
+	panel.SetContent(scenes.Element(first))
+	root.FlushNotifications()
 	if first.focuses != 1 {
 		t.Fatalf("same panel content received %d focus transitions, want only construction", first.focuses)
 	}
 
-	testFocus(panel, false)
-	panel.SetContent(testElement(second))
+	scenes.Focus(panel, false)
+	panel.SetContent(scenes.Element(second))
 	if first.focused || second.focused {
 		t.Fatal("content installed in a blurred panel received the keyboard")
 	}
 
-	testFocus(panel, true)
-	panel.SetContent(testElement(first))
-	newTestRoot(panel).root.FlushNotifications()
+	scenes.Focus(panel, true)
+	panel.SetContent(scenes.Element(first))
+	scenes.Mount(panel).FlushNotifications()
 	if second.focused || !first.focused {
 		t.Fatal("replacing focused content did not transfer keyboard ownership")
 	}
@@ -297,28 +311,31 @@ func TestPanelTransfersFocusWhenItsContentChanges(t *testing.T) {
 // on every event would stop a selection at the frame and, worse, never deliver the
 // release, leaving the child believing it is still being dragged.
 func TestPanelKeepsAGestureThatLeavesItsInterior(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: testElement(child)})
-	newTestRoot(panel).Draw(grid.NewSurface(10, 6).View())
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
+	scenes.Mount(panel).Draw(grid.NewSurface(10, 6).View())
 
 	press := input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}
-	if !newTestRoot(panel).Handle(press) {
+	if !scenes.Mount(panel).Handle(press) {
 		t.Fatal("panel declined a press inside its content")
 	}
 	for _, away := range []input.Mouse{
 		{Pos: image.Pt(0, 3), Action: input.MouseDrag}, // onto the frame
 		{Pos: image.Pt(4, 0), Action: input.MouseDrag}, // past it
 	} {
-		if !newTestRoot(panel).Handle(away) {
+		if !scenes.Mount(panel).Handle(away) {
 			t.Fatalf("panel dropped a drag at %v that began inside it", away.Pos)
 		}
 	}
 	release := input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseUp}
-	if !newTestRoot(panel).Handle(release) {
+	if !scenes.Mount(panel).Handle(release) {
 		t.Fatal("panel dropped the release that ends the gesture")
 	}
 	// The gesture is over, so the interior decides again.
-	if newTestRoot(panel).Handle(input.Mouse{Pos: image.Pt(0, 3), Action: input.MouseDrag}) {
+	if scenes.Mount(panel).Handle(input.Mouse{Pos: image.Pt(0, 3), Action: input.MouseDrag}) {
 		t.Fatal("panel kept the gesture after its release")
 	}
 }
@@ -327,14 +344,17 @@ func TestPanelKeepsAGestureThatLeavesItsInterior(t *testing.T) {
 // child declined is not an interaction, and holding one would swallow the release
 // belonging to whatever the pointer is really over.
 func TestPanelDoesNotTakeAGestureItsChildRefused(t *testing.T) {
-	child := &panelChild{deaf: true}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: testElement(child)})
-	newTestRoot(panel).Draw(grid.NewSurface(10, 6).View())
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
 
-	if newTestRoot(panel).Handle(input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}) {
+	child := &panelChild{deaf: true}
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
+	scenes.Mount(panel).Draw(grid.NewSurface(10, 6).View())
+
+	if scenes.Mount(panel).Handle(input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}) {
 		t.Fatal("panel claimed a press its child refused")
 	}
-	if newTestRoot(panel).Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDrag}) {
+	if scenes.Mount(panel).Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDrag}) {
 		t.Fatal("panel held a gesture its child never took")
 	}
 }
@@ -1091,16 +1111,19 @@ func TestParagraphCopiesAWordItHadToBreak(t *testing.T) {
 // between the two packages; a selection nobody can see is not that arrangement, it is
 // a feature half finished.
 func TestTheComposerShowsASelection(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	th := kit.Dark()
 	c := kit.NewComposer(kit.ComposerConfig{Theme: th, Prompt: "> "})
 	c.Controller().SetText("hello world")
 	c.Controller().SetCursor(0, 0)
 	for range 5 {
-		newTestRoot(c).Handle(input.Key{Code: input.Right, Mods: input.Shift})
+		scenes.Mount(c).Handle(input.Key{Code: input.Right, Mods: input.Shift})
 	}
 
 	s := grid.NewSurface(30, 3)
-	newTestRoot(c).Draw(s.View())
+	scenes.Mount(c).Draw(s.View())
 
 	marked := 0
 	for y := range 3 {
@@ -1189,15 +1212,18 @@ func TestParagraphStillHyperlinksAURL(t *testing.T) {
 // not pass it on would leave the default widget unable to do the first thing anybody
 // tries.
 func TestTheComposerCanBeClickedInto(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	c := kit.NewComposer(kit.ComposerConfig{Theme: kit.Dark(), Prompt: "> "})
 	c.Controller().SetText("hello world")
 	c.Controller().SetCursor(0, 0)
 
 	s := grid.NewSurface(30, 3)
-	newTestRoot(c).Draw(s.View())
+	scenes.Mount(c).Draw(s.View())
 
 	// Column 8 on screen is column 6 of the field, because the marker takes two.
-	if !newTestRoot(c).Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
+	if !scenes.Mount(c).Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Fatal("the composer ignored a click")
 	}
 	if _, col := c.Controller().Cursor(); col != 6 {
@@ -1206,23 +1232,29 @@ func TestTheComposerCanBeClickedInto(t *testing.T) {
 }
 
 func TestTheComposerIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A click is about a frame, and there has not been one.
 	c := kit.NewComposer(kit.ComposerConfig{Theme: kit.Dark()})
 	c.Controller().SetText("hello")
-	if newTestRoot(c).Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
+	if scenes.Mount(c).Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Error("it answered a click about a frame that was never drawn")
 	}
 }
 
 func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	tabs := kit.NewTabs(kit.TabsConfig{
 		Theme: kit.Dark(), Glyphs: kit.ASCII(),
 		Items: []base.Tab{
-			{Title: "chat", Content: testElement(kit.Label{Text: "one"})},
-			{Title: "files", Content: testElement(kit.Label{Text: "two"})},
+			{Title: "chat", Content: scenes.Element(kit.Label{Text: "one"})},
+			{Title: "files", Content: scenes.Element(kit.Label{Text: "two"})},
 		},
 	})
-	equalRows(t, paintWidget(14, 4, tabs), []string{
+	equalRows(t, paintWidget(scenes, 14, 4, tabs), []string{
 		"chat..files...",
 		"--------------",
 		"one...........",
@@ -1231,35 +1263,41 @@ func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
 
 	// A press on a name selects it; a press below the strip belongs to the pane, in
 	// the pane's own coordinates.
-	if !newTestRoot(tabs).Handle(input.Mouse{Pos: image.Pt(7, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
+	if !scenes.Mount(tabs).Handle(input.Mouse{Pos: image.Pt(7, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Fatal("a press on a name did nothing")
 	}
 	if tabs.Controller().Selected() != 1 {
 		t.Fatalf("the pane showing is %d", tabs.Controller().Selected())
 	}
-	if newTestRoot(tabs).Handle(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
+	if scenes.Mount(tabs).Handle(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Fatal("the room between two names belongs to one of them")
 	}
 }
 
 func TestNewTabsProvidesTheFinishedStripAndItsController(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	tabs := kit.NewTabs(kit.TabsConfig{
 		Theme: kit.Dark(), Glyphs: kit.ASCII(),
 		Items: []base.Tab{
-			{Title: "chat", Content: testElement(kit.Label{Text: "one"})},
-			{Title: "files", Content: testElement(kit.Label{Text: "two"})},
+			{Title: "chat", Content: scenes.Element(kit.Label{Text: "one"})},
+			{Title: "files", Content: scenes.Element(kit.Label{Text: "two"})},
 		},
 	})
 	if tabs.Controller() == nil || tabs.Rule() == "" {
 		t.Fatal("the short constructor omitted its controller or finished default rule")
 	}
 	tabs.Controller().Select(1)
-	if got := paintWidget(14, 4, tabs); !strings.Contains(strings.Join(got, "\n"), "two") {
+	if got := paintWidget(scenes, 14, 4, tabs); !strings.Contains(strings.Join(got, "\n"), "two") {
 		t.Fatalf("composed tabs drew %v", got)
 	}
 }
 
 func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	tree := base.NewTree(
 		base.Node[string]{Item: "core", Children: []base.Node[string]{{Item: "grid"}}},
 		base.Node[string]{Item: "README"},
@@ -1272,7 +1310,7 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 	view.Controller().Open(0)
 	// A leaf starts in the same column as a branch — the mark is a blank as wide as
 	// one — so a tree of files does not read as a tree of two different things.
-	equalRows(t, paintWidget(12, 3, view), []string{
+	equalRows(t, paintWidget(scenes, 12, 3, view), []string{
 		"-.core......",
 		".. .grid....",
 		" .README....",
@@ -1280,6 +1318,9 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 }
 
 func TestATreeIndentsByTheWidthItWasGiven(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Two columns is what the zero value means, not a floor under every width below
 	// it: a caller who asked for one column meant one.
 	tree := base.NewTree(
@@ -1291,7 +1332,7 @@ func TestATreeIndentsByTheWidthItWasGiven(t *testing.T) {
 		Text: func(s string) string { return s },
 	})
 	view.Controller().Open(0)
-	equalRows(t, paintWidget(12, 2, view), []string{
+	equalRows(t, paintWidget(scenes, 12, 2, view), []string{
 		"core........",
 		".grid.......",
 	})
@@ -1309,6 +1350,9 @@ func TestNilTreeIsAnEmptyWidget(t *testing.T) {
 }
 
 func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	called := 0
 	dressed := kit.NewTree(kit.TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root"}}, Text: func(item string) string { return item }})
 	controller := dressed.Controller()
@@ -1317,12 +1361,12 @@ func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
 	if err := controller.Element().SetPaint(func(frame scene.Frame) { draw(frame) }); err != nil {
 		t.Fatal(err)
 	}
-	paintWidget(8, 1, dressed)
+	paintWidget(scenes, 8, 1, dressed)
 	if called != 0 {
 		t.Fatal("skin used the controller's independent renderer")
 	}
 	draw = controller.Draw
-	paintWidget(8, 1, dressed)
+	paintWidget(scenes, 8, 1, dressed)
 	if called != 1 {
 		t.Fatal("skin overwrote the controller's renderer")
 	}
@@ -1458,14 +1502,17 @@ func (s *spy) Focus(has bool)          { s.focused = has }
 func (s *spy) Handle(input.Event) bool { return false }
 
 func TestDialogPassesKeyboardOwnershipToItsContent(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	body := &spy{}
-	dialog := kit.NewDialog(kit.DialogConfig{Initial: true, Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "sure?", Body: testElement(body)})
-	root := newTestRoot(dialog)
+	dialog := kit.NewDialog(kit.DialogConfig{Initial: true, Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "sure?", Body: scenes.Element(body)})
+	root := scenes.Mount(dialog)
 	if !body.focused {
 		t.Fatal("dialog content did not gain focus")
 	}
 	dialog.Controller().Dismiss()
-	root.root.FlushNotifications()
+	root.FlushNotifications()
 	if body.focused {
 		t.Fatal("closed dialog content retained focus")
 	}

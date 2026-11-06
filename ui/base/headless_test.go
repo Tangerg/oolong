@@ -7,12 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
-
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 type cellReader interface {
@@ -57,8 +56,8 @@ func paint(w, h int, draw func(grid.View)) []string {
 
 // paintWidget draws one complete logical component frame through its composition
 // root, so routing snapshots are committed exactly as they are in a program.
-func paintWidget(w, h int, widget any) []string {
-	return paint(w, h, newTestRoot(widget).Draw)
+func paintWidget(scenes *scenetest.Scope, w, h int, widget any) []string {
+	return paint(w, h, scenes.Mount(widget).Draw)
 }
 
 // transcriptFrame is the one test path for establishing and drawing transcript
@@ -96,9 +95,11 @@ func (f *transcriptFrame) Draw(frame scene.Frame) {
 }
 
 func stageTranscript(transcript *base.Transcript, width int) base.TranscriptLayout {
+	scenes := scenetest.New()
+	defer scenes.Close()
+
 	frame := &transcriptFrame{transcript: transcript, width: width}
-	root := newTestRoot(frame)
-	defer root.root.Close()
+	root := scenes.Mount(frame)
 	root.Draw(grid.NewSurface(max(width, 1), 1).View())
 	return frame.layout
 }
@@ -120,8 +121,8 @@ func (f scrollFrame) Draw(frame scene.Frame) {
 	f.scroll.Stage(frame, f.total, f.window)
 }
 
-func stageScroll(scroll *base.Scroll, total, window int) {
-	newTestRoot(scrollFrame{scroll: scroll, total: total, window: window}).Draw(
+func stageScroll(scenes *scenetest.Scope, scroll *base.Scroll, total, window int) {
+	scenes.Mount(scrollFrame{scroll: scroll, total: total, window: window}).Draw(
 		grid.NewSurface(1, max(window, 1)).View(),
 	)
 }
@@ -161,9 +162,9 @@ func altKey(r rune) input.Event {
 
 // The screen owns cursor placement; observing it exercises the same projection
 // boundary as a terminal instead of reading editor-internal geometry.
-func cursorAt(e *base.Editor, w, h int) (int, int) {
+func cursorAt(scenes *scenetest.Scope, e *base.Editor, w, h int) (int, int) {
 	screen := grid.NewScreen(w, h)
-	newTestRoot(e).Draw(screen.Frame())
+	scenes.Mount(e).Draw(screen.Frame())
 	at := screen.Cursor()
 	return at.Pos.Y, at.Pos.X
 }
@@ -477,9 +478,12 @@ func TestTheWidthFitsTheWidestRow(t *testing.T) {
 }
 
 func TestARowShowsItsLabelAndDetail(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var c base.Completion
 	c.Offer(base.Token{}, []base.Candidate{{Text: "src/main.go", Label: "main.go", Detail: "src"}})
-	rows := paintWidget(20, 1, &c)
+	rows := paintWidget(scenes, 20, 1, &c)
 	if !strings.Contains(rows[0], "main.go") {
 		t.Fatalf("row = %q, want the label rather than the text", rows[0])
 	}
@@ -489,20 +493,26 @@ func TestARowShowsItsLabelAndDetail(t *testing.T) {
 }
 
 func TestARowWithNoLabelShowsWhatItWouldInsert(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var c base.Completion
 	c.Offer(base.Token{}, []base.Candidate{{Text: "insert-me"}})
-	if rows := paintWidget(20, 1, &c); !strings.Contains(rows[0], "insert-me") {
+	if rows := paintWidget(scenes, 20, 1, &c); !strings.Contains(rows[0], "insert-me") {
 		t.Fatalf("row = %q", rows[0])
 	}
 }
 
 func TestTheMatchedCharactersArePickedOut(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var c base.Completion
 	c.Look.Accent = grid.Style{Attr: grid.Bold}
 	c.Offer(base.Token{}, []base.Candidate{{Text: "status", Matched: []int{0, 1}}})
 
 	s := grid.NewSurface(20, 1)
-	newTestRoot(&c).Draw(s.View())
+	scenes.Mount(&c).Draw(s.View())
 	for x, want := range []bool{true, true, false, false, false, false} {
 		if got := cellAt(s, x, 0).Style.Attr.Has(grid.Bold); got != want {
 			t.Errorf("column %d emphasised = %v, want %v", x, got, want)
@@ -511,6 +521,9 @@ func TestTheMatchedCharactersArePickedOut(t *testing.T) {
 }
 
 func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A pattern character can match a combining mark, whose offset is inside the
 	// cluster rather than at its start. Testing for equality there would leave the
 	// character the reader sees unhighlighted.
@@ -520,7 +533,7 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 	c.Offer(base.Token{}, []base.Candidate{{Text: "éx", Matched: []int{1}}})
 
 	s := grid.NewSurface(10, 1)
-	newTestRoot(&c).Draw(s.View())
+	scenes.Mount(&c).Draw(s.View())
 	if !cellAt(s, 0, 0).Style.Attr.Has(grid.Bold) {
 		t.Fatal("the matched cluster was not emphasised")
 	}
@@ -530,13 +543,16 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 }
 
 func TestTheSelectedRowIsTheOneUnderTheCursor(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var c base.Completion
 	c.Look.Selection = grid.Style{Attr: grid.Reverse}
 	offer(&c, "one", "two")
 	c.Handle(input.Key{Code: input.Down})
 
 	s := grid.NewSurface(20, 2)
-	newTestRoot(&c).Draw(s.View())
+	scenes.Mount(&c).Draw(s.View())
 	if cellAt(s, 0, 0).Style.Attr.Has(grid.Reverse) {
 		t.Error("the row that is not selected is drawn as selected")
 	}
@@ -546,20 +562,26 @@ func TestTheSelectedRowIsTheOneUnderTheCursor(t *testing.T) {
 }
 
 func TestADetailWithNoRoomIsDropped(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Half a description reads as a broken label. None of this may overflow the row.
 	var c base.Completion
 	c.Offer(base.Token{}, []base.Candidate{{Text: "a-fairly-long-label", Detail: "and a description"}})
-	rows := paintWidget(12, 1, &c)
+	rows := paintWidget(scenes, 12, 1, &c)
 	if len(rows[0]) != 12 {
 		t.Fatalf("row = %q, want twelve columns", rows[0])
 	}
 }
 
-func TestACompletionWithNoRoomDrawsNothing(_ *testing.T) {
+func TestACompletionWithNoRoomDrawsNothing(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var c base.Completion
 	offer(&c, "one", "two")
 	for _, size := range [][2]int{{0, 0}, {1, 1}, {4, 1}} {
-		paintWidget(size[0], size[1], &c)
+		paintWidget(scenes, size[0], size[1], &c)
 	}
 }
 
@@ -641,9 +663,12 @@ func TestEditorMovesByClusterNotByByteOrRune(t *testing.T) {
 }
 
 func TestEditorCursorSitsOnTheColumnItsCharacterOccupies(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := &base.Editor{}
 	e.Insert("中文x")
-	_, column := cursorAt(e, 20, 3)
+	_, column := cursorAt(scenes, e, 20, 3)
 	// Two wide characters are four columns, so the cursor after the letter is at five.
 	if column != 5 {
 		t.Fatalf("cursor column = %d, want 5", column)
@@ -835,6 +860,9 @@ func TestEditorUndoAndRedo(t *testing.T) {
 }
 
 func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A field that wraps has to move down the screen. Jumping to the next paragraph
 	// would move the cursor somewhere the user cannot see the reason for.
 	e := &base.Editor{}
@@ -842,12 +870,12 @@ func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
 	if got := e.HeightForWidth(8); got != 2 {
 		t.Fatalf("height at width 8 = %d, want the text wrapped onto 2 rows", got)
 	}
-	cursorAt(e, 8, 4)
+	cursorAt(scenes, e, 8, 4)
 	e.MoveLineStart()
-	cursorAt(e, 8, 4)
+	cursorAt(scenes, e, 8, 4)
 
 	e.MoveDown()
-	row, _ := cursorAt(e, 8, 4)
+	row, _ := cursorAt(scenes, e, 8, 4)
 	if row != 1 {
 		t.Fatalf("after moving down the cursor is on row %d, want the second row", row)
 	}
@@ -858,13 +886,16 @@ func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
 }
 
 func TestEditorVerticalMovementKeepsItsColumnThroughShortLines(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Travelling down through a short line and out the other side has to come back to
 	// the column it went in at, or the cursor drifts left and stays there.
 	e := &base.Editor{}
 	e.Insert("aaaaaaaa\nbb\ncccccccc")
 	e.MoveLineStart()
 	e.SetCursor(0, 6)
-	cursorAt(e, 20, 5)
+	cursorAt(scenes, e, 20, 5)
 
 	e.MoveDown()
 	if _, col := e.Cursor(); col != 2 {
@@ -877,9 +908,12 @@ func TestEditorVerticalMovementKeepsItsColumnThroughShortLines(t *testing.T) {
 }
 
 func TestEditorVerticalMovementStopsAtTheEnds(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := &base.Editor{}
 	e.Insert("one\ntwo")
-	cursorAt(e, 20, 5)
+	cursorAt(scenes, e, 20, 5)
 	e.MoveUp()
 	e.MoveUp()
 	if line, _ := e.Cursor(); line != 0 {
@@ -908,24 +942,30 @@ func TestEditorMeasuresTheWidthAndItsCap(t *testing.T) {
 }
 
 func TestEditorScrollsToKeepTheCursorVisible(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A field that jumped to the end would lose the line the user is typing on.
 	e := &base.Editor{}
 	e.Insert("l1\nl2\nl3\nl4\nl5\nl6")
-	row, _ := cursorAt(e, 20, 3)
+	row, _ := cursorAt(scenes, e, 20, 3)
 	if row < 0 || row > 2 {
 		t.Fatalf("cursor is on visible row %d of a 3-row field", row)
 	}
 	e.SetCursor(0, 0)
-	row, _ = cursorAt(e, 20, 3)
+	row, _ = cursorAt(scenes, e, 20, 3)
 	if row != 0 {
 		t.Fatalf("after moving to the top the cursor is on row %d", row)
 	}
 }
 
 func TestEditorPlaceholderIsNotText(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := &base.Editor{}
 	e.Placeholder = "Ask anything"
-	rows := paintWidget(20, 1, e)
+	rows := paintWidget(scenes, 20, 1, e)
 	if !strings.Contains(rows[0], "Ask anything") {
 		t.Fatalf("row = %q, want the placeholder", rows[0])
 	}
@@ -933,7 +973,7 @@ func TestEditorPlaceholderIsNotText(t *testing.T) {
 		t.Fatalf("text = %q, want the placeholder to be no part of it", e.Text())
 	}
 	typeText(e, "hi")
-	rows = paintWidget(20, 1, e)
+	rows = paintWidget(scenes, 20, 1, e)
 	if strings.Contains(rows[0], "Ask") {
 		t.Fatalf("row = %q, want the placeholder gone once there is text", rows[0])
 	}
@@ -1001,6 +1041,9 @@ func TestEditorPrefersTheTextTheTerminalReported(t *testing.T) {
 }
 
 func TestTheZeroEditorIsUsable(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var e base.Editor
 	if !e.Empty() {
 		t.Fatal("the zero editor is not empty")
@@ -1014,15 +1057,18 @@ func TestTheZeroEditorIsUsable(t *testing.T) {
 	e.MoveDown()
 	e.DeleteBack()
 	e.Handle(input.Key{Code: input.Left})
-	paintWidget(10, 2, &e)
+	paintWidget(scenes, 10, 2, &e)
 }
 
 func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// The invariant the cursor rests on: what the layout says is what is drawn.
 	e := &base.Editor{}
 	e.Insert("alpha beta gamma delta")
 	const width = 12
-	rows := paintWidget(width, e.HeightForWidth(width), e)
+	rows := paintWidget(scenes, width, e.HeightForWidth(width), e)
 	joined := strings.Join(rows, "")
 	for _, word := range []string{"alpha", "beta", "gamma", "delta"} {
 		if !strings.Contains(joined, word) {
@@ -1032,35 +1078,44 @@ func TestEditorTextAndDrawnRowsAgree(t *testing.T) {
 }
 
 func TestAFreshScrollShowsTheStart(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Which is what a list of items wants. Following is asked for, not assumed.
 	var s base.Scroll
-	stageScroll(&s, 10, 5)
+	stageScroll(scenes, &s, 10, 5)
 	if s.FollowingEnd() || s.Offset() != 0 {
 		t.Fatalf("offset = %d, following = %v, want the start", s.Offset(), s.FollowingEnd())
 	}
 }
 
 func TestAFollowingScrollStaysAtTheEndAsContentArrives(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var s base.Scroll
-	stageScroll(&s, 10, 5)
+	stageScroll(scenes, &s, 10, 5)
 	s.ToBottom()
 	if got := s.Offset(); got != 5 {
 		t.Fatalf("offset = %d, want the last five rows shown", got)
 	}
-	stageScroll(&s, 20, 5)
+	stageScroll(scenes, &s, 20, 5)
 	if got := s.Offset(); got != 15 {
 		t.Fatalf("offset = %d, want to still be showing the end", got)
 	}
 }
 
 func TestScrollingUpKeepsThePlaceAsContentArrives(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var s base.Scroll
-	stageScroll(&s, 100, 10)
+	stageScroll(scenes, &s, 100, 10)
 	s.ToBottom()
 	s.By(-20)
 	before := s.Offset()
 	// Ten more rows arrive while the reader is looking at something further up.
-	stageScroll(&s, 110, 10)
+	stageScroll(scenes, &s, 110, 10)
 	if got := s.Offset(); got != before {
 		t.Fatalf("offset moved from %d to %d as content arrived", before, got)
 	}
@@ -1070,8 +1125,11 @@ func TestScrollingUpKeepsThePlaceAsContentArrives(t *testing.T) {
 }
 
 func TestScrollClampsToTheContent(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var s base.Scroll
-	stageScroll(&s, 10, 5)
+	stageScroll(scenes, &s, 10, 5)
 	s.ToBottom()
 	s.By(-1000)
 	if got := s.Offset(); got != 0 {
@@ -1083,18 +1141,21 @@ func TestScrollClampsToTheContent(t *testing.T) {
 	}
 	// Content that shrank under a scrolled window must not leave it out of bounds.
 	s.By(-3)
-	stageScroll(&s, 6, 5)
+	stageScroll(scenes, &s, 6, 5)
 	if got := s.Offset(); got > 1 {
 		t.Fatalf("offset = %d, want it clamped to the smaller content", got)
 	}
 }
 
 func TestScrollMovementCannotWrapPastItsBounds(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	maxInt := int(^uint(0) >> 1)
 	minInt := -maxInt - 1
 
 	var s base.Scroll
-	stageScroll(&s, maxInt, 2)
+	stageScroll(scenes, &s, maxInt, 2)
 	s.By(maxInt)
 	if got := s.Offset(); got != maxInt-2 || !s.FollowingEnd() {
 		t.Fatalf("largest forward movement stopped at %d (following %v), want %d", got, s.FollowingEnd(), maxInt-2)
@@ -1115,8 +1176,11 @@ func TestScrollMovementCannotWrapPastItsBounds(t *testing.T) {
 }
 
 func TestScrollEverythingFitsMeansNoOffset(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var s base.Scroll
-	stageScroll(&s, 3, 10)
+	stageScroll(scenes, &s, 3, 10)
 	if got := s.Offset(); got != 0 {
 		t.Fatalf("offset = %d, want nothing hidden", got)
 	}
@@ -1127,8 +1191,11 @@ func TestScrollEverythingFitsMeansNoOffset(t *testing.T) {
 }
 
 func TestScrollPagesKeepOneRowOfOverlap(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var s base.Scroll
-	stageScroll(&s, 100, 10)
+	stageScroll(scenes, &s, 100, 10)
 	s.ToTop()
 	s.Pages(1)
 	// Nine rows, not ten: the reader needs one row they recognise on the other side
@@ -1139,9 +1206,12 @@ func TestScrollPagesKeepOneRowOfOverlap(t *testing.T) {
 }
 
 func TestScrollHandlesKeysAndTheWheel(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	keys := base.DefaultScrollKeys()
 	var s base.Scroll
-	stageScroll(&s, 100, 10)
+	stageScroll(scenes, &s, 100, 10)
 	s.ToTop()
 
 	if !s.Handle(key(input.Down), keys) || s.Offset() != 1 {
@@ -1243,29 +1313,35 @@ func TestListMovementKeepsItsDirectionAtIntegerLimits(t *testing.T) {
 }
 
 func TestListScrollsToKeepTheSelectionVisible(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A selection the user cannot see is one they will act on by mistake.
 	l := newList(20)
-	rows := paintWidget(10, 4, l)
+	rows := paintWidget(scenes, 10, 4, l)
 	if !strings.Contains(rows[0], ">item0") {
 		t.Fatalf("first frame = %v, want the selection at the top", rows)
 	}
 	for range 6 {
 		l.Handle(key(input.Down))
 	}
-	rows = paintWidget(10, 4, l)
+	rows = paintWidget(scenes, 10, 4, l)
 	if !strings.Contains(rows[3], ">item6") {
 		t.Fatalf("frame = %v, want the selection scrolled into the last row", rows)
 	}
 	l.Handle(key(input.Home))
-	rows = paintWidget(10, 4, l)
+	rows = paintWidget(scenes, 10, 4, l)
 	if !strings.Contains(rows[0], ">item0") {
 		t.Fatalf("frame = %v, want the view back at the top", rows)
 	}
 }
 
 func TestListPageMovesByAWindow(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	l := newList(50)
-	paintWidget(10, 8, l)
+	paintWidget(scenes, 10, 8, l)
 	l.Handle(key(input.PageDown))
 	if got := l.Selected(); got != 7 {
 		t.Fatalf("selection after a page = %d, want a window's worth less one", got)
@@ -1288,6 +1364,9 @@ func TestListKeepsItsPlaceWhenTheItemsAreRefreshed(t *testing.T) {
 }
 
 func TestListWithNothingInIt(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	l := &base.List[string]{Keys: base.DefaultListKeys()}
 	if got := l.Selected(); got != -1 {
 		t.Fatalf("selection = %d, want none", got)
@@ -1298,7 +1377,7 @@ func TestListWithNothingInIt(t *testing.T) {
 	// None of this may panic.
 	l.Handle(key(input.Down))
 	l.Handle(key(input.End))
-	paintWidget(10, 3, l)
+	paintWidget(scenes, 10, 3, l)
 }
 
 func TestListOwnsItsItemsAndReturnsSnapshots(t *testing.T) {
@@ -1356,8 +1435,11 @@ func TestAZeroEditorAnswersTheKeysItDocuments(t *testing.T) {
 }
 
 func TestPointerTracksWhereItIs(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var p base.Pointer
-	stagePointer(&p, grid.Area(0, 0, 12, 12))
+	stagePointer(scenes, &p, grid.Area(0, 0, 12, 12))
 	if _, inside := p.Position(); inside {
 		// A pointer that has never been reported is nowhere, not at the origin.
 		t.Fatal("a fresh pointer claims to be somewhere")
@@ -1375,9 +1457,12 @@ func TestPointerTracksWhereItIs(t *testing.T) {
 }
 
 func TestPointerHover(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var p base.Pointer
 	box := grid.Area(2, 2, 4, 2)
-	stagePointer(&p, box)
+	stagePointer(scenes, &p, box)
 	p.Handle(press(3, 3, input.MouseMove, input.ButtonNone))
 	if !p.Over() {
 		t.Fatal("the pointer is inside the box but does not say so")
@@ -1389,11 +1474,14 @@ func TestPointerHover(t *testing.T) {
 }
 
 func TestAClickCommitsOnReleaseOverTheTargetThatTookThePress(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A control that fired on the way down fires when the user was aiming at it and
 	// changed their mind.
 	var p base.Pointer
 	box := grid.Area(0, 0, 4, 1)
-	stagePointer(&p, box)
+	stagePointer(scenes, &p, box)
 
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	if p.Clicked(input.ButtonLeft) {
@@ -1409,10 +1497,13 @@ func TestAClickCommitsOnReleaseOverTheTargetThatTookThePress(t *testing.T) {
 }
 
 func TestAPressDraggedAwayAndBackIsStillHeld(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// It follows the press, not the pointer: the press was never released.
 	var p base.Pointer
 	box := grid.Area(0, 0, 4, 1)
-	stagePointer(&p, box)
+	stagePointer(scenes, &p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 
 	p.Handle(press(9, 9, input.MouseDrag, input.ButtonLeft))
@@ -1427,10 +1518,13 @@ func TestAPressDraggedAwayAndBackIsStillHeld(t *testing.T) {
 }
 
 func TestAReleaseSomewhereElseIsNotAClick(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Which is how a user takes back a press they did not mean.
 	var p base.Pointer
 	box := grid.Area(0, 0, 4, 1)
-	stagePointer(&p, box)
+	stagePointer(scenes, &p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	p.Handle(press(9, 9, input.MouseUp, input.ButtonLeft))
 	if p.Clicked(input.ButtonLeft) {
@@ -1439,11 +1533,14 @@ func TestAReleaseSomewhereElseIsNotAClick(t *testing.T) {
 }
 
 func TestAClickIsAnsweredOnce(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A widget asking twice in one frame, or two widgets asking in turn, must not both
 	// act on the same click.
 	var p base.Pointer
 	box := grid.Area(0, 0, 4, 1)
-	stagePointer(&p, box)
+	stagePointer(scenes, &p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 	p.Handle(press(1, 0, input.MouseUp, input.ButtonLeft))
 
@@ -1456,9 +1553,12 @@ func TestAClickIsAnsweredOnce(t *testing.T) {
 }
 
 func TestAClickIsTheButtonThatWasPressed(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var p base.Pointer
 	box := grid.Area(0, 0, 4, 1)
-	stagePointer(&p, box)
+	stagePointer(scenes, &p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonRight))
 	p.Handle(press(1, 0, input.MouseUp, input.ButtonRight))
 	if p.Clicked(input.ButtonLeft) {
@@ -1470,11 +1570,14 @@ func TestAClickIsTheButtonThatWasPressed(t *testing.T) {
 }
 
 func TestLeavingTheInterfaceEndsHoverAndAnyPress(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A hover left highlighted under an unfocused window looks like the interface is
 	// still live.
 	var p base.Pointer
 	box := grid.Area(0, 0, 4, 1)
-	stagePointer(&p, box)
+	stagePointer(scenes, &p, box)
 	p.Handle(press(1, 0, input.MouseDown, input.ButtonLeft))
 
 	p.Left()
@@ -1490,10 +1593,13 @@ func TestLeavingTheInterfaceEndsHoverAndAnyPress(t *testing.T) {
 }
 
 func TestAListRowCanBePressed(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A list could be walked with the arrow keys and not pointed at, which is not
 	// something any list anywhere does.
 	l := newList(10)
-	paintWidget(12, 4, l)
+	paintWidget(scenes, 12, 4, l)
 	if !l.Handle(press(2, 2, input.MouseDown, input.ButtonLeft)) || l.Selected() != 2 {
 		t.Fatalf("pressing the third row selected %d", l.Selected())
 	}
@@ -1508,12 +1614,15 @@ func TestAListRowCanBePressed(t *testing.T) {
 }
 
 func TestAPressOnAListScrolledDownReachesTheRowUnderIt(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A press arrives between two frames and is about the one on screen, which is
 	// scrolled — so the row under the pointer is not the row at that index.
 	l := newList(20)
-	paintWidget(12, 4, l)
+	paintWidget(scenes, 12, 4, l)
 	l.Select(10)
-	paintWidget(12, 4, l)
+	paintWidget(scenes, 12, 4, l)
 	first := l.Scroll().Offset()
 
 	l.Handle(press(2, 1, input.MouseDown, input.ButtonLeft))

@@ -154,7 +154,7 @@ committed or uploaded by hand.
 
 ## Independent module releases
 
-Tags are immutable dependency promises. [`scripts/release.sh`](scripts/release.sh) releases exactly one named public module after validating the committed dependency versions and repository gates. Read [the release procedure](docs/guides/releasing.md), then inspect the dry run:
+Tags are immutable dependency promises. [`scripts/release.sh`](scripts/release.sh) checks a temporary checkout of the captured commit, then releases exactly one named public module from that same commit. Gates must leave the candidate unchanged; edits to the caller's working tree do not enter the release. Read [the release procedure](docs/guides/releasing.md), then inspect the dry run:
 
 ```sh
 scripts/release.sh ui 0.1.0

@@ -255,6 +255,12 @@ case "$1" in
  ls-remote)
   if [ "$2" = --exit-code ]; then exit 2; fi
   printf 'reviewed-commit\trefs/tags/ui/v0.1.0^{}\n' ;;
+ worktree)
+  case "$2" in
+   add) cp -R "$PWD/." "$5/"; printf 'fixture\n' > "$5/.git" ;;
+   remove) rm -rf "$4" ;;
+   *) exit 99 ;;
+  esac ;;
  -C|fetch|status|tag|push) ;;
  *) exit 99 ;;
 esac

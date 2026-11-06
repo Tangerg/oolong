@@ -5,11 +5,11 @@ import (
 	"math"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestSliderOwnsOneBoundedValue(t *testing.T) {
@@ -101,8 +101,11 @@ func (s *sliderTrack) Element() scene.Element {
 func (s *sliderTrack) Draw(frame scene.Frame) { s.control.Stage(frame, s.rect) }
 
 func TestSliderDragsAgainstCommittedTrackGeometry(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	slider := base.NewSlider(base.SliderConfig{Maximum: 100})
-	root := newTestRoot(&sliderTrack{control: slider, rect: grid.Area(2, 0, 5, 1)})
+	root := scenes.Mount(&sliderTrack{control: slider, rect: grid.Area(2, 0, 5, 1)})
 	root.Draw(grid.NewSurface(10, 1).View())
 
 	if slider.Handle(input.Mouse{Pos: image.Pt(0, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
@@ -126,11 +129,14 @@ func TestSliderDragsAgainstCommittedTrackGeometry(t *testing.T) {
 }
 
 func TestSliderSemanticsCarryItsMeaning(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	slider := base.NewSlider(base.SliderConfig{Maximum: 10})
 	slider.SetLabel("speed")
 	slider.Set(4)
-	testFocus(slider, true)
-	observed, err := newTestRoot(slider).root.Observe(scene.Query{})
+	scenes.Focus(slider, true)
+	observed, err := scenes.Mount(slider).Observe(scene.Query{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,8 +173,11 @@ func TestSliderRejectsInvalidConfiguration(t *testing.T) {
 }
 
 func TestClippedSliderUsesTheWholeTrackForValues(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	slider := base.NewSlider(base.SliderConfig{Maximum: 100})
-	root := newTestRoot(&sliderTrack{control: slider, rect: grid.Area(0, 0, 11, 1)})
+	root := scenes.Mount(&sliderTrack{control: slider, rect: grid.Area(0, 0, 11, 1)})
 	root.Draw(grid.NewSurface(6, 1).View())
 	if !slider.Handle(input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseDown, Button: input.ButtonLeft}) || slider.Value() != 50 {
 		t.Fatalf("value=%d", slider.Value())
@@ -219,8 +228,11 @@ func TestSliderConfigurationWakesObserversWhenItChanges(t *testing.T) {
 }
 
 func TestSliderDragClampsAnExtremeCapturedCoordinate(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	slider := base.NewSlider(base.SliderConfig{Maximum: 10})
-	newTestRoot(&sliderTrack{control: slider, rect: image.Rect(2, 0, 8, 1)}).Draw(grid.NewSurface(8, 1).View())
+	scenes.Mount(&sliderTrack{control: slider, rect: image.Rect(2, 0, 8, 1)}).Draw(grid.NewSurface(8, 1).View())
 	slider.Handle(input.Mouse{Pos: image.Pt(4, 0), Action: input.MouseDown, Button: input.ButtonLeft})
 	slider.Handle(input.Mouse{Pos: image.Pt(math.MinInt, 0), Action: input.MouseDrag, Button: input.ButtonLeft})
 	if slider.Value() != 0 {

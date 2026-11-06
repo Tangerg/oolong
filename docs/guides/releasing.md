@@ -23,6 +23,8 @@ scripts/release.sh extensions/markdown 0.2.0
 
 Each command selects only its named module. The tool runs repository gates, verifies the selected module with `GOWORK=off`, and checks the proposed API version. Shared workspace success cannot conceal an undeclared dependency or a version that has never been published.
 
+All checks run in a temporary checkout of the captured commit. Edits to your original working tree cannot change the candidate being checked or tagged. A check that modifies the candidate aborts the release. The temporary checkout is removed after success or failure.
+
 ## Publish the reviewed tag
 
 ```sh

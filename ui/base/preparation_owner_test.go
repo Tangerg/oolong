@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestCollectionPreparationCannotMutateTheSelectionItProjects(t *testing.T) {
@@ -69,6 +70,9 @@ func TestCollectionPreparationCannotMutateTheSelectionItProjects(t *testing.T) {
 }
 
 func TestDialogResolverCannotCloseANewerOpening(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var dialog *base.Dialog
 	var keys keymap.Map
 	keys.Bind("prefix", input.Chord{Rune: 'g'})
@@ -76,7 +80,7 @@ func TestDialogResolverCannotCloseANewerOpening(t *testing.T) {
 	keys.Resolve = func(time.Duration, func()) func() { return func() { dialog.Dismiss(); dialog.Show() } }
 	closes := 0
 	dialog = base.NewDialog(base.DialogConfig{Initial: true, Keys: &keys, Content: scene.NewElement(scene.ElementConfig{}), Dismissed: func() { closes++ }})
-	r := newTestRoot(dialog)
+	r := scenes.Mount(dialog)
 	r.Handle(input.Key{Rune: 'g'})
 	dialog.Dismiss()
 	if !dialog.Open() || closes != 1 {

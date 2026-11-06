@@ -124,8 +124,15 @@ func (s *Stream) settle(events []Event, at time.Time) []Event {
 	}
 	out := events[:0]
 	for _, event := range events {
-		if osc, ok := event.(OSC); ok && osc.Command == clipboard.Command && s.clipboard.Answer(osc.Params, at) {
-			continue
+		switch reply := event.(type) {
+		case OSC:
+			if reply.Command == clipboard.Command && s.clipboard.Answer(reply.Params, at) {
+				continue
+			}
+		case OSCRejection:
+			if reply.Command == clipboard.Command && s.clipboard.Reject(reply.Prefix, at) {
+				continue
+			}
 		}
 		out = append(out, event)
 	}

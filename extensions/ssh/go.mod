@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	charm.land/ssh v0.4.3
 	github.com/Tangerg/oolong/ui v0.27.0
-	golang.org/x/crypto v0.57.0
+	golang.org/x/crypto v0.58.0
 )
 
 require (
@@ -16,6 +16,6 @@ require (
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/pires/go-proxyproto v0.15.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/term v0.46.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
 )

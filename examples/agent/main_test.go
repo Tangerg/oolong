@@ -22,10 +22,10 @@ func TestParseCommandKeepsProductSyntaxInTheApplication(t *testing.T) {
 		ok        bool
 	}{
 		{line: "/clear", name: "clear", ok: true},
-		{line: "/model\tfast", name: "model", arg: "fast", ok: true},
-		{line: "/model\u3000careful", name: "model", arg: "careful", ok: true},
-		{line: "/model gpt-5", name: "model", arg: "gpt-5", ok: true},
-		{line: "/model   spaced  out  ", name: "model", arg: "spaced  out", ok: true},
+		{line: "/plan\tfast", name: "plan", arg: "fast", ok: true},
+		{line: "/plan\u3000careful", name: "plan", arg: "careful", ok: true},
+		{line: "/plan unknown", name: "plan", arg: "unknown", ok: true},
+		{line: "/plan   spaced  out  ", name: "plan", arg: "spaced  out", ok: true},
 		{line: "/", ok: true},
 		{line: "not a command", ok: false},
 		{line: "", ok: false},
@@ -118,7 +118,7 @@ func TestSlashCompletionRunsTheRegisteredCommand(t *testing.T) {
 	host.Press(input.Enter)
 	host.Press(input.Enter)
 	host.Shows(t, "/clear")
-	host.Shows(t, "/model <fast|careful>")
+	host.Shows(t, "/plan <fast|careful>")
 
 	host.Send(input.Key{Code: input.Character, Rune: 'c', Mods: input.Ctrl})
 	stop()
@@ -261,12 +261,12 @@ func TestBackendPanicKeepsTheSessionAndPartialResponse(t *testing.T) {
 	host.Shows(t, "producer failed")
 }
 
-func TestModelCommandSelectsThePlanForTheNextRequest(t *testing.T) {
+func TestPlanCommandSelectsThePlanningModeForTheNextRequest(t *testing.T) {
 	host, stop := runAgent(t, mockBackend{})
 	host.Shows(t, "Ask the mock agent")
-	host.Send(input.Paste{Text: "/model fast"})
+	host.Send(input.Paste{Text: "/plan fast"})
 	host.Press(input.Enter)
-	host.Shows(t, "model: fast")
+	host.Shows(t, "planning mode: fast")
 	host.Type("audit")
 	host.Press(input.Enter)
 	host.Shows(t, "Review tool call")

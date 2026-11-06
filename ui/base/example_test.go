@@ -8,6 +8,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func show(w, h int, draw func(grid.View)) {
@@ -15,8 +16,13 @@ func show(w, h int, draw func(grid.View)) {
 		fmt.Printf("|%s|\n", strings.ReplaceAll(row, ".", " "))
 	}
 }
-func showWidget(w, h int, widget any) { show(w, h, newTestRoot(widget).Draw) }
+
+func showWidget(scenes *scenetest.Scope, w, h int, widget any) { show(w, h, scenes.Mount(widget).Draw) }
+
 func ExampleForm() {
+	scenes := scenetest.New()
+	defer scenes.Close()
+
 	name := base.NewText(base.TextConfig{Label: "Name"})
 	model := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Label: "Model", Options: base.Options("fast", "good")})
 	sure := base.NewConfirm(base.ConfirmConfig{Label: "Sure?"})
@@ -25,7 +31,7 @@ func ExampleForm() {
 		return scene.Applied, nil
 	}})
 	styleFields(form, base.Look{Taken: "x", Free: "-"})
-	root := newTestRoot(form)
+	root := scenes.Mount(form)
 	for _, r := range "ada" {
 		root.Handle(input.Key{Code: input.Character, Rune: r})
 	}
@@ -34,7 +40,7 @@ func ExampleForm() {
 	root.Handle(input.Key{Code: input.Tab})
 	root.Handle(input.Key{Code: input.Left})
 	root.Handle(input.Key{Code: input.Enter})
-	showWidget(16, form.HeightForWidth(16), form)
+	showWidget(scenes, 16, form.HeightForWidth(16), form)
 	// Output:
 	// collected: ada good true
 	// |Name            |
@@ -47,10 +53,13 @@ func ExampleForm() {
 }
 
 func ExampleViewport() {
-	window := base.NewViewport(base.ViewportConfig{Content: testElement(&tall{rows: 8})})
-	showWidget(8, 3, window)
+	scenes := scenetest.New()
+	defer scenes.Close()
+
+	window := base.NewViewport(base.ViewportConfig{Content: scenes.Element(&tall{rows: 8})})
+	showWidget(scenes, 8, 3, window)
 	window.Scroll().By(4)
-	showWidget(8, 3, window)
+	showWidget(scenes, 8, 3, window)
 	// Output:
 	// |row 0   |
 	// |row 1   |

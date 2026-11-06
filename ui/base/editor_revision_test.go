@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestEditorRevisionDistinguishesHandlingFromChanging(t *testing.T) {
@@ -117,6 +118,9 @@ func TestEditorRevisionIncludesElementsAndHistory(t *testing.T) {
 }
 
 func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, tc := range []struct {
 		name string
 		does func(*base.Editor)
@@ -138,7 +142,7 @@ func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
 		{"cursor", func(e *base.Editor) { e.SetCursor(3, 8) }},
 		{"movement", func(e *base.Editor) { e.MoveRight() }},
 		{"selection", func(e *base.Editor) { e.SelectAll() }},
-		{"focus", func(e *base.Editor) { testFocus(e, false) }},
+		{"focus", func(e *base.Editor) { scenes.Focus(e, false) }},
 		{"copy", func(e *base.Editor) { e.Clipboard = &clip{}; e.Copy() }},
 		{"paste request", func(e *base.Editor) { e.Clipboard = &clip{}; _ = e.Paste(context.Background(), func(error) {}) }},
 	} {
@@ -155,6 +159,9 @@ func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
 }
 
 func TestEditorRevisionIgnoresInteractionAndPresentationState(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	clipboard := &clip{}
 	editor := &base.Editor{Clipboard: clipboard}
 	editor.SetText("first\nsecond\nthird")
@@ -164,7 +171,7 @@ func TestEditorRevisionIgnoresInteractionAndPresentationState(t *testing.T) {
 	editor.Anchor()
 	editor.MoveRight()
 	editor.Scroll().By(1)
-	testFocus(editor, false)
+	scenes.Focus(editor, false)
 	if !editor.Copy() {
 		t.Fatal("selected text was not copied")
 	}
@@ -266,10 +273,13 @@ func TestVerticalMovementClosesTheTypingRun(t *testing.T) {
 }
 
 func TestLosingFocusClosesTheTypingRun(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var editor base.Editor
 	editor.InsertRune('x')
-	testFocus(&editor, false)
-	testFocus(&editor, true)
+	scenes.Focus(&editor, false)
+	scenes.Focus(&editor, true)
 	editor.InsertRune('y')
 
 	editor.Undo()

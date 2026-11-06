@@ -6,6 +6,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestViewOnlyChangesPublishTheirOwningScene(t *testing.T) {
@@ -146,12 +147,15 @@ func TestEditorPublishesCompletedCommandsAndSharedEdits(t *testing.T) {
 }
 
 func TestEditorNavigationPreservesTheCommittedScrollViewport(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, action := range []string{"bottom", "page"} {
 		t.Run(action, func(t *testing.T) {
 			editor := base.NewEditor(base.EditorConfig{Initial: "0\n1\n2\n3\n4\n5\n6\n7\n8\n9"})
 			editor.SetCursor(0, 0)
-			root := newTestRoot(editor)
-			t.Cleanup(root.root.Close)
+			root := scenes.Mount(editor)
+			t.Cleanup(root.Root.Close)
 			root.Draw(grid.NewSurface(12, 4).View())
 			editor.SetCursor(0, 0)
 			want := 6

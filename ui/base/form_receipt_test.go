@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestSpokenConfirmValidatesOnlyAnAcceptedAnswer(t *testing.T) {
@@ -74,6 +75,9 @@ func TestCancelFailureCannotReplaceANewerSubmissionOutcome(t *testing.T) {
 }
 
 func TestFormPaintBelongsToTheFieldRelation(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	field := base.NewText(base.TextConfig{Initial: "value"})
 	var painted []string
 	if err := field.Element().SetPaint(func(frame scene.Frame) {
@@ -86,11 +90,11 @@ func TestFormPaintBelongsToTheFieldRelation(t *testing.T) {
 		painted = append(painted, "form")
 		child.Draw(frame)
 	}})
-	_ = paintWidget(12, 1, form)
+	_ = paintWidget(scenes, 12, 1, form)
 	form.Set()
-	newTestRoot(form).root.FlushNotifications()
+	scenes.Mount(form).FlushNotifications()
 	plain := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
-	_ = paintWidget(12, 1, plain)
+	_ = paintWidget(scenes, 12, 1, plain)
 	if !slices.Equal(painted, []string{"form", "standalone"}) {
 		t.Fatalf("field painters before and after transfer = %v", painted)
 	}

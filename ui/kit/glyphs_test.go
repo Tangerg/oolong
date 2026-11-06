@@ -141,7 +141,7 @@ func TestBuiltInFurnitureHasStableCellGeometry(t *testing.T) {
 func TestBordersAreBuiltFromTheGlyphs(t *testing.T) {
 	ascii := kit.ASCII()
 	for _, b := range []kit.Border{ascii.Rounded(), ascii.Square()} {
-		joined := b.Top + b.Left + b.TopLeft + b.BottomRight
+		joined := b.Top.String() + b.Left.String() + b.TopLeft.String() + b.BottomRight.String()
 		for _, r := range joined {
 			if r > 0x7f {
 				t.Errorf("an ASCII border is drawn with %q", joined)

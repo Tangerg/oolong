@@ -24,7 +24,7 @@ const (
 
 	// maxStringBody bounds what one string's body may accumulate.
 	//
-	// It is far larger than maxSequenceBody because one of these legitimately carries
+	// It is far larger than maxParameterBytes because one of these legitimately carries
 	// a clipboard: the answer to a read of the terminal's selection is the whole of
 	// it, base64-encoded. It is a bound all the same, because a terminal that opens a
 	// string and never ends it must not be able to grow memory without limit.

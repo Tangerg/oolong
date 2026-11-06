@@ -314,20 +314,24 @@ func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
 			// nothing to hand to a mail client; with the one goldmark attaches it has
 			// "mailto://", which is not the scheme either. The address is the whole of
 			// what an email autolink says, so the destination is built from it.
-			target = "mailto:" + label
+			target = schemeMailto + ":" + label
 		}
-		out.add(label, action.style.Merge(r.look.Link), newHyperlink(target, label).labelLink())
+		if action.link == nil {
+			link = newHyperlink(target, label).labelLink()
+		}
+		out.add(label, action.style.Merge(r.look.Link), link)
 	case *ast.Image:
 		// A picture is not something a row of cells can hold — see the graphics
 		// package for what a terminal will take — so what is left is what it was
 		// called and where it is.
 		alt := r.plain(node)
-		image := newHyperlink(markdownText(string(node.Destination)), alt)
+		var destination hyperlink
 		if action.link == nil {
-			link = image.labelLink()
+			destination = newHyperlink(markdownText(string(node.Destination)), alt)
+			link = destination.labelLink()
 		}
 		out.add("["+alt+"]", action.style.Merge(r.look.Link), link)
-		r.target(out, image, "", action.style)
+		r.target(out, destination, "", action.style)
 	case *east.TaskCheckBox:
 		out.add(r.box(node.IsChecked), action.style.Merge(r.look.Marker), link)
 	case *ast.RawHTML:

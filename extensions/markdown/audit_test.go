@@ -93,21 +93,23 @@ func TestFenceInfoHasSemanticTextButCodeKeepsItsSource(t *testing.T) {
 }
 
 func TestLinkedImageKeepsItsLabelAndOuterDestination(t *testing.T) {
-	for _, tc := range []struct{ source, want string }{
-		{"[![<ada@example.test>](https://example.test/badge.png)](https://example.test/project)", "https://example.test/project"},
-		{"![<ada@example.test>](https://example.test/badge.png)", "https://example.test/badge.png"},
-		{"[![<ada@example.test>](https://example.test/badge.png)]()", ""},
+	for _, tc := range []struct{ source, shown, destination string }{
+		{"[![badge](https://example.test/badge.png)](https://example.test/project)", "[badge]", "https://example.test/project"},
+		{"![badge](https://example.test/badge.png)", "[badge]", "https://example.test/badge.png"},
+		{"[![<ada@example.test>](https://example.test/badge.png)](https://example.test/project)", "[ada@example.test] (https://example.test/project)", ""},
+		{"![<ada@example.test>](https://example.test/badge.png)", "[ada@example.test] (https://example.test/badge.png)", ""},
+		{"[![<ada@example.test>](https://example.test/badge.png)]()", "[ada@example.test]", ""},
 	} {
 		var doc markdown.Doc
 		doc.SetBlocks(mustRender(t, tc.source, markdown.Look{}))
-		rows := doc.Rows(40)
-		if len(rows) != 1 || rows[0].Text != "[ada@example.test]" {
+		rows := doc.Rows(120)
+		if len(rows) != 1 || rows[0].Text != tc.shown {
 			t.Fatalf("image label: %+v", rows)
 		}
-		surface := grid.NewSurface(40, 1)
+		surface := grid.NewSurface(120, 1)
 		doc.Draw(surface.View())
-		if got := cellAt(surface, 0, 0).Link; got != tc.want {
-			t.Errorf("%s points at %q, want %q", tc.source, got, tc.want)
+		if got := cellAt(surface, 0, 0).Link; got != tc.destination {
+			t.Errorf("%s points at %q, want %q", tc.source, got, tc.destination)
 		}
 	}
 }

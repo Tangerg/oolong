@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestTreeBranchChangesPreserveTheSelectedNode(t *testing.T) {
@@ -51,6 +52,9 @@ func TestTreeCollapseSelectsTheAncestorOfAHiddenNode(t *testing.T) {
 }
 
 func TestTreeBranchChangesCancelDeferredNavigation(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, test := range []struct {
 		name string
 		open bool
@@ -62,10 +66,10 @@ func TestTreeBranchChangesCancelDeferredNavigation(t *testing.T) {
 			if !test.open {
 				tree.Open(0)
 			}
-			root := newTestRoot(tree.Element())
-			t.Cleanup(root.root.Close)
+			root := scenes.Mount(tree.Element())
+			t.Cleanup(root.Root.Close)
 			focusElement(t, tree.Element())
-			if !root.root.Handle(input.Key{Rune: 'x'}) || *resolve == nil {
+			if !root.Handle(input.Key{Rune: 'x'}) || *resolve == nil {
 				t.Fatal("tree navigation was not deferred")
 			}
 			if test.open {

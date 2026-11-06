@@ -158,8 +158,9 @@ type Look struct {
 	// hyperlinks; any other keeps this style without one.
 	Link grid.Style
 	// An explicit address helps outputs without hyperlinks. A zero style omits that
-	// redundant text when the words already carry a usable link. Words that show a
-	// different address carry no link and are always followed by the destination.
+	// redundant text when the words already carry a usable link. Address-like labels
+	// must match the canonical web host or mail recipients. Differing or ambiguous
+	// address labels carry no link; their destination remains visible.
 	Target grid.Style
 	Quote  grid.Style
 	Rail   grid.Style

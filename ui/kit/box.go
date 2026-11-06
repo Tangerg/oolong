@@ -119,25 +119,25 @@ func (b Box) drawBorder(v grid.View, border Border, w, h int) {
 	first := max(1, visible.Min.Y)
 	last := min(h-1, visible.Max.Y)
 	for y := first; y < last; y++ {
-		v.Text(0, y, border.Left, b.Theme.Border)
+		v.Text(0, y, border.Left.value, b.Theme.Border)
 		if w >= 2 {
-			v.Text(w-1, y, border.Right, b.Theme.Border)
+			v.Text(w-1, y, border.Right.value, b.Theme.Border)
 		}
 	}
 }
 
-func (b Box) drawEdge(v grid.View, y, w int, left, mid, right string) {
+func (b Box) drawEdge(v grid.View, y, w int, left, mid, right CellGlyph) {
 	visible := v.Visible()
 	if visible.Min.X <= 0 && visible.Max.X > 0 {
-		v.Text(0, y, left, b.Theme.Border)
+		v.Text(0, y, left.value, b.Theme.Border)
 	}
 	first := max(1, visible.Min.X)
 	last := min(w-1, visible.Max.X)
 	for x := first; x < last; x++ {
-		v.Text(x, y, mid, b.Theme.Border)
+		v.Text(x, y, mid.value, b.Theme.Border)
 	}
 	if w >= 2 && w-1 >= visible.Min.X && w-1 < visible.Max.X {
-		v.Text(w-1, y, right, b.Theme.Border)
+		v.Text(w-1, y, right.value, b.Theme.Border)
 	}
 }
 

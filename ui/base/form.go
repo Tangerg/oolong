@@ -276,7 +276,8 @@ type SubmissionOutcome struct {
 	Cancelled bool
 }
 
-// Submission returns the current attempt, with Current computed from the exact submitted field revisions.
+// Submission is a snapshot. Current is true only while the submitted field
+// revisions still describe the form's draft at observation time.
 type Submission struct {
 	ID      SubmissionID
 	State   SubmissionState

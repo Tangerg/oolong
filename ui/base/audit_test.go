@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestYankPopOwnsInsertedBytesRatherThanSnappedCursor(t *testing.T) {
@@ -67,13 +68,16 @@ func TestElementPayloadReachabilityIncludesUndoAndRedo(t *testing.T) {
 }
 
 func TestTabReflowRechecksCarriedText(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, test := range []struct {
 		source string
 		width  int
 	}{{"abcd\tZ", 5}, {"a \tZ", 8}} {
 		var e base.Editor
 		e.SetText(test.source)
-		rows := paintWidget(test.width, e.HeightForWidth(test.width), &e)
+		rows := paintWidget(scenes, test.width, e.HeightForWidth(test.width), &e)
 		if !strings.Contains(strings.Join(rows, ""), "Z") {
 			t.Fatalf("%q: %q", test.source, rows)
 		}

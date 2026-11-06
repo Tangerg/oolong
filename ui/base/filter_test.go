@@ -7,6 +7,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/fuzzy"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func filtered() *base.Filter[string] {
@@ -54,11 +55,14 @@ func TestAPatternNarrowsTheListAndRanksWhatIsLeft(t *testing.T) {
 }
 
 func TestTheCursorGoesToTheTopWhenThePatternChanges(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// After a keystroke the rows under the cursor are different rows. Staying on the
 	// third one would leave it on whatever landed there, which is how a reader picks
 	// something they did not mean.
 	f := filtered()
-	paintWidget(30, 3, f)
+	paintWidget(scenes, 30, 3, f)
 	f.Select(2)
 	f.SetPattern("o")
 	if got := f.Selected(); got != 0 {
@@ -67,6 +71,9 @@ func TestTheCursorGoesToTheTopWhenThePatternChanges(t *testing.T) {
 }
 
 func TestARowIsToldWhichCharactersAnsweredThePattern(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Without it a filtered list cannot show why something matched, which is most of
 	// what makes one usable.
 	var seen fuzzy.Match
@@ -77,7 +84,7 @@ func TestARowIsToldWhichCharactersAnsweredThePattern(t *testing.T) {
 		}
 	}
 	f.SetPattern("pty")
-	paintWidget(30, 3, f)
+	paintWidget(scenes, 30, 3, f)
 	if len(seen.At) != 3 {
 		t.Fatalf("the row was told about %v, want the three characters that matched", seen.At)
 	}

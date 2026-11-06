@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestSettingsRoutesNavigationAndValueActionsSeparately(t *testing.T) {
@@ -40,11 +41,14 @@ func TestSettingsRoutesNavigationAndValueActionsSeparately(t *testing.T) {
 }
 
 func TestSettingsPointerSelectionUsesTheListCommittedWindow(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	settings := &base.Settings[int]{}
 	settings.List().SetItems([]int{0, 1, 2, 3})
 	// A nil row still publishes the list window: appearance is optional, pointer
 	// geometry is behaviour.
-	paintWidget(8, 2, settings)
+	paintWidget(scenes, 8, 2, settings)
 	if !settings.Handle(input.Mouse{
 		Pos: image.Pt(0, 1), Action: input.MouseDown, Button: input.ButtonLeft,
 	}) {

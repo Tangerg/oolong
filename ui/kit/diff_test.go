@@ -8,6 +8,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/diff"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
@@ -128,14 +129,17 @@ func TestADiffIgnoresAZeroWidthGapGlyph(t *testing.T) {
 }
 
 func TestADiffTallerThanItsPaneScrolls(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Which is the whole point of the window being a separate thing: a diff knows how
 	// tall it is and nothing else, and something that shows a window onto anything at
 	// all does the rest.
 	d := kit.NewDiff(kit.DiffConfig{Theme: kit.Dark(), Glyphs: kit.Glyphs{}, Hunks: changed("a\nb\nc\nd", "A\nB\nC\nD")})
-	window := base.NewViewport(base.ViewportConfig{Content: testElement(d)})
-	paintWidget(10, 3, window)
+	window := base.NewViewport(base.ViewportConfig{Content: scenes.Element(d)})
+	paintWidget(scenes, 10, 3, window)
 	window.Scroll().ToBottom()
-	rows := paintWidget(10, 3, window)
+	rows := paintWidget(scenes, 10, 3, window)
 	if !strings.Contains(strings.Join(rows, "\n"), "D") {
 		t.Fatalf("drawn:\n%s\nwant the end of the change", strings.Join(rows, "\n"))
 	}

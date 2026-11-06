@@ -1,7 +1,6 @@
 package link
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -15,8 +14,6 @@ const (
 	extendedPathPrefix      = `\\?\`
 	devicePathPrefix        = `\\.\`
 )
-
-var linePattern = regexp.MustCompile(`^:([0-9]{1,9})(?::([0-9]{1,9}))?`)
 
 // Consuming a complete token before classifying it prevents a rejected relative
 // path from donating a suffix that looks like a different rooted path or bare name.
@@ -129,14 +126,45 @@ func pathAt(source string, from, to int, quoted, allowBare bool) (Link, bool) {
 		return Link{}, false
 	}
 	result := Link{Start: from, End: to, Kind: File, Target: target}
-	if suffix := linePattern.FindStringSubmatch(source[to:]); suffix != nil {
-		result.Line, _ = strconv.Atoi(suffix[1])
-		if suffix[2] != "" {
-			result.Column, _ = strconv.Atoi(suffix[2])
-		}
-		result.End += len(suffix[0])
-	}
+	line, column, size := positionSuffix(source[to:])
+	result.Line, result.Column, result.End = line, column, to+size
 	return result, true
+}
+
+// Consume complete decimal tokens before validating their range. A partial
+// success would publish a different file position from the one in the source.
+func positionSuffix(source string) (line, column, size int) {
+	if !strings.HasPrefix(source, ":") {
+		return 0, 0, 0
+	}
+	line, digits := positionNumber(source[1:])
+	if line == 0 {
+		return 0, 0, 0
+	}
+	size = 1 + digits
+	rest := source[size:]
+	if len(rest) > 1 && rest[0] == ':' && rest[1] >= '0' && rest[1] <= '9' {
+		column, digits = positionNumber(rest[1:])
+		if column == 0 {
+			return 0, 0, 0
+		}
+		size += 1 + digits
+	}
+	return line, column, size
+}
+
+func positionNumber(source string) (value, size int) {
+	for size < len(source) && source[size] >= '0' && source[size] <= '9' {
+		size++
+	}
+	if size == 0 {
+		return 0, 0
+	}
+	value, err := strconv.Atoi(source[:size])
+	if err != nil {
+		return 0, size
+	}
+	return value, size
 }
 
 // Rooted paths supply their own evidence. Relative tokens need an extension to

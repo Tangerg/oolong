@@ -8,10 +8,14 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	type preference struct{ name string }
 	items := []preference{{"theme"}, {"wrap"}}
 	values := []string{"dark", "on"}
@@ -35,15 +39,15 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 		},
 	})
 
-	equalRows(t, paintWidget(16, 2, settings), []string{
+	equalRows(t, paintWidget(scenes, 16, 2, settings), []string{
 		"theme.......dark",
 		"wrap..........on",
 	})
-	newTestRoot(settings).Handle(input.Key{Code: input.Down})
-	if !newTestRoot(settings).Handle(input.Key{Code: input.Right}) || values[1] != "off" {
+	scenes.Mount(settings).Handle(input.Key{Code: input.Down})
+	if !scenes.Mount(settings).Handle(input.Key{Code: input.Right}) || values[1] != "off" {
 		t.Fatalf("right left values %v, want the selected value changed", values)
 	}
-	equalRows(t, paintWidget(16, 2, settings), []string{
+	equalRows(t, paintWidget(scenes, 16, 2, settings), []string{
 		"theme.......dark",
 		"wrap.........off",
 	})

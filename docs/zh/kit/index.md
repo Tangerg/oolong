@@ -22,7 +22,9 @@ Kit 提供主题、字形选择、被动内容块和常用复合控件。它组�
 
 宿主字形能力只解析一次。需要截断标记时，将 `glyphs.Ellipsis` 传给 `ButtonConfig.Ellipsis`、`Paragraph.Ellipsis` 和 `Label.Ellipsis`。空标记表示静默截断。测量与绘制使用同一个标记；更改 Paragraph 的标记也会改变其布局缓存身份。
 
-逐格绘制的仪表使用 `kit.CellGlyph` 表示已填充、未填充和部分填充标记、滑块与滚动条部件，以及 sparkline 的高度级别。通过 `kit.NewCellGlyph(text)` 构造自定义标记，并处理 `kit.ErrInvalidCellGlyph`：非空标记必须是一个可打印字素，恰好占一个终端列；零值表示不绘制标记。宽度约束由该值负责，组件组合它时无需在绘制阶段重复校验。其他文字（包括占多列的 ASCII 省略号）仍采用按实际宽度测量的字符串契约。
+固定单元格的部件使用 `kit.CellGlyph`：包括 `Border` 的所有边和角点、`Glyphs` 中对应的字段、仪表标记、滑块与滚动条部件，以及 sparkline 的高度级别。通过 `kit.NewCellGlyph(text)` 构造自定义标记，并处理 `kit.ErrInvalidCellGlyph`：非空标记必须是一个可打印字素，恰好占一个终端列；零值表示不绘制标记。宽度约束由该值负责，组件组合它时无需在绘制阶段重复校验。因此 Box 的测量与绘制对每条边占用的单元格保持一致，绘制内容不会擦除宽边框字形的一部分。
+
+`Glyphs.Rule` 是标签页和 Transcript 固定标题所用横向规则线的字符串图案，按实际宽度测量，可以包含多列或多个字素；`Tabs.SetRule` 保留相同契约。`Glyphs.Horizontal` 只提供单列横向边框标记。更新自定义字形集合时，通过 `NewCellGlyph` 构造边框标记，将规则线图案移到 `Rule`，向接收文字的消费者传递已验证标记时调用 `CellGlyph.String()`。其他按实际宽度测量的文字（包括占多列的 ASCII 省略号）仍使用字符串。
 
 Kit 替换绘制槽后仍保留控制器的类型化集合动作和带修订的条目地址。`SettingsConfig.Change` 返回 `scene.ActionResult[bool]`，皮肤不会将消费按键擅自解释为值改变。详见[类型化控制器动作](../base/index.md#类型化集合与控制器动作)。
 

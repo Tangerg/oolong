@@ -6,19 +6,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestListNavigationDoesNotOverrideLaterManualScroll(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[int]
 	list.SetItems(make([]int, 30))
-	root := newTestRoot(&list)
+	root := scenes.Mount(&list)
 	surface := grid.NewSurface(12, 5)
 	root.Draw(surface.View())
 	list.Scroll().By(3)
@@ -129,12 +132,15 @@ func (f *themedExternalField) DrawWith(v scene.Frame, look base.Look) {
 }
 
 func TestCompletionAndExternalFieldsCanReplaceTheirAppearance(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	completion := base.Completion{Renderer: alternateCompletion{}}
 	completion.Offer(base.Token{}, []base.Candidate{{Text: "one", Matched: []int{0}}, {Text: "two"}})
 	if completion.Width() != 9 {
 		t.Fatal("custom row width ignored")
 	}
-	equalRows(t, paintWidget(9, 1, &completion), []string{"+one....."})
+	equalRows(t, paintWidget(scenes, 9, 1, &completion), []string{"+one....."})
 	candidate, _ := completion.Current()
 	candidate.Matched[0] = 2
 	again, _ := completion.Current()
@@ -145,7 +151,7 @@ func TestCompletionAndExternalFieldsCanReplaceTheirAppearance(t *testing.T) {
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{external}})
 	look := base.Look{Accent: grid.Style{Attr: grid.Bold}}
 	styleFields(form, look)
-	paintWidget(10, 1, form)
+	paintWidget(scenes, 10, 1, form)
 	if external.look != look {
 		t.Fatal("external field could not receive form theme")
 	}
@@ -153,7 +159,7 @@ func TestCompletionAndExternalFieldsCanReplaceTheirAppearance(t *testing.T) {
 		v.Text(0, 0, "/"+o.Value, grid.Style{})
 	}}
 	selected.SetOptions(base.Options("one"))
-	equalRows(t, paintWidget(8, 1, &selected), []string{"/one...."})
+	equalRows(t, paintWidget(scenes, 8, 1, &selected), []string{"/one...."})
 }
 
 func TestTokenLookupSkipsInvalidRepeatedTriggers(t *testing.T) {
@@ -240,14 +246,17 @@ func TestRequiredPresentationOwnersRejectNilReceivers(t *testing.T) {
 }
 
 func TestNewCompletionOfferStartsAtItsFirstRowAfterManualScroll(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	candidates := []base.Candidate{{Text: "one"}, {Text: "two"}, {Text: "three"}, {Text: "four"}, {Text: "five"}}
 	var c base.Completion
 	c.Offer(base.Token{}, candidates)
-	root := newTestRoot(&c)
+	root := scenes.Mount(&c)
 	surface := grid.NewSurface(9, 2)
 	root.Draw(surface.View())
 	c.Handle(input.Mouse{Action: input.WheelDown})
 	root.Draw(surface.View())
 	c.Offer(base.Token{Query: "new"}, candidates)
-	equalRows(t, paintWidget(9, 2, &c), []string{"one......", "two......"})
+	equalRows(t, paintWidget(scenes, 9, 2, &c), []string{"one......", "two......"})
 }

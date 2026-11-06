@@ -19,6 +19,17 @@ die() {
 	exit 1
 }
 
+cleanup_release() {
+	local status=$?
+	cd "$root" || exit 1
+	if [[ -f "$candidate/.git" ]]; then
+		git worktree remove --force "$candidate" || die "cannot remove release checkout: $candidate"
+	else
+		rmdir "$candidate" || die "cannot remove release directory: $candidate"
+	fi
+	exit "$status"
+}
+
 compatibility() {
 	local module="$1" previous base=none
 	previous=$(scripts/module-tag.sh --latest "$module")
@@ -53,6 +64,23 @@ if [[ $# -eq 3 ]]; then
 	execute=true
 fi
 
+step "Preflight $module $version"
+branch=$(git rev-parse --abbrev-ref HEAD)
+[[ "$branch" == main ]] || die "release from main, not $branch"
+worktree_status=$(git status --porcelain)
+[[ -z "$worktree_status" ]] || die "commit reviewed changes before releasing"
+git fetch --quiet origin --tags
+head=$(git rev-parse HEAD)
+upstream=$(git rev-parse origin/main)
+[[ "$head" == "$upstream" ]] || die "main and origin/main differ"
+
+# Every gate reads the commit that will own the tag, even while another editor
+# or agent changes the caller's worktree. Build outputs live only in this checkout.
+candidate=$(mktemp -d "${TMPDIR:-/tmp}/oolong-release.XXXXXX")
+trap cleanup_release EXIT
+git worktree add --quiet --detach "$candidate" "$head"
+cd "$candidate"
+
 if ! all_module_output=$(scripts/modules.sh); then die "cannot derive workspace modules"; fi
 ALL_MODULES=()
 while IFS= read -r directory; do ALL_MODULES+=("$directory"); done <<<"$all_module_output"
@@ -64,15 +92,6 @@ done <<<"$public_module_output"
 $public || die "$module is not a public workspace module"
 tag=$(scripts/module-tag.sh "$module" "$version")
 
-step "Preflight $tag"
-branch=$(git rev-parse --abbrev-ref HEAD)
-[[ "$branch" == main ]] || die "release from main, not $branch"
-worktree_status=$(git status --porcelain)
-[[ -z "$worktree_status" ]] || die "commit reviewed changes before releasing"
-git fetch --quiet origin --tags
-head=$(git rev-parse HEAD)
-upstream=$(git rev-parse origin/main)
-[[ "$head" == "$upstream" ]] || die "main and origin/main differ"
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
 	die "$tag already exists; tags are immutable"
 else
@@ -168,7 +187,7 @@ note "windows, darwin and linux source sets"
 while read -r goos goarch; do
 	for directory in "${ALL_MODULES[@]}"; do
 		(cd "$directory" && GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go vet ./... &&
-			GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 "$root/scripts/build-module.sh" .) ||
+			GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 "$candidate/scripts/build-module.sh" .) ||
 			die "$directory does not build for $goos/$goarch."
 	done
 done <<'EOF'
@@ -183,6 +202,10 @@ step "Published dependency graph"
 command -v gorelease >/dev/null || die "install the pinned gorelease version from CONTRIBUTING.md"
 gorelease_bin=$(command -v gorelease)
 compatibility "$module"
+candidate_head=$(git rev-parse HEAD)
+[[ "$candidate_head" == "$head" ]] || die "release checks changed the candidate commit"
+candidate_status=$(git status --porcelain)
+[[ -z "$candidate_status" ]] || die "release checks changed the committed candidate"
 step "Plan"
 note "tag $tag at $head; no dependency or other module version changes"
 if ! $execute; then

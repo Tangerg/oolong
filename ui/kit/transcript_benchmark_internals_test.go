@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 type transcriptSearchRows int
@@ -19,6 +20,9 @@ func (transcriptSearchRows) Draw(grid.View)           {}
 func BenchmarkTranscriptMarkCommittedHistory(b *testing.B) {
 	for _, count := range []int{1_000, 100_000} {
 		b.Run(fmt.Sprintf("matches=%d", count), func(b *testing.B) {
+			scenes := scenetest.New()
+			b.Cleanup(scenes.Close)
+
 			matches := make([]base.Match, count)
 			for i := range matches {
 				matches[i] = base.Match{Row: i, Spans: []base.Span{{Width: 1}}}
@@ -30,7 +34,7 @@ func BenchmarkTranscriptMarkCommittedHistory(b *testing.B) {
 			if _, err := transcript.Controller().Add(transcriptSearchRows(count)); err != nil {
 				b.Fatal(err)
 			}
-			newTestRoot(transcript.Element()).Draw(grid.NewSurface(80, 24).View())
+			scenes.Mount(transcript.Element()).Draw(grid.NewSurface(80, 24).View())
 			if err := transcript.Controller().SetMatches(transcript.Controller().Layout(), matches); err != nil {
 				b.Fatal(err)
 			}
@@ -46,6 +50,9 @@ func BenchmarkTranscriptMarkCommittedHistory(b *testing.B) {
 }
 
 func TestVisibleMatchesIncludesTheOneCrossingTheViewportEdge(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	matches := []base.Match{
 		{Row: 2, Spans: make([]base.Span, 3)}, // reaches row 4
 		{Row: 6, Spans: []base.Span{{Width: 1}}},
@@ -58,7 +65,7 @@ func TestVisibleMatchesIncludesTheOneCrossingTheViewportEdge(t *testing.T) {
 	if _, err := transcript.Add(transcriptSearchRows(21)); err != nil {
 		t.Fatal(err)
 	}
-	newTestRoot(transcript.Element()).Draw(grid.NewSurface(20, 2).View())
+	scenes.Mount(transcript.Element()).Draw(grid.NewSurface(20, 2).View())
 	if err := transcript.SetMatches(transcript.Layout(), matches); err != nil {
 		t.Fatal(err)
 	}

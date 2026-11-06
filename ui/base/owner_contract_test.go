@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestFieldOwnersAdvanceOnlyForSemanticChanges(t *testing.T) {
@@ -206,10 +207,13 @@ func TestFormChecksEveryFieldAndRejectsChangesDuringValidation(t *testing.T) {
 }
 
 func TestFormReplacementPublishesAtomically(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	first := base.NewText(base.TextConfig{Initial: "first"})
 	next := base.NewText(base.TextConfig{Initial: "next"})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{first}})
-	root := newTestRoot(form)
+	root := scenes.Mount(form)
 	root.Draw(grid.NewSurface(20, 3).View())
 	func() {
 		defer func() {
@@ -226,33 +230,45 @@ func TestFormReplacementPublishesAtomically(t *testing.T) {
 
 func TestSliderUsesTheWrittenTrackUntilNewFrameIsWritten(t *testing.T) {
 	slider := base.NewSlider(base.SliderConfig{Minimum: 0, Maximum: 100})
-	root := newTestRoot(slider)
-	root.Draw(grid.NewSurface(11, 1).View())
-	pending, err := root.root.Prepare(grid.NewSurface(21, 1).View())
+	root, err := scene.NewRoot(scene.RootConfig{Element: slider.Element()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	root.sequence++
-	pending.Commit(root.sequence)
+	t.Cleanup(root.Close)
+	written, err := root.Prepare(grid.NewSurface(11, 1).View())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const writtenSequence, admittedSequence = 1, 2
+	written.Commit(writtenSequence)
+	root.Wrote(writtenSequence)
+	pending, err := root.Prepare(grid.NewSurface(21, 1).View())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending.Commit(admittedSequence)
 	if !root.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(5, 0)}) {
 		t.Fatal("written control declined press")
 	}
 	if slider.Value() != 50 {
 		t.Fatalf("press used admitted track rather than written: %d", slider.Value())
 	}
-	root.root.Wrote(root.sequence)
+	root.Wrote(admittedSequence)
 	root.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft, Pos: image.Pt(10, 0)})
 }
 
 func TestListRejectsAnOldHitAfterCollectionReplacement(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	list := &base.List[string]{}
 	list.SetItems([]string{"old a", "old b"})
-	root := newTestRoot(list)
+	root := scenes.Mount(list)
 	root.Draw(grid.NewSurface(10, 2).View())
-	old := root.root.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 1)})
+	old := root.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 1)})
 	list.SetItems([]string{"new a", "new b"})
 	root.Draw(grid.NewSurface(10, 2).View())
-	if root.root.HandleInput(old) || list.Selected() != 0 {
+	if root.HandleInput(old) || list.Selected() != 0 {
 		t.Fatal("old dataset hit selected a new record")
 	}
 }
@@ -307,6 +323,9 @@ func TestEditSessionNotificationsKeepCommitOrderUnderReentry(t *testing.T) {
 }
 
 func TestEditSessionPublishesRevisionBeforeInvalidatingScenePredicates(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	session := base.NewEditSession(base.EditSessionConfig{Initial: "old"})
 	editor := base.NewEditor(base.EditorConfig{Session: session})
 	before := session.Revision()
@@ -319,7 +338,7 @@ func TestEditSessionPublishesRevisionBeforeInvalidatingScenePredicates(t *testin
 	}); err != nil {
 		t.Fatal(err)
 	}
-	root := newTestRoot(editor)
+	root := scenes.Mount(editor)
 	root.Draw(grid.NewSurface(8, 1).View())
 	editor.SetText("new")
 	if observedPartial {
@@ -328,6 +347,9 @@ func TestEditSessionPublishesRevisionBeforeInvalidatingScenePredicates(t *testin
 }
 
 func TestControllerInputRejectsPurePhaseBeforeAdvancingMatchers(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	type inputOwner interface {
 		Element() scene.Element
 		Handle(event input.Event) bool
@@ -350,7 +372,7 @@ func TestControllerInputRejectsPurePhaseBeforeAdvancingMatchers(t *testing.T) {
 			if err := owner.Element().SetPaint(func(scene.Frame) { owner.Handle(input.Key{Rune: 'g'}) }); err != nil {
 				t.Fatal(err)
 			}
-			root := newTestRoot(owner)
+			root := scenes.Mount(owner)
 			func() {
 				defer func() {
 					if recover() == nil {
@@ -364,6 +386,9 @@ func TestControllerInputRejectsPurePhaseBeforeAdvancingMatchers(t *testing.T) {
 }
 
 func TestFormCancellationRejectsPurePhaseBeforeCallingWorker(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	requests := 0
 	form := base.NewForm(base.FormConfig{Submit: func(base.SubmissionID) (scene.ActionState, error) {
 		return scene.Started, nil
@@ -374,7 +399,7 @@ func TestFormCancellationRejectsPurePhaseBeforeCallingWorker(t *testing.T) {
 	if err := form.Element().SetPaint(func(scene.Frame) { _ = form.Cancel() }); err != nil {
 		t.Fatal(err)
 	}
-	root := newTestRoot(form)
+	root := scenes.Mount(form)
 	func() {
 		defer func() {
 			if recover() == nil {

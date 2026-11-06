@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestCommittedEditorChangesReachTheSubscribersThatOwnedTheirDelivery(t *testing.T) {
@@ -54,14 +55,17 @@ func TestCommittedEditorChangesReachTheSubscribersThatOwnedTheirDelivery(t *test
 }
 
 func TestCommittedEditorChangeSurvivesAnInterruptedSceneWake(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	s := base.NewEditSession(base.EditSessionConfig{})
 	editor := base.NewEditor(base.EditorConfig{Session: s})
 	var revisions []uint64
 	s.Subscribe(func(change base.ChangeMap) { revisions = append(revisions, change.After) })
 	peer := base.NewEditor(base.EditorConfig{Session: s})
-	after := newTestRoot(peer.Element())
-	defer after.root.Close()
-	wake := after.root.Changes()
+	after := scenes.Mount(peer.Element())
+	defer after.Root.Close()
+	wake := after.Changes()
 	armed := false
 	if err := editor.Element().SetFocusable(func() bool {
 		if armed {
@@ -72,8 +76,8 @@ func TestCommittedEditorChangeSurvivesAnInterruptedSceneWake(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	root := newTestRoot(editor.Element())
-	defer root.root.Close()
+	root := scenes.Mount(editor.Element())
+	defer root.Root.Close()
 	armed = true
 	func() {
 		defer func() {

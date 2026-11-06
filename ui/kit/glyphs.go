@@ -12,11 +12,13 @@ import "github.com/Tangerg/oolong/ui/core/text"
 // The zero value draws nothing, which is not useful: [Unicode] and [ASCII] are the two
 // sets, and [GlyphsFor] picks between them.
 type Glyphs struct {
-	Horizontal, Vertical                       string
-	TopLeft, TopRight, BottomLeft, BottomRight string
-	RoundTopLeft, RoundTopRight                string
-	RoundBottomLeft, RoundBottomRight          string
+	Horizontal, Vertical                       CellGlyph
+	TopLeft, TopRight, BottomLeft, BottomRight CellGlyph
+	RoundTopLeft, RoundTopRight                CellGlyph
+	RoundBottomLeft, RoundBottomRight          CellGlyph
 
+	// Rule repeats across a row and may span several columns; border cells cannot.
+	Rule           string
 	Ellipsis       string
 	Bullet, Marker string
 	// Taken and Free are the two states of a choice: one that has been made, and one
@@ -45,10 +47,11 @@ type Glyphs struct {
 // Unicode is the set for a terminal that can draw them, which is nearly all of them.
 func Unicode() Glyphs {
 	return Glyphs{
-		Horizontal: "─", Vertical: "│",
-		TopLeft: "┌", TopRight: "┐", BottomLeft: "└", BottomRight: "┘",
-		RoundTopLeft: "╭", RoundTopRight: "╮",
-		RoundBottomLeft: "╰", RoundBottomRight: "╯",
+		Horizontal: mustCellGlyph("─"), Vertical: mustCellGlyph("│"),
+		TopLeft: mustCellGlyph("┌"), TopRight: mustCellGlyph("┐"), BottomLeft: mustCellGlyph("└"), BottomRight: mustCellGlyph("┘"),
+		RoundTopLeft: mustCellGlyph("╭"), RoundTopRight: mustCellGlyph("╮"),
+		RoundBottomLeft: mustCellGlyph("╰"), RoundBottomRight: mustCellGlyph("╯"),
+		Rule:        "─",
 		Ellipsis:    "…",
 		Bullet:      "•",
 		Marker:      "❯",
@@ -75,10 +78,11 @@ func Unicode() Glyphs {
 // not that it looks the same.
 func ASCII() Glyphs {
 	return Glyphs{
-		Horizontal: "-", Vertical: "|",
-		TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+",
-		RoundTopLeft: "+", RoundTopRight: "+",
-		RoundBottomLeft: "+", RoundBottomRight: "+",
+		Horizontal: mustCellGlyph("-"), Vertical: mustCellGlyph("|"),
+		TopLeft: mustCellGlyph("+"), TopRight: mustCellGlyph("+"), BottomLeft: mustCellGlyph("+"), BottomRight: mustCellGlyph("+"),
+		RoundTopLeft: mustCellGlyph("+"), RoundTopRight: mustCellGlyph("+"),
+		RoundBottomLeft: mustCellGlyph("+"), RoundBottomRight: mustCellGlyph("+"),
+		Rule:        "-",
 		Ellipsis:    "...",
 		Bullet:      "*",
 		Marker:      ">",
@@ -111,12 +115,12 @@ func GlyphsFor(locale string) Glyphs {
 	return ASCII()
 }
 
-// Border is the set of characters a box is drawn with. The zero Border draws no
-// lines, which is what a box that only pads its content wants.
+// Border reserves one cell per edge, so every mark must satisfy [CellGlyph]'s
+// geometry contract. The zero value draws no lines.
 type Border struct {
-	Top, Bottom, Left, Right string
-	TopLeft, TopRight        string
-	BottomLeft, BottomRight  string
+	Top, Bottom, Left, Right CellGlyph
+	TopLeft, TopRight        CellGlyph
+	BottomLeft, BottomRight  CellGlyph
 }
 
 // Rounded and Square are the two line styles worth having, drawn with these glyphs.

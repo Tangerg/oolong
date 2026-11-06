@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 // row is a table row of two columns, so a test can sort by either.
@@ -81,10 +82,13 @@ func TestATableIsOrderedByTheColumnItWasAsked(t *testing.T) {
 }
 
 func TestTheCursorStaysOnTheRowItWasOnThroughASort(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Following it by index would land on whatever moved into that position, which is
 	// how a reader acts on the wrong row.
 	tbl := table()
-	paintWidget(20, 3, tbl)
+	paintWidget(scenes, 20, 3, tbl)
 	tbl.Select(2) // beta
 	tbl.SortBy(0)
 	if got, _ := tbl.Current(); got.name != "beta" {

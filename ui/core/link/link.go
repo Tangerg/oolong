@@ -35,6 +35,8 @@ type Link struct {
 	Target string
 	// Line and Column are where in a file the reference points, counting from one, or
 	// zero when it did not say. Both are always zero for a URL.
+	// Decimal positions may have leading zeros. A zero or overflowing token refuses
+	// the complete position suffix; the path itself remains a link without a location.
 	//
 	// "src/main.go:42" is the shape a compiler, a stack trace and a model all use, and
 	// a link that opened the file at the top would throw away the useful half of what

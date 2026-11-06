@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func semanticOwner(t *testing.T, element scene.Element) *scene.Root {
@@ -231,7 +232,10 @@ func TestSettingsSemanticActionsKeepAcceptanceSeparateFromDomainChange(t *testin
 }
 
 func TestViewportScrollActionUsesThePresentedScrollOwner(t *testing.T) {
-	viewport := base.NewViewport(base.ViewportConfig{Content: testElement(&tall{rows: 10})})
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
+	viewport := base.NewViewport(base.ViewportConfig{Content: scenes.Element(&tall{rows: 10})})
 	root := semanticOwner(t, viewport.Element())
 	prepared, err := root.Prepare(grid.NewSurface(8, 3).View())
 	if err != nil {

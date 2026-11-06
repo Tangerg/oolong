@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 type maximumWidget struct{ _ byte }
@@ -22,11 +22,14 @@ func (*maximumWidget) Focus(bool)              {}
 func (*maximumWidget) HeightForWidth(int) int  { return int(^uint(0) >> 1) }
 
 func TestCompositeMeasurementsSaturateAtMaxInt(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	maxInt := int(^uint(0) >> 1)
 	child := &maximumWidget{}
 	cases := map[string]int{
-		"panel": NewPanel(PanelConfig{Box: Box{Theme: Theme{}, Glyphs: Glyphs{}}, Content: testElement(child)}).HeightForWidth(80),
-		"tabs":  NewTabs(TabsConfig{Items: []base.Tab{{Title: "one", Content: testElement(&maximumWidget{})}}}).HeightForWidth(80),
+		"panel": NewPanel(PanelConfig{Box: Box{Theme: Theme{}, Glyphs: Glyphs{}}, Content: scenes.Element(child)}).HeightForWidth(80),
+		"tabs":  NewTabs(TabsConfig{Items: []base.Tab{{Title: "one", Content: scenes.Element(&maximumWidget{})}}}).HeightForWidth(80),
 		"entry": (&Entry{Trailing: maxInt}).HeightForWidth(80),
 	}
 	for name, got := range cases {

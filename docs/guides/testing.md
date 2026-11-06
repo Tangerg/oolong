@@ -24,6 +24,12 @@ Prepare a frame, inspect that committed geometry has not advanced, then abort. V
 
 Inject capacity refusal, worker completion after detach, invalid action parameters, partial writes and native-paint refusal. Stream tests compare final cells against whole-source rendering across arbitrary chunk boundaries, including forward references and split UTF-8.
 
+## Bound repository fixture lifetimes
+
+Tests inside the `ui` module share `ui/internal/scenetest` for component adapters and complete scene frames. Call `scenetest.New()` within each test or fuzz callback, and register the returned scope's `Close` with `t.Cleanup`. Helpers receive that scope explicitly so repeated draws and focus changes use the same component identity and frame sequence. Examples without a test handle use `defer scope.Close()`.
+
+Create a benchmark scope within `b.Run` when its component is reused across iterations. If an iteration creates fresh components, close that iteration's scope before starting the next one. Closing a scope releases every owned scene root and cached adapter; process-wide fixture registries would retain completed tests and fuzz samples.
+
 ## Run repository gates
 
 From the checkout, `go -C ui test ./...` covers the public module and its internal architecture tools. `scripts/modules.sh` derives all workspace modules; run each module's tests and `go test -race` when validating a cross-module change. `scripts/sync-workspace.sh --check` checks the derived workspace without editing it.

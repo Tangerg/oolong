@@ -7,9 +7,13 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestEditorSelectionWaitsForItsPressedButton(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, release := range []struct {
 		name    string
 		button  input.Button
@@ -23,7 +27,7 @@ func TestEditorSelectionWaitsForItsPressedButton(t *testing.T) {
 		t.Run(release.name, func(t *testing.T) {
 			var editor base.Editor
 			editor.SetText("abcdef")
-			root := newTestRoot(&editor)
+			root := scenes.Mount(&editor)
 			root.Draw(grid.NewSurface(10, 1).View())
 			root.Handle(input.Mouse{Pos: image.Pt(1, 0), Action: input.MouseDown, Button: input.ButtonLeft})
 			root.Handle(input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseDrag, Button: input.ButtonLeft})

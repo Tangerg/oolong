@@ -5,9 +5,13 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestScrollRevealMovesAsLittleAsItCan(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A reader stepping through search results wants the text around them to stay put
 	// where it already fits. Centring every result loses the context that made it
 	// worth finding.
@@ -27,7 +31,7 @@ func TestScrollRevealMovesAsLittleAsItCan(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var s base.Scroll
-			stageScroll(&s, 100, 5)
+			stageScroll(scenes, &s, 100, 5)
 			s.By(tc.offset)
 			s.Reveal(tc.row, tc.row)
 			if got := s.Offset(); got != tc.wantOffset {
@@ -38,10 +42,13 @@ func TestScrollRevealMovesAsLittleAsItCan(t *testing.T) {
 }
 
 func TestScrollRevealStopsFollowing(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A row was asked for, and following the end would scroll away from it at once.
 	var s base.Scroll
 	s.ToBottom()
-	stageScroll(&s, 100, 5)
+	stageScroll(scenes, &s, 100, 5)
 	if !s.FollowingEnd() {
 		t.Fatal("not following to begin with")
 	}
@@ -55,10 +62,13 @@ func TestScrollRevealStopsFollowing(t *testing.T) {
 }
 
 func TestScrollRevealShowsWhereReadingBegins(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A match taller than the window: its start wins, or the reader is shown the end
 	// of something and left to scroll back for what it was part of.
 	var s base.Scroll
-	stageScroll(&s, 100, 3)
+	stageScroll(scenes, &s, 100, 3)
 	s.Reveal(20, 40)
 	if got := s.Offset(); got != 20 {
 		t.Errorf("offset = %d, want the start of the range", got)
@@ -72,8 +82,11 @@ func TestScrollRevealShowsWhereReadingBegins(t *testing.T) {
 }
 
 func TestScrollRevealBackwardsRangeIsTheSameRange(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var s base.Scroll
-	stageScroll(&s, 100, 5)
+	stageScroll(scenes, &s, 100, 5)
 	s.Reveal(40, 20)
 	if got := s.Offset(); got != 20 {
 		t.Errorf("offset = %d, want 20", got)
@@ -92,10 +105,13 @@ func TestScrollRevealWithNoWindowDoesNothing(t *testing.T) {
 // times as far on Apple Terminal as on iTerm2, because it moved a fixed number of rows
 // per report and they send a different number of reports.
 func TestScrollTakesTheTerminalsWordForWhatANotchIs(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	keys := base.DefaultScrollKeys()
 	notch := func(w input.Wheel) int {
 		var s base.Scroll
-		stageScroll(&s, 1000, 10)
+		stageScroll(scenes, &s, 1000, 10)
 		s.ToTop()
 		s.Wheel(w)
 		for range w.Reports {

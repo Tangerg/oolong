@@ -5,6 +5,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestRepeatedTextMapsPeersThroughTheActualEditAndHistory(t *testing.T) {
@@ -162,6 +163,9 @@ func TestYankCannotResumeAcrossASubscribersEdit(t *testing.T) {
 }
 
 func TestMaskedFillReceiptCannotExposeTheValue(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var editor base.Editor
 	editor.SetMask("*")
 	session := editor.Session()
@@ -183,9 +187,9 @@ func TestMaskedFillReceiptCannotExposeTheValue(t *testing.T) {
 		{"text field", field.Element(), "input", field.Text},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			root := newTestRoot(test.element)
+			root := scenes.Mount(test.element)
 			for _, value := range []string{"input", test.want} {
-				result, err := root.root.Invoke(t.Context(), test.element.Target(), scene.ActionFill, value)
+				result, err := root.Invoke(t.Context(), test.element.Target(), scene.ActionFill, value)
 				if err != nil || result.Value != "" || test.read() != test.want {
 					t.Fatalf("masked fill returned a value or failed to fill (err=%v)", err)
 				}

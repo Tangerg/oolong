@@ -7,8 +7,8 @@ require (
 	github.com/Tangerg/oolong/extensions/latex v0.27.0
 	github.com/Tangerg/oolong/extensions/markdown v0.27.1-0.20261106061224-32f9fa739de7
 	github.com/Tangerg/oolong/extensions/mermaid v0.27.0
-	github.com/Tangerg/oolong/ui v0.27.0
-	golang.org/x/sys v0.48.0
+	github.com/Tangerg/oolong/ui v0.27.1-0.20261106061924-ba34d8bad7e0
+	golang.org/x/sys v0.49.0
 )
 
 require (
@@ -19,6 +19,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/yuin/goldmark v1.8.6 // indirect
 	golang.org/x/image v0.46.0 // indirect
-	golang.org/x/term v0.46.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/term v0.47.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )

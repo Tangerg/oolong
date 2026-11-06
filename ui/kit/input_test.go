@@ -8,23 +8,27 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func TestInputStandaloneUsesOneOwnerForAXKeysAndLiveTheme(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	owner := kit.NewThemeOwner(kit.Dark())
 	field := kit.NewInput(kit.InputConfig{Key: "project.name", Label: "Name", Initial: "初始", Scope: owner.Scope()})
 	if field.Element() != field.Controller().Element() {
 		t.Fatal("input skin allocated a second behaviour identity")
 	}
-	root := newTestRoot(field)
+	root := scenes.Mount(field)
 	surface := grid.NewSurface(12, 2)
 	root.Draw(surface.View())
-	observation, err := root.root.Observe(scene.Query{})
+	observation, err := root.Observe(scene.Query{})
 	if err != nil || len(observation.Nodes) != 1 || observation.Nodes[0].Key != "project.name" || observation.Nodes[0].Name != "Name" {
 		t.Fatalf("input semantics=%v err=%v", observation, err)
 	}
-	result, err := root.root.Invoke(context.Background(), field.Element().Target(), scene.ActionFill, "你好")
+	result, err := root.Invoke(context.Background(), field.Element().Target(), scene.ActionFill, "你好")
 	if err != nil || result.State != scene.Applied || field.Controller().Text() != "你好" {
 		t.Fatalf("AX result=%v err=%v", result, err)
 	}
@@ -33,7 +37,7 @@ func TestInputStandaloneUsesOneOwnerForAXKeysAndLiveTheme(t *testing.T) {
 	if field.Controller().Text() != "你好!" {
 		t.Fatal("keyboard did not edit the AX-filled document")
 	}
-	wake := root.root.Changes()
+	wake := root.Changes()
 	owner.Set(kit.Light())
 	select {
 	case <-wake:
@@ -47,11 +51,14 @@ func TestInputStandaloneUsesOneOwnerForAXKeysAndLiveTheme(t *testing.T) {
 }
 
 func TestInputControllerAsFormFieldUsesTheFormsExplicitPresentation(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	red := grid.Style{FG: grid.RGBColor(255, 0, 0)}
 	input := kit.NewInput(kit.InputConfig{Initial: "shared", Appearance: kit.ThemeOverride{Text: &red}})
 	form := kit.NewForm(kit.FormConfig{Theme: kit.Light(), Fields: []base.Field{input.Controller()}})
 	surface := grid.NewSurface(12, 1)
-	newTestRoot(form).Draw(surface.View())
+	scenes.Mount(form).Draw(surface.View())
 	if form.Controller().Fields()[0] != input.Controller() || input.Controller().Text() != "shared" {
 		t.Fatal("form introduced another text owner")
 	}

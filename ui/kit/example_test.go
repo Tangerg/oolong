@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
@@ -33,11 +34,14 @@ func show(w, h int, draw func(grid.View)) {
 	}
 }
 
-func showWidget(w, h int, widget any) {
-	show(w, h, newTestRoot(widget).Draw)
+func showWidget(scenes *scenetest.Scope, w, h int, widget any) {
+	show(w, h, scenes.Mount(widget).Draw)
 }
 
 func ExampleComposer() {
+	scenes := scenetest.New()
+	defer scenes.Close()
+
 	// One table for what the field does and what the program does. The hint row reads
 	// the keystroke back out of it rather than being told it a second time.
 	keys := base.DefaultEditorKeys()
@@ -49,7 +53,7 @@ func ExampleComposer() {
 	}
 	c.Controller().Placeholder = "Ask something"
 	c.Controller().Keys = keys
-	showWidget(28, c.HeightForWidth(28), &c)
+	showWidget(scenes, 28, c.HeightForWidth(28), &c)
 
 	// Output:
 	// |› Ask something             |
@@ -57,13 +61,16 @@ func ExampleComposer() {
 }
 
 func ExampleComposer_typing() {
+	scenes := scenetest.New()
+	defer scenes.Close()
+
 	var c kit.Composer
 	c.Prompt = "› "
 	for _, r := range "hello" {
-		newTestRoot(&c).Handle(input.Key{Code: input.Character, Rune: r})
+		scenes.Mount(&c).Handle(input.Key{Code: input.Character, Rune: r})
 	}
 	fmt.Println(c.Controller().Text())
-	showWidget(12, 1, &c)
+	showWidget(scenes, 12, 1, &c)
 
 	// Output:
 	// hello
@@ -93,10 +100,13 @@ func ExampleBox() {
 }
 
 func ExampleForm() {
+	scenes := scenetest.New()
+	defer scenes.Close()
+
 	name := base.NewText(base.TextConfig{Label: "Name", Placeholder: "who?"})
 	model := base.NewSelect(base.SelectConfig[string]{Label: "Model", Same: base.Equal[string], Options: base.Options("fast", "good")})
 	view := kit.NewForm(kit.FormConfig{Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "New session", Fields: []base.Field{name, model}, Hints: []keymap.Action{base.Submit}})
-	showWidget(22, view.HeightForWidth(22), view)
+	showWidget(scenes, 22, view.HeightForWidth(22), view)
 	// Output:
 	// |New session           |
 	// |Name                  |
@@ -156,9 +166,12 @@ func ExampleNewSlider_value() {
 }
 
 func ExampleNewDialog_open() {
+	scenes := scenetest.New()
+	defer scenes.Close()
+
 	dialog := kit.NewDialog(kit.DialogConfig{
 		Glyphs: kit.ASCII(),
-		Title:  "Confirm", Body: testElement(kit.Label{Text: "Continue?"}),
+		Title:  "Confirm", Body: scenes.Element(kit.Label{Text: "Continue?"}),
 	})
 	dialog.Controller().Show()
 	fmt.Println(dialog.Controller().Open())

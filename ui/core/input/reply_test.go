@@ -148,20 +148,26 @@ func TestAVersionStringSplitAcrossReads(t *testing.T) {
 
 func TestBothStringsShareTheirBound(t *testing.T) {
 	// One accumulator, two introducers: the runaway rule is the same for both.
-	for _, intro := range []string{"\x1b]52;", "\x1bP>|"} {
+	for _, tc := range []struct {
+		intro string
+		want  []input.Event
+	}{
+		{intro: "\x1b]52;", want: []input.Event{input.OSCRejection{Command: 52}, input.Key{Code: input.Character, Rune: 'z'}}},
+		{intro: "\x1bP>|", want: []input.Event{input.Key{Code: input.Character, Rune: 'z'}}},
+	} {
 		var p input.Parser
 		body := make([]byte, 1<<20+16)
 		for i := range body {
 			body[i] = 'A'
 		}
-		if got := p.Feed(append([]byte(intro), body...)); len(got) != 0 {
-			t.Errorf("%q produced %d events for a runaway body", intro, len(got))
+		if got := p.Feed(append([]byte(tc.intro), body...)); len(got) != 0 {
+			t.Errorf("%q produced %d events for a runaway body", tc.intro, len(got))
 		}
 		if !p.Pending() {
-			t.Errorf("%q: Pending is false while the rest is still being dropped", intro)
+			t.Errorf("%q: Pending is false while the rest is still being dropped", tc.intro)
 		}
-		if got := p.Feed([]byte("\x1b\\z")); len(got) != 1 {
-			t.Errorf("%q: after the terminator, got %+v", intro, got)
+		if got := p.Feed([]byte("\x1b\\z")); !slices.Equal(got, tc.want) {
+			t.Errorf("%q: after the terminator, got %+v, want %+v", tc.intro, got, tc.want)
 		}
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/diff"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
@@ -35,6 +37,9 @@ func TestCellGlyphKeepsItsCompleteGrapheme(t *testing.T) {
 }
 
 func TestCellGlyphComposesAcrossCellBasedComponents(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	glyphs := kit.ASCII()
 	accent := newCellGlyph(t, "e\u0301")
 	glyphs.BarFull = accent
@@ -51,13 +56,16 @@ func TestCellGlyphComposesAcrossCellBasedComponents(t *testing.T) {
 		Behavior: base.SliderConfig{Initial: 1, Maximum: 2}, Glyphs: glyphs,
 		Format: func(int) string { return "" },
 	})
-	equalRows(t, paintWidget(5, 1, slider), []string{"e\u0301e\u0301#e\u0301e\u0301"})
+	equalRows(t, paintWidget(scenes, 5, 1, slider), []string{"e\u0301e\u0301#e\u0301e\u0301"})
 	glyphs.ScrollTrack, glyphs.ScrollThumb = accent, newCellGlyph(t, "#")
 	scrollbar := kit.Scrollbar{Glyphs: glyphs, Total: 6, Window: 2}
 	equalRows(t, paint(1, 3, scrollbar.Draw), []string{"#", "e\u0301", "e\u0301"})
 }
 
 func TestOmittedCellGlyphDoesNotDisableOtherMarks(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	glyphs := kit.Glyphs{BarFull: newCellGlyph(t, "#")}
 	progress := kit.Progress{Glyphs: glyphs, Done: 1, Total: 2}
 	equalRows(t, paint(4, 1, progress.Draw), []string{"##.."})
@@ -71,11 +79,25 @@ func TestOmittedCellGlyphDoesNotDisableOtherMarks(t *testing.T) {
 		Glyphs:   kit.Glyphs{SliderTrack: newCellGlyph(t, "-")},
 		Format:   func(int) string { return "" },
 	})
-	equalRows(t, paintWidget(5, 1, slider), []string{"--.--"})
+	equalRows(t, paintWidget(scenes, 5, 1, slider), []string{"--.--"})
 	slider.Glyphs = kit.Glyphs{SliderThumb: newCellGlyph(t, "#")}
-	equalRows(t, paintWidget(5, 1, slider), []string{"..#.."})
+	equalRows(t, paintWidget(scenes, 5, 1, slider), []string{"..#.."})
 	scrollbar := kit.Scrollbar{Glyphs: kit.Glyphs{ScrollTrack: newCellGlyph(t, "-")}, Total: 6, Window: 2}
 	equalRows(t, paint(1, 3, scrollbar.Draw), []string{".", "-", "-"})
+}
+
+func TestDiffContinuationKeepsItsCellWithAnOmittedGlyph(t *testing.T) {
+	for _, value := range []string{"", "e\u0301"} {
+		glyph := newCellGlyph(t, value)
+		content := kit.NewDiff(kit.DiffConfig{Glyphs: kit.Glyphs{Vertical: glyph}, Hunks: []diff.Hunk{{
+			Lines: diff.Script{{Kind: diff.Added, Text: "abcdef"}},
+		}}})
+		mark := value
+		if mark == "" {
+			mark = " "
+		}
+		equalRows(t, paint(4, 2, content.Draw), []string{"+abc", mark + "def"})
+	}
 }
 
 func newCellGlyph(t *testing.T, value string) kit.CellGlyph {

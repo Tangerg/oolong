@@ -32,6 +32,8 @@ func ByteSize(event Event) int {
 		return eventOverhead + len(e.Text)
 	case OSC:
 		return eventOverhead + len(e.Params)
+	case OSCRejection:
+		return eventOverhead + len(e.Prefix)
 	case DCS:
 		return eventOverhead + len(e.Body)
 	case APC:
@@ -346,6 +348,18 @@ type OSC struct {
 }
 
 func (OSC) terminalEvent() {}
+
+// OSCRejection proves that an oversized OSC reached a complete terminator.
+// Prefix retains only its first semicolon-terminated parameter, including that
+// separator, when the complete header fits the decoder's parameter budget.
+// Otherwise it is empty. No payload is retained. Query owners must still match
+// this evidence to their own outstanding reply before settling a failure.
+type OSCRejection struct {
+	Command int
+	Prefix  string
+}
+
+func (OSCRejection) terminalEvent() {}
 
 // DCS leaves its body uninterpreted because reply syntax belongs to the query
 // owner. Only recognized reply prefixes are framed, preserving Alt+Shift+P.

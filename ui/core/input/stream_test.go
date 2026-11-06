@@ -1,6 +1,7 @@
 package input_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -211,17 +212,20 @@ func TestFlushEndsTheStreamAndDisarmsIt(t *testing.T) {
 }
 
 func TestDiscardedControlStringCannotBecomeKeystrokesAcrossAPause(t *testing.T) {
-	for _, introducer := range []string{"\x1b]52;", "\x1bP>|"} {
+	at := time.Unix(1, 0)
+	key := input.Key{Code: input.Character, Rune: 'x', At: at.Add(time.Second)}
+	for _, tc := range []struct {
+		intro string
+		want  []input.Event
+	}{
+		{intro: "\x1b]52;", want: []input.Event{input.OSCRejection{Command: 52}, key}},
+		{intro: "\x1bP>|", want: []input.Event{key}},
+	} {
 		var stream input.Stream
-		at := time.Unix(1, 0)
-		stream.Feed([]byte(introducer+strings.Repeat("A", 1<<20)), at)
+		stream.Feed([]byte(tc.intro+strings.Repeat("A", 1<<20)), at)
 		events := stream.Feed([]byte("still payload\x07x"), at.Add(time.Second))
-		if len(events) != 1 {
-			t.Fatalf("%q body escaped the decoder: %v", introducer, events)
-		}
-		key, ok := events[0].(input.Key)
-		if !ok || !key.IsRune('x', 0) {
-			t.Fatalf("%q next event = %v", introducer, events[0])
+		if !slices.Equal(events, tc.want) {
+			t.Fatalf("%q body escaped the decoder: %+v, want %+v", tc.intro, events, tc.want)
 		}
 	}
 }

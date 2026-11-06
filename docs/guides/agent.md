@@ -12,6 +12,8 @@ Language: English | [简体中文](../zh/guides/agent.md)
 
 Run `go run ./examples/agent` and read the [agent example](https://github.com/Tangerg/oolong/tree/main/examples/agent). Domain tasks, tool events and persistence remain application policy. StreamDocument owns content semantics, Transcript owns reading and retention, and the runtime owns work delivery and terminal output.
 
+Use `/plan fast` or `/plan careful` to choose the planning depth for the next request. `/help` lists the registered session commands.
+
 ## Observe without mutating
 
 Construct the driver with `driver, err := automation.NewDriver(runtime)` and handle the error before retaining it. A missing session, scene or dispatcher returns `automation.ErrInvalid` at construction. The driver schedules queries and actions onto the UI owner. Its semantic handle may be retained from Build; queries run after attachment. It cannot prepare frames, advance a transport watermark, or close the program’s root. `Observe` reads the existing semantic projection and does not start painting, populate hidden content or create background work.

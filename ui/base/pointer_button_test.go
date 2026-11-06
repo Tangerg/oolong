@@ -7,6 +7,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func pointerReport(t *testing.T, parser *input.Parser, report string) input.Mouse {
@@ -23,6 +24,9 @@ func pointerReport(t *testing.T, parser *input.Parser, report string) input.Mous
 }
 
 func TestPointerReleaseMatchesCapturedButtonSGR(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, test := range []struct {
 		name    string
 		presses []string
@@ -38,7 +42,7 @@ func TestPointerReleaseMatchesCapturedButtonSGR(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var pointer base.Pointer
 			var parser input.Parser
-			stagePointer(&pointer, image.Rect(0, 0, 4, 1))
+			stagePointer(scenes, &pointer, image.Rect(0, 0, 4, 1))
 			for _, report := range test.presses {
 				if !pointer.Handle(pointerReport(t, &parser, report)) {
 					t.Fatal("press was declined")
@@ -61,6 +65,9 @@ func TestPointerReleaseMatchesCapturedButtonSGR(t *testing.T) {
 }
 
 func TestPointerUnspecifiedReleaseCompletesCapturedButton(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, test := range []struct {
 		press  string
 		button input.Button
@@ -71,7 +78,7 @@ func TestPointerUnspecifiedReleaseCompletesCapturedButton(t *testing.T) {
 	} {
 		var pointer base.Pointer
 		var parser input.Parser
-		stagePointer(&pointer, image.Rect(0, 0, 4, 1))
+		stagePointer(scenes, &pointer, image.Rect(0, 0, 4, 1))
 		pointer.Handle(pointerReport(t, &parser, test.press))
 		release := pointerReport(t, &parser, "\x1b[<3;2;1m")
 		if release.Button != input.ButtonNone || release.Action != input.MouseUp {
@@ -84,11 +91,14 @@ func TestPointerUnspecifiedReleaseCompletesCapturedButton(t *testing.T) {
 }
 
 func TestPointerMatchingReleaseCannotReviveEndedCapture(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, end := range []string{"outside", "presentation gap", "left interface"} {
 		t.Run(end, func(t *testing.T) {
 			var pointer base.Pointer
 			var parser input.Parser
-			stagePointer(&pointer, image.Rect(0, 0, 4, 1))
+			stagePointer(scenes, &pointer, image.Rect(0, 0, 4, 1))
 			pointer.Handle(pointerReport(t, &parser, "\x1b[<0;2;1M"))
 			pointer.Handle(pointerReport(t, &parser, "\x1b[<2;2;1m"))
 			release := "\x1b[<0;2;1m"
@@ -96,8 +106,8 @@ func TestPointerMatchingReleaseCannotReviveEndedCapture(t *testing.T) {
 			case "outside":
 				release = "\x1b[<0;9;1m"
 			case "presentation gap":
-				stagePointer(&pointer, image.Rectangle{})
-				stagePointer(&pointer, image.Rect(0, 0, 4, 1))
+				stagePointer(scenes, &pointer, image.Rectangle{})
+				stagePointer(scenes, &pointer, image.Rect(0, 0, 4, 1))
 			case "left interface":
 				pointer.Left()
 			}
@@ -110,8 +120,11 @@ func TestPointerMatchingReleaseCannotReviveEndedCapture(t *testing.T) {
 }
 
 func TestSliderIgnoresAnotherButtonsRelease(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	slider := base.NewSlider(base.SliderConfig{Maximum: 100})
-	newTestRoot(&sliderTrack{control: slider, rect: image.Rect(0, 0, 5, 1)}).
+	scenes.Mount(&sliderTrack{control: slider, rect: image.Rect(0, 0, 5, 1)}).
 		Draw(grid.NewSurface(5, 1).View())
 	var parser input.Parser
 	slider.Handle(pointerReport(t, &parser, "\x1b[<0;3;1M"))

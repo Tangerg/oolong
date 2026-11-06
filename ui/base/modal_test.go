@@ -9,12 +9,16 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestDialogOutsideDismissPolicyAndCoordinateTranslation(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, outside := range []bool{false, true} {
 		t.Run(map[bool]string{false: "retain", true: "dismiss"}[outside], func(t *testing.T) {
-			dialog, _, body, root := dialogFixture(t, outside)
+			dialog, _, body, root := dialogFixture(t, scenes, outside)
 			dialog.Show()
 			root.Draw(grid.NewSurface(12, 5).View())
 			root.Handle(regionPress(3, 1))
@@ -32,6 +36,9 @@ func TestDialogOutsideDismissPolicyAndCoordinateTranslation(t *testing.T) {
 }
 
 func TestModalContentMayConsumeEscapeAndKeysCanBeRebound(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	consumed := 0
 	body := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }, Handle: func(event scene.Event) scene.EventResult {
 		if key, ok := event.Input().(input.Key); ok && key.Code == input.Esc {
@@ -43,7 +50,7 @@ func TestModalContentMayConsumeEscapeAndKeysCanBeRebound(t *testing.T) {
 	var keys keymap.Map
 	keys.Bind(base.Close, input.Chord{Rune: 'q'})
 	dialog := base.NewDialog(base.DialogConfig{Initial: true, Content: body, Keys: &keys})
-	root := newTestRoot(dialog)
+	root := scenes.Mount(dialog)
 	root.Draw(grid.NewSurface(10, 2).View())
 	root.Handle(input.Key{Code: input.Esc})
 	if consumed != 1 || !dialog.Open() {
@@ -56,10 +63,13 @@ func TestModalContentMayConsumeEscapeAndKeysCanBeRebound(t *testing.T) {
 }
 
 func TestDialogPlacementAndBackdropShareOneSceneFrame(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var backdrop, body image.Rectangle
 	child := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { body = frame.Bounds(); frame.Text(0, 0, "x", grid.Style{}) }})
 	dialog := base.NewDialog(base.DialogConfig{Initial: true, Content: child, Place: func(image.Point) image.Rectangle { return image.Rect(3, 2, 7, 4) }, Backdrop: func(frame scene.Frame) { backdrop = frame.Bounds() }})
-	rows := paintWidget(10, 5, dialog)
+	rows := paintWidget(scenes, 10, 5, dialog)
 	if backdrop != image.Rect(0, 0, 10, 5) || body != image.Rect(0, 0, 4, 2) || rows[2] != "...x......" {
 		t.Fatalf("placement backdrop=%v body=%v rows=%v", backdrop, body, rows)
 	}

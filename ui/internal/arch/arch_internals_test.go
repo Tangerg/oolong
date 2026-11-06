@@ -37,7 +37,7 @@ var dependencyRules = map[string][]string{
 		"golang.org/x/term",
 		"golang.org/x/sys",
 	},
-	"extensions/markdown":  {"github.com/yuin/goldmark"},
+	"extensions/markdown":  {"github.com/yuin/goldmark", "golang.org/x/net/idna"},
 	"extensions/mermaid":   {"golang.org/x/sys"},
 	"extensions/highlight": {"github.com/alecthomas/chroma"},
 	"extensions/latex":     {"codeberg.org/go-latex/latex"},
@@ -75,6 +75,7 @@ var rings = []struct {
 	{"ui/internal/focus/", "componentbase"},
 	{"ui/internal/fifo/", "foundation"},
 	{"ui/internal/retention/", "foundation"},
+	{"ui/internal/scenetest/", "scenetest"},
 	{"extensions/markdown/", "extensions/markdown"},
 	{"extensions/mermaid/", "extensions/mermaid"},
 	{"extensions/highlight/", "extensions/highlight"},
@@ -119,6 +120,7 @@ var dependencies = map[string][]string{
 	// no path back to it, while the harness may use the standard terminal writer as
 	// the transport implementation hidden behind program's consumer interface.
 	"testharness": {"runtime"},
+	"scenetest":   {"scene"},
 
 	// Headless components combine interaction policy with derived text. Kit adds one
 	// appearance and nothing about the host that eventually runs it.

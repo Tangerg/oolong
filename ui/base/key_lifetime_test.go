@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func deferredKeys(first, second keymap.Action) (*keymap.Map, *func()) {
@@ -32,6 +33,9 @@ func focusElement(t *testing.T, element scene.Element) {
 }
 
 func TestDeferredScrollCannotOutliveKeyboardOwnership(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, kind := range []string{"transcript", "viewport"} {
 		t.Run(kind, func(t *testing.T) {
 			keys, resolve := deferredKeys(base.ScrollDown, base.ScrollBottom)
@@ -56,12 +60,12 @@ func TestDeferredScrollCannotOutliveKeyboardOwnership(t *testing.T) {
 			group := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 				{Element: element, Size: layout.Flex(1)}, {Element: other, Size: layout.Fixed(1)},
 			}})
-			fixture := newTestRoot(group.Element())
-			t.Cleanup(fixture.root.Close)
+			fixture := scenes.Mount(group.Element())
+			t.Cleanup(fixture.Root.Close)
 			fixture.Draw(grid.NewSurface(20, 6).View())
 			scroll.ToTop()
 			focusElement(t, element)
-			if !fixture.root.Handle(input.Key{Rune: 'x'}) || *resolve == nil {
+			if !fixture.Handle(input.Key{Rune: 'x'}) || *resolve == nil {
 				t.Fatal("ambiguous key was not deferred")
 			}
 			before := scroll.Offset()
@@ -76,6 +80,9 @@ func TestDeferredScrollCannotOutliveKeyboardOwnership(t *testing.T) {
 }
 
 func TestDeferredFormInputTracksContinuousFocusWithin(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, transition := range []string{"within", "leave-return", "close", "remount"} {
 		t.Run(transition, func(t *testing.T) {
 			keys, resolve := deferredKeys(base.Submit, base.Cancel)
@@ -87,10 +94,10 @@ func TestDeferredFormInputTracksContinuousFocusWithin(t *testing.T) {
 			}})
 			other := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }})
 			group := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: form.Element()}, {Element: other}}})
-			fixture := newTestRoot(group.Element())
-			t.Cleanup(fixture.root.Close)
+			fixture := scenes.Mount(group.Element())
+			t.Cleanup(fixture.Root.Close)
 			focusElement(t, first.Element())
-			if !fixture.root.Handle(input.Key{Rune: 'x'}) || *resolve == nil {
+			if !fixture.Handle(input.Key{Rune: 'x'}) || *resolve == nil {
 				t.Fatal("form did not retain its prefix")
 			}
 			switch transition {
@@ -100,7 +107,7 @@ func TestDeferredFormInputTracksContinuousFocusWithin(t *testing.T) {
 				focusElement(t, other)
 				focusElement(t, first.Element())
 			case "close":
-				fixture.root.Close()
+				fixture.Root.Close()
 			case "remount":
 				fixture.SetContent(scene.Element{})
 				fixture.SetContent(group.Element())
@@ -119,6 +126,9 @@ func TestDeferredFormInputTracksContinuousFocusWithin(t *testing.T) {
 }
 
 func TestPartialSequenceCannotResumeAfterFocusReturns(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	keys := &keymap.Map{}
 	keys.Bind(base.Submit, input.Chord{Rune: 'x'}, input.Chord{Rune: 'x'})
 	field := base.NewConfirm(base.ConfirmConfig{})
@@ -128,30 +138,33 @@ func TestPartialSequenceCannotResumeAfterFocusReturns(t *testing.T) {
 		return scene.Applied, nil
 	}})
 	other := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }})
-	fixture := newTestRoot(scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: form.Element()}, {Element: other}}}).Element())
-	t.Cleanup(fixture.root.Close)
+	fixture := scenes.Mount(scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: form.Element()}, {Element: other}}}).Element())
+	t.Cleanup(fixture.Root.Close)
 	focusElement(t, field.Element())
-	fixture.root.Handle(input.Key{Rune: 'x'})
+	fixture.Handle(input.Key{Rune: 'x'})
 	focusElement(t, other)
 	focusElement(t, field.Element())
-	fixture.root.Handle(input.Key{Rune: 'x'})
+	fixture.Handle(input.Key{Rune: 'x'})
 	if calls != 0 {
 		t.Fatal("the new focus resumed an old partial sequence")
 	}
-	fixture.root.Handle(input.Key{Rune: 'x'})
+	fixture.Handle(input.Key{Rune: 'x'})
 	if calls != 1 {
 		t.Fatal("the new focus could not start a fresh sequence")
 	}
 }
 
 func TestDeferredFormNavigationUsesItsKeyboardLifetime(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	keys, resolve := deferredKeys(base.FocusNext, base.FocusPrev)
 	first, second := base.NewConfirm(base.ConfirmConfig{}), base.NewConfirm(base.ConfirmConfig{})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{first, second}, Keys: keys})
-	fixture := newTestRoot(form.Element())
-	t.Cleanup(fixture.root.Close)
+	fixture := scenes.Mount(form.Element())
+	t.Cleanup(fixture.Root.Close)
 	focusElement(t, first.Element())
-	fixture.root.Handle(input.Key{Rune: 'x'})
+	fixture.Handle(input.Key{Rune: 'x'})
 	if *resolve == nil {
 		t.Fatal("navigation was not deferred")
 	}
@@ -162,6 +175,9 @@ func TestDeferredFormNavigationUsesItsKeyboardLifetime(t *testing.T) {
 }
 
 func TestDeferredContainerInputCannotOutliveItsRoot(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, kind := range []string{"tabs", "dialog"} {
 		t.Run(kind, func(t *testing.T) {
 			content := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }})
@@ -182,13 +198,13 @@ func TestDeferredContainerInputCannotOutliveItsRoot(t *testing.T) {
 				element, resolve = dialog.Element(), callback
 				changed = func() bool { return dismissed }
 			}
-			fixture := newTestRoot(element)
+			fixture := scenes.Mount(element)
 			focusElement(t, content)
-			fixture.root.Handle(input.Key{Rune: 'x'})
+			fixture.Handle(input.Key{Rune: 'x'})
 			if *resolve == nil {
 				t.Fatal("container did not retain its prefix")
 			}
-			fixture.root.Close()
+			fixture.Root.Close()
 			(*resolve)()
 			if changed() {
 				t.Fatal("closed root allowed a deferred input effect")
@@ -198,6 +214,9 @@ func TestDeferredContainerInputCannotOutliveItsRoot(t *testing.T) {
 }
 
 func TestDelegatedCompletionKeepsOnlyItsOriginalKeyboardLifetime(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, test := range []struct {
 		name      string
 		moveFocus bool
@@ -215,10 +234,10 @@ func TestDelegatedCompletionKeepsOnlyItsOriginalKeyboardLifetime(t *testing.T) {
 			group := scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
 				return scene.EventResult{Consumed: completion.Handle(event.Input())}
 			}}, Items: []scene.Item{{Element: editor.Element()}, {Element: completion.Element()}, {Element: other}}})
-			fixture := newTestRoot(group.Element())
-			t.Cleanup(fixture.root.Close)
+			fixture := scenes.Mount(group.Element())
+			t.Cleanup(fixture.Root.Close)
 			focusElement(t, editor.Element())
-			fixture.root.Handle(input.Key{Rune: 'x'})
+			fixture.Handle(input.Key{Rune: 'x'})
 			if *resolve == nil {
 				t.Fatal("preview could not delegate a key to its completion")
 			}

@@ -136,6 +136,75 @@ func TestInvalidPayloadSettlesWithAnExplicitFailure(t *testing.T) {
 	}
 }
 
+func TestRejectedReplyMatchesTheOutstandingSelectionAndAdmission(t *testing.T) {
+	var absent *clipboard.Channel
+	if absent.Reject("c;", time.Now()) {
+		t.Fatal("nil channel accepted a rejection")
+	}
+	channel := &clipboard.Channel{}
+	if channel.Reject("c;", time.Now()) {
+		t.Fatal("unsolicited rejection consumed a query")
+	}
+	before := time.Now().Add(-time.Second)
+	sent, result := startRead(t.Context(), channel, clipboard.Primary)
+	<-sent
+	for _, prefix := range []string{"", "p", ";", "pp;", "x;", "c;"} {
+		if channel.Reject(prefix, time.Now()) {
+			t.Fatalf("unrelated rejection %q consumed query", prefix)
+		}
+	}
+	if channel.Reject("p;", before) {
+		t.Fatal("rejection received before admission consumed query")
+	}
+	if !channel.Reject("p;", time.Now()) {
+		t.Fatal("complete matching rejection did not settle")
+	}
+	if got := <-result; got.text != "" || !errors.Is(got.err, clipboard.ErrResponse) {
+		t.Fatalf("rejection result = %+v", got)
+	}
+	if channel.Reject("p;", time.Now()) {
+		t.Fatal("one rejection settled twice")
+	}
+	if got := readAnswer(t, channel, clipboard.System, "c;bmV3"); got.err != nil || got.text != "new" {
+		t.Fatalf("rejection retained the answered wire slot: %+v", got)
+	}
+}
+
+func TestRejectionUsesReceiveTimeWithoutRevivingRevokedDelivery(t *testing.T) {
+	for _, outcome := range []string{"timely", "deadline", "cancelled"} {
+		t.Run(outcome, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				channel := &clipboard.Channel{}
+				sent, result := startRead(ctx, channel, clipboard.System)
+				<-sent
+				at := time.Now()
+				want := clipboard.ErrResponse
+				switch outcome {
+				case "deadline":
+					at = at.Add(10 * time.Second)
+					want = context.DeadlineExceeded
+				case "cancelled":
+					cancel()
+					synctest.Wait()
+					want = context.Canceled
+				}
+				if !channel.Reject("c;", at) {
+					t.Fatal("matching rejection was not consumed")
+				}
+				cancel()
+				if got := <-result; got.text != "" || !errors.Is(got.err, want) {
+					t.Fatalf("rejection result = %+v, want %v", got, want)
+				}
+				if got := readAnswer(t, channel, clipboard.System, "c;bmV3"); got.err != nil || got.text != "new" {
+					t.Fatalf("consumed rejection retained wire slot: %+v", got)
+				}
+			})
+		})
+	}
+}
+
 func TestEmptyAndInvalidUTF8AnswersRemainData(t *testing.T) {
 	for _, payload := range []string{"", "\n"} {
 		if got := readAnswer(t, &clipboard.Channel{}, clipboard.System, "c;"+payload); got.err != nil || got.text != "" {

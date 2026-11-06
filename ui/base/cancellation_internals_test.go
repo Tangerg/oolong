@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestCompletionCancellationCannotAcceptASupersededOffer(t *testing.T) {
@@ -42,6 +43,9 @@ func TestCompletionCancellationCannotAcceptASupersededOffer(t *testing.T) {
 }
 
 func TestMatcherCancellationPreservesSceneFocus(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	list := &List[string]{}
 	list.SetItems([]string{"one"})
 	text := NewText(TextConfig{Initial: "text"})
@@ -58,7 +62,7 @@ func TestMatcherCancellationPreservesSceneFocus(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			other := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }})
 			group := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: test.element}, {Element: other}}})
-			root := newTestRoot(group.Element())
+			root := scenes.Mount(group.Element())
 			var keys keymap.Map
 			keys.Bind("prefix", input.Chord{Rune: 'g'})
 			keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
@@ -73,7 +77,7 @@ func TestMatcherCancellationPreservesSceneFocus(t *testing.T) {
 			if err := other.RequestFocus(); err != nil {
 				t.Fatal(err)
 			}
-			root.root.FlushNotifications()
+			root.FlushNotifications()
 			if !test.element.Focused() {
 				t.Fatal("old blur replaced cancellation's newer scene focus")
 			}
@@ -222,6 +226,9 @@ func TestCollectionReplacementPublishesBeforeMatcherCancellation(t *testing.T) {
 }
 
 func TestSemanticActivationReportsOnlyAnAcceptedCompletion(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var completion Completion
 	var keys keymap.Map
 	keys.Bind(Accept, input.Chord{Rune: 'g'})
@@ -233,15 +240,15 @@ func TestSemanticActivationReportsOnlyAnAcceptedCompletion(t *testing.T) {
 	called := 0
 	completion.Accept = func(Candidate, Token) { called++ }
 	completion.Offer(Token{}, []Candidate{{Text: "old"}})
-	r := newTestRoot(completion.Element())
+	r := scenes.Mount(completion.Element())
 	completion.Handle(input.Key{Rune: 'g'})
 	address := CollectionIndex{ContentRevision: completion.list.contentRevision}
-	result, err := r.root.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, address)
+	result, err := r.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, address)
 	if err != nil || result.State != scene.Unchanged || called != 0 {
 		t.Fatalf("receipt for a superseded candidate: %+v, %v, calls=%d", result, err, called)
 	}
 	address.ContentRevision = completion.list.contentRevision
-	result, err = r.root.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, address)
+	result, err = r.Invoke(t.Context(), completion.Element().Target(), scene.ActionActivate, address)
 	if err != nil || result.State != scene.Applied || called != 1 {
 		t.Fatalf("new offer: %+v, %v, calls=%d", result, err, called)
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 type drawPurityCase struct {
@@ -45,7 +46,10 @@ func TestZeroComposerMeasurementDoesNotInitializeOwners(t *testing.T) {
 }
 
 func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
-	cases := kitDrawPurityCases()
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
+	cases := kitDrawPurityCases(scenes)
 	covered := make(map[string]bool, len(cases))
 	for _, tc := range cases {
 		if covered[tc.name] {
@@ -210,8 +214,8 @@ func meaningOfEditor(editor *base.Editor) editorMeaning {
 	}
 }
 
-func widgetPurityCase(name string, widget any, state func() any) drawPurityCase {
-	root := newTestRoot(widget)
+func widgetPurityCase(scenes *scenetest.Scope, name string, widget any, state func() any) drawPurityCase {
+	root := scenes.Mount(widget)
 	var measure func(int) int
 	if sized, ok := widget.(interface{ HeightForWidth(width int) int }); ok {
 		measure = sized.HeightForWidth
@@ -222,7 +226,7 @@ func widgetPurityCase(name string, widget any, state func() any) drawPurityCase 
 	}
 }
 
-func kitDrawPurityCases() []drawPurityCase {
+func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	var cases []drawPurityCase
 
 	box := Box{Glyphs: ASCII(), Padding: layout.Uniform(1), Title: "box"}
@@ -334,7 +338,7 @@ func kitDrawPurityCases() []drawPurityCase {
 
 	panel := NewPanel(PanelConfig{Box: Box{Theme: Theme{}, Glyphs: Unicode()}, Content: panelBody.Element()})
 	panel.Box.Title = "panel"
-	cases = append(cases, widgetPurityCase("*Panel", panel, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Panel", panel, func() any {
 		return meaningOfEditor(panelBody)
 	}))
 
@@ -350,8 +354,8 @@ func kitDrawPurityCases() []drawPurityCase {
 		},
 	})
 	tabs.Controller().Select(1)
-	testFocus(tabs, true)
-	cases = append(cases, widgetPurityCase("*Tabs", tabs, func() any {
+	scenes.Focus(tabs, true)
+	cases = append(cases, widgetPurityCase(scenes, "*Tabs", tabs, func() any {
 		return struct {
 			selected int
 			first    editorMeaning
@@ -360,7 +364,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	}))
 
 	input := NewInput(InputConfig{Label: "name", Initial: "你好"})
-	cases = append(cases, widgetPurityCase("*Input", input, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Input", input, func() any {
 		return struct {
 			text     string
 			revision uint64
@@ -368,12 +372,12 @@ func kitDrawPurityCases() []drawPurityCase {
 	}))
 
 	button := NewButton(ButtonConfig{Behavior: base.ButtonConfig{Label: "save"}})
-	cases = append(cases, widgetPurityCase("*Button", button, func() any { return button.Controller().Label() }))
+	cases = append(cases, widgetPurityCase(scenes, "*Button", button, func() any { return button.Controller().Label() }))
 
 	slider := NewSlider(SliderConfig{Behavior: base.SliderConfig{Maximum: 10, Label: "speed"}, Glyphs: Unicode()})
 	slider.Controller().Set(4)
-	testFocus(slider, true)
-	cases = append(cases, widgetPurityCase("*Slider", slider, func() any {
+	scenes.Focus(slider, true)
+	cases = append(cases, widgetPurityCase(scenes, "*Slider", slider, func() any {
 		return slider.Controller().Value()
 	}))
 
@@ -389,7 +393,7 @@ func kitDrawPurityCases() []drawPurityCase {
 		},
 	})
 	settings.Controller().List().Select(1)
-	cases = append(cases, widgetPurityCase("*Settings", settings, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Settings", settings, func() any {
 		return struct {
 			selected int
 			values   []string
@@ -400,8 +404,8 @@ func kitDrawPurityCases() []drawPurityCase {
 	transcript, _ := NewTranscript(TranscriptConfig{})
 	content := transcript.Controller()
 	_, _ = content.Add(&purityBlock{text: "retained", height: 2})
-	newTestRoot(transcript).Draw(grid.NewSurface(24, 6).View())
-	cases = append(cases, widgetPurityCase("*Transcript", transcript, func() any {
+	scenes.Mount(transcript).Draw(grid.NewSurface(24, 6).View())
+	cases = append(cases, widgetPurityCase(scenes, "*Transcript", transcript, func() any {
 		return struct {
 			length int
 			offset int
@@ -425,8 +429,8 @@ func kitDrawPurityCases() []drawPurityCase {
 	composer.Controller().Placeholder = "say something"
 	composer.Controller().SetText("hello")
 	composer.Controller().MoveLeft()
-	testFocus(composer, true)
-	cases = append(cases, widgetPurityCase("*Composer", composer, func() any {
+	scenes.Focus(composer, true)
+	cases = append(cases, widgetPurityCase(scenes, "*Composer", composer, func() any {
 		return meaningOfEditor(composer.Controller())
 	}))
 
@@ -459,7 +463,7 @@ func kitDrawPurityCases() []drawPurityCase {
 
 	formField := base.NewText(base.TextConfig{Label: "field", Initial: "answer"})
 	form := NewForm(FormConfig{Fields: []base.Field{formField}, Title: "form"})
-	cases = append(cases, widgetPurityCase("*Form", form, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Form", form, func() any {
 		return struct {
 			value      string
 			revision   uint64
@@ -484,7 +488,7 @@ func kitDrawPurityCases() []drawPurityCase {
 	tree := NewTree(TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root", Children: []base.Node[string]{{Item: "leaf"}}}}, Text: func(item string) string { return item }, Indent: 2})
 	tree.Controller().Open(0)
 	tree.Controller().Select(1)
-	cases = append(cases, widgetPurityCase("*Tree", tree, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Tree", tree, func() any {
 		return struct {
 			selected int
 			rows     []base.Shown[string]

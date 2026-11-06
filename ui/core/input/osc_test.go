@@ -193,10 +193,9 @@ func TestOSCFollowedByOrdinaryInput(t *testing.T) {
 	}
 }
 
-// TestOSCParamsOverrunIsDroppedWhole is the bound. Without it a terminal that
-// opens a command and never ends it grows memory without limit; without dropping
-// the rest, the overrun arrives as a flood of keystrokes instead.
-func TestOSCParamsOverrunIsDroppedWhole(t *testing.T) {
+// Without dropping the rest of an overrun, its payload would arrive as a flood
+// of keystrokes. Only complete framing proves that a rejected reply arrived.
+func TestOSCParamsOverrunIsRejectedAfterItsTerminator(t *testing.T) {
 	var p input.Parser
 	events := p.Feed([]byte("\x1b]52;" + strings.Repeat("A", 1<<20+16)))
 	if len(events) != 0 {
@@ -205,12 +204,12 @@ func TestOSCParamsOverrunIsDroppedWhole(t *testing.T) {
 	if !p.Pending() {
 		t.Fatal("Pending is false while the rest of a runaway command is still being dropped")
 	}
-	// The terminator ends the drop, and what follows is ordinary input again.
+	// A rejection is protocol evidence, never replacement keys or clipboard data.
 	events = p.Feed([]byte("\x07xy"))
-	if len(events) != 2 {
-		t.Fatalf("after the terminator: got %d events, want 2: %+v", len(events), events)
+	if len(events) != 3 || events[0] != (input.OSCRejection{Command: 52}) {
+		t.Fatalf("after the terminator: got %+v, want rejection and two keys", events)
 	}
-	if got := events[0].(input.Key); got.Rune != 'x' {
+	if got := events[1].(input.Key); got.Rune != 'x' {
 		t.Errorf("first event after the drop = %+v, want the character 'x'", got)
 	}
 }
@@ -219,10 +218,10 @@ func TestOSCOverrunEndedByST(t *testing.T) {
 	var p input.Parser
 	p.Feed([]byte("\x1b]52;" + strings.Repeat("A", 1<<20+16)))
 	events := p.Feed([]byte("\x1b\\z"))
-	if len(events) != 1 {
-		t.Fatalf("got %d events, want 1: %+v", len(events), events)
+	if len(events) != 2 || events[0] != (input.OSCRejection{Command: 52}) {
+		t.Fatalf("got %+v, want rejection and one key", events)
 	}
-	if got := events[0].(input.Key); got.Rune != 'z' {
+	if got := events[1].(input.Key); got.Rune != 'z' {
 		t.Errorf("got %+v, want the character 'z'", got)
 	}
 }
@@ -298,10 +297,10 @@ func TestOSCOverrunWaitsForTheRestOfAnST(t *testing.T) {
 		t.Fatal("Pending is false while the drop is still waiting on a terminator")
 	}
 	events := p.Feed([]byte("\\q"))
-	if len(events) != 1 {
-		t.Fatalf("got %d events, want 1: %+v", len(events), events)
+	if len(events) != 2 || events[0] != (input.OSCRejection{Command: 52}) {
+		t.Fatalf("got %+v, want rejection and one key", events)
 	}
-	if got := events[0].(input.Key); got.Rune != 'q' {
+	if got := events[1].(input.Key); got.Rune != 'q' {
 		t.Errorf("got %+v, want the character 'q'", got)
 	}
 }

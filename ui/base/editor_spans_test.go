@@ -7,6 +7,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 // selected reads back which cells of a surface carry a style, which is how a test
@@ -26,6 +27,9 @@ func selected(v grid.View, w, h int, style grid.Style) [][2]int {
 // TestASelectionCanBeSeen is the hole this closes. The behaviour worked, the copy was
 // right, and the screen showed nothing.
 func TestASelectionCanBeSeen(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("hello world")
 	e.Look.Selection = mark
@@ -34,7 +38,7 @@ func TestASelectionCanBeSeen(t *testing.T) {
 	}
 
 	s := grid.NewSurface(20, 2)
-	newTestRoot(e).Draw(s.View())
+	scenes.Mount(e).Draw(s.View())
 
 	got := selected(s.View(), 20, 2, mark)
 	if len(got) != 5 {
@@ -48,23 +52,29 @@ func TestASelectionCanBeSeen(t *testing.T) {
 }
 
 func TestNoSelectionMarksNothing(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("hello world")
 	e.Look.Selection = mark
 
 	s := grid.NewSurface(20, 2)
-	newTestRoot(e).Draw(s.View())
+	scenes.Mount(e).Draw(s.View())
 	if got := selected(s.View(), 20, 2, mark); len(got) != 0 {
 		t.Errorf("%v is marked with nothing selected", got)
 	}
 }
 
 func TestAFieldWithoutASelectionStyleDrawsNoSelection(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// The zero value draws none, which is what this had before there was one.
 	e := editorWith("hello world")
 	e.SelectAll()
 	s := grid.NewSurface(20, 2)
-	newTestRoot(e).Draw(s.View())
+	scenes.Mount(e).Draw(s.View())
 	if got := selected(s.View(), 20, 2, grid.Style{Attr: grid.Reverse}); len(got) != 0 {
 		t.Errorf("%v is marked without being asked", got)
 	}
@@ -152,6 +162,9 @@ func TestSpansOfNothing(t *testing.T) {
 // cursor is placed from. Two wraps disagree about where the text is exactly when the
 // text is interesting.
 func TestTheSelectionAndTheCursorAgree(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("the quick brown fox jumps over")
 	e.Look.Selection = mark
@@ -164,7 +177,7 @@ func TestTheSelectionAndTheCursorAgree(t *testing.T) {
 	// through one: that is the object that carries it to the terminal.
 	screen := grid.NewScreen(10, 6)
 	frame := screen.Frame()
-	newTestRoot(e).Draw(frame)
+	scenes.Mount(e).Draw(frame)
 
 	// The cursor is where the selection ends, so the cell it sits on must be the one
 	// after the last marked cell on its row.
@@ -200,16 +213,19 @@ func drag(x int) input.Mouse {
 // is the point of going through Draw here rather than passing a number: a press is
 // aimed at what is on the screen. The height is generous so that these tests are
 // about horizontal geometry and never about scrolling.
-func mouseAt(e *base.Editor, ev input.Mouse, width int) bool {
-	newTestRoot(e).Draw(grid.NewSurface(max(width, 0), 32).View())
+func mouseAt(scenes *scenetest.Scope, e *base.Editor, ev input.Mouse, width int) bool {
+	scenes.Mount(e).Draw(grid.NewSurface(max(width, 0), 32).View())
 	return e.Handle(ev)
 }
 
 // TestAFieldCanBeClickedInto. Until this, a text field could be typed into and not
 // clicked into, which is the first thing anybody tries.
 func TestAFieldCanBeClickedInto(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := editorWith("hello world")
-	if !mouseAt(e, click(6, 0), 20) {
+	if !mouseAt(scenes, e, click(6, 0), 20) {
 		t.Fatal("the field ignored a click")
 	}
 	if line, col := e.Cursor(); line != 0 || col != 6 {
@@ -218,10 +234,13 @@ func TestAFieldCanBeClickedInto(t *testing.T) {
 }
 
 func TestClickingLandsOnAClusterBoundary(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Column three is the second half of the second wide character, and half of one is
 	// not a place a cursor can be.
 	e := editorWith("中文ab")
-	mouseAt(e, click(3, 0), 20)
+	mouseAt(scenes, e, click(3, 0), 20)
 	_, col := e.Cursor()
 	if col != len("中") {
 		t.Errorf("the cursor is at byte %d, want the boundary at %d", col, len("中"))
@@ -229,9 +248,12 @@ func TestClickingLandsOnAClusterBoundary(t *testing.T) {
 }
 
 func TestClickingAWrappedRow(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := editorWith("the quick brown fox jumps")
 	// At width 10 the second row begins at "brown".
-	mouseAt(e, click(0, 1), 10)
+	mouseAt(scenes, e, click(0, 1), 10)
 	_, col := e.Cursor()
 	if got := e.Text()[col:]; got != "brown fox jumps" {
 		t.Errorf("the cursor landed before %q", got)
@@ -239,9 +261,12 @@ func TestClickingAWrappedRow(t *testing.T) {
 }
 
 func TestClickingBelowTheTextMeansTheEnd(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// What a click past the last line means in every editor there is.
 	e := editorWith("one\ntwo")
-	mouseAt(e, click(0, 8), 20)
+	mouseAt(scenes, e, click(0, 8), 20)
 	line, col := e.Cursor()
 	if line != 1 || col != len("two") {
 		t.Errorf("the cursor is at %d:%d, want the end", line, col)
@@ -249,13 +274,16 @@ func TestClickingBelowTheTextMeansTheEnd(t *testing.T) {
 }
 
 func TestDraggingSelects(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := editorWith("hello world")
-	mouseAt(e, click(0, 0), 20)
-	mouseAt(e, drag(5), 20)
+	mouseAt(scenes, e, click(0, 0), 20)
+	mouseAt(scenes, e, drag(5), 20)
 	if got := e.Selected(); got != "hello" {
 		t.Errorf("dragging selected %q, want %q", got, "hello")
 	}
-	mouseAt(e, input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseUp}, 20)
+	mouseAt(scenes, e, input.Mouse{Pos: image.Pt(5, 0), Action: input.MouseUp}, 20)
 	if got := e.Selected(); got != "hello" {
 		t.Errorf("the selection did not survive the button coming up: %q", got)
 	}
@@ -264,24 +292,33 @@ func TestDraggingSelects(t *testing.T) {
 // TestAClickThatDidNotMoveSelectsNothing, because an anchor still on the cursor is a
 // click and not a selection.
 func TestAClickThatDidNotMoveSelectsNothing(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := editorWith("hello world")
-	mouseAt(e, click(3, 0), 20)
-	mouseAt(e, input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseUp}, 20)
+	mouseAt(scenes, e, click(3, 0), 20)
+	mouseAt(scenes, e, input.Mouse{Pos: image.Pt(3, 0), Action: input.MouseUp}, 20)
 	if got := e.Selected(); got != "" {
 		t.Errorf("a click selected %q", got)
 	}
 }
 
 func TestAClickReplacesTheSelectionBefore(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := editorWith("hello world")
 	e.SelectAll()
-	mouseAt(e, click(2, 0), 20)
+	mouseAt(scenes, e, click(2, 0), 20)
 	if got := e.Selected(); got != "" {
 		t.Errorf("the old selection survived a click: %q", got)
 	}
 }
 
 func TestTheFieldIgnoresWhatIsNotItsToAnswer(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := editorWith("hello")
 	for _, ev := range []input.Mouse{
 		{Pos: image.Pt(1, 0), Action: input.MouseDown, Button: input.ButtonRight},
@@ -290,14 +327,14 @@ func TestTheFieldIgnoresWhatIsNotItsToAnswer(t *testing.T) {
 		// A drag with nothing started by a press of its own.
 		drag(3),
 	} {
-		if mouseAt(e, ev, 20) {
+		if mouseAt(scenes, e, ev, 20) {
 			t.Errorf("the field consumed %+v", ev)
 		}
 	}
-	if mouseAt(e, click(1, 0), 0) {
+	if mouseAt(scenes, e, click(1, 0), 0) {
 		t.Error("the field answered a click in a box of no width")
 	}
-	if mouseAt(e, click(-1, -1), 20) {
+	if mouseAt(scenes, e, click(-1, -1), 20) {
 		t.Error("the field answered a click outside it")
 	}
 }
@@ -305,9 +342,12 @@ func TestTheFieldIgnoresWhatIsNotItsToAnswer(t *testing.T) {
 // TestClickingStepsOverAnElement, the same rule moving does: a chip is one thing, and
 // a cursor inside it has no position a reader could account for.
 func TestClickingStepsOverAnElement(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := editorWith("")
 	e.InsertElement(fileChip, "@main.go")
-	mouseAt(e, click(3, 0), 40)
+	mouseAt(scenes, e, click(3, 0), 40)
 	_, col := e.Cursor()
 	if col != len("@main.go") {
 		t.Errorf("a click inside the element put the cursor at %d, want past it", col)
@@ -318,6 +358,9 @@ func TestClickingStepsOverAnElement(t *testing.T) {
 // A click, a cursor and a selection read the same rows, or they disagree exactly when
 // the text is interesting.
 func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	const width = 12
 	e := editorWith("中文 mixed 文字 with wide ones")
 	screen := grid.NewScreen(width, 8)
@@ -326,9 +369,9 @@ func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
 	// a different promise and has its own test.
 	for y := range e.HeightForWidth(width) {
 		for x := range width {
-			mouseAt(e, click(x, y), width)
+			mouseAt(scenes, e, click(x, y), width)
 			frame := screen.Frame()
-			newTestRoot(e).Draw(frame)
+			scenes.Mount(e).Draw(frame)
 			cursor := screen.Cursor()
 			if !cursor.Visible {
 				continue
@@ -370,23 +413,29 @@ func TestSpansOfARangeOutsideTheText(t *testing.T) {
 }
 
 func TestDraggingUpwardsSelects(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// The other direction, which exercises the ordering the anchor is kept for.
 	e := editorWith("hello world")
-	mouseAt(e, click(11, 0), 20)
-	mouseAt(e, drag(6), 20)
+	mouseAt(scenes, e, click(11, 0), 20)
+	mouseAt(scenes, e, drag(6), 20)
 	if got := e.Selected(); got != "world" {
 		t.Errorf("dragging back selected %q, want %q", got, "world")
 	}
 }
 
 func TestDraggingOffTheFieldChangesNothing(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A drag that leaves the box entirely has no position to move to, and moving the
 	// far end to a guess would select something nobody dragged over.
 	e := editorWith("hello world")
-	mouseAt(e, click(0, 0), 20)
-	mouseAt(e, drag(2), 20)
+	mouseAt(scenes, e, click(0, 0), 20)
+	mouseAt(scenes, e, drag(2), 20)
 	before := e.Selected()
-	if mouseAt(e, drag(-5), 20) {
+	if mouseAt(scenes, e, drag(-5), 20) {
 		t.Error("a drag outside the field was consumed")
 	}
 	if got := e.Selected(); got != before {
@@ -399,6 +448,9 @@ func TestDraggingOffTheFieldChangesNothing(t *testing.T) {
 // row's first are one offset with two places on screen; a cursor that arrived by
 // moving belongs to the second, and one that was clicked there belongs to the first.
 func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// At width twelve the first row is "the quick " — ten columns — so the last two
 	// columns of the box are past the end of a row the width broke, which is the only
 	// place this question arises.
@@ -406,8 +458,8 @@ func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
 	e := editorWith("the quick brown fox jumps")
 	screen := grid.NewScreen(width, 6)
 
-	mouseAt(e, click(11, 0), width)
-	newTestRoot(e).Draw(screen.Frame())
+	mouseAt(scenes, e, click(11, 0), width)
+	scenes.Mount(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 0 {
 		t.Errorf("the caret is on row %d, want the row that was clicked", got.Pos.Y)
 	}
@@ -420,7 +472,7 @@ func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
 	for range len("the quick ") {
 		e.Handle(input.Key{Code: input.Right})
 	}
-	newTestRoot(e).Draw(screen.Frame())
+	scenes.Mount(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 1 {
 		t.Errorf("a caret that arrived by moving is on row %d, want the next row", got.Pos.Y)
 	}
@@ -429,12 +481,15 @@ func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
 // TestAffinityStopsApplyingWhenTheCursorMoves. It is carried without a flag anyone has
 // to clear: it applies only while the cursor is exactly where the click put it.
 func TestAffinityStopsApplyingWhenTheCursorMoves(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	const width = 12
 	e := editorWith("the quick brown fox jumps")
 	screen := grid.NewScreen(width, 6)
 
-	mouseAt(e, click(11, 0), width)
-	newTestRoot(e).Draw(screen.Frame())
+	mouseAt(scenes, e, click(11, 0), width)
+	scenes.Mount(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 0 {
 		t.Fatalf("the click did not put the caret on row 0")
 	}
@@ -443,7 +498,7 @@ func TestAffinityStopsApplyingWhenTheCursorMoves(t *testing.T) {
 	// about this cursor, and a movement is where that is forgotten.
 	e.Handle(input.Key{Code: input.Right})
 	e.Handle(input.Key{Code: input.Left})
-	newTestRoot(e).Draw(screen.Frame())
+	scenes.Mount(e).Draw(screen.Frame())
 	if got := screen.Cursor(); got.Pos.Y != 1 {
 		t.Errorf("the caret is on row %d after moving away and back, want the next row", got.Pos.Y)
 	}
@@ -452,8 +507,11 @@ func TestAffinityStopsApplyingWhenTheCursorMoves(t *testing.T) {
 // TestTypingAfterClickingPastARowGoesWhereTheCaretIs, which is the point of the
 // affinity: what a user clicked is where the next character appears.
 func TestTypingAfterClickingPastARowGoesWhereTheCaretIs(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := editorWith("the quick brown fox")
-	mouseAt(e, click(11, 0), 12)
+	mouseAt(scenes, e, click(11, 0), 12)
 	e.Insert("X")
 	// The row is "the quick " including the space the wrap took, so its end is after
 	// that space and the character goes there. Where the re-wrap then draws it is the
@@ -465,11 +523,14 @@ func TestTypingAfterClickingPastARowGoesWhereTheCaretIs(t *testing.T) {
 }
 
 func TestEditorPressRequiresTheDisplayedDocumentAndPolicy(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, mode := range []string{"multiline edit", "single-line edit", "mask change"} {
 		t.Run(mode, func(t *testing.T) {
 			e := base.NewEditor(base.EditorConfig{Initial: "abcd", SingleLine: mode != "multiline edit"})
-			root := newTestRoot(e)
-			defer root.root.Close()
+			root := scenes.Mount(e)
+			defer root.Root.Close()
 			view := grid.NewSurface(20, 2).View()
 			root.Draw(view)
 			if mode == "mask change" {

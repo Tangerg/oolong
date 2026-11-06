@@ -4,9 +4,13 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestTranscriptCloseReleasesItsCommittedContentProjection(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	transcript, err := NewTranscript(TranscriptConfig{})
 	if err != nil {
 		t.Fatal(err)
@@ -15,8 +19,8 @@ func TestTranscriptCloseReleasesItsCommittedContentProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := newTestRoot(transcript)
-	defer root.root.Close()
+	root := scenes.Mount(transcript)
+	defer root.Root.Close()
 	root.Draw(grid.NewSurface(20, 3).View())
 	retained := transcript.Layout()
 	if retained.Block(item.ID()) == nil {

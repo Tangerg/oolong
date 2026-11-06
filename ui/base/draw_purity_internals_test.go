@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 // drawPurityCase names the semantic projection that every Draw entry point is
@@ -34,7 +34,10 @@ type drawPurityCase struct {
 }
 
 func TestLayoutAndDrawAreObservationallyPure(t *testing.T) {
-	cases := headlessDrawPurityCases()
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
+	cases := headlessDrawPurityCases(scenes)
 	covered := make(map[string]bool, len(cases))
 	for _, tc := range cases {
 		if covered[tc.name] {
@@ -256,8 +259,8 @@ func cloneEditorKills(kills []editorKill) []editorKill {
 	return out
 }
 
-func widgetPurityCase(name string, widget any, state func() any) drawPurityCase {
-	root := newTestRoot(widget)
+func widgetPurityCase(scenes *scenetest.Scope, name string, widget any, state func() any) drawPurityCase {
+	root := scenes.Mount(widget)
 	var measure func(int) int
 	if sized, ok := widget.(interface{ HeightForWidth(width int) int }); ok {
 		measure = sized.HeightForWidth
@@ -268,7 +271,7 @@ func widgetPurityCase(name string, widget any, state func() any) drawPurityCase 
 	}
 }
 
-func headlessDrawPurityCases() []drawPurityCase {
+func headlessDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	var cases []drawPurityCase
 	candidate := Candidate{Text: "choice", Detail: "detail", Matched: []int{0, 2}}
 	renderer := DefaultCompletionRenderer{}
@@ -280,23 +283,23 @@ func headlessDrawPurityCases() []drawPurityCase {
 	cases = append(cases, drawPurityCase{name: "TranscriptLayout", width: 24, height: 2, draw: func(v grid.View) { presented.Draw(v, 0) }})
 	field := NewText(TextConfig{Initial: "seed", Label: "name"})
 	field.editor.MoveLeft()
-	cases = append(cases, widgetPurityCase("*Text", field, func() any { return meaningOfEditor(&field.editor) }))
+	cases = append(cases, widgetPurityCase(scenes, "*Text", field, func() any { return meaningOfEditor(&field.editor) }))
 	one := NewSelect(SelectConfig[string]{Same: Equal[string], Options: Options("one", "two", "three"), Initial: "two"})
-	cases = append(cases, widgetPurityCase("*Select", one, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Select", one, func() any {
 		return struct {
 			value    string
 			revision uint64
 		}{chosenValue(one), one.Revision()}
 	}))
 	many := NewMultiSelect(MultiSelectConfig[string]{Same: Equal[string], Options: Options("one", "two"), Initial: []string{"two"}})
-	cases = append(cases, widgetPurityCase("*MultiSelect", many, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*MultiSelect", many, func() any {
 		return struct {
 			value    []string
 			revision uint64
 		}{many.Taken(), many.Revision()}
 	}))
 	confirm := NewConfirm(ConfirmConfig{Initial: true})
-	cases = append(cases, widgetPurityCase("*Confirm", confirm, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Confirm", confirm, func() any {
 		return struct {
 			value    bool
 			revision uint64
@@ -305,11 +308,11 @@ func headlessDrawPurityCases() []drawPurityCase {
 	completion := &Completion{MaxRows: 2}
 	completion.Offer(Token{Start: 1, End: 3, Query: "tw"}, []Candidate{{Text: "two"}, {Text: "twelve"}})
 	completion.Do(SelectNext)
-	cases = append(cases, widgetPurityCase("*Completion", completion, func() any { current, _ := completion.Current(); return current }))
+	cases = append(cases, widgetPurityCase(scenes, "*Completion", completion, func() any { current, _ := completion.Current(); return current }))
 	list := &List[string]{Row: func(v grid.View, _ int, item string, _ bool) { v.Text(0, 0, item, grid.Style{}) }}
 	list.SetItems([]string{"one", "two", "three"})
 	list.Select(1)
-	cases = append(cases, widgetPurityCase("*List", list, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*List", list, func() any {
 		return struct {
 			selected  int
 			geometry  scrollGeometry
@@ -320,7 +323,7 @@ func headlessDrawPurityCases() []drawPurityCase {
 	table.SetSortColumns(func(int) func(string, string) int { return strings.Compare })
 	table.SetItems([]string{"two", "one"})
 	table.SortBy(0)
-	cases = append(cases, widgetPurityCase("*Table", table, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Table", table, func() any {
 		return struct {
 			items    []string
 			selected int
@@ -330,19 +333,19 @@ func headlessDrawPurityCases() []drawPurityCase {
 	tree := NewTree(Node[string]{Item: "root", Children: []Node[string]{{Item: "leaf"}}})
 	tree.Open(0)
 	tree.Select(1)
-	cases = append(cases, widgetPurityCase("*Tree", tree, func() any { return tree.Rows() }))
+	cases = append(cases, widgetPurityCase(scenes, "*Tree", tree, func() any { return tree.Rows() }))
 	editor := NewEditor(EditorConfig{Initial: "one two"})
 	editor.KillToStart()
 	editor.Undo()
 	editor.MoveLeft()
 	editor.Anchor()
 	editor.MoveWordLeft()
-	cases = append(cases, widgetPurityCase("*Editor", editor, func() any { return meaningOfEditor(editor) }))
+	cases = append(cases, widgetPurityCase(scenes, "*Editor", editor, func() any { return meaningOfEditor(editor) }))
 	filter := &Filter[string]{}
 	filter.SetItems([]string{"alpha", "beta", "alphabet"}, func(item string) string { return item })
 	filter.SetPattern("alp")
 	filter.Select(1)
-	cases = append(cases, widgetPurityCase("*Filter", filter, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Filter", filter, func() any {
 		return struct {
 			pattern  string
 			selected int
@@ -350,19 +353,19 @@ func headlessDrawPurityCases() []drawPurityCase {
 	}))
 	formField := NewText(TextConfig{Initial: "value"})
 	form := NewForm(FormConfig{Fields: []Field{formField}})
-	cases = append(cases, widgetPurityCase("*Form", form, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*Form", form, func() any {
 		return struct {
 			value      string
 			submission Submission
 		}{formField.Text(), form.Submission()}
 	}))
-	viewport := NewViewport(ViewportConfig{Content: testElement(&purityWidget{text: "tall", height: 8})})
-	cases = append(cases, widgetPurityCase("*Viewport", viewport, func() any { return viewport.scroll.current }))
-	tabs := NewTabs(TabsConfig{Items: []Tab{{Key: "a", Title: "one", Content: testElement(&purityWidget{text: "pane"})}, {Key: "b", Title: "two", Content: testElement(&purityWidget{text: "other"})}}})
-	cases = append(cases, widgetPurityCase("*Tabs", tabs, func() any { return tabs.Selected() }))
+	viewport := NewViewport(ViewportConfig{Content: scenes.Element(&purityWidget{text: "tall", height: 8})})
+	cases = append(cases, widgetPurityCase(scenes, "*Viewport", viewport, func() any { return viewport.scroll.current }))
+	tabs := NewTabs(TabsConfig{Items: []Tab{{Key: "a", Title: "one", Content: scenes.Element(&purityWidget{text: "pane"})}, {Key: "b", Title: "two", Content: scenes.Element(&purityWidget{text: "other"})}}})
+	cases = append(cases, widgetPurityCase(scenes, "*Tabs", tabs, func() any { return tabs.Selected() }))
 	button := NewButton(ButtonConfig{Label: "activate", Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
 		return scene.ActionResult[struct{}]{State: scene.Applied}, nil
 	}})
-	cases = append(cases, widgetPurityCase("*Button", button, func() any { return button.Label() }))
+	cases = append(cases, widgetPurityCase(scenes, "*Button", button, func() any { return button.Label() }))
 	return cases
 }

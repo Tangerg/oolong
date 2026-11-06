@@ -16,7 +16,9 @@ const DefaultEscapeTimeout = 30 * time.Millisecond
 const esc = ansi.Escape
 
 const (
-	maxSequenceBody = 64 << 10
+	// Rejected OSC replies keep only a complete correlation header within the
+	// ordinary parameter budget, never the oversized payload behind it.
+	maxParameterBytes = 64 << 10
 
 	// maxPaste bounds what one paste may accumulate. A terminal that opens a
 	// paste and never closes it would otherwise swallow everything typed
@@ -192,14 +194,13 @@ func (p *Parser) advance(final bool) (Event, bool) {
 }
 
 func (p *Parser) advanceRunaway(final bool) (Event, bool) {
-	if p.skipRunaway() {
-		return nil, true
+	if event, advanced := p.skipRunaway(); advanced {
+		return event, true
 	}
 	if final {
 		// EOF releases every discard. During a live stream only ambiguous
 		// input can reach this branch; an ordinary string payload has no timer.
 		p.abandonString()
-		p.dropping = droppingNothing
 		return nil, true
 	}
 	return nil, false
@@ -240,11 +241,11 @@ func (p *Parser) advanceInput(final bool) (Event, bool) {
 	return nil, true
 }
 
-func (p *Parser) skipRunaway() bool {
+func (p *Parser) skipRunaway() (Event, bool) {
 	if p.dropping == droppingString {
 		return p.skipString()
 	}
-	return p.skipParams()
+	return nil, p.skipParams()
 }
 
 // skipParams drops the rest of a control sequence whose parameter section
@@ -445,7 +446,7 @@ func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	for i < len(b) && ansi.Body(b[i]) {
 		i++
 	}
-	if i-2 > maxSequenceBody {
+	if i-2 > maxParameterBytes {
 		// Overran what one may hold. The check does not wait to see whether a
 		// final byte happens to be in this chunk, and it does not drop "whatever
 		// is buffered": either would make the cap depend on where the read split,
@@ -618,8 +619,7 @@ func (p *Parser) readString() (Event, bool) {
 				// sequence is: a flood of keystrokes is a worse answer to a malformed
 				// sequence than silence, and one a hostile terminal could aim.
 				p.take(i)
-				p.strBody = nil
-				p.dropping = droppingString
+				p.discardString()
 				return nil, true
 			}
 		}
@@ -628,12 +628,30 @@ func (p *Parser) readString() (Event, bool) {
 	return nil, false
 }
 
+func (p *Parser) discardString() {
+	var header []byte
+	if p.frame == oscFrame {
+		if end := bytes.IndexByte(p.strBody, ';'); end >= 0 && end < maxParameterBytes {
+			header = bytes.Clone(p.strBody[:end+1])
+		}
+	}
+	p.strBody = header
+	p.dropping = droppingString
+}
+
 // Reply bodies become text at this boundary; replace invalid UTF-8 before
 // consumers can treat the result as displayable text.
 func (p *Parser) endString() Event {
 	body := strings.ToValidUTF8(string(p.strBody), "�")
 	kind, cmd := p.frame, p.oscCmd
+	rejected := p.dropping == droppingString
 	p.abandonString()
+	if rejected {
+		if kind == oscFrame {
+			return OSCRejection{Command: cmd, Prefix: body}
+		}
+		return nil
+	}
 	switch kind {
 	case apcFrame:
 		return APC{Body: body}
@@ -646,33 +664,31 @@ func (p *Parser) endString() Event {
 
 func (p *Parser) abandonString() {
 	p.frame, p.oscCmd, p.strBody = noFrame, 0, nil
+	p.dropping = droppingNothing
 }
 
-func (p *Parser) skipString() bool {
+func (p *Parser) skipString() (Event, bool) {
 	for i := range len(p.buf) {
 		switch {
 		case p.buf[i] == bel && p.frame != apcFrame:
 			p.take(i + 1)
-			p.abandonString()
-			p.dropping = droppingNothing
-			return true
+			return p.endString(), true
 		case p.buf[i] == esc:
 			if i+1 >= len(p.buf) {
 				p.take(i)
-				return false
+				return nil, false
 			}
 			if p.buf[i+1] == '\\' {
 				p.take(i + 2)
-			} else {
-				// The escape abandoned the string, and belongs to whatever comes next
-				// rather than to this.
-				p.take(i)
+				return p.endString(), true
 			}
+			// The escape abandoned the string, and belongs to whatever comes next
+			// rather than to this. Abandonment cannot discharge a query's reply.
+			p.take(i)
 			p.abandonString()
-			p.dropping = droppingNothing
-			return true
+			return nil, true
 		}
 	}
 	p.buf = nil
-	return false
+	return nil, false
 }

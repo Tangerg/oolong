@@ -161,6 +161,26 @@ func TestTranscriptPinnedHeaderSharesContentAndSelectionCoordinates(t *testing.T
 	}
 }
 
+func TestTranscriptPinnedHeaderRepeatsItsRulePattern(t *testing.T) {
+	skin, root := transcriptSkin(t, kit.TranscriptConfig{Glyphs: kit.Glyphs{Rule: "界-"}},
+		[]string{"header"}, []string{"one", "two", "three", "four", "five"})
+	model := skin.Controller()
+	model.Sticky().Add(model.FirstBlock())
+	model.Sticky().Gap = 1
+	model.Scroll().ToTop()
+	transcriptPaint(t, root, 6, 4, 1)
+	model.Scroll().By(1)
+	surface := transcriptPaint(t, root, 6, 4, 2)
+	for _, x := range []int{0, 3} {
+		if got := cellAt(surface, x, 1); got.Content() != "界" || got.Width() != 2 {
+			t.Fatalf("rule at %d = %+v, want complete wide grapheme", x, got)
+		}
+		if got := cellAt(surface, x+2, 1).Content(); got != "-" {
+			t.Fatalf("rule at %d = %q, want pattern suffix", x+2, got)
+		}
+	}
+}
+
 func TestTranscriptRetainsUnsupportedContentAndAcceptedPrefixOnly(t *testing.T) {
 	publisher, err := publication.New(publication.Config{Width: 20, MaxItems: 1})
 	if err != nil {

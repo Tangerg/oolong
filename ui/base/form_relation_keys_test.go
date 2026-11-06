@@ -8,9 +8,13 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestFormFieldReplacementCancelsItsPreviousKeyboardSequence(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, sequence := range []string{"deferred", "partial"} {
 		for _, relation := range []string{"retained focus", "new fields"} {
 			t.Run(sequence+"/"+relation, func(t *testing.T) {
@@ -29,10 +33,10 @@ func TestFormFieldReplacementCancelsItsPreviousKeyboardSequence(t *testing.T) {
 						return scene.Applied, nil
 					},
 				})
-				fixture := newTestRoot(form)
-				t.Cleanup(fixture.root.Close)
+				fixture := scenes.Mount(form)
+				t.Cleanup(fixture.Root.Close)
 				focusElement(t, first.Element())
-				if !fixture.root.Handle(input.Key{Rune: 'x'}) {
+				if !fixture.Handle(input.Key{Rune: 'x'}) {
 					t.Fatal("form did not retain the first key")
 				}
 				if relation == "retained focus" {
@@ -46,7 +50,7 @@ func TestFormFieldReplacementCancelsItsPreviousKeyboardSequence(t *testing.T) {
 					}
 					(*resolve)()
 				} else {
-					fixture.root.Handle(input.Key{Rune: 'x'})
+					fixture.Handle(input.Key{Rune: 'x'})
 				}
 				if submissions != 0 {
 					t.Fatal("a key sequence for the previous fields submitted their replacement")
@@ -57,6 +61,9 @@ func TestFormFieldReplacementCancelsItsPreviousKeyboardSequence(t *testing.T) {
 }
 
 func TestRejectedFormFieldReplacementKeepsItsKeyboardSequence(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	keys, resolve := deferredKeys(base.Submit, base.Cancel)
 	field := base.NewConfirm(base.ConfirmConfig{})
 	submissions := 0
@@ -67,10 +74,10 @@ func TestRejectedFormFieldReplacementKeepsItsKeyboardSequence(t *testing.T) {
 			return scene.Applied, nil
 		},
 	})
-	fixture := newTestRoot(form)
-	t.Cleanup(fixture.root.Close)
+	fixture := scenes.Mount(form)
+	t.Cleanup(fixture.Root.Close)
 	focusElement(t, field.Element())
-	fixture.root.Handle(input.Key{Rune: 'x'})
+	fixture.Handle(input.Key{Rune: 'x'})
 	func() {
 		defer func() {
 			if recover() == nil {
@@ -89,6 +96,9 @@ func TestRejectedFormFieldReplacementKeepsItsKeyboardSequence(t *testing.T) {
 }
 
 func TestFormFieldPublicationPrecedesReentrantResolverCancellation(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	keys, _ := deferredKeys(base.Submit, base.Cancel)
 	first := base.NewConfirm(base.ConfirmConfig{Label: "retained"})
 	second := base.NewConfirm(base.ConfirmConfig{Label: "published"})
@@ -105,10 +115,10 @@ func TestFormFieldPublicationPrecedesReentrantResolverCancellation(t *testing.T)
 			form.Set(first, latest)
 		}
 	}
-	fixture := newTestRoot(form)
-	t.Cleanup(fixture.root.Close)
+	fixture := scenes.Mount(form)
+	t.Cleanup(fixture.Root.Close)
 	focusElement(t, first.Element())
-	fixture.root.Handle(input.Key{Rune: 'x'})
+	fixture.Handle(input.Key{Rune: 'x'})
 	form.Set(first, second)
 	fields := form.Fields()
 	if cancellations != 1 {

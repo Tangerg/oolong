@@ -1,7 +1,9 @@
 package link_test
 
 import (
+	"math"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -159,6 +161,62 @@ func TestALineAndColumnBelongToTheLink(t *testing.T) {
 		// reader would click.
 		if tc.line != 0 && !strings.Contains(got[0].Text(tc.in), ":") {
 			t.Errorf("%q underlined %q, which leaves the line out", tc.in, got[0].Text(tc.in))
+		}
+	}
+}
+
+func TestFilePositionsConsumeEveryDigitBeforeValidation(t *testing.T) {
+	for _, tc := range []struct {
+		suffix       string
+		line, column int
+	}{
+		{suffix: ":0000000012", line: 12},
+		{suffix: ":42:0000000034", line: 42, column: 34},
+		{suffix: ":1000000000:7", line: 1_000_000_000, column: 7},
+		{suffix: ":" + strings.Repeat("0", 100) + "12:00034", line: 12, column: 34},
+		{suffix: ":" + strconv.Itoa(math.MaxInt) + ":" + strconv.Itoa(math.MaxInt), line: math.MaxInt, column: math.MaxInt},
+	} {
+		const path = "src/main.go"
+		const prefix = "at "
+		source := prefix + path + tc.suffix + " next"
+		got := link.Detect(source, nil)
+		want := link.Link{Start: len(prefix), End: len(prefix + path + tc.suffix), Kind: link.File, Target: path, Line: tc.line, Column: tc.column}
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("suffix %q = %+v, want %+v", tc.suffix, got, want)
+		}
+	}
+}
+
+func TestInvalidFilePositionsDoNotPublishAPartialLocation(t *testing.T) {
+	overflow := strconv.FormatUint(uint64(math.MaxInt)+1, 10)
+	for _, suffix := range []string{
+		":0", ":000", ":0:7", ":42:0", ":42:000",
+		":" + overflow, ":" + overflow + ":7", ":42:" + overflow,
+		":" + strings.Repeat("9", 100), ":42:" + strings.Repeat("9", 100),
+	} {
+		const path = "src/main.go"
+		got := link.Detect(path+suffix, nil)
+		want := link.Link{End: len(path), Kind: link.File, Target: path}
+		if len(got) != 1 || got[0] != want {
+			t.Errorf("invalid suffix %q = %+v, want the path without a location", suffix, got)
+		}
+	}
+}
+
+func TestFilePositionsPreserveQuotedPathsAndAdjacentPunctuation(t *testing.T) {
+	for _, tc := range []struct {
+		source, text, target string
+		line, column         int
+	}{
+		{source: `"my notes/main.go":0000000012:0000000034)`, text: `"my notes/main.go":0000000012:0000000034`, target: "my notes/main.go", line: 12, column: 34},
+		{source: "src/main.go:42: error", text: "src/main.go:42", target: "src/main.go", line: 42},
+		{source: "src/main.go:42,", text: "src/main.go:42", target: "src/main.go", line: 42},
+		{source: "src/main.go: error", text: "src/main.go", target: "src/main.go"},
+		{source: "main.go:0000000012:0000000034", text: "main.go:0000000012:0000000034", target: "main.go", line: 12, column: 34},
+	} {
+		got := link.Detect(tc.source, files(tc.target))
+		if len(got) != 1 || got[0].Target != tc.target || got[0].Line != tc.line || got[0].Column != tc.column || got[0].Text(tc.source) != tc.text {
+			t.Errorf("%q = %+v, want %q at %d:%d", tc.source, got, tc.text, tc.line, tc.column)
 		}
 	}
 }

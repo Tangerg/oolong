@@ -12,9 +12,13 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestAFieldGivingUpFocusCancelsItsPartialBinding(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var resolve func()
 	cancelled := false
 	keys := &keymap.Map{Resolve: func(_ time.Duration, fn func()) func() {
@@ -30,7 +34,7 @@ func TestAFieldGivingUpFocusCancelsItsPartialBinding(t *testing.T) {
 	if !e.Handle(input.Key{Rune: 'g'}) || resolve == nil {
 		t.Fatal("the ambiguous first chord was not held")
 	}
-	testFocus(e, false)
+	scenes.Focus(e, false)
 	if !cancelled {
 		t.Fatal("blur did not cancel the binding resolver")
 	}
@@ -64,39 +68,48 @@ func TestAFieldThatHoldsOneLineNeverGetsASecond(t *testing.T) {
 }
 
 func TestAFieldThatHoldsOneLineSlidesSidewaysToKeepTheCursorInView(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := &base.Editor{}
 	e.SetSingleLine(true)
 	e.SetText("abcdefghij")
 
 	// The cursor is at the end, so the window shows the end of the text with room for
 	// the cursor to sit past the last character.
-	rows := paintWidget(5, 1, e)
+	rows := paintWidget(scenes, 5, 1, e)
 	equalRows(t, rows, []string{"ghij."})
 
 	e.Do(base.MoveLineStart)
-	rows = paintWidget(5, 1, e)
+	rows = paintWidget(scenes, 5, 1, e)
 	equalRows(t, rows, []string{"abcde"})
 }
 
 func TestAFieldThatHoldsOneLineComesBackWhenItsTextGetsShorter(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Otherwise a deletion leaves the field showing its end with blank columns to the
 	// right of text that would have fitted.
 	e := &base.Editor{}
 	e.SetSingleLine(true)
 	e.SetText("abcdefghij")
-	paintWidget(5, 1, e)
+	paintWidget(scenes, 5, 1, e)
 	for range 8 {
 		e.DeleteBack()
 	}
-	rows := paintWidget(5, 1, e)
+	rows := paintWidget(scenes, 5, 1, e)
 	equalRows(t, rows, []string{"ab..."})
 }
 
 func TestAMaskedFieldShowsNothingItHolds(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := &base.Editor{}
 	e.SetMask("•")
 	e.SetText("secret")
-	rows := paintWidget(8, 1, e)
+	rows := paintWidget(scenes, 8, 1, e)
 	equalRows(t, rows, []string{"••••••.."})
 	if got := e.Text(); got != "secret" {
 		t.Fatalf("the field itself = %q, want what was typed", got)
@@ -104,6 +117,9 @@ func TestAMaskedFieldShowsNothingItHolds(t *testing.T) {
 }
 
 func TestAMaskedFieldPutsTheCursorWhereTheMaskIs(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// The mask is one cluster per cluster and a different count of bytes, so every
 	// position has to be translated. A cursor placed from the text's own offsets would
 	// sit wherever the two happened to agree.
@@ -115,28 +131,34 @@ func TestAMaskedFieldPutsTheCursorWhereTheMaskIs(t *testing.T) {
 	// A screen rather than a bare surface, because the cursor is only observable
 	// through one.
 	screen := grid.NewScreen(8, 1)
-	newTestRoot(e).Draw(screen.Frame())
+	scenes.Mount(e).Draw(screen.Frame())
 	if cursor := screen.Cursor(); !cursor.Visible || cursor.Pos.X != 2 {
 		t.Fatalf("cursor at %+v, want it two masked columns along", cursor)
 	}
 }
 
 func TestAnEditorPublishesItsCursorStyleWithItsFrame(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := &base.Editor{}
 	e.CursorStyle = grid.CursorStyle{Shape: grid.CursorBar, Blink: true}
 
 	screen := grid.NewScreen(8, 1)
-	newTestRoot(e).Draw(screen.Frame())
+	scenes.Mount(e).Draw(screen.Frame())
 	if got := screen.Cursor().Style; got != e.CursorStyle {
 		t.Fatalf("cursor style = %+v, want %+v", got, e.CursorStyle)
 	}
 }
 
 func TestAClickInAMaskedFieldLandsOnTheClusterItIsUnder(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := &base.Editor{}
 	e.SetMask("••")
 	e.SetText("abc")
-	paintWidget(10, 1, e)
+	paintWidget(scenes, 10, 1, e)
 
 	e.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(4, 0)})
 	if _, col := e.Cursor(); col != 2 {
@@ -199,12 +221,15 @@ func TestOneLineModeCannotRestoreMultilineHistory(t *testing.T) {
 }
 
 func TestDrawingTextDoesNotChangeItsEditorsHistory(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	field := &base.Text{}
 	editor := field
 	editor.SetText("one")
 	editor.SetText("one\ntwo")
 
-	rows := paintWidget(20, 1, field)
+	rows := paintWidget(scenes, 20, 1, field)
 	equalRows(t, rows, []string{"one two............."})
 	editor.Do(base.Undo)
 	if got := editor.Text(); got != "one" {
@@ -241,25 +266,31 @@ func TestTextRejectsAnInvalidMaskBeforeDrawing(t *testing.T) {
 }
 
 func TestTextAcceptsAndDrawsAConfiguredMask(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	value := "secret"
 	field := base.NewText(base.TextConfig{Initial: value})
 	field.SetMask("*")
 	if got := field.Mask(); got != "*" {
 		t.Fatalf("Mask() = %q, want *", got)
 	}
-	rows := paintWidget(8, 1, field)
+	rows := paintWidget(scenes, 8, 1, field)
 	equalRows(t, rows, []string{"******.."})
 }
 
 func TestControlledTextUsesOneProjectionBeforeAndAfterInitialization(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	value := "a\r\nb\x7f"
 	field := base.NewText(base.TextConfig{Initial: value})
 	field.Gutter = numberedGutter{}
 	field.SetMask("*")
 
-	before := paintWidget(8, 1, field)
-	testFocus(field, true)
-	after := paintWidget(8, 1, field)
+	before := paintWidget(scenes, 8, 1, field)
+	scenes.Focus(field, true)
+	after := paintWidget(scenes, 8, 1, field)
 
 	equalRows(t, before, []string{"1.***..."})
 	equalRows(t, after, before)

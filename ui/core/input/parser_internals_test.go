@@ -60,7 +60,7 @@ func TestRunawaySequenceIsDiscarded(t *testing.T) {
 	// A stream that opens a sequence and never ends it must not grow the buffer
 	// without limit.
 	var p Parser
-	p.Feed([]byte("\x1b[" + strings.Repeat("1;", maxSequenceBody)))
+	p.Feed([]byte("\x1b[" + strings.Repeat("1;", maxParameterBytes)))
 	if len(p.buf) > 0 {
 		t.Fatal("a runaway sequence is still buffered")
 	}
@@ -87,7 +87,7 @@ func TestAFlushEndsARunawaySequence(t *testing.T) {
 	// Otherwise the state outlives the stream that caused it, and the next
 	// keystroke that happened to be a parameter byte would vanish into it.
 	var p Parser
-	p.Feed([]byte("\x1b[" + strings.Repeat("1;", maxSequenceBody)))
+	p.Feed([]byte("\x1b[" + strings.Repeat("1;", maxParameterBytes)))
 	p.Flush()
 	if p.Pending() {
 		t.Fatal("a flush left the runaway sequence open")

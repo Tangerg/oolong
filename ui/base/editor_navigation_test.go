@@ -5,9 +5,13 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestEditorPreservesDesiredColumnAcrossWrappedElement(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, test := range []struct {
 		name   string
 		column int
@@ -26,8 +30,8 @@ func TestEditorPreservesDesiredColumnAcrossWrappedElement(t *testing.T) {
 			editor.SetCursor(1, 0)
 			editor.InsertElement(1, "abcdefg")
 			editor.SetCursor(test.from, test.column)
-			fixture := newTestRoot(&editor)
-			t.Cleanup(fixture.root.Close)
+			fixture := scenes.Mount(&editor)
+			t.Cleanup(fixture.Root.Close)
 			fixture.Draw(grid.NewSurface(4, 8).View())
 			for range 4 {
 				test.move(&editor)
@@ -49,6 +53,9 @@ func TestEditorPreservesDesiredColumnAcrossWrappedElement(t *testing.T) {
 }
 
 func TestSharedEditorViewsKeepIndependentDesiredColumns(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	session := base.NewEditSession(base.EditSessionConfig{Initial: "a\n\nwxyz"})
 	first := base.NewEditor(base.EditorConfig{Session: session})
 	first.SetCursor(1, 0)
@@ -56,8 +63,8 @@ func TestSharedEditorViewsKeepIndependentDesiredColumns(t *testing.T) {
 	views := []*base.Editor{first, base.NewEditor(base.EditorConfig{Session: session})}
 	for column, editor := range views {
 		editor.SetCursor(0, column)
-		fixture := newTestRoot(editor)
-		t.Cleanup(fixture.root.Close)
+		fixture := scenes.Mount(editor)
+		t.Cleanup(fixture.Root.Close)
 		fixture.Draw(grid.NewSurface(4, 8).View())
 	}
 	for range 4 {

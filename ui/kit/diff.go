@@ -254,10 +254,7 @@ func (d *Diff) gutter(width int) diffGutter {
 	gutter := diffGutter{}
 	if width > 1 {
 		gutter.showMark = true
-		gutter.continuation = d.glyphs.Vertical
-		if text.Width(gutter.continuation) != 1 {
-			gutter.continuation = " "
-		}
+		gutter.continuation = right(d.glyphs.Vertical.value, 1)
 	}
 	if numbers := d.margin(); d.numbers && width >= numbers.width()+1+diffContentFloor {
 		gutter.margin = numbers

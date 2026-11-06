@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 // tall is content of a fixed height that writes its own row number, so a test can see
@@ -49,34 +49,43 @@ func (c *tall) Focus(has bool) {
 }
 
 func TestAWindowShowsThePartOfItsContentItIsScrolledTo(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// The content is drawn at its whole height into a view that begins above the box,
 	// so the rows off the top fall away and nothing had to be told it was scrolled.
-	p := base.NewViewport(base.ViewportConfig{Content: testElement(&tall{rows: 10})})
-	paintWidget(6, 3, p)
+	p := base.NewViewport(base.ViewportConfig{Content: scenes.Element(&tall{rows: 10})})
+	paintWidget(scenes, 6, 3, p)
 	p.Scroll().By(3)
 
-	rows := paintWidget(6, 3, p)
+	rows := paintWidget(scenes, 6, 3, p)
 	equalRows(t, rows, []string{"row 3.", "row 4.", "row 5."})
 }
 
 func TestAWindowCannotBeScrolledPastItsContent(t *testing.T) {
-	p := base.NewViewport(base.ViewportConfig{Content: testElement(&tall{rows: 4})})
-	paintWidget(6, 3, p)
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
+	p := base.NewViewport(base.ViewportConfig{Content: scenes.Element(&tall{rows: 4})})
+	paintWidget(scenes, 6, 3, p)
 	p.Scroll().By(100)
-	rows := paintWidget(6, 3, p)
+	rows := paintWidget(scenes, 6, 3, p)
 	equalRows(t, rows, []string{"row 1.", "row 2.", "row 3."})
 }
 
 func TestAWindowTakesTheWheelAndPassesOnTheRest(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Content that answered the wheel as well would scroll twice as far as the reader
 	// asked. Everything else a pointer does is the content's, in the content's own
 	// coordinates — which here means the row it is over and not the row on screen.
 	content := &tall{rows: 20}
-	p := base.NewViewport(base.ViewportConfig{Content: testElement(content)})
-	paintWidget(6, 4, p)
+	p := base.NewViewport(base.ViewportConfig{Content: scenes.Element(content)})
+	paintWidget(scenes, 6, 4, p)
 
 	for range 3 {
-		newTestRoot(p).Handle(input.Mouse{Action: input.WheelDown})
+		scenes.Mount(p).Handle(input.Mouse{Action: input.WheelDown})
 	}
 	if got := p.Scroll().Offset(); got != 3 {
 		t.Fatalf("offset after three wheel reports = %d", got)
@@ -85,102 +94,120 @@ func TestAWindowTakesTheWheelAndPassesOnTheRest(t *testing.T) {
 		t.Fatal("the wheel reached the content as well")
 	}
 
-	newTestRoot(p).Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDown, Button: input.ButtonLeft})
+	scenes.Mount(p).Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDown, Button: input.ButtonLeft})
 	if want := image.Pt(2, 1); content.mouse != want {
 		t.Fatalf("before repaint the content was told the press was at %v, want the visible %v", content.mouse, want)
 	}
-	paintWidget(6, 4, p)
-	newTestRoot(p).Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDown, Button: input.ButtonLeft})
+	paintWidget(scenes, 6, 4, p)
+	scenes.Mount(p).Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDown, Button: input.ButtonLeft})
 	if want := image.Pt(2, 4); content.mouse != want {
 		t.Fatalf("the content was told the press was at %v, want %v", content.mouse, want)
 	}
 }
 
 func TestAWindowScrollsOnlyWhatItsContentDeclined(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Content with arrow keys of its own keeps them. A window that took them first
 	// would make a list inside one impossible to move through.
 	content := &tall{rows: 20}
-	p := base.NewViewport(base.ViewportConfig{Content: testElement(content)})
-	paintWidget(6, 4, p)
+	p := base.NewViewport(base.ViewportConfig{Content: scenes.Element(content)})
+	paintWidget(scenes, 6, 4, p)
 
-	if !newTestRoot(p).Handle(input.Key{Code: input.Down}) || p.Scroll().Offset() != 1 {
+	if !scenes.Mount(p).Handle(input.Key{Code: input.Down}) || p.Scroll().Offset() != 1 {
 		t.Fatalf("the window did not scroll a key its content had no use for")
 	}
-	if !newTestRoot(p).Handle(input.Key{Code: input.End}) || !p.Scroll().FollowingEnd() {
+	if !scenes.Mount(p).Handle(input.Key{Code: input.End}) || !p.Scroll().FollowingEnd() {
 		t.Fatal("the window did not go to the end")
 	}
-	if newTestRoot(p).Handle(input.Key{Code: input.Enter}) {
+	if scenes.Mount(p).Handle(input.Key{Code: input.Enter}) {
 		t.Fatal("the window swallowed a key nobody wanted")
 	}
 }
 
 func TestAWindowPassesTheKeyboardToWhatIsInIt(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	content := &tall{rows: 4}
-	p := base.NewViewport(base.ViewportConfig{Content: testElement(content)})
-	root := newTestRoot(p)
+	p := base.NewViewport(base.ViewportConfig{Content: scenes.Element(content)})
+	root := scenes.Mount(p)
 	if err := p.Content().RequestFocusFirst(); err != nil {
 		t.Fatal(err)
 	}
-	root.root.FlushNotifications()
+	root.FlushNotifications()
 	if content.told != 1 {
 		t.Fatal("the content was not told it has the keyboard")
 	}
 }
 
 func TestAWindowTransfersKeyboardOwnershipWithItsContent(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	first := &tall{rows: 4}
 	second := &tall{rows: 4}
-	p := base.NewViewport(base.ViewportConfig{Content: testElement(first)})
-	root := newTestRoot(p)
+	p := base.NewViewport(base.ViewportConfig{Content: scenes.Element(first)})
+	root := scenes.Mount(p)
 	if err := p.Content().RequestFocusFirst(); err != nil {
 		t.Fatal(err)
 	}
-	root.root.FlushNotifications()
-	p.SetContent(testElement(second))
-	root.root.FlushNotifications()
-	if p.Content() != testElement(second) || first.focused || !second.focused {
+	root.FlushNotifications()
+	p.SetContent(scenes.Element(second))
+	root.FlushNotifications()
+	if p.Content() != scenes.Element(second) || first.focused || !second.focused {
 		t.Fatalf("focus after replacement: first=%v second=%v", first.focused, second.focused)
 	}
 
-	testFocus(p, false)
-	p.SetContent(testElement(first))
-	root.root.FlushNotifications()
+	scenes.Focus(p, false)
+	p.SetContent(scenes.Element(first))
+	root.FlushNotifications()
 	if first.focused || second.focused {
 		t.Fatalf("blurred replacement gained focus: first=%v second=%v", first.focused, second.focused)
 	}
 }
 
 func TestAWindowDoesNotTransferOwnershipToTheSameContent(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	content := &tall{rows: 4}
-	p := base.NewViewport(base.ViewportConfig{Content: testElement(content)})
-	root := newTestRoot(p)
-	if err := testElement(content).RequestFocusFirst(); err != nil {
+	p := base.NewViewport(base.ViewportConfig{Content: scenes.Element(content)})
+	root := scenes.Mount(p)
+	if err := scenes.Element(content).RequestFocusFirst(); err != nil {
 		t.Fatal(err)
 	}
-	root.root.FlushNotifications()
+	root.FlushNotifications()
 	p.SetContent(p.Content())
-	root.root.FlushNotifications()
+	root.FlushNotifications()
 	if content.told != 1 || !content.focused {
 		t.Fatalf("same content received %d focus grants, want only construction", content.told)
 	}
 }
 
 func TestAnEmptyWindowDrawsNothingAndAnswersNothing(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	p := &base.Viewport{}
-	paintWidget(6, 3, p) // must not panic
+	paintWidget(scenes, 6, 3, p) // must not panic
 	if p.HeightForWidth(6) != 0 {
 		t.Fatal("a window with nothing in it asked for room")
 	}
-	if newTestRoot(p).Handle(input.Key{Code: input.Down}) {
+	if scenes.Mount(p).Handle(input.Key{Code: input.Down}) {
 		t.Fatal("a window with nothing in it scrolled")
 	}
 }
 
 func TestAWindowAnswersToTheNameOfWhatItDoes(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// Its own actions and its content's, which is what lets one be driven from a menu
 	// or from a command typed by name.
-	p := base.NewViewport(base.ViewportConfig{Content: testElement(&tall{rows: 20})})
-	paintWidget(6, 4, p)
+	p := base.NewViewport(base.ViewportConfig{Content: scenes.Element(&tall{rows: 20})})
+	paintWidget(scenes, 6, 4, p)
 
 	if !p.Do(base.ScrollBottom) || !p.Scroll().FollowingEnd() {
 		t.Fatal("the window did not go to the end")

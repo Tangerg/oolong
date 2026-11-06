@@ -69,4 +69,6 @@ Oolong 发送 Kitty 图片编号 `I`，并接收终端分配的物理图片 ID `
 
 OSC 52 没有请求标识。响应超时会在十秒后结束等待，但不能证明迟到回复可以安全地归属新请求。取消和终端交接遵守相同规则：旧回复被消费前一直返回 `clipboard.ErrPending`，重复读取不能绕过未结清的查询。直接使用 `clipboard.Channel` 时，发送回调必须提供原子接纳语义；已经部分发出的查询也属于已发送，必须保留接收其回复的义务。
 
+在期限内接收的完整匹配回复即使超过剪贴板或解码器的容量限制，也会以 `clipboard.ErrResponse` 结算并释放该查询的线协议槽位。已取消的结果保持取消；未终止的帧或其他选择区的回复不能释放槽位。自定义解码宿主须将完整超量 OSC 52 的 `input.OSCRejection.Prefix` 及传输接收时间交给 `clipboard.Channel.Reject`；`input.Stream` 自动完成这项路由。
+
 Ghostty 支持这两套线协议。嵌入 libghostty 的宿主可以单独配置各项能力，Oolong 以当前连接为准。内嵌 SSH 服务端适配器可处理键盘输入，目前未提供实时图像宿主接口。多路复用器的图像透传需要传输层另行支持。[Ghostty 终端能力](https://ghostty.org/docs/features)

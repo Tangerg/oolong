@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 // FuzzEditorStateTransitions exercises the public editor as a state machine. The
@@ -26,6 +27,9 @@ func FuzzEditorStateTransitions(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
+		scenes := scenetest.New()
+		t.Cleanup(scenes.Close)
+
 		const limit = 512
 		if len(data) > limit {
 			data = data[:limit]
@@ -110,7 +114,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 			case 32:
 				editor.SelectNone()
 			case 33:
-				testFocus(&editor, b&1 != 0)
+				scenes.Focus(&editor, b&1 != 0)
 			case 34:
 				editor.Copy()
 			case 35:
@@ -126,7 +130,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 		if len(data) > 0 {
 			width += int(data[0] % 12)
 		}
-		paintWidget(width, max(editor.HeightForWidth(width), 1), &editor)
+		paintWidget(scenes, width, max(editor.HeightForWidth(width), 1), &editor)
 	})
 }
 

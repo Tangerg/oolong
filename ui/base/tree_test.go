@@ -7,6 +7,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func files() []base.Node[string] {
@@ -84,8 +85,11 @@ func TestATreeOwnsItsRecursiveNodeCollection(t *testing.T) {
 }
 
 func TestTheArrowsMoveThroughATreeTheWayATreeMoves(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	tree := base.NewTree(files()...)
-	paintWidget(12, 6, tree)
+	paintWidget(scenes, 12, 6, tree)
 
 	right := input.Key{Code: input.Right}
 	left := input.Key{Code: input.Left}
@@ -114,6 +118,9 @@ func TestTheArrowsMoveThroughATreeTheWayATreeMoves(t *testing.T) {
 }
 
 func TestATreeDrawsTheRowsThatFit(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	tree := base.NewTree(files()...)
 	tree.Row = func(v grid.View, _ int, row base.Shown[string], selected bool) {
 		mark := " "
@@ -123,7 +130,7 @@ func TestATreeDrawsTheRowsThatFit(t *testing.T) {
 		v.Text(0, 0, mark+strings.Repeat(" ", row.Depth)+row.Item, grid.Style{})
 	}
 	tree.Open(0)
-	rows := paintWidget(10, 3, tree)
+	rows := paintWidget(scenes, 10, 3, tree)
 	equalRows(t, rows, []string{">core.....", "  grid....", "  term...."})
 	if tree.HeightForWidth(10) != 4 {
 		t.Fatalf("a tree showing four rows asked for %d", tree.HeightForWidth(10))

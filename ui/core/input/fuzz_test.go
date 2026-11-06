@@ -113,6 +113,10 @@ func FuzzParserEmitsOnlyValidText(f *testing.F) {
 				if !utf8.ValidString(ev.Params) {
 					t.Fatalf("command %d carries %q, which is not valid UTF-8", ev.Command, ev.Params)
 				}
+			case input.OSCRejection:
+				if !utf8.ValidString(ev.Prefix) {
+					t.Fatalf("rejected command %d carries invalid UTF-8 in its header", ev.Command)
+				}
 			case input.DCS:
 				if !utf8.ValidString(ev.Body) {
 					t.Fatalf("a device control string carries %q, which is not valid UTF-8", ev.Body)

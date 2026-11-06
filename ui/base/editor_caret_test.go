@@ -6,16 +6,20 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestEditorFullRowsKeepTheInsertionCaretVisible(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, value := range []string{"abcd", "abcdefgh", "界界", "a\u0301bcd"} {
 		t.Run(value, func(t *testing.T) {
 			editor := &base.Editor{}
 			editor.SetText(value)
 			editor.SetCursor(0, len(value))
-			fixture := newTestRoot(editor)
-			t.Cleanup(fixture.root.Close)
+			fixture := scenes.Mount(editor)
+			t.Cleanup(fixture.Root.Close)
 			screen := grid.NewScreen(4, 1)
 			fixture.Draw(screen.Frame())
 			if cursor := screen.Cursor(); !cursor.Visible || cursor.Pos != image.Pt(0, 0) {

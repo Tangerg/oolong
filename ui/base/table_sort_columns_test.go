@@ -8,9 +8,13 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestTableSortAvailabilityComesFromTheColumnComparator(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	comparisons := 0
 	columns := []func(int, int) int{
 		func(a, b int) int { comparisons++; return cmp.Compare(a, b) },
@@ -24,14 +28,14 @@ func TestTableSortAvailabilityComesFromTheColumnComparator(t *testing.T) {
 		return columns[column]
 	})
 	table.SetItems([]int{2, 1})
-	fixture := newTestRoot(&table)
-	t.Cleanup(fixture.root.Close)
+	fixture := scenes.Mount(&table)
+	t.Cleanup(fixture.Root.Close)
 	for _, column := range []int{-1, 1, len(columns)} {
 		order := base.SortOrder{Column: column}
 		if table.SetSort(order) {
 			t.Fatalf("unsupported column %d changed sort order", column)
 		}
-		result, err := fixture.root.Invoke(t.Context(), table.Element().Target(), base.ActionSort, order)
+		result, err := fixture.Invoke(t.Context(), table.Element().Target(), base.ActionSort, order)
 		if !errors.Is(err, scene.ErrUnavailable) || result.State != scene.Unchanged {
 			t.Fatalf("column %d: result=%+v error=%v", column, result, err)
 		}
@@ -39,7 +43,7 @@ func TestTableSortAvailabilityComesFromTheColumnComparator(t *testing.T) {
 	if comparisons != 0 || !slices.Equal(table.Items(), []int{2, 1}) {
 		t.Fatal("invalid sort parameters reached the comparator")
 	}
-	result, err := fixture.root.Invoke(t.Context(), table.Element().Target(), base.ActionSort, base.SortOrder{})
+	result, err := fixture.Invoke(t.Context(), table.Element().Target(), base.ActionSort, base.SortOrder{})
 	if err != nil || result.State != scene.Applied || !slices.Equal(table.Items(), []int{1, 2}) {
 		t.Fatalf("supported column: %+v, %v, rows=%v", result, err, table.Items())
 	}

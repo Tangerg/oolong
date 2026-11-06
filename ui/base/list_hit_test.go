@@ -4,19 +4,22 @@ import (
 	"image"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestListDragRequiresAnAcceptedPrimaryGesture(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, ending := range []string{"orphan", "right", "release", "cancel", "new press", "blank press", "replacement", "absence", "blur"} {
 		t.Run(ending, func(t *testing.T) {
 			var list base.List[int]
 			list.SetItems([]int{0, 1, 2})
-			root := newTestRoot(&list)
+			root := scenes.Mount(&list)
 			view := grid.NewSurface(4, 4).View()
 			root.Draw(view)
 			mouse := func(action input.MouseAction, button input.Button, y int) bool {
@@ -45,7 +48,7 @@ func TestListDragRequiresAnAcceptedPrimaryGesture(t *testing.T) {
 				root.Draw(grid.NewSurface(0, 0).View())
 				root.Draw(view)
 			case "blur":
-				testFocus(&list, false)
+				scenes.Focus(&list, false)
 			}
 			for _, button := range []input.Button{input.ButtonRight, input.ButtonLeft, input.ButtonNone} {
 				if mouse(input.MouseDrag, button, 2) || list.Selected() != 0 {
@@ -57,10 +60,13 @@ func TestListDragRequiresAnAcceptedPrimaryGesture(t *testing.T) {
 }
 
 func TestSelectDeclinedPressCannotWriteThroughDrag(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	value := "a"
 	selectField := base.NewSelect(base.SelectConfig[string]{Initial: value, Options: base.Options("a", "b", "c"), Same: base.Equal[string]})
 	selectField.SetOptions(base.Options("a", "b", "c"))
-	newTestRoot(selectField).Draw(grid.NewSurface(8, 3).View())
+	scenes.Mount(selectField).Draw(grid.NewSurface(8, 3).View())
 	selectField.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonRight})
 	selectField.Handle(input.Mouse{Action: input.MouseDrag, Button: input.ButtonRight, Pos: image.Pt(0, 2)})
 	if chosenValue(selectField) != "a" {
@@ -69,9 +75,12 @@ func TestSelectDeclinedPressCannotWriteThroughDrag(t *testing.T) {
 }
 
 func TestListPrimaryDragSurvivesAnUnrelatedRelease(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[int]
 	list.SetItems([]int{0, 1, 2})
-	newTestRoot(&list).Draw(grid.NewSurface(4, 3).View())
+	scenes.Mount(&list).Draw(grid.NewSurface(4, 3).View())
 	list.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
 	list.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonRight})
 	if !list.Handle(input.Mouse{Action: input.MouseDrag, Button: input.ButtonNone, Pos: image.Pt(1, 2)}) || list.Selected() != 2 {
@@ -117,11 +126,14 @@ func (p *hitFrameProbe) Draw(frame scene.Frame) {
 }
 
 func TestListHitUsesBothVisibleAxesAndRejectsBlankRows(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[int]
 	assertRowHit(t, list.Hit, image.Pt(0, 0), -1)
 	list.SetItems([]int{0, 1, 2})
 	assertRowHit(t, list.Hit, image.Pt(0, 0), -1)
-	newTestRoot(&list).Draw(grid.NewSurface(4, 4).View())
+	scenes.Mount(&list).Draw(grid.NewSurface(4, 4).View())
 	for _, test := range []struct {
 		point image.Point
 		want  int
@@ -140,15 +152,18 @@ func TestListHitUsesBothVisibleAxesAndRejectsBlankRows(t *testing.T) {
 		t.Fatal("hit queries changed list selection or scrolling")
 	}
 	list.SetItems(nil)
-	newTestRoot(&list).Draw(grid.NewSurface(4, 4).View())
+	scenes.Mount(&list).Draw(grid.NewSurface(4, 4).View())
 	assertRowHit(t, list.Hit, image.Pt(0, 0), -1)
 }
 
 func TestListHitKeepsTheLogicalRowOriginWhenClipped(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[int]
 	list.SetItems([]int{0, 1, 2, 3, 4})
 	view := grid.NewSurface(4, 2).View().Sub(image.Rect(-2, -1, 6, 4))
-	newTestRoot(&list).Draw(view)
+	scenes.Mount(&list).Draw(view)
 	for _, test := range []struct {
 		point image.Point
 		want  int
@@ -165,10 +180,13 @@ func TestListHitKeepsTheLogicalRowOriginWhenClipped(t *testing.T) {
 }
 
 func TestListHitWaitsForTheWholeFrameToCommit(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[int]
 	list.SetItems([]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
 	probe := &hitFrameProbe{child: &list}
-	root := newTestRoot(probe)
+	root := scenes.Mount(probe)
 	root.Draw(grid.NewSurface(4, 3).View())
 	list.Scroll().By(4)
 	assertRowHit(t, list.Hit, image.Pt(3, 2), 2)
@@ -193,10 +211,13 @@ func TestListHitWaitsForTheWholeFrameToCommit(t *testing.T) {
 }
 
 func TestListHitRejectsAReplacementUntilItsFrameCommits(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[string]
 	list.SetItems([]string{"old zero", "old one"})
 	probe := &hitFrameProbe{child: &list}
-	root := newTestRoot(probe)
+	root := scenes.Mount(probe)
 	view := grid.NewSurface(4, 3).View()
 	root.Draw(view)
 	list.Select(1)
@@ -222,11 +243,14 @@ func TestListHitRejectsAReplacementUntilItsFrameCommits(t *testing.T) {
 }
 
 func TestListHitPreservesTheCommittedFrameWhenDrawingFails(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, invalidFrame := range []bool{false, true} {
 		var list base.List[int]
 		list.SetItems([]int{0, 1, 2, 3, 4, 5, 6, 7})
 		probe := &hitFrameProbe{child: &list}
-		root := newTestRoot(probe)
+		root := scenes.Mount(probe)
 		root.Draw(grid.NewSurface(4, 3).View())
 		list.Scroll().By(4)
 		probe.inspect = func() { panic("aborted hit frame") }
@@ -254,6 +278,9 @@ func TestListHitPreservesTheCommittedFrameWhenDrawingFails(t *testing.T) {
 }
 
 func TestListHitClearsItsRegionWithAnEmptyCommittedFrame(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, empty := range []grid.View{
 		{},
 		grid.NewSurface(0, 3).View(),
@@ -262,7 +289,7 @@ func TestListHitClearsItsRegionWithAnEmptyCommittedFrame(t *testing.T) {
 	} {
 		var list base.List[int]
 		list.SetItems([]int{0, 1, 2})
-		root := newTestRoot(&list)
+		root := scenes.Mount(&list)
 		view := grid.NewSurface(4, 3).View()
 		root.Draw(view)
 		assertRowHit(t, list.Hit, image.Pt(1, 1), 1)
@@ -274,6 +301,9 @@ func TestListHitClearsItsRegionWithAnEmptyCommittedFrame(t *testing.T) {
 }
 
 func TestListPointerSelectionRejectsInvisiblePoints(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, action := range []input.MouseAction{input.MouseDown, input.MouseDrag} {
 		for _, test := range []struct {
 			name  string
@@ -288,7 +318,7 @@ func TestListPointerSelectionRejectsInvisiblePoints(t *testing.T) {
 				var list base.List[int]
 				list.SetItems([]int{0, 1, 2, 3, 4})
 				view := grid.NewSurface(4, 2).View().Sub(image.Rect(-2, -1, 6, 4))
-				newTestRoot(&list).Draw(view)
+				scenes.Mount(&list).Draw(view)
 				if list.Handle(input.Mouse{Action: action, Button: input.ButtonLeft, Pos: test.point}) {
 					t.Fatalf("pointer action %v selected an invisible point %v", action, test.point)
 				}
@@ -301,11 +331,14 @@ func TestListPointerSelectionRejectsInvisiblePoints(t *testing.T) {
 }
 
 func TestListCallsRowRendererOnlyForUnclippedRows(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[int]
 	list.SetItems(make([]int, 100))
 	var painted []int
 	list.Row = func(_ grid.View, index, _ int, _ bool) { painted = append(painted, index) }
-	newTestRoot(&list).Draw(grid.NewSurface(4, 2).View().Sub(image.Rect(0, -50, 4, 50)))
+	scenes.Mount(&list).Draw(grid.NewSurface(4, 2).View().Sub(image.Rect(0, -50, 4, 50)))
 	if len(painted) != 2 || painted[0] != 50 || painted[1] != 51 {
 		t.Fatalf("painted %v, want just rows 50 and 51", painted)
 	}

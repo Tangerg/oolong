@@ -9,10 +9,14 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
 func TestThemeCascadeSharesOneLiveOwnerAndOwnsOverrides(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	initial := kit.Dark()
 	owner := kit.NewThemeOwner(initial)
 	branchText := grid.Style{FG: grid.RGBColor(1, 2, 3)}
@@ -27,7 +31,7 @@ func TestThemeCascadeSharesOneLiveOwnerAndOwnsOverrides(t *testing.T) {
 	third := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "three", Activate: active}, Scope: branch})
 	fourth := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "four", Activate: active}, Scope: branch, Appearance: kit.ThemeOverride{Text: &instanceText}})
 	group := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{{Element: first.Element(), Size: layout.Fixed(1)}, {Element: second.Element(), Size: layout.Fixed(1)}, {Element: third.Element(), Size: layout.Fixed(1)}, {Element: fourth.Element(), Size: layout.Fixed(1)}}})
-	root := newTestRoot(group.Element())
+	root := scenes.Mount(group.Element())
 	if err := fourth.Element().RequestFocus(); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +49,7 @@ func TestThemeCascadeSharesOneLiveOwnerAndOwnsOverrides(t *testing.T) {
 	}
 	// Focus style changes accents, so read the explicit override through a separate
 	// owner-free snapshot with the same instance construction in the next frame.
-	wake := root.root.Changes()
+	wake := root.Changes()
 	updated := kit.Light()
 	owner.Set(updated)
 	select {
@@ -72,13 +76,16 @@ func TestThemeCascadeSharesOneLiveOwnerAndOwnsOverrides(t *testing.T) {
 }
 
 func TestThemeUpdateDuringPaintIsRejectedBeforeVersionOrPaletteChanges(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	initial := kit.Dark()
 	owner := kit.NewThemeOwner(initial)
 	button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "save"}, Scope: owner.Scope()})
 	if err := button.Element().SetPaint(func(scene.Frame) { owner.Set(kit.Light()) }); err != nil {
 		t.Fatal(err)
 	}
-	root := newTestRoot(button)
+	root := scenes.Mount(button)
 	func() {
 		defer func() {
 			if recover() == nil {
@@ -93,6 +100,9 @@ func TestThemeUpdateDuringPaintIsRejectedBeforeVersionOrPaletteChanges(t *testin
 }
 
 func TestKitButtonUsesOneControllerForKeysPointerAndAX(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	calls := 0
 	button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "Save", Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
 		calls++
@@ -101,7 +111,7 @@ func TestKitButtonUsesOneControllerForKeysPointerAndAX(t *testing.T) {
 	if button.Element() != button.Controller().Element() {
 		t.Fatal("skin created a second behaviour identity")
 	}
-	root := newTestRoot(button)
+	root := scenes.Mount(button)
 	root.Draw(grid.NewSurface(10, 1).View())
 	root.Handle(input.Key{Code: input.Enter})
 	root.Handle(input.Mouse{Button: input.ButtonLeft, Action: input.MouseDown})
@@ -109,13 +119,16 @@ func TestKitButtonUsesOneControllerForKeysPointerAndAX(t *testing.T) {
 		t.Fatal("button activated before matching release")
 	}
 	root.Handle(input.Mouse{Button: input.ButtonLeft, Action: input.MouseUp})
-	invocation, err := root.root.Invoke(context.Background(), button.Element().Target(), scene.ActionActivate, struct{}{})
+	invocation, err := root.Invoke(context.Background(), button.Element().Target(), scene.ActionActivate, struct{}{})
 	if err != nil || invocation.State != scene.Applied || calls != 3 {
 		t.Fatalf("calls=%d invocation=%v err=%v", calls, invocation, err)
 	}
 }
 
 func TestThemePublicationWakesEverySceneDespiteAnInterruptedPredicate(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	owner := kit.NewThemeOwner(kit.Dark())
 	first := kit.NewInput(kit.InputConfig{Scope: owner.Scope()})
 	second := kit.NewInput(kit.InputConfig{Scope: owner.Scope()})
@@ -129,10 +142,10 @@ func TestThemePublicationWakesEverySceneDespiteAnInterruptedPredicate(t *testing
 	}); err != nil {
 		t.Fatal(err)
 	}
-	a, b := newTestRoot(first.Element()), newTestRoot(second.Element())
-	defer a.root.Close()
-	defer b.root.Close()
-	wake := b.root.Changes()
+	a, b := scenes.Mount(first.Element()), scenes.Mount(second.Element())
+	defer a.Root.Close()
+	defer b.Root.Close()
+	wake := b.Changes()
 	armed = true
 	func() {
 		defer func() {
@@ -150,11 +163,14 @@ func TestThemePublicationWakesEverySceneDespiteAnInterruptedPredicate(t *testing
 }
 
 func TestThemeHandleReassignmentCannotRebindMountedConsumers(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	owner := kit.NewThemeOwner(kit.Dark())
 	branch := owner.Scope()
 	descendant := branch.With(kit.ThemeOverride{})
 	button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "one"}, Scope: branch})
-	root := newTestRoot(button)
+	root := scenes.Mount(button)
 	other := kit.NewThemeOwner(kit.Light())
 	*branch = *other.Scope()
 	if descendant.Snapshot().Palette != kit.Dark() || owner.Scope().Snapshot().Palette != kit.Dark() {
@@ -165,7 +181,7 @@ func TestThemeHandleReassignmentCannotRebindMountedConsumers(t *testing.T) {
 	if cellAt(surface, 0, 0).Style.FG != kit.Dark().Muted.FG {
 		t.Fatal("button silently changed palette")
 	}
-	wake := root.root.Changes()
+	wake := root.Changes()
 	next := kit.Dark()
 	next.Muted = grid.Style{FG: grid.RGBColor(2, 3, 4)}
 	owner.Set(next)

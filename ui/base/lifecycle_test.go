@@ -6,18 +6,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestListDeclinesCoordinatesFromAReplacedCollection(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[string]
 	list.SetItems([]string{"old zero", "old one"})
-	root := newTestRoot(&list)
+	root := scenes.Mount(&list)
 	surface := grid.NewSurface(12, 2)
 	root.Draw(surface.View())
 	list.SetItems([]string{"new zero", "new one"})
@@ -31,10 +34,13 @@ func TestListDeclinesCoordinatesFromAReplacedCollection(t *testing.T) {
 }
 
 func TestEditorNavigationIsConsumedAndManualScrollingWins(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var editor base.Editor
 	editor.SetText(strings.Repeat("line\n", 30))
 	editor.SetCursor(0, 0)
-	root := newTestRoot(&editor)
+	root := scenes.Mount(&editor)
 	surface := grid.NewSurface(12, 5)
 	root.Draw(surface.View())
 	editor.Scroll().By(3)
@@ -62,10 +68,13 @@ func TestEditorNavigationIsConsumedAndManualScrollingWins(t *testing.T) {
 }
 
 func TestEditorNavigationResolvesAgainstTheNextWrap(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var editor base.Editor
 	editor.SetText(strings.Repeat("a", 100))
 	editor.SetCursor(0, 0)
-	root := newTestRoot(&editor)
+	root := scenes.Mount(&editor)
 	root.Draw(grid.NewSurface(20, 3).View())
 	editor.SetCursor(0, 90)
 	root.Draw(grid.NewSurface(10, 3).View())
@@ -75,9 +84,12 @@ func TestEditorNavigationResolvesAgainstTheNextWrap(t *testing.T) {
 }
 
 func TestEditorReleaseEndsDragWithoutClearingSelection(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var editor base.Editor
 	editor.SetText("abcdef")
-	paintWidget(12, 1, &editor)
+	paintWidget(scenes, 12, 1, &editor)
 	editor.Handle(regionPress(1, 0))
 	editor.Handle(regionDrag(4, 0))
 	if !editor.Handle(regionRelease(-1, 0)) || editor.Selected() != "bcd" {
@@ -95,22 +107,25 @@ type pointerStageWidget struct {
 
 func (w pointerStageWidget) Draw(frame scene.Frame) { w.pointer.Stage(frame, w.area) }
 
-func stagePointer(p *base.Pointer, area image.Rectangle) {
-	newTestRoot(pointerStageWidget{p, area}).Draw(grid.NewSurface(20, 20).View())
+func stagePointer(scenes *scenetest.Scope, p *base.Pointer, area image.Rectangle) {
+	scenes.Mount(pointerStageWidget{p, area}).Draw(grid.NewSurface(20, 20).View())
 }
 
 func TestPointerFollowsItsControlAndEndsAtAPresentationGap(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var pointer base.Pointer
-	stagePointer(&pointer, image.Rect(0, 0, 4, 1))
+	stagePointer(scenes, &pointer, image.Rect(0, 0, 4, 1))
 	pointer.Handle(regionPress(1, 0))
-	stagePointer(&pointer, image.Rect(2, 0, 6, 1))
+	stagePointer(scenes, &pointer, image.Rect(2, 0, 6, 1))
 	pointer.Handle(regionRelease(5, 0))
 	if !pointer.Clicked(input.ButtonLeft) {
 		t.Fatal("moving the control lost its click")
 	}
 	pointer.Handle(regionPress(3, 0))
-	stagePointer(&pointer, image.Rectangle{})
-	stagePointer(&pointer, image.Rect(2, 0, 6, 1))
+	stagePointer(scenes, &pointer, image.Rectangle{})
+	stagePointer(scenes, &pointer, image.Rect(2, 0, 6, 1))
 	pointer.Handle(regionRelease(3, 0))
 	if pointer.Clicked(input.ButtonLeft) {
 		t.Fatal("returning control revived an ended press")
@@ -118,27 +133,33 @@ func TestPointerFollowsItsControlAndEndsAtAPresentationGap(t *testing.T) {
 }
 
 func TestFilterResetReturnsToTheFirstResult(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var filter base.Filter[string]
 	items := make([]string, 30)
 	for i := range items {
 		items[i] = "matching"
 	}
 	filter.SetItems(items, func(s string) string { return s })
-	paintWidget(12, 3, &filter)
+	paintWidget(scenes, 12, 3, &filter)
 	filter.Scroll().By(5)
-	paintWidget(12, 3, &filter)
+	paintWidget(scenes, 12, 3, &filter)
 	filter.SetPattern("match")
-	paintWidget(12, 3, &filter)
+	paintWidget(scenes, 12, 3, &filter)
 	if filter.Scroll().Offset() != 0 {
 		t.Fatal("new query kept an old result window")
 	}
 }
 
 func TestEditorNavigationUsesTheLeastScrollAfterWidening(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var editor base.Editor
 	editor.SetText(strings.Repeat("a", 600))
 	editor.SetCursor(0, 0)
-	root := newTestRoot(&editor)
+	root := scenes.Mount(&editor)
 	root.Draw(grid.NewSurface(10, 3).View())
 	editor.SetCursor(0, 200)
 	root.Draw(grid.NewSurface(20, 3).View())
@@ -148,11 +169,14 @@ func TestEditorNavigationUsesTheLeastScrollAfterWidening(t *testing.T) {
 }
 
 func TestSliderSettlesInvalidatedGestures(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, cause := range []string{"outside press", "hidden track", "focus loss"} {
 		t.Run(cause, func(t *testing.T) {
 			slider := base.NewSlider(base.SliderConfig{Maximum: 100})
 			track := &sliderTrack{control: slider, rect: image.Rect(0, 0, 11, 1)}
-			root := newTestRoot(track)
+			root := scenes.Mount(track)
 			surface := grid.NewSurface(12, 2)
 			root.Draw(surface.View())
 			slider.Handle(regionPress(5, 0))
@@ -165,7 +189,7 @@ func TestSliderSettlesInvalidatedGestures(t *testing.T) {
 				track.rect = image.Rect(0, 0, 11, 1)
 				root.Draw(surface.View())
 			case "focus loss":
-				testFocus(slider, false)
+				scenes.Focus(slider, false)
 			}
 			if slider.Handle(regionDrag(9, 0)) || slider.Handle(regionRelease(9, 0)) || slider.Value() != 50 {
 				t.Fatal("invalidated gesture changed the slider")
@@ -215,13 +239,16 @@ func TestDeferredSettingActionCannotEditAnotherRow(t *testing.T) {
 }
 
 func TestListBoundaryNavigationRevealsAnUnmovedCursor(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var list base.List[int]
 	list.SetItems(make([]int, 30))
-	paintWidget(12, 3, &list)
+	paintWidget(scenes, 12, 3, &list)
 	list.Scroll().By(5)
-	paintWidget(12, 3, &list)
+	paintWidget(scenes, 12, 3, &list)
 	list.Do(base.SelectFirst)
-	paintWidget(12, 3, &list)
+	paintWidget(scenes, 12, 3, &list)
 	if list.Selected() != 0 || list.Scroll().Offset() != 0 {
 		t.Fatal("explicit navigation left its unchanged cursor off screen")
 	}

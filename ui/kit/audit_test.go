@@ -9,6 +9,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
@@ -34,6 +35,9 @@ func TestASCIITruncationUsesConfiguredGlyphs(t *testing.T) {
 }
 
 func TestFormDisplaysCrossFieldValidationError(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	form := kit.NewForm(kit.FormConfig{Fields: []base.Field{&base.Text{}}, Check: func() error { return errors.New("answers conflict") }})
 	controller := form.Controller()
 	before := form.HeightForWidth(30)
@@ -41,7 +45,7 @@ func TestFormDisplaysCrossFieldValidationError(t *testing.T) {
 	if form.HeightForWidth(30) != before+1 {
 		t.Fatal("form error has no layout row")
 	}
-	root := newTestRoot(form)
+	root := scenes.Mount(form)
 	rows := grid.Render(30, form.HeightForWidth(30), root.Draw)
 	if !strings.Contains(strings.Join(rows, "\n"), "answers conflict") {
 		t.Fatalf("error not drawn: %q", rows)

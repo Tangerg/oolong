@@ -1,12 +1,5 @@
 package base
 
-// Tests of what this package keeps to itself.
-//
-// The undo history's bound is a promise about memory in a long-lived process, not
-// about behaviour a caller can see: an editor that kept every keystroke for a
-// session that runs all day is a leak with a friendly name. Nothing outside can
-// ask how many steps are held, so this asks from inside.
-
 import (
 	"image"
 	"strconv"
@@ -14,12 +7,19 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
+
+// Tests of what this package keeps to itself.
+//
+// The undo history's bound is a promise about memory in a long-lived process, not
+// about behaviour a caller can see: an editor that kept every keystroke for a
+// session that runs all day is a leak with a friendly name. Nothing outside can
+// ask how many steps are held, so this asks from inside.
 
 func TestEditorUndoHistoryIsBounded(t *testing.T) {
 	// An unbounded history in a long-lived process is a leak with a friendly name.
@@ -86,9 +86,12 @@ func (*retainedModal) Handle(input.Event) bool            { return false }
 func (*retainedModal) Place(image.Point) layout.Placement { return layout.Placement{} }
 
 func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	children := []*retainedWidget{{payload: []byte("one")}, {payload: []byte("two")}, {payload: []byte("three")}}
-	tabs := NewTabs(TabsConfig{Items: makeTabs(children)})
-	tabs.Set(Tab{Title: "one", Content: testElement(children[0])})
+	tabs := NewTabs(TabsConfig{Items: makeTabs(scenes, children)})
+	tabs.Set(Tab{Title: "one", Content: scenes.Element(children[0])})
 	for i, part := range tabs.parts[:cap(tabs.parts)] {
 		if i >= len(tabs.parts) && part != nil {
 			t.Fatalf("tab %d retained removed part", i)
@@ -132,12 +135,15 @@ func TestTreeReleasesOpenIdentitiesRemovedFromItsHierarchy(t *testing.T) {
 }
 
 func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	children := make([]*retainedWidget, 1024)
 	for i := range children {
 		children[i] = &retainedWidget{payload: []byte{byte(i)}}
 	}
-	tabs := NewTabs(TabsConfig{Items: makeTabs(children)})
-	tabs.Set(Tab{Title: "one", Content: testElement(children[0])})
+	tabs := NewTabs(TabsConfig{Items: makeTabs(scenes, children)})
+	tabs.Set(Tab{Title: "one", Content: scenes.Element(children[0])})
 	if cap(tabs.parts) > 2*len(tabs.parts)+16 {
 		t.Fatalf("tabs retained %d slots", cap(tabs.parts))
 	}
@@ -187,6 +193,9 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 }
 
 func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	backing := strings.Repeat("discarded ", 1024) + "owned"
 	source := backing[len(backing)-len("owned"):]
 	assertDetached := func(name, got string) {
@@ -202,7 +211,7 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 	tabs := NewTabs(TabsConfig{Items: []Tab{{Title: source}}})
 	assertDetached("tab title", tabs.Items()[0].Title)
 
-	dialog := NewDialog(DialogConfig{Title: source, Content: testElement(&retainedModal{})})
+	dialog := NewDialog(DialogConfig{Title: source, Content: scenes.Element(&retainedModal{})})
 	assertDetached("dialog title", dialog.Title())
 	dialog.SetDescription(source)
 	assertDetached("dialog description", dialog.Description())
@@ -225,10 +234,10 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 	assertDetached("option label", selectField.Options()[0].Label)
 }
 
-func makeTabs(children []*retainedWidget) []Tab {
+func makeTabs(scenes *scenetest.Scope, children []*retainedWidget) []Tab {
 	tabs := make([]Tab, len(children))
 	for i, child := range children {
-		tabs[i] = Tab{Title: strconv.Itoa(i), Content: testElement(child)}
+		tabs[i] = Tab{Title: strconv.Itoa(i), Content: scenes.Element(child)}
 	}
 	return tabs
 }

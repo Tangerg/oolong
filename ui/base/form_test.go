@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/layout"
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 // bare is a look with the marks a choice needs and no colour, which is what a test can
@@ -62,21 +62,24 @@ func (*observedField) Error() error              { return nil }
 func (f *observedField) Handle(input.Event) bool { f.handled++; return true }
 
 func TestReplacingFormFieldsTransfersKeyboardOwnership(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	old, next := new(observedField), new(observedField)
 	fields := []base.Field{old}
 	form := base.NewForm(base.FormConfig{Fields: fields})
-	root := newTestRoot(form)
+	root := scenes.Mount(form)
 	fields[0] = next
 
 	if got := form.Fields()[0]; got != old {
 		t.Fatal("form retained the caller's field slice")
 	}
 	form.Set(next)
-	root.root.FlushNotifications()
+	root.FlushNotifications()
 	if old.focused || !next.focused {
 		t.Fatalf("focus after Set: old=%v next=%v", old.focused, next.focused)
 	}
-	newTestRoot(form).Handle(input.FocusIn{})
+	scenes.Mount(form).Handle(input.FocusIn{})
 	if old.handled != 0 || next.handled != 1 {
 		t.Fatalf("event deliveries after Set: old=%d next=%d", old.handled, next.handled)
 	}
@@ -109,15 +112,21 @@ func TestAFieldPutsWhatWasTypedWhereTheCallerKeepsIt(t *testing.T) {
 }
 
 func TestAFieldStartsFromWhatTheCallerAlreadyHas(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	name := "ada"
 	field := base.NewText(base.TextConfig{Label: "Name", Initial: name})
-	rows := paintWidget(12, field.HeightForWidth(12), field)
+	rows := paintWidget(scenes, 12, field.HeightForWidth(12), field)
 	if !strings.Contains(strings.Join(rows, "\n"), "ada") {
 		t.Fatalf("drawn:\n%s\nwant what the caller already had", strings.Join(rows, "\n"))
 	}
 }
 
 func TestAnAnswerIsCheckedOnTheWayOutAndNotOnTheWayIn(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	missing := errors.New("required")
 	var name string
 	checks := 0
@@ -133,33 +142,36 @@ func TestAnAnswerIsCheckedOnTheWayOutAndNotOnTheWayIn(t *testing.T) {
 	if field.Error() != nil {
 		t.Fatalf("a field nobody has visited complained: %v", field.Error())
 	}
-	testFocus(field, true)
+	scenes.Focus(field, true)
 	if field.Error() != nil {
 		t.Fatalf("a field complained on arrival: %v", field.Error())
 	}
-	testFocus(field, false)
+	scenes.Focus(field, false)
 	if !errors.Is(field.Error(), missing) {
 		t.Fatalf("error on the way out = %v, want the check's", field.Error())
 	}
-	testFocus(field, false)
+	scenes.Focus(field, false)
 	if checks != 1 {
 		t.Fatalf("one real focus loss ran the check %d times", checks)
 	}
-	testFocus(field, true)
-	testFocus(field, false)
+	scenes.Focus(field, true)
+	scenes.Focus(field, false)
 	if checks != 2 {
 		t.Fatalf("a second visit and loss ran %d total checks, want 2", checks)
 	}
 }
 
 func TestAChoiceFollowsTheCursor(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// There is nothing to press. A list that made somebody move to a row and then take
 	// it is a list that can be left on a row nobody took.
 	var picked string
 	field := selectWith(base.Options("fast", "good", "cheap"))
 	field.Label = "Model"
 	field.Choose(picked)
-	newTestRoot(field).Draw(grid.NewSurface(12, 4).View())
+	scenes.Mount(field).Draw(grid.NewSurface(12, 4).View())
 	if chosenValue(field) != "fast" {
 		t.Fatalf("drawing chose %q for the caller", chosenValue(field))
 	}
@@ -170,11 +182,14 @@ func TestAChoiceFollowsTheCursor(t *testing.T) {
 }
 
 func TestDrawingAChoiceDoesNotChooseForTheCaller(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	picked := "not an option"
 	field := selectWith(base.Options("fast", "good", "cheap"))
 	field.Choose(picked)
 
-	newTestRoot(field).Draw(grid.NewSurface(12, 4).View())
+	scenes.Mount(field).Draw(grid.NewSurface(12, 4).View())
 	if chosenValue(field) != "fast" {
 		t.Fatalf("Draw changed the caller's value to %q", chosenValue(field))
 	}
@@ -358,15 +373,18 @@ func TestReplacingChoicesUsesExplicitValueIdentity(t *testing.T) {
 }
 
 func TestAChoiceIsMarkedAsTaken(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var picked []string
 	field := multiWith(base.Options("a", "b"))
 	field.SetTaken(picked)
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	styleFields(form, bare())
-	newTestRoot(form).Draw(grid.NewSurface(8, 4).View())
+	scenes.Mount(form).Draw(grid.NewSurface(8, 4).View())
 	field.Do(base.Toggle)
 
-	rows := paintWidget(8, 4, form)
+	rows := paintWidget(scenes, 8, 4, form)
 
 	if !strings.HasPrefix(rows[0], "x.a") {
 		t.Fatalf("first row = %q, want it marked as taken", rows[0])
@@ -394,6 +412,9 @@ func TestAConfirmAnswersYesOrNo(t *testing.T) {
 }
 
 func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var name, model string
 	missing := errors.New("required")
 	nameField := base.NewText(base.TextConfig{
@@ -412,9 +433,9 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 		done++
 		return scene.Applied, nil
 	}})
-	newTestRoot(form).Draw(grid.NewSurface(20, 8).View())
+	scenes.Mount(form).Draw(grid.NewSurface(20, 8).View())
 
-	if newTestRoot(form).Handle(input.Key{Code: input.Enter}); done != 0 {
+	if scenes.Mount(form).Handle(input.Key{Code: input.Enter}); done != 0 {
 		t.Fatal("an empty form was submitted")
 	}
 	if !errors.Is(nameField.Error(), missing) {
@@ -422,7 +443,7 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 	}
 
 	typeInto(nameField, "ada")
-	newTestRoot(form).Handle(input.Key{Code: input.Enter})
+	scenes.Mount(form).Handle(input.Key{Code: input.Enter})
 	if done != 1 {
 		t.Fatalf("submitted %d times, want one", done)
 	}
@@ -430,7 +451,7 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 		t.Fatalf("collected %q and %q", nameField.Text(), chosenValue(modelField))
 	}
 
-	newTestRoot(form).Handle(input.Key{Code: input.Tab})
+	scenes.Mount(form).Handle(input.Key{Code: input.Tab})
 	if form.Focused() != base.Field(modelField) {
 		t.Fatal("tab did not move to the next field")
 	}
@@ -467,6 +488,9 @@ func TestAFormChecksTheAnswersTogetherOnlyOnceEachIsGood(t *testing.T) {
 }
 
 func TestAFieldShowsWhatWasWrongUnderItself(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	field := &base.Text{
 		Label: "Name",
 		Check: func(string) error { return errors.New("required") },
@@ -480,7 +504,7 @@ func TestAFieldShowsWhatWasWrongUnderItself(t *testing.T) {
 	if after := field.HeightForWidth(20); after != 3 {
 		t.Fatalf("a field with a problem is %d rows, want a row for it", after)
 	}
-	rows := paintWidget(20, field.HeightForWidth(20), form)
+	rows := paintWidget(scenes, 20, field.HeightForWidth(20), form)
 	if !strings.HasPrefix(rows[0], "Name") {
 		t.Fatalf("first row = %q, want what the field is asking for", rows[0])
 	}
@@ -490,6 +514,9 @@ func TestAFieldShowsWhatWasWrongUnderItself(t *testing.T) {
 }
 
 func TestAChoiceCanBePressed(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// A list could be walked with the arrow keys and not pointed at. The label is a row
 	// of the field and not part of what it holds, so a press under it means a row lower
 	// than the position says — the same translation a container does for its children.
@@ -499,22 +526,25 @@ func TestAChoiceCanBePressed(t *testing.T) {
 	field.Choose(picked)
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	styleFields(form, bare())
-	newTestRoot(form).Draw(grid.NewSurface(12, 4).View())
+	scenes.Mount(form).Draw(grid.NewSurface(12, 4).View())
 
-	newTestRoot(form).Handle(input.Mouse{
+	scenes.Mount(form).Handle(input.Mouse{
 		Pos: image.Pt(2, 3), Action: input.MouseDown, Button: input.ButtonLeft,
 	})
 	if chosenValue(field) != "cheap" {
 		t.Fatalf("pressing the third row chose %q", chosenValue(field))
 	}
 
-	newTestRoot(form).Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDrag})
+	scenes.Mount(form).Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDrag})
 	if chosenValue(field) != "fast" {
 		t.Fatalf("dragging back up chose %q", chosenValue(field))
 	}
 }
 
 func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	// The label's own row belongs to the label. A field that read it as the first
 	// option would answer a press nobody made.
 	var picked string
@@ -523,10 +553,10 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 	field.Choose(picked)
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	styleFields(form, bare())
-	newTestRoot(form).Draw(grid.NewSurface(12, 3).View())
+	scenes.Mount(form).Draw(grid.NewSurface(12, 3).View())
 	field.Do(base.SelectNext)
 
-	newTestRoot(form).Handle(input.Mouse{
+	scenes.Mount(form).Handle(input.Mouse{
 		Pos: image.Pt(2, 0), Action: input.MouseDown, Button: input.ButtonLeft,
 	})
 	if chosenValue(field) != "good" {
@@ -535,14 +565,17 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 }
 
 func TestAConfirmCanBePressed(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var sure bool
 	field := base.NewConfirm(base.ConfirmConfig{Label: "Delete it?", Initial: sure, Yes: "yes", No: "no"})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	styleFields(form, bare())
-	newTestRoot(form).Draw(grid.NewSurface(20, 2).View())
+	scenes.Mount(form).Draw(grid.NewSurface(20, 2).View())
 
 	press := func(x int) {
-		newTestRoot(form).Handle(input.Mouse{
+		scenes.Mount(form).Handle(input.Mouse{
 			Pos: image.Pt(x, 1), Action: input.MouseDown, Button: input.ButtonLeft,
 		})
 	}
@@ -627,25 +660,31 @@ func TestEveryFieldChecksWhatItHolds(t *testing.T) {
 }
 
 func TestAFormPassesTheKeyboardToTheFieldThatHasIt(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	first := &base.Text{Label: "One"}
 	second := &base.Text{Label: "Two"}
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{first, second}})
-	newTestRoot(form).Draw(grid.NewSurface(20, 6).View())
+	scenes.Mount(form).Draw(grid.NewSurface(20, 6).View())
 
-	testFocus(form, false)
+	scenes.Focus(form, false)
 	if first.Handle(input.Key{Code: input.Character, Rune: 'x'}); first.Text() != "x" {
 		t.Fatal("the field itself stopped taking text")
 	}
-	testFocus(form, true)
+	scenes.Focus(form, true)
 	if got := form.HeightForWidth(20); got != 4 {
 		t.Fatalf("a form of two one-line fields with labels is %d rows", got)
 	}
 }
 
 func TestAReleaseOutsideAFieldStillEndsTheSelectionItStarted(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	field := base.NewText(base.TextConfig{Label: "Name"})
 	field.SetText("abcdef")
-	newTestRoot(field).Draw(grid.NewSurface(20, 2).View())
+	scenes.Mount(field).Draw(grid.NewSurface(20, 2).View())
 
 	if !field.Handle(input.Mouse{Pos: image.Pt(2, 1), Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Fatal("the press inside the field was not answered")
@@ -688,11 +727,14 @@ func TestFormMeasuresTheSameFieldSlotsItLaysOut(t *testing.T) {
 }
 
 func TestZeroFormCanPresentItsStatus(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	var f base.Form
 	if f.HeightForWidth(10) != 0 {
 		t.Fatal("an unmounted empty form requested space")
 	}
-	newTestRoot(&f).Draw(grid.NewSurface(10, 1).View())
+	scenes.Mount(&f).Draw(grid.NewSurface(10, 1).View())
 	if f.HeightForWidth(10) != 0 {
 		t.Fatal("the empty status should reserve no space")
 	}
@@ -764,6 +806,9 @@ func TestFormAcquiresEachElementOnceAfterMutationAdmission(t *testing.T) {
 }
 
 func TestMultiSelectAliasesShareOneChoiceAcrossInputPaths(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	field := multiWith([]base.Option[string]{{Label: "A", Value: "a"}, {Label: "B", Value: "b"}, {Label: "Also A", Value: "a"}})
 	field.SetLimit(1)
 	if err := field.Reply("A,Also A"); err != nil || !slices.Equal(field.Taken(), []string{"a"}) {
@@ -771,7 +816,7 @@ func TestMultiSelectAliasesShareOneChoiceAcrossInputPaths(t *testing.T) {
 	}
 	var drawn []bool
 	field.Row = func(_ grid.View, _ base.Option[string], _, taken bool, _ base.Look) { drawn = append(drawn, taken) }
-	newTestRoot(field).Draw(grid.NewSurface(8, 3).View())
+	scenes.Mount(field).Draw(grid.NewSurface(8, 3).View())
 	if !slices.Equal(drawn, []bool{true, false, true}) {
 		t.Fatalf("rows disagree about the selected identity: %v", drawn)
 	}
@@ -809,12 +854,15 @@ func TestSelectRevisionsFollowAnswerIdentityThroughRefreshAndNavigation(t *testi
 }
 
 func TestConfirmLabelsAndHitRegionsKeepTheirColumnsWhenTheAnswerChanges(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	field := base.NewConfirm(base.ConfirmConfig{})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	styleFields(form, base.Look{Taken: "XX"})
 	for _, answer := range []bool{true, false} {
 		field.Say(answer)
-		rows := paintWidget(20, 1, form)
+		rows := paintWidget(scenes, 20, 1, form)
 		if strings.Index(rows[0], "yes") != 3 || strings.Index(rows[0], "no") != 11 {
 			t.Fatalf("changed choice moved the labels: %q", rows[0])
 		}
@@ -826,6 +874,9 @@ func TestConfirmLabelsAndHitRegionsKeepTheirColumnsWhenTheAnswerChanges(t *testi
 }
 
 func TestMultiSelectIdentityCannotPaintFromARetainedRow(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	field := multiWith(base.Options("x", "y"))
 	field.SetTaken([]string{"x"})
 	var previous grid.View
@@ -844,5 +895,5 @@ func TestMultiSelectIdentityCannotPaintFromARetainedRow(t *testing.T) {
 			t.Fatalf("identity comparison could write through a retained row: panic=%v, rows=%q", got, surface.Rows())
 		}
 	}()
-	newTestRoot(field).Draw(surface.View())
+	scenes.Mount(field).Draw(surface.View())
 }

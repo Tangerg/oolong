@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 type numberedGutter struct{}
@@ -33,6 +34,9 @@ func (g *recordingGutter) Draw(_ grid.View, rows []text.Row) {
 }
 
 func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	editor := &base.Editor{}
 	editor.Gutter = numberedGutter{}
 	editor.SetText("alpha beta\nx")
@@ -40,7 +44,7 @@ func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
 	if got := editor.HeightForWidth(7); got != 4 {
 		t.Fatalf("HeightForWidth(7) = %d, want 4 rows including the full-line insertion row", got)
 	}
-	equalRows(t, paintWidget(7, 4, editor), []string{
+	equalRows(t, paintWidget(scenes, 7, 4, editor), []string{
 		"1.alpha",
 		".. beta",
 		".......",
@@ -66,12 +70,15 @@ func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
 }
 
 func TestMaskedEditorDoesNotDiscloseItsValueToAGutter(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	gutter := &recordingGutter{}
 	editor := &base.Editor{}
 	editor.Gutter = gutter
 	editor.SetMask("•")
 	editor.SetText("secret")
-	paintWidget(10, 1, editor)
+	paintWidget(scenes, 10, 1, editor)
 
 	if len(gutter.rows) != 1 || gutter.rows[0].Text != "••••••" {
 		t.Fatalf("gutter rows = %#v, want only the displayed mask", gutter.rows)
@@ -99,16 +106,22 @@ func (queryingGutter) Width(int) int                { return 1 }
 func (g queryingGutter) Draw(grid.View, []text.Row) { g.editor.HeightForWidth(20) }
 
 func TestGutterMeasurementCannotReplaceThePaintedLayout(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	e := base.NewEditor(base.EditorConfig{Initial: "abcdef"})
 	e.Gutter = queryingGutter{e}
 	e.SetCursor(0, 0)
-	equalRows(t, paintWidget(4, 2, e), []string{".abc", ".def"})
+	equalRows(t, paintWidget(scenes, 4, 2, e), []string{".abc", ".def"})
 }
 
 func TestZeroEditorGutterReceivesItsEmptyLogicalLine(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	gutter := new(recordingGutter)
 	e := &base.Editor{Gutter: gutter}
-	paintWidget(8, 1, e)
+	paintWidget(scenes, 8, 1, e)
 	if len(gutter.rows) != 1 || gutter.rows[0].Line != 1 || gutter.rows[0].Text != "" {
 		t.Fatalf("empty editor gutter rows=%v", gutter.rows)
 	}

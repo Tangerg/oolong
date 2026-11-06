@@ -9,19 +9,23 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
 func TestTabsMountOnlyTheSelectedPaneAndPreserveKeyedSelection(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	first := base.NewEditor(base.EditorConfig{Initial: "first"})
 	second := base.NewEditor(base.EditorConfig{Initial: "second"})
 	tabs := base.NewTabs(base.TabsConfig{Items: []base.Tab{{Key: "a", Title: "one", Content: first.Element()}, {Key: "b", Title: "two", Content: second.Element()}}, Initial: 1})
-	root := newTestRoot(tabs)
+	root := scenes.Mount(tabs)
 	root.Draw(grid.NewSurface(20, 4).View())
 	if first.Element().Alive() || !second.Element().Alive() {
 		t.Fatal("inactive pane is mounted")
 	}
 	tabs.Set(tabs.Items()[1], tabs.Items()[0])
-	root.root.FlushNotifications()
+	root.FlushNotifications()
 	if tabs.Selected() != 0 || !second.Element().Alive() {
 		t.Fatal("keyed reorder changed selected pane")
 	}
@@ -50,8 +54,11 @@ func TestTabMovementKeepsItsDirectionAtIntegerLimits(t *testing.T) {
 }
 
 func TestTabStripUsesDistinctScenePartsForPointerAndKeyboard(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	tabs := base.NewTabs(base.TabsConfig{Gap: 1, Items: []base.Tab{{Title: "one"}, {Title: "two"}}})
-	root := newTestRoot(tabs)
+	root := scenes.Mount(tabs)
 	root.Draw(grid.NewSurface(12, 2).View())
 	if !root.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(5, 0)}) || tabs.Selected() != 1 {
 		t.Fatal("second tab was not hit through its scene part")
@@ -65,28 +72,31 @@ func TestTabStripUsesDistinctScenePartsForPointerAndKeyboard(t *testing.T) {
 }
 
 func TestTabChangeMovesPaneFocusWithoutStealingStripFocus(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	first := base.NewEditor(base.EditorConfig{Initial: "a"})
 	second := base.NewEditor(base.EditorConfig{Initial: "b"})
 	tabs := base.NewTabs(base.TabsConfig{Items: []base.Tab{{Title: "one", Content: first.Element()}, {Title: "two", Content: second.Element()}}})
-	root := newTestRoot(tabs)
+	root := scenes.Mount(tabs)
 	root.Draw(grid.NewSurface(12, 3).View())
 	if err := first.Element().RequestFocus(); err != nil {
 		t.Fatal(err)
 	}
-	root.root.FlushNotifications()
+	root.FlushNotifications()
 	tabs.Select(1)
-	root.root.FlushNotifications()
+	root.FlushNotifications()
 	if first.Element().Focused() || !second.Element().Focused() {
 		t.Fatal("focused pane transition did not settle on new pane")
 	}
 	if err := tabs.Strip().RequestFocusFirst(); err != nil {
 		t.Fatal(err)
 	}
-	root.root.FlushNotifications()
-	before := root.root.Focus()
+	root.FlushNotifications()
+	before := root.Focus()
 	tabs.Select(0)
-	root.root.FlushNotifications()
-	if root.root.Focus() != before {
+	root.FlushNotifications()
+	if root.Focus() != before {
 		t.Fatal("selection stole strip focus")
 	}
 }
@@ -159,6 +169,9 @@ func TestTabsPublishBothRelationsBeforeFocusProjection(t *testing.T) {
 }
 
 func TestRefreshingAContainerPreservesFocusInsideItsRetainedPane(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
 	for _, name := range []string{"tabs", "viewport"} {
 		t.Run(name, func(t *testing.T) {
 			first, second := new(base.Editor), new(base.Editor)
@@ -175,8 +188,8 @@ func TestRefreshingAContainerPreservesFocusInsideItsRetainedPane(t *testing.T) {
 				container = viewport.Element()
 				refresh = func() { viewport.SetContent(pane) }
 			}
-			root := newTestRoot(container)
-			defer root.root.Close()
+			root := scenes.Mount(container)
+			defer root.Root.Close()
 			if err := second.Element().RequestFocus(); err != nil {
 				t.Fatal(err)
 			}
