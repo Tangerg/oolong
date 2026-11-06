@@ -141,8 +141,7 @@ linters:
       allow-unused: false
 
   exclusions:
-    # Generated files are code too. None exist yet, and disabling the implicit
-    # exclusion keeps any that appear inside the gate from the day they do.
+    # Generated files must pass the same checks as their handwritten consumers.
     generated: disable
     warn-unused: true
     rules:

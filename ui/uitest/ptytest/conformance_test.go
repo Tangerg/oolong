@@ -222,7 +222,7 @@ func TestAnInlineBlockRedrawnFromNothingLooksTheSame(t *testing.T) {
 	const cols, rows = 14, 8
 	for run := range 60 {
 		random := rand.New(rand.NewPCG(uint64(run), 0x696e6c696e65)) //nolint:gosec // reproducible fixtures
-		renderer := grid.NewInline(cols, 3)
+		renderer := grid.NewInline(cols, rows)
 		model, err := ptytest.NewScreen(ptytest.Size{Cols: cols, Rows: rows})
 		if err != nil {
 			t.Fatal(err)

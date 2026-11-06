@@ -22,6 +22,8 @@ Kit 提供主题、字形选择、被动内容块和常用复合控件。它组�
 
 宿主字形能力只解析一次。需要截断标记时，将 `glyphs.Ellipsis` 传给 `ButtonConfig.Ellipsis`、`Paragraph.Ellipsis` 和 `Label.Ellipsis`。空标记表示静默截断。测量与绘制使用同一个标记；更改 Paragraph 的标记也会改变其布局缓存身份。
 
+逐格绘制的仪表使用 `kit.CellGlyph` 表示已填充、未填充和部分填充标记、滑块与滚动条部件，以及 sparkline 的高度级别。通过 `kit.NewCellGlyph(text)` 构造自定义标记，并处理 `kit.ErrInvalidCellGlyph`：非空标记必须是一个可打印字素，恰好占一个终端列；零值表示不绘制标记。宽度约束由该值负责，组件组合它时无需在绘制阶段重复校验。其他文字（包括占多列的 ASCII 省略号）仍采用按实际宽度测量的字符串契约。
+
 Kit 替换绘制槽后仍保留控制器的类型化集合动作和带修订的条目地址。`SettingsConfig.Change` 返回 `scene.ActionResult[bool]`，皮肤不会将消费按键擅自解释为值改变。详见[类型化控制器动作](../base/index.md#类型化集合与控制器动作)。
 
 Box 标题和页脚的最小宽度、可用文字宽度与对齐起点，都由同一个边框标签内缩策略推导。截断与对齐始终保留角点及其相邻边框。

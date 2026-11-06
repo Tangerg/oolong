@@ -349,13 +349,22 @@ func TestAMaskThatWouldJoinItsOwnNextCopyIsRefused(t *testing.T) {
 	// so the mask has to still be itself when the next one is written beside it. Two
 	// regional indicators are a flag: a field masked with one would draw one cluster
 	// for two characters and put the cursor at a column the row does not have.
-	defer func() {
-		if recover() == nil {
-			t.Fatal("a mask that joins a copy of itself was accepted")
-		}
-	}()
-	e := &base.Editor{}
-	e.SetMask("\U0001F1E6")
+	for _, mask := range []string{"🇦", "🇦🇧x🇦"} {
+		t.Run(mask, func(t *testing.T) {
+			const initial = "first\nsecond"
+			editor := base.NewEditor(base.EditorConfig{Initial: initial})
+			revision := editor.Session().Revision()
+			defer func() {
+				if recover() == nil {
+					t.Fatal("a mask that joins a copy of itself was accepted")
+				}
+				if editor.Mask() != "" || editor.Text() != initial || editor.Session().Revision() != revision {
+					t.Fatal("rejected mask changed document policy or content")
+				}
+			}()
+			editor.SetMask(mask)
+		})
+	}
 }
 
 func TestAMaskOfSeveralClustersIsStillAMask(t *testing.T) {

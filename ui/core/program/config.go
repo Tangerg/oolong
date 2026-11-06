@@ -89,7 +89,8 @@ func (l *launch) run(ctx context.Context) error {
 // can be called only once, including after a failed build or cancelled run.
 type Screen struct{ launch *launch }
 
-// Inline owns one ordinary-screen session.
+// Inline owns one ordinary-screen session. Its terminal must satisfy
+// [grid.Inline]'s resize contract.
 type Inline struct{ launch *launch }
 
 // NewScreen validates configuration; terminal ownership begins only at Run.

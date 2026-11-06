@@ -36,6 +36,10 @@ contentType: Reference
 | `state` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/state) | `go run ./examples/state` |
 | `streaming` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/streaming) | `go run ./examples/streaming` |
 
+## 前台编辑器
+
+`run` 示例按宿主 shell 语法解释 `EDITOR`：Unix 使用 `sh`，Windows 使用 `cmd.exe`。`code --wait` 等配置和带引号的可执行路径都可以包含参数。路径含空格时，按对应 shell 的规则引用；示例不会猜测整个值是否为一个路径。空值选择 `vi`。临时文件名单独传入，不参与命令语法，编辑器失败仍保留为进程错误。
+
 ## 测试与依赖
 
 运行 `go -C examples test ./...` 验证进程内示例合同。场景与 PTY 边界参见[测试指南](testing.md)。示例不是第二套框架：可复用行为属于 base，外观属于 kit，产品策略留在各命令中。

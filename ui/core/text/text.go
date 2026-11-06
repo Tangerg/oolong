@@ -353,73 +353,8 @@ func (w *wrapper) finish(units []unit) []Wrapped {
 	return w.rows
 }
 
-// Truncate cuts the line to at most width columns, ending it with ellipsis when
-// anything was cut. The ellipsis takes the style of the last text that survived,
-// so it reads as part of the sentence it is ending.
-//
-// The result can fall a column short of width: a cut never splits a wide cluster.
-// When a cut occurs, each retained source tab is returned as the spaces it occupied
-// from its original column, which keeps the result's measured width stable when it
-// is placed elsewhere. An uncut line keeps its tabs for the opposite reason: nothing
-// has decided which column it will be placed at. Either way the result is text that
-// could be drawn — see [dropped].
-func (l Line) Truncate(width int, ellipsis string) Line {
-	if width <= 0 {
-		return nil
-	}
-	if l.Width() <= width {
-		return l.printable()
-	}
-	// The returned spans can also be copied as plain text. The suffix must obey
-	// the same drawable-text rule as the retained source, even when it fits.
-	ellipsis = Of(ellipsis, grid.Style{}).printable().String()
-	if Width(ellipsis) > width {
-		ellipsis = prefix(ellipsis, width)
-	}
-
-	// Every tab ends on a tab stop. After the first one, the remaining suffix
-	// has the same width on every candidate, even when it contains more tabs.
-	head, tail, hasTab := strings.Cut(ellipsis, "\t")
-	headWidth, tailWidth := Width(head), Width(tail)
-	var kept []unit
-	used := 0
-	style := grid.Style{}
-	for u := range l.eachUnit() {
-		next := layout.Sum(used, u.width)
-		end := layout.Sum(next, headWidth)
-		if hasTab {
-			end = layout.Sum(advanceCluster("\t", end), tailWidth)
-		}
-		if end > width {
-			break
-		}
-		kept = append(kept, u)
-		used = next
-		style = u.style()
-	}
-	out := line(kept)
-	if ellipsis == "" {
-		return out
-	}
-	// The ellipsis takes the style of what survived and none of its address: it
-	// stands for the text that was cut, and a hyperlink over "…" opens something the
-	// reader was never shown.
-	if n := len(out); n > 0 && out[n-1].Style == style && out[n-1].Link == "" {
-		out[n-1].Text += ellipsis
-		return out
-	}
-	return append(out, Span{Text: ellipsis, Style: style})
-}
-
 // Width is how many columns s would occupy, with tabs expanded from column zero.
 func Width(s string) int { return Advance(s, 0) }
-
-// Truncate is [Line.Truncate] on unstyled text: at most width columns, ended with
-// ellipsis when anything was cut, and carrying that method's treatment of tabs and
-// of characters a terminal would obey rather than show.
-func Truncate(s string, width int, ellipsis string) string {
-	return Of(s, grid.Style{}).Truncate(width, ellipsis).String()
-}
 
 type unit struct {
 	cluster string
@@ -633,12 +568,7 @@ func (d *displayFilter) hides(cluster string) bool {
 // joins reports whether segmentation would make next part of previous once the
 // two are adjacent.
 func joins(previous, next string) bool {
-	if previous == "" {
-		return false
-	}
-	clusters := grapheme.New(previous + next)
-	clusters.Next()
-	return clusters.End() > len(previous)
+	return !IsClusterBoundary(previous+next, len(previous))
 }
 
 // printable is the line with the clusters that never reach a cell removed. Tabs
@@ -649,6 +579,18 @@ func joins(previous, next string) bool {
 // that one normalizes text somebody will store and hands back a mark where invalid
 // bytes were, and this one answers what was drawn, which is nothing.
 func (l Line) printable() Line {
+	// Long ASCII labels need no segmentation just to establish that every byte
+	// survives. Clipping will segment only the prefix it can retain.
+	ascii := true
+	for _, span := range l {
+		if !plainASCII(span.Text) {
+			ascii = false
+			break
+		}
+	}
+	if ascii {
+		return l
+	}
 	discards := false
 	for cluster := range l.eachCluster() {
 		if dropped(cluster) {
@@ -711,6 +653,13 @@ func Clusters(s string) iter.Seq2[int, string] {
 			}
 		}
 	}
+}
+
+// IsClusterBoundary tests a byte offset in the complete string. Concatenation can
+// move boundaries without changing the total cluster count, as regional indicators
+// pair with different neighbors. Out-of-range offsets are not boundaries.
+func IsClusterBoundary(s string, at int) bool {
+	return at >= 0 && at <= len(s) && (at == 0 || NextCluster(s, at-1) == at)
 }
 
 // NextCluster is the byte offset after the cluster at i, or len(s) at the end.

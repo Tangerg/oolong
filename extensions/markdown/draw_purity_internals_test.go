@@ -165,13 +165,14 @@ func receiverIdentity(expression ast.Expr) string {
 
 // blockMeaning is one block reduced to values that cannot alias the document.
 type blockMeaning struct {
-	text   string
-	table  string
-	marker string
-	rail   string
-	indent int
-	rule   text.Span
-	gap    bool
+	text     string
+	table    string
+	marker   string
+	rail     string
+	indent   int
+	rule     text.Span
+	gap      bool
+	children []blockMeaning
 }
 
 type docMeaning struct{ blocks []blockMeaning }
@@ -203,15 +204,21 @@ func meaningOfDoc(doc *Doc) docMeaning {
 		if block.rule != nil {
 			rule = *block.rule
 		}
-		meaning.blocks = append(meaning.blocks, blockMeaning{
+		value := blockMeaning{
 			text:   body.String(),
 			table:  tableBody.String(),
-			marker: markText(block.prefix.markers),
 			rail:   markText(block.prefix.rails),
 			indent: block.prefix.indent,
 			rule:   rule,
 			gap:    block.blankBefore,
-		})
+		}
+		if item, ok := block.content.(*listItem); ok {
+			value.marker = markText(item.marker)
+			value.rail = markText(item.prefix.rails)
+			value.indent = item.prefix.indent
+			value.children = meaningOfDoc(&Doc{view: &item.body}).blocks
+		}
+		meaning.blocks = append(meaning.blocks, value)
 	}
 	return meaning
 }
@@ -238,12 +245,17 @@ func markdownDrawPurityCases() []drawPurityCase {
 	// also stops part way through — the path that would tempt an implementation to
 	// trim the memo it just built.
 	doc := &Doc{}
+	item := &listItem{
+		body: documentView{blocks: []Block{{
+			lines:  []text.Line{plain("an item long enough to wrap twice over")},
+			prefix: blockPrefix{indent: 2},
+		}}},
+		prefix: blockPrefix{indent: 2},
+		marker: &prefixMark{span: text.Span{Text: "- "}},
+	}
 	doc.SetBlocks([]Block{
 		{lines: []text.Line{plain("a heading")}},
-		{
-			lines:  []text.Line{plain("an item long enough to wrap twice over")},
-			prefix: blockPrefix{indent: 2, markers: &prefixMark{span: text.Span{Text: "- "}}}, blankBefore: true,
-		},
+		{content: item, blankBefore: true},
 		{
 			lines:  []text.Line{plain("a quotation that also wraps")},
 			prefix: blockPrefix{indent: 2, rails: &prefixMark{span: text.Span{Text: "| "}}}, blankBefore: true,
@@ -270,5 +282,9 @@ func markdownDrawPurityCases() []drawPurityCase {
 		name: "*documentView", width: 14, height: 6,
 		draw: prepared.Draw, measure: prepared.HeightForWidth,
 		state: func() any { return meaningOfDoc(&Doc{view: prepared}) },
+	}, drawPurityCase{
+		name: "*listItem", width: 14, height: 6,
+		draw: item.Draw, measure: item.HeightForWidth,
+		state: func() any { return meaningOfDoc(doc) },
 	})
 }

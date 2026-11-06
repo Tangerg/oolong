@@ -41,32 +41,17 @@ func render(source string, look Look, context gparser.Context) ([]Block, error) 
 }
 
 type frame struct {
-	indent  int
-	rails   *prefixMark
-	pending *pendingMark
-	body    grid.Style
-	tight   bool
+	indent int
+	rails  *prefixMark
+	marker *prefixMark
+	body   grid.Style
+	tight  bool
+	blocks *[]Block
+	// Nested extension failures identify their containing public result block.
+	topBlock *int
 	// Nested blocks inherit list tightness so a tight item cannot become loose
 	// merely because it contains another list.
 	dense bool
-}
-
-// A list item owns its marker until its first emitted block claims it. An item
-// that begins with a nested list may transfer several still-pending markers.
-type pendingMark struct {
-	mark  *prefixMark
-	outer *pendingMark
-}
-
-func (p *pendingMark) take() *prefixMark {
-	var first *prefixMark
-	for item := p; item != nil && item.mark != nil; item = item.outer {
-		mark := item.mark
-		mark.next = first
-		first = mark
-		item.mark = nil
-	}
-	return first
 }
 
 func (f *frame) place(span text.Span) *prefixMark {
@@ -83,9 +68,16 @@ type renderer struct {
 }
 
 func (r *renderer) push(b Block, in frame) {
-	b.prefix = blockPrefix{indent: in.indent, rails: in.rails, markers: in.pending.take()}
+	b.prefix = blockPrefix{indent: in.indent, rails: in.rails}
 	b.blankBefore = !in.tight
-	r.blocks = append(r.blocks, b)
+	*in.blocks = append(*in.blocks, b)
+}
+
+func (r *renderer) blockIndex(in frame) int {
+	if in.topBlock != nil {
+		return *in.topBlock
+	}
+	return len(r.blocks)
 }
 
 type renderAction struct {
@@ -96,6 +88,7 @@ type renderAction struct {
 // Markdown nesting is untrusted input, so an explicit action stack bounds
 // goroutine stack usage independently of document depth.
 func (r *renderer) render(root ast.Node, in frame) {
+	in.blocks = &r.blocks
 	stack := make([]renderAction, 0, 16)
 	r.scheduleChildren(&stack, root, in)
 	for len(stack) > 0 {
@@ -128,13 +121,7 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	case *ast.List:
 		r.list(node, in, stack)
 	case *ast.ListItem:
-		if node.ChildCount() == 0 {
-			r.push(Block{
-				lines: []text.Line{nil},
-			}, in)
-			return
-		}
-		r.scheduleChildren(stack, node, in)
+		r.listItem(node, in, stack)
 	case *ast.Blockquote:
 		inner := in
 		bar := r.look.Glyphs.Bar
@@ -169,7 +156,7 @@ func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 	for item := n.LastChild(); item != nil; item = item.PreviousSibling() {
 		marker := r.bullet(n, ordinal(number, index))
 		inner := in
-		inner.pending = &pendingMark{mark: inner.place(marker), outer: in.pending}
+		inner.marker = inner.place(marker)
 		// The first item inherits spacing from the enclosing frame; later items use the
 		// list's own tightness. Otherwise a tight list would join the preceding paragraph.
 		inner.tight = (index == 0 && in.tight) || (index > 0 && n.IsTight)
@@ -177,6 +164,17 @@ func (r *renderer) list(n *ast.List, in frame, stack *[]renderAction) {
 		*stack = append(*stack, renderAction{node: item, frame: inner})
 		index--
 	}
+}
+
+func (r *renderer) listItem(n *ast.ListItem, in frame, stack *[]renderAction) {
+	item := &listItem{
+		prefix: blockPrefix{indent: in.indent, rails: in.rails},
+		marker: in.marker,
+	}
+	index := r.blockIndex(in)
+	*in.blocks = append(*in.blocks, Block{content: item, blankBefore: !in.tight})
+	in.blocks, in.topBlock, in.marker = &item.body.blocks, &index, nil
+	r.scheduleChildren(stack, n, in)
 }
 
 func ordinal(start, index int) int {
@@ -235,7 +233,7 @@ func (r *renderer) extension(kind Extension, info, source string, in frame) {
 		}
 	}
 	if err != nil {
-		r.errors = append(r.errors, &ExtensionError{Block: len(r.blocks), Extension: kind, Info: info, Err: err})
+		r.errors = append(r.errors, &ExtensionError{Block: r.blockIndex(in), Extension: kind, Info: info, Err: err})
 	}
 	if child == nil {
 		var lines []text.Line

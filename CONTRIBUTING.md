@@ -67,6 +67,8 @@ for m in $modules; do (cd "$m" && GOWORK=off go test -mod=readonly -count=1 ./..
 scripts/check-reachability.sh
 go -C ui run ./internal/cmd/apiledger -root ..
 scripts/sync-workspace.sh --check
+npm ci --prefix ui/core/grid/testdata/inline-reflow
+npm test --prefix ui/core/grid/testdata/inline-reflow
 npm ci
 npm run docs:check
 ```
@@ -87,6 +89,9 @@ Fuzz targets run in CI on every push. Run one locally with:
 cd ui && go test ./core/input/ -run '^$' -fuzz FuzzParserDoesNotCareHowBytesArrive -fuzztime=30s
 ```
 
+The inline terminal tests run the renderer's actual output through the pinned xterm emulator. A fixed-size
+test screen cannot reproduce the terminal's own reflow during a resize.
+
 ## Boundaries
 
 ### Packages and modules
@@ -105,7 +110,7 @@ Core foundations provide terminal-neutral values. Text, input, scene, content, p
 
 Any exported change must include:
 
-- A comment that defines behaviour and edge cases, not just restates the name.
+- Essential contract documentation under the [comment policy in AGENTS.md](./AGENTS.md#comments).
 - A test in the external package (`foo_test`) showing it from a caller's side. Tests go inside a package only
   in `*_internals_test.go`, and only for properties with no public form.
 - Cancellation and concurrency semantics where they apply.

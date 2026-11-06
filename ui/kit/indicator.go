@@ -66,7 +66,7 @@ func (s Scrollbar) Draw(v grid.View) {
 	if visible.Empty() {
 		return
 	}
-	track, thumb := s.Glyphs.ScrollTrack, s.Glyphs.ScrollThumb
+	track, thumb := s.Glyphs.ScrollTrack.value, s.Glyphs.ScrollThumb.value
 	if !s.Needed() {
 		if track != "" {
 			for y := visible.Min.Y; y < visible.Max.Y; y++ {

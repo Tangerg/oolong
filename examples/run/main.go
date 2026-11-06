@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -21,6 +20,8 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 	"github.com/Tangerg/oolong/ui/kit"
 )
+
+const defaultEditor = "vi"
 
 func main() {
 	command := os.Args[1:]
@@ -220,21 +221,23 @@ func (r *runner) Handle(ev input.Event) bool {
 }
 
 func edit() error {
-	name := os.Getenv("EDITOR")
-	if name == "" {
-		name = "vi"
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = defaultEditor
 	}
 	file, err := os.CreateTemp("", "oolong-*.txt")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(file.Name()) }()
-	if err := file.Close(); err != nil {
+	if err = file.Close(); err != nil {
 		return err
 	}
 
-	//nolint:gosec // G204: the editor is the user's own, out of their environment.
-	cmd := exec.CommandContext(context.Background(), name, file.Name())
+	cmd, err := editorCommand(context.Background(), editor, file.Name())
+	if err != nil {
+		return err
+	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd.Run()
 }

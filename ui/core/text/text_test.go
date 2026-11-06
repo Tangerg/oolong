@@ -225,6 +225,9 @@ func FuzzTruncateMatchesStyledLineAndFits(f *testing.F) {
 		{text: "abcdefghijklmnopqrst", ellipsis: "X\t", width: 15},
 		{text: "あﾞ xyz", ellipsis: "…", width: 4},
 		{text: "👩‍💻\tend", ellipsis: "..", width: 7},
+		{text: "❤x", ellipsis: "\ufe0f", width: 1},
+		{text: "1x", ellipsis: "\ufe0f\u20e3", width: 1},
+		{text: "x🇦long", ellipsis: "🇧🇨", width: 4},
 	} {
 		f.Add(seed.text, seed.width, seed.ellipsis)
 	}

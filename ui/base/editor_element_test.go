@@ -504,11 +504,31 @@ func TestAnElementBeginsWhereACellBegins(t *testing.T) {
 			body: "\U0001F1F5x",
 			want: "\U0001F1EF \U0001F1F5x ",
 		},
+		{
+			name: "a boundary moves without changing the cluster count",
+			text: "🇦",
+			body: "🇦🇧",
+			want: "🇦 🇦🇧 ",
+		},
+		{
+			name: "complete flags keep their boundary",
+			text: "🇦🇧",
+			body: "🇨🇩",
+			want: "🇦🇧🇨🇩 ",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := &base.Editor{}
 			e.SetText(tc.text)
 			e.SetCursor(0, len(tc.text))
+			unsubscribe := e.Session().Subscribe(func(base.ChangeMap) {
+				for _, element := range e.Elements() {
+					if boundaries := boundariesOf(e.Text()); !boundaries[element.Start] || !boundaries[element.End] {
+						t.Fatalf("subscriber saw element %+v inside a grapheme of %q", element, e.Text())
+					}
+				}
+			})
+			defer unsubscribe()
 			element := e.InsertElement(0, tc.body)
 			if e.Text() != tc.want {
 				t.Fatalf("text = %q, want %q", e.Text(), tc.want)

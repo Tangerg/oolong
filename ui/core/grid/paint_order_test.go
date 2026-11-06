@@ -157,7 +157,19 @@ func TestCellPaintersAndCellsShareOneComposition(t *testing.T) {
 type blankCanvasPainter struct{}
 
 func (blankCanvasPainter) Paint(w grid.PaintContext) error {
-	_, err := io.WriteString(w, "\x1b[2J")
+	size := w.Size()
+	var output strings.Builder
+	for y := range size.Y {
+		if y > 0 {
+			output.WriteString("\x1b[B")
+		}
+		output.WriteString(strings.Repeat(" ", size.X))
+		output.WriteByte('\r')
+	}
+	if size.Y > 1 {
+		fmt.Fprintf(&output, "\x1b[%dA", size.Y-1)
+	}
+	_, err := io.WriteString(w, output.String())
 	return err
 }
 
@@ -181,7 +193,6 @@ func TestPainterErasurePrecedesRestoringCells(t *testing.T) {
 				view := canvas.Frame()
 				view.Text(0, 0, "base", grid.Style{})
 				if showPainter {
-					// ED2 covers exactly this canvas and preserves its cursor.
 					view.Paint(grid.Area(0, 0, 8, 3), 1, blankCanvasPainter{})
 				}
 				var output bytes.Buffer

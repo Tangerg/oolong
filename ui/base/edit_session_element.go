@@ -125,7 +125,7 @@ func (s *EditSession) joinsWhatPrecedes(at Caret, body string) bool {
 	if before == "" {
 		return false
 	}
-	return clusters(before+body) != clusters(before)+clusters(body)
+	return !text.IsClusterBoundary(before+body, len(before))
 }
 
 func (s *EditSession) insideElement(line, byteOffset int) (Element, bool) {
@@ -174,8 +174,7 @@ func (s *EditSession) spansWholeClusters(m text.Mark) bool {
 		return false
 	}
 	line := s.lines[start.Line]
-	return clusterPosition(line, start.Byte, true) == start.Byte &&
-		clusterPosition(line, end.Byte, true) == end.Byte
+	return text.IsClusterBoundary(line, start.Byte) && text.IsClusterBoundary(line, end.Byte)
 }
 
 func (s *EditSession) byteLength() int {

@@ -57,7 +57,7 @@ type bar struct {
 
 func (b bar) Draw(v grid.View) {
 	w, _ := v.Size()
-	if w <= 0 || b.glyphs.BarFull == "" || b.glyphs.BarEmpty == "" {
+	if w <= 0 {
 		return
 	}
 	fraction := b.fraction
@@ -84,11 +84,11 @@ func (b bar) Draw(v grid.View) {
 	for x := visible.Min.X; x < visible.Max.X; x++ {
 		switch {
 		case x < whole:
-			v.Text(x, 0, b.glyphs.BarFull, b.full)
+			v.Text(x, 0, b.glyphs.BarFull.value, b.full)
 		case x == whole && step > 0:
-			v.Text(x, 0, steps[step-1], b.full)
+			v.Text(x, 0, steps[step-1].value, b.full)
 		default:
-			v.Text(x, 0, b.glyphs.BarEmpty, b.empty)
+			v.Text(x, 0, b.glyphs.BarEmpty.value, b.empty)
 		}
 	}
 }

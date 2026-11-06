@@ -22,6 +22,8 @@ A custom skin can fill a base element's paint and measure slots before attachmen
 
 Resolve glyph capability once for the host, then pass `glyphs.Ellipsis` to `ButtonConfig.Ellipsis`, `Paragraph.Ellipsis` and `Label.Ellipsis` where a truncation marker is wanted. An empty marker truncates silently. Measurement and drawing use the same marker; changing a paragraph's marker also changes its layout-cache identity.
 
+Cell-based meters use `kit.CellGlyph` for their full, empty and partial marks, slider and scrollbar furniture, and sparkline levels. Construct custom marks with `kit.NewCellGlyph(text)` and handle `kit.ErrInvalidCellGlyph`: a nonempty mark must be one printable grapheme occupying exactly one terminal column. The zero value omits a mark. Width validation belongs to this value, so the components can compose it without repeating admission checks during drawing. Other text, including the multi-column ASCII ellipsis, keeps its measured string contract.
+
 Kit retains its controller's typed collection actions and revision-qualified item addresses when replacing paint slots. `SettingsConfig.Change` returns `scene.ActionResult[bool]`, so a skin never translates a consumed key into an invented value change. See [typed controller actions](../base/index.md#typed-collection-and-controller-actions).
 
 Box title and footer placement derive their minimum width, available text width and aligned origin from one border-label inset. Corners and the adjacent border remain visible under truncation and alignment.

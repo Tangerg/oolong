@@ -8,6 +8,8 @@ import (
 
 // Painter borrows terminal output for one synchronous callback. Both operations
 // must preserve the cursor and terminal modes; Paint starts at the region's top-left.
+// Paint must also preserve existing soft-wrap boundaries: Inline keeps its live
+// rows in the cursor's logical line so terminal reflow cannot split the anchor.
 // SGR and OSC 8 are isolated by the context. Native placements must use its Layer
 // rather than inventing another stacking order. Native layers stay below text;
 // registration order determines overlap within each plane. Erase removes persistent

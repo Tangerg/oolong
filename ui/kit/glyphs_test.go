@@ -56,11 +56,9 @@ func TestEveryGlyphHasAFallback(t *testing.T) {
 	for i := range value.NumField() {
 		name, field := typeOf.Field(i).Name, value.Field(i)
 		switch field.Kind() {
-		case reflect.String:
-			assertASCII(t, name, field.String())
+		case reflect.String, reflect.Struct:
+			assertASCII(t, name, glyphText(t, field))
 		case reflect.Slice:
-			// Partial-cell bar steps have no ASCII representation; an empty set is
-			// the deliberate whole-cell degradation documented on Glyphs.BarSteps.
 			if name == "BarSteps" {
 				continue
 			}
@@ -68,7 +66,7 @@ func TestEveryGlyphHasAFallback(t *testing.T) {
 				t.Errorf("%s has no fallback", name)
 			}
 			for at := range field.Len() {
-				assertASCII(t, name, field.Index(at).String())
+				assertASCII(t, name, glyphText(t, field.Index(at)))
 			}
 		default:
 			t.Fatalf("Glyphs.%s has unhandled kind %s", name, field.Kind())
@@ -88,6 +86,19 @@ func assertASCII(t *testing.T, name, value string) {
 	}
 }
 
+func glyphText(t *testing.T, value reflect.Value) string {
+	t.Helper()
+	switch glyph := value.Interface().(type) {
+	case string:
+		return glyph
+	case kit.CellGlyph:
+		return glyph.String()
+	default:
+		t.Fatalf("unhandled glyph type %T", glyph)
+		return ""
+	}
+}
+
 // TestBuiltInFurnitureHasStableCellGeometry locks the other half of the Glyphs
 // contract: components position these marks as furniture, so every built-in mark
 // except the deliberately wider ASCII ellipsis must occupy exactly one cell.
@@ -102,8 +113,8 @@ func TestBuiltInFurnitureHasStableCellGeometry(t *testing.T) {
 			for i := range value.NumField() {
 				fieldName, field := typeOf.Field(i).Name, value.Field(i)
 				switch field.Kind() {
-				case reflect.String:
-					width := text.Width(field.String())
+				case reflect.String, reflect.Struct:
+					width := text.Width(glyphText(t, field))
 					if fieldName == "Ellipsis" {
 						if width <= 0 {
 							t.Errorf("%s occupies %d cells, want at least one", fieldName, width)
@@ -115,7 +126,7 @@ func TestBuiltInFurnitureHasStableCellGeometry(t *testing.T) {
 					}
 				case reflect.Slice:
 					for at := range field.Len() {
-						if width := text.Width(field.Index(at).String()); width != 1 {
+						if width := text.Width(glyphText(t, field.Index(at))); width != 1 {
 							t.Errorf("%s[%d] occupies %d cells, want one", fieldName, at, width)
 						}
 					}

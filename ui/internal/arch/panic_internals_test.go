@@ -25,6 +25,7 @@ var internalAssertions = map[string]string{
 	"ui/core/anim:requireFinite":                              "Transition.To, Timeline.SetFrames and Value, and Spring.To, Set and Tick document non-finite input or unrepresentable motion refusal",
 	"ui/core/ansi:Scanner.requireIdle":                        "Scanner documents that its active visitor cannot reenter Feed or Reset",
 	"ui/core/publication:Publisher.checkPrefix":               "Commit and FailAdmission require the current pending prefix issued by this publisher",
+	"ui/kit:mustCellGlyph":                                    "only ASCII and Unicode built-in glyph literals reach this assertion; caller-provided glyphs use NewCellGlyph's error result",
 
 	// Dimensions are validated in one place for both of a renderer's buffers. The
 	// exported callers, NewSurface and Surface.Resize, document the panic themselves.

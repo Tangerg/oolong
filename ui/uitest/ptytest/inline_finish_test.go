@@ -10,7 +10,7 @@ import (
 )
 
 func TestInlineFinishPreservesAcceptedContributionsAndDeliveredRows(t *testing.T) {
-	canvas := grid.NewInline(4, 2)
+	canvas := grid.NewInline(4, 5)
 	screen, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 5})
 	if err != nil {
 		t.Fatal(err)

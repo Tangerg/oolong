@@ -11,15 +11,7 @@ func maskable(mask string) bool {
 	return text.Printable(mask) == mask &&
 		!strings.Contains(mask, "\t") &&
 		text.Width(mask) > 0 &&
-		clusters(mask+mask) == 2*clusters(mask)
-}
-
-func clusters(s string) int {
-	n := 0
-	for range text.Clusters(s) {
-		n++
-	}
-	return n
+		text.IsClusterBoundary(mask+mask, len(mask))
 }
 
 func commonRunePrefix(a, b string) int {

@@ -25,6 +25,8 @@ import (
 
 const (
 	submitPrompt    keymap.Action    = "submit"
+	previousPrompt  keymap.Action    = "previous-prompt"
+	nextPrompt      keymap.Action    = "next-prompt"
 	quitPrompt      keymap.Action    = "quit"
 	pasteElement    base.ElementKind = 1
 	largePasteLines                  = 3
@@ -49,7 +51,6 @@ type prompt struct {
 	runtime *program.Runtime
 	theme   kit.Theme
 	glyphs  kit.Glyphs
-	keys    *keymap.Map
 
 	composer   *kit.Composer
 	completion base.Completion
@@ -66,10 +67,12 @@ func newPrompt(runtime *program.Runtime) *prompt {
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	keys := base.DefaultEditorKeys()
 	keys.Bind(submitPrompt, input.Chord{Code: input.Enter})
+	keys.Bind(previousPrompt, input.Chord{Code: input.Up})
+	keys.Bind(nextPrompt, input.Chord{Code: input.Down})
 	keys.Bind(quitPrompt, input.Ctrl.Rune('c'))
 
 	p := &prompt{
-		runtime: runtime, theme: theme, glyphs: glyphs, keys: keys,
+		runtime: runtime, theme: theme, glyphs: glyphs,
 		status: fmt.Sprintf("paste %d or more lines to make one atomic chip", largePasteLines),
 		history: base.NewHistory(base.HistoryConfig[draft]{
 			Clone: draft.clone,
@@ -84,11 +87,10 @@ func newPrompt(runtime *program.Runtime) *prompt {
 		pastes: make(map[base.ElementID]pasteText),
 	}
 	p.composer = kit.NewComposer(kit.ComposerConfig{
-		Theme: theme, Prompt: glyphs.Marker + " ",
-		Hints: []keymap.Action{submitPrompt, quitPrompt}, MaxRows: 1,
+		Theme: theme, Prompt: glyphs.Marker + " ", Keys: keys,
+		Hints: []keymap.Action{submitPrompt, previousPrompt, nextPrompt, quitPrompt}, MaxRows: 1,
 	})
 	p.composer.Controller().Placeholder = "Type @ to reference something"
-	p.composer.Controller().Keys = keys
 	p.composer.Controller().SetSingleLine(true)
 	p.composer.Controller().Clipboard = runtime.Clipboard()
 	p.completion = base.Completion{
@@ -153,11 +155,13 @@ func (p *prompt) Draw(frame scene.Frame) {
 }
 
 func (p *prompt) Handle(event input.Event) bool {
-	if key, ok := event.(input.Key); ok && key.Down() {
-		if action, _ := p.keys.ActionFor(key); action == quitPrompt {
-			p.runtime.Quit()
-			return true
-		}
+	var action keymap.Action
+	if key, ok := event.(input.Key); ok {
+		action, _ = p.composer.Controller().Keys.ActionFor(key)
+	}
+	if action == quitPrompt {
+		p.runtime.Quit()
+		return true
 	}
 	if _, isMouse := event.(input.Mouse); !isMouse && p.completion.Handle(event) {
 		p.releaseRemovedPastes()
@@ -167,30 +171,20 @@ func (p *prompt) Handle(event input.Event) bool {
 		p.insertPaste(paste.Text)
 		return true
 	}
-	if key, ok := event.(input.Key); ok && key.Down() && p.walk(key) {
+	switch action {
+	case submitPrompt:
+		p.submit()
 		return true
+	case previousPrompt:
+		p.recallBack()
+	case nextPrompt:
+		p.recallForward()
+	default:
+		return false
 	}
-	return false
-}
-
-func (p *prompt) walk(key input.Key) bool {
-	for chord := range key.ShortcutChords() {
-		switch chord.Code {
-		case input.Up:
-			p.recallBack()
-		case input.Down:
-			p.recallForward()
-		case input.Enter:
-			p.submit()
-			return true
-		default:
-			continue
-		}
-		p.releaseRemovedPastes()
-		p.refreshCompletion()
-		return true
-	}
-	return false
+	p.releaseRemovedPastes()
+	p.refreshCompletion()
+	return true
 }
 
 func (p *prompt) insertPaste(body string) {
@@ -353,7 +347,7 @@ func (p *prompt) submit() {
 		text.Of("sent: "+body, p.theme.Text),
 		text.Of(fmt.Sprintf("%d attached paste(s); the application still owns their original bytes", attached), p.theme.Muted),
 	})
-	p.status = "submitted; up restores it without losing the current draft"
+	p.status = "submitted; recall history without losing the current draft"
 	p.composer.Controller().Clear()
 	p.composer.Controller().ForgetHistory()
 	p.completion.Dismiss()

@@ -79,6 +79,15 @@ jobs:
           modules=$(scripts/modules.sh)
           for m in $modules; do (cd "$m" && go test -race -count=1 ./...); done
 
+      - name: Inline terminal reflow
+        if: matrix.go == '1.27.x'
+        working-directory: ui/core/grid/testdata/inline-reflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+
   mermaid-backend:
     name: Mermaid native backend
     strategy:

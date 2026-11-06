@@ -38,6 +38,8 @@ Mermaid's Unix adapter keeps its launcher waitable until group cancellation and 
 
 On Windows, Mermaid and the command example compose `process.Job`. That capability owns job membership at process creation, process-handle observation, termination and cleanup. Each consumer owns its prepared standard files, output copying and cancellation policy; it reaps the returned launcher and closes the job. Publish an updated UI module before resolving and releasing an adapter that consumes this new process capability.
 
+Each returned list-item `Block` retains its children and marker together. A zero-height extension does not consume the marker; it appears beside the first visible child at the current width. An entirely invisible item still occupies one marker row. `Doc.Len` counts these retained blocks, and a nested `ExtensionError.Block` identifies the containing block in the returned sequence. `Rows` preserves the marker's column offset without adding list furniture to searchable or copied text.
+
 ## Keep copying honest
 
 Rendered rows can supply `text.Row` soft-wrap metadata. That supports logical copying and reflow without claiming a general Markdown source map. Format diagnostics belong to preparation, and no parser, network operation or external renderer runs from `Paint` or `HeightForWidth`.

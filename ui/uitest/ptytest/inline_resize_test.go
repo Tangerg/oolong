@@ -50,7 +50,7 @@ func TestResizedInlineRowsClearBlankColumnsBeforeWrapping(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			canvas := grid.NewInline(13, 2)
 			frozen := captureInlineRows(t, 13, sparseInlineRow{last: test.last})
-			canvas.Resize(5, 2)
+			canvas.Resize(5, 5)
 			canvas.Frame().Text(0, 0, ">", grid.Style{})
 			screen, err := ptytest.NewScreen(ptytest.Size{Cols: 5, Rows: 5})
 			if err != nil {
@@ -67,7 +67,7 @@ func TestResizedInlineRowsClearBlankColumnsBeforeWrapping(t *testing.T) {
 	}
 }
 
-func TestCapturedInlineRowsWrapWithoutChangingTheLiveAnchor(t *testing.T) {
+func TestCapturedWiderRowsWrapWithoutChangingTheLiveAnchor(t *testing.T) {
 	for _, test := range []struct {
 		name, source string
 		wantRows     []string
@@ -76,7 +76,7 @@ func TestCapturedInlineRowsWrapWithoutChangingTheLiveAnchor(t *testing.T) {
 		{"wide atom", "abcd界", []string{"abcd ", "界   "}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			canvas := grid.NewInline(8, 4)
+			canvas := grid.NewInline(5, 6)
 			screen, err := ptytest.NewScreen(ptytest.Size{Cols: 5, Rows: 6})
 			if err != nil {
 				t.Fatal(err)
@@ -90,7 +90,6 @@ func TestCapturedInlineRowsWrapWithoutChangingTheLiveAnchor(t *testing.T) {
 			}
 			flushInlineToScreen(t, canvas, screen)
 			frozen := captureInlineRows(t, 8, inlineRow(test.source))
-			canvas.Resize(5, 4)
 			canvas.Frame().Text(0, 0, ">", grid.Style{})
 			flushInlineToScreen(t, canvas, screen, frozen)
 			want := append(slices.Clone(test.wantRows), ">    ", "     ", "KEEP ", "     ")
@@ -107,10 +106,10 @@ func TestCapturedInlineRowsWrapWithoutChangingTheLiveAnchor(t *testing.T) {
 	}
 }
 
-func TestCompletedContributionsHaveIndependentRowsAcrossResize(t *testing.T) {
+func TestCompletedContributionsKeepIndependentRowsAtCurrentWidth(t *testing.T) {
 	for _, alreadyFlushed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "one frame", true: "two frames"}[alreadyFlushed], func(t *testing.T) {
-			canvas := grid.NewInline(8, 2)
+			canvas := grid.NewInline(5, 5)
 			screen, err := ptytest.NewScreen(ptytest.Size{Cols: 5, Rows: 5})
 			if err != nil {
 				t.Fatal(err)
@@ -123,7 +122,6 @@ func TestCompletedContributionsHaveIndependentRowsAcrossResize(t *testing.T) {
 				pending = nil
 			}
 			pending = append(pending, captureInlineRows(t, 8, inlineRow("cd")))
-			canvas.Resize(5, 2)
 			pending = append(pending, captureInlineRows(t, 5, inlineRow("ef")))
 			canvas.Frame().Text(0, 0, ">", grid.Style{})
 			flushInlineToScreen(t, canvas, screen, pending...)
@@ -176,7 +174,7 @@ func TestCapturedInlineOutputUsesTheCurrentTerminalWidth(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			canvas := grid.NewInline(test.before, 2)
 			frozen := captureInlineRows(t, test.before, inlineRow(test.text))
-			canvas.Resize(test.now, 2)
+			canvas.Resize(test.now, 4)
 			canvas.Frame().Text(0, 0, ">", grid.Style{})
 			screen, err := ptytest.NewScreen(ptytest.Size{Cols: test.now, Rows: 4})
 			if err != nil {
@@ -203,7 +201,7 @@ func TestInlineRefusesAnUnrepresentableCapturedAtomBeforeWriting(t *testing.T) {
 	if err := canvas.Flush(&output, frozen); !errors.Is(err, errors.ErrUnsupported) || output.Len() != 0 {
 		t.Fatalf("unrepresentable output=%q err=%v", output.String(), err)
 	}
-	canvas.Resize(4, 2)
+	canvas.Resize(4, 3)
 	canvas.Frame().Text(0, 0, ">", grid.Style{})
 	screen, err := ptytest.NewScreen(ptytest.Size{Cols: 4, Rows: 3})
 	if err != nil {

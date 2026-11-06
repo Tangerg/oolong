@@ -101,7 +101,7 @@ func (s *Slider) Draw(frame scene.Frame) {
 
 func (s *Slider) track(view grid.View) {
 	width, _ := view.Size()
-	if width <= 0 || s.Glyphs.SliderTrack == "" || s.Glyphs.SliderThumb == "" {
+	if width <= 0 {
 		return
 	}
 	position := s.controller.Position(width)
@@ -121,7 +121,7 @@ func (s *Slider) track(view grid.View) {
 				style = style.Merge(palette.Selection)
 			}
 		}
-		view.Text(x, 0, glyph, style)
+		view.Text(x, 0, glyph.value, style)
 	}
 }
 

@@ -110,26 +110,35 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	}
 }
 
-func TestNestedParagraphsShareRailsAndRetainOnlyTheirOwnMarkers(t *testing.T) {
+func TestNestedListItemsOwnMarkersAndShareQuotationRails(t *testing.T) {
 	const depth = 32
 	indent := strings.Repeat("  ", depth)
 	source := strings.Repeat("- ", depth) + "> first\n" + indent + ">\n" +
 		indent + "> again\n" + indent + ">\n" + indent + "> - child\n" + indent + "> - next"
 	blocks := mustRender(t, source, Look{Glyphs: Glyphs{Bullet: "-", Bar: "|"}})
+	for level := range depth {
+		if len(blocks) != 1 {
+			t.Fatalf("level %d has %d blocks, want one nested item", level, len(blocks))
+		}
+		item, ok := blocks[0].content.(*listItem)
+		if !ok || item.marker == nil || item.marker.next != nil {
+			t.Fatalf("level %d does not own exactly its marker", level)
+		}
+		blocks = item.body.blocks
+	}
 	if len(blocks) != 4 || blocks[0].prefix.rails == nil {
 		t.Fatalf("expected four quoted blocks, got %d", len(blocks))
 	}
-	for i, want := range []int{depth, 0, 1, 1} {
-		prefix := blocks[i].prefix
+	for i, block := range blocks {
+		prefix := block.prefix
+		if item, ok := block.content.(*listItem); ok {
+			prefix = item.prefix
+			if item.marker == nil || item.marker.next != nil {
+				t.Fatalf("quoted item %d retained another item's marker", i)
+			}
+		}
 		if prefix.rails != blocks[0].prefix.rails {
 			t.Fatalf("block %d copied the enclosing quotation", i)
-		}
-		markers := 0
-		for m := prefix.markers; m != nil; m = m.next {
-			markers++
-		}
-		if markers != want {
-			t.Fatalf("block %d retains %d markers, want %d", i, markers, want)
 		}
 	}
 }

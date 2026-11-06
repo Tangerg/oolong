@@ -514,7 +514,7 @@ func TestSpinnerDropsALabelThatDoesNotFit(t *testing.T) {
 }
 
 func TestScrollbarThumbTracksThePosition(t *testing.T) {
-	glyphs := kit.Glyphs{ScrollTrack: "-", ScrollThumb: "#"}
+	glyphs := kit.Glyphs{ScrollTrack: newCellGlyph(t, "-"), ScrollThumb: newCellGlyph(t, "#")}
 	top := paint(1, 4, func(v grid.View) {
 		kit.Scrollbar{Total: 40, Window: 4, Offset: 0, Glyphs: glyphs}.Draw(v)
 	})

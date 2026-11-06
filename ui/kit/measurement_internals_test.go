@@ -98,7 +98,7 @@ func TestHugeClippedMeterUsesOnlyVisibleCells(t *testing.T) {
 		}
 		return nil
 	}).Sub(grid.Area(0, 0, math.MaxInt, 1))
-	bar{fraction: 1, glyphs: Glyphs{BarFull: "#", BarEmpty: "."}}.Draw(v)
+	bar{fraction: 1, glyphs: ASCII()}.Draw(v)
 	for x := range 2 {
 		cell, _ := surface.View().CellAt(x, 0)
 		if cell.Content() != "#" {

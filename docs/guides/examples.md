@@ -36,6 +36,10 @@ Run these commands from the repository root. The table follows directories conta
 | `state` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/state) | `go run ./examples/state` |
 | `streaming` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/streaming) | `go run ./examples/streaming` |
 
+## Foreground editor
+
+The `run` example interprets `EDITOR` as a command in the host's shell syntax: `sh` on Unix and `cmd.exe` on Windows. Values such as `code --wait` and quoted executable paths can include arguments. Quote a path containing spaces according to that shell's rules; the example does not guess whether the whole value is a path. An empty value selects `vi`. The temporary filename is passed separately from command syntax, and editor failures remain process errors.
+
 ## Tests and dependencies
 
 Run `go -C examples test ./...` for in-process example contracts. Follow [testing](testing.md) for scene and PTY boundaries. Examples are not a second framework: reusable behavior belongs in base and appearance in kit; product policy remains in each command.

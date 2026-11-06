@@ -3,11 +3,14 @@ package grid_test
 import (
 	"bytes"
 	"errors"
+	"image"
+	"io"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/term"
 )
 
 func TestInlineRefusesPublicationAfterDestinationFailure(t *testing.T) {
@@ -122,5 +125,57 @@ func TestInlineUnrepresentableWidthRefusesBeforeOutput(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "ab") || !strings.Contains(output.String(), "cd") {
 		t.Fatal("refused projection lost immutable content")
+	}
+}
+
+func TestSparseInlineGroupCannotAdvanceOnWriterBudgetRefusal(t *testing.T) {
+	canvas := grid.NewInline(100, 40)
+	inline(t, canvas, grid.Cursor{}, lines("accepted"))
+	canvas.Frame().Text(99, 39, "X", grid.Style{})
+	candidate, err := canvas.Prepare()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer candidate.Abort()
+	writer := term.NewWriter(term.WriterConfig{
+		Destination: io.Discard, MaxFrameBytes: candidate.Len() - 1,
+	})
+	t.Cleanup(func() {
+		if closeErr := writer.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	if sequence, queueErr := writer.Queue(candidate.Bytes()); sequence != 0 || !errors.Is(queueErr, term.ErrPayloadTooLarge) {
+		t.Fatalf("oversized group admission = (%d, %v)", sequence, queueErr)
+	}
+	candidate.Abort()
+	if got := inline(t, canvas, grid.Cursor{}, lines("accepted")); got != "" {
+		t.Fatalf("refused staging changed the accepted anchor or cells: %q", got)
+	}
+}
+
+func TestInvalidInlineViewportRefusesFramesAndFinishWithoutMovingTheAnchor(t *testing.T) {
+	for _, size := range []image.Point{image.Pt(0, 2), image.Pt(4, 0)} {
+		t.Run(size.String(), func(t *testing.T) {
+			canvas := grid.NewInline(4, 2)
+			inline(t, canvas, grid.Cursor{}, lines("old", "tail"))
+			canvas.Resize(size.X, size.Y)
+			var output bytes.Buffer
+			if err := canvas.Flush(&output); !errors.Is(err, grid.ErrInvalidTerminalSize) || output.Len() != 0 {
+				t.Fatalf("invalid frame = %v, output %q", err, output.String())
+			}
+			if err := canvas.Finish(&output); !errors.Is(err, grid.ErrInvalidTerminalSize) || output.Len() != 0 {
+				t.Fatalf("invalid finish = %v, output %q", err, output.String())
+			}
+			canvas.Resize(4, 2)
+			got := inline(t, canvas, grid.Cursor{}, lines("new"))
+			control := grid.NewInline(4, 2)
+			inline(t, control, grid.Cursor{}, lines("old", "tail"))
+			control.Invalidate()
+			want := inline(t, control, grid.Cursor{}, lines("new"))
+			if got != want {
+				t.Fatalf("invalid geometry advanced anchor: %q, want %q", got, want)
+			}
+		})
 	}
 }

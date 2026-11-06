@@ -96,7 +96,7 @@ func TestFrozenAtomBoundariesSurviveInlineReflow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		inline := grid.NewInline(width, 1)
+		inline := grid.NewInline(width, len(rows)+1)
 		inline.Frame().Text(0, 0, "L", grid.Style{})
 		var output bytes.Buffer
 		if err := inline.Flush(&output, frozen); err != nil {

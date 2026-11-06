@@ -197,7 +197,8 @@ type Renderer func(info, source string) (grid.Drawable, error)
 var ErrUnhandled = errors.New("markdown: extension not handled")
 
 // ExtensionError keeps a zero-based Block index in one Render result so a backend
-// failure stays associated with the readable content returned alongside it.
+// failure stays associated with the readable content returned alongside it. A nested
+// failure identifies the containing list-item Block, which owns those children.
 type ExtensionError struct {
 	Block     int
 	Extension Extension

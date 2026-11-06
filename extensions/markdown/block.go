@@ -71,11 +71,10 @@ func (b Block) layout(width int) blockLayout {
 	return placed
 }
 
-// Nested blocks share the immutable quotation rails. Empty list indentation
-// only needs a column count; only the block that shows a marker retains it.
+// Nested blocks share the immutable quotation rails; list items own their markers.
 type blockPrefix struct {
-	indent         int
-	rails, markers *prefixMark
+	indent int
+	rails  *prefixMark
 }
 
 type prefixMark struct {
@@ -98,9 +97,6 @@ func (p blockLayout) draw(v grid.View) {
 	inset := v.Sub(grid.Area(0, 0, p.left, p.height))
 	for y := max(0, visible.Min.Y); y < min(p.height, visible.Max.Y); y++ {
 		p.prefix.rails.draw(inset, y)
-		if y == 0 {
-			p.prefix.markers.draw(inset, y)
-		}
 		if p.rule != nil {
 			drawRule(v.Sub(grid.Area(p.left, y, p.width, 1)), *p.rule)
 		} else if p.child == nil {

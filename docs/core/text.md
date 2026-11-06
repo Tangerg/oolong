@@ -14,11 +14,17 @@ Language: English | [简体中文](../zh/core/text.md)
 
 A cell is a display atom projection. Its span is owned by the grid and can exceed two columns. Clipping, overwrite, selection decoration and encoding preserve atom boundaries. A renderer must not infer width from byte length or treat a trailing atom cell as an independent character.
 
-`grid.ClusterWidth` is the one width authority. Ambiguous-width characters take one column. An emoji presentation sequence, a symbol followed by VARIATION SELECTOR-16 such as `⚠️`, takes two, as current terminals and multiplexers draw it. Removing a control never lets the clusters on either side of it join: a variation selector stranded by a dropped newline is dropped with it.
+`grid.ClusterWidth` is the one width authority. Ambiguous-width characters take one column. An emoji presentation sequence, a symbol followed by VARIATION SELECTOR-16 such as `⚠️`, takes two, as current terminals and multiplexers draw it. Controls never reach cells. A zero-width modifier stranded by removing a control is also discarded when it would otherwise attach to the preceding visible cluster.
 
 `text.Fill(pattern, width)` keeps repeated dividers on those same column boundaries. It normalizes terminal text and expands tabs within the pattern, repeats complete copies, and pads unused columns with spaces. A pattern with no drawable width produces only spaces; a width of zero or less produces empty text. The complete result is measured again because adjacent copies can form different graphemes. Markdown and LaTeX share this operation instead of defining separate width rules.
 
 `line.Pad(width, alignment)` prepares a separately aligned field with `layout.Start`, `Center` or `End`. It expands tabs at the field origin and supplies a space base for any edge grapheme that would absorb neighbouring padding. That base retains the content's style and link; additional padding has default appearance and no link. Prepare with `Pad(0, layout.Start)` before measuring or wrapping, since completing an edge can increase its natural width. Padding never truncates an oversized field. Keep an explicit space separator when joining independent fields; concatenating arbitrary field bytes does not preserve every grapheme boundary.
+
+## Bounded suffix composition
+
+`line.Truncate(width, suffix)` adds a suffix only when the source exceeds the budget. `line.WithSuffix(width, suffix)` always includes the drawable suffix, shortening it and the source at complete grapheme boundaries as needed. A capped Paragraph uses the latter because hidden later rows require a marker even when its last visible row fits.
+
+The suffix and retained source must remain separate graphemes. A suffix containing only a joining modifier, such as VARIATION SELECTOR-16, therefore survives alone rather than changing the preceding symbol's width or hyperlink. Source tabs expand from their original columns; suffix tabs advance from the retained prefix. The suffix inherits the last retained grapheme's style, or the default style when no prefix remains, and never inherits a hyperlink.
 
 ## Encoding cell atoms
 
@@ -33,6 +39,8 @@ The caller positions the cursor before writing `EncodeRow` output, ending any pr
 ## Editors and transcripts compose the mapping
 
 `base.EditSession` owns editable text changes and revision maps. Multiple editors can view that document without becoming additional text owners. Selection and caret positions are mapped through edits by the document contract; width changes only rebuild the visual projection.
+
+`text.IsClusterBoundary(source, byteOffset)` checks the complete string. Counting clusters before and after a join is insufficient: regional indicators can pair with different neighbours while keeping the same count. Atomic element insertion and repeated masks use the actual joining boundary before publishing document changes.
 
 `LayoutConfig.ReserveCaret` reserves an insertion row after a wrapped logical line whose final row fills the width. Carets, hit testing, selection and row measurement then share that projection; backward affinity cannot place an insertion caret outside its allocated columns. The default stays false, and unwrapped layouts ignore the option, so passive text gains no trailing rows.
 

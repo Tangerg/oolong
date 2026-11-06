@@ -75,6 +75,8 @@ Read-only borrows also refuse snapshot staging and refinement. A pending candida
 
 Inline shutdown drains the final accepted frame before admitting cursor cleanup, then waits for cleanup itself. A one-frame writer budget therefore preserves output order and cursor restoration without relying on a background writer winning a scheduling race.
 
+`grid.Inline` receives the terminal's actual viewport dimensions; drawing fewer rows shrinks the live block without changing that viewport. Output preparation and finish refuse invalid dimensions through `ValidateTerminalSize`. Live rows form one soft-wrapped logical line, requiring automatic wrapping and a terminal that preserves the cursor's logical line during resize, as xterm.js does by default, or does not reflow at all. Repainting restores truncated cells without guessing how earlier history reflowed. A height reduction can push part of the live block into scrollback; that inaccessible prefix is preserved because removing it would require authority over terminal history. Finishing converts the remaining live rows to hard line boundaries.
+
 ## Independent resource budgets
 
 StreamDocument bounds retained source bytes. Capture bounds cells and owned strings. Publisher bounds complete retained captures. The runtime bounds action and resource admission; the writer bounds encoded bytes and pending transport. These quantities are deliberately not added into a fictitious universal memory number, and caller allocations inside a custom renderer remain the caller's responsibility.

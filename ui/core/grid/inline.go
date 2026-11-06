@@ -10,11 +10,16 @@ import (
 const eraseLine = "\x1b[K"
 
 // Inline keeps finished output in terminal scrollback and draws the active block
-// relative to its last cursor anchor. Terminal reflow on resize requires a full
-// repaint; absolute placement is unavailable. An Inline belongs to one goroutine
-// and must not be copied after first use. Prepare and synchronous publication
-// callbacks may read the canvas but cannot mutate retained frame views or reenter
-// mutating Inline methods; violations panic.
+// relative to its last cursor anchor. Autowrap must be enabled so live rows form
+// one soft-wrapped logical line. Resizing requires the terminal to preserve the
+// cursor's logical line, as xterm.js does by default, or to leave all rows
+// un-reflowed. A full repaint restores truncated cells.
+// Rows pushed into scrollback by a height smaller than the live block cannot be
+// recovered without owning the terminal's history.
+//
+// An Inline belongs to one goroutine and must not be copied after first use.
+// Prepare and synchronous publication callbacks may read the canvas but cannot
+// mutate retained frame views or reenter mutating Inline methods; violations panic.
 type Inline struct {
 	noCopy      noCopy
 	publication publication
@@ -48,8 +53,9 @@ type Inline struct {
 	buf []byte
 }
 
-// NewInline treats h as a ceiling: the live block occupies only rows drawn by
-// the frame. Its first publication establishes the complete display.
+// NewInline uses the terminal's current viewport dimensions. The live block
+// occupies only rows drawn by the frame. Publication requires dimensions accepted
+// by [ValidateTerminalSize]; changing content height does not resize the viewport.
 func NewInline(w, h int) *Inline { return (NativeTarget{}).Inline(w, h) }
 
 // Inline creates a canvas fixed to the native destination for its lifetime.
@@ -60,12 +66,12 @@ func (target NativeTarget) Inline(w, h int) *Inline {
 	}
 }
 
-// Size returns the block's width and the height it may grow to.
+// Size returns the last supplied terminal viewport dimensions.
 func (i *Inline) Size() (w, h int) { return i.buffers.size() }
 
-// Resize changes the width and the height the block may grow to. A width change
-// invalidates the remembered cells because the terminal may reflow them.
-// Prepare projects caller-owned frozen contributions at the current width.
+// Resize reports the terminal's current viewport dimensions because Inline cannot
+// observe terminal reflow itself. Changing the live block's height only requires a
+// new frame. Prepare projects caller-owned frozen contributions at the current width.
 func (i *Inline) Resize(w, h int) {
 	i.publication.requireIdle()
 	if i.buffers.resize(w, h) {
@@ -154,12 +160,12 @@ func (i *Inline) Prepare(contents ...Frozen) (output *Output, err error) {
 	if i.publication.failure != nil {
 		return nil, i.publication.failure
 	}
-	if err = i.buffers.checkTargets(); err != nil {
+	width, height := i.buffers.size()
+	if err = ValidateTerminalSize(width, height); err != nil {
 		return nil, err
 	}
-	width, _ := i.buffers.size()
-	if width <= 0 {
-		return nil, errors.New("grid: inline width must be positive")
+	if err = i.buffers.checkTargets(); err != nil {
+		return nil, err
 	}
 	for _, content := range contents {
 		rows, rowsErr := content.Rows(width)
@@ -224,13 +230,21 @@ func (i *Inline) PrepareFinish() (output *Output, err error) {
 	if i.publication.failure != nil {
 		return nil, i.publication.failure
 	}
+	if err = ValidateTerminalSize(i.buffers.size()); err != nil {
+		return nil, err
+	}
 	var payload []byte
 	if !i.left {
 		if i.rows > 0 {
-			if down := i.rows - 1 - i.at.Y; down > 0 {
-				payload = appendCSI(payload, down, 'B')
+			if i.at.Y > 0 {
+				payload = appendCSI(payload, i.at.Y, 'A')
 			}
-			payload = append(payload, "\r\n"...)
+			// Hard line breaks detach accepted rows from the live reflow group
+			// before a shell or foreground child moves the cursor elsewhere.
+			_, height := i.buffers.size()
+			for range min(i.rows, height) {
+				payload = append(payload, "\r\n"...)
+			}
 		}
 		payload = append(payload, osc8Close...)
 		payload = append(payload, sgrReset...)
@@ -292,7 +306,7 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	if !i.compositionNeeded(used) {
 		return i.at, nil
 	}
-	full := i.full || len(i.contribution) > 0 || i.buffers.regionsNeedRepaint()
+	full := i.full || used > i.rows || len(i.contribution) > 0 || i.buffers.regionsNeedRepaint()
 	if full {
 		if err := eraseRegions(i.buffers.target, &i.buf, i.buffers.front.regions()); err != nil {
 			return i.at, err
@@ -312,9 +326,10 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	if err != nil {
 		return i.at, err
 	}
-	// Clear released live rows after accounting for the physical rows that accepted
-	// output now occupies, including wrapping caused by a width change.
-	extra := max(i.rows-advance-used, 0)
+	// A shorter viewport can strand a prefix in scrollback. Visiting more than
+	// its height would scroll the replacement block out of reach as well.
+	_, height := i.buffers.size()
+	extra := max(min(i.rows, height)-advance-used, 0)
 	total := i.composeRows(used, extra, full)
 	return i.composeEnd(used, total, full)
 }
@@ -378,46 +393,47 @@ func (i *Inline) composePrinted(cells []Cell, column int) (int, int, error) {
 	}
 }
 
-// composeRows rewrites changed live rows and erases rows the block released. It
-// returns how many rows were visited, with the cursor at column zero on the last.
 func (i *Inline) composeRows(used, extra int, full bool) int {
-	// moved tracks whether the row just visited left the cursor away from column
-	// zero, which is the only thing a carriage return is for.
-	moved := false
-	total := used + extra
-	for y := range total {
-		if y > 0 {
-			// The carriage return cancels the terminal's pending wrap before the
-			// newline: a row that filled the last column would otherwise advance
-			// twice and take the block's anchor with it.
-			i.buf = append(i.buf, "\r\n"...)
-			moved = false
-		}
-		switch {
-		case y >= used:
-			// Erasing leaves the cursor where it is, which is already column zero.
-			i.buf = append(i.buf, eraseLine...)
-		case i.rowChanged(y, full):
-			row, atMargin := encodeInlineRow(i.buffers.back.row(y), i.buffers.depth)
-			i.buf = append(i.buf, row...)
-			if !atMargin {
-				i.buf = append(i.buf, eraseLine...)
-			}
-			moved = len(row) > 0
-		}
+	if full {
+		i.composeRowGroup(used)
 	}
-	if moved {
+	for y := range used {
+		if y > 0 {
+			i.csi(1, 'B')
+		}
+		if !i.rowChanged(y, full) {
+			continue
+		}
+		i.buf = append(i.buf, encodeCells(i.buffers.back.row(y), i.buffers.depth)...)
 		i.buf = append(i.buf, '\r')
 	}
-	return total
+	for y := used; y < used+extra; y++ {
+		if y > 0 {
+			i.buf = append(i.buf, "\r\n"...)
+		}
+		i.buf = append(i.buf, eraseLine...)
+	}
+	return used + extra
 }
 
-// encodeInlineRow reports whether the encoded cells reach the terminal's right
-// margin. A terminal keeps its cursor on the last cell while wrap is pending, so
-// erase-to-end there would erase the last character rather than clear an empty tail.
-func encodeInlineRow(cells []Cell, depth Depth) (row string, atMargin bool) {
-	visible := trimBlankTail(cells)
-	return encodeCells(visible, depth), len(visible) > 0 && len(visible) == len(cells)
+// Blank rows establish delayed-autowrap links before painting independent atoms:
+// adjacent real rows could otherwise combine at their shared margin. Subsequent
+// CR/CUD movement preserves these links; LF or whole-row erasure would sever them.
+func (i *Inline) composeRowGroup(rows int) {
+	if rows == 0 {
+		return
+	}
+	// A visible suffix left by a height shrink must not stay joined to the
+	// old prefix that the terminal has already moved into history.
+	i.buf = append(i.buf, eraseLine...)
+	width, _ := i.buffers.size()
+	for range rows * width {
+		i.buf = append(i.buf, ' ')
+	}
+	i.buf = append(i.buf, '\r')
+	if rows > 1 {
+		i.csi(rows-1, 'A')
+	}
 }
 
 func (i *Inline) rowChanged(y int, full bool) bool {

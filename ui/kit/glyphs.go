@@ -23,20 +23,17 @@ type Glyphs struct {
 	// that is still on offer. They are a pair and are drawn in the same column, so
 	// they have to be the same width or the labels beside them do not line up.
 	Taken, Free              string
-	ScrollTrack, ScrollThumb string
+	ScrollTrack, ScrollThumb CellGlyph
 	// SliderTrack is the line a bounded value moves over and SliderThumb is its current
 	// position. They are separate from a scrollbar because one is a control and the
 	// other reports a viewport.
-	SliderTrack, SliderThumb string
-	// BarFull and BarEmpty are the two halves of a progress bar, and BarSteps are the
-	// pieces of a cell it is part way through — from the narrowest to the widest, in
-	// order, with as many of them as the set has. A set with none draws the last cell
-	// whole or not at all, which is what an eight-step bar degrades to and not a
-	// separate design.
-	BarFull, BarEmpty string
-	BarSteps          []string
+	SliderTrack, SliderThumb CellGlyph
+	BarFull, BarEmpty        CellGlyph
+	// Narrowest-to-widest steps give every bar the same fractional fill scale.
+	// An empty palette uses whole-cell increments.
+	BarSteps []CellGlyph
 	// Sparkline is the ordered set of sample heights, from lowest to highest.
-	Sparkline []string
+	Sparkline []CellGlyph
 	// Expanded and Collapsed are the two states of a branch in a tree: one showing
 	// what is under it, and one inviting the reader to look. Like Taken and Free they
 	// are drawn in the same column and have to be the same width.
@@ -57,11 +54,11 @@ func Unicode() Glyphs {
 		Marker:      "❯",
 		Taken:       "●",
 		Free:        "○",
-		ScrollTrack: "│", ScrollThumb: "█",
-		SliderTrack: "─", SliderThumb: "●",
-		BarFull: "█", BarEmpty: "░",
-		BarSteps:  []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"},
-		Sparkline: []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"},
+		ScrollTrack: mustCellGlyph("│"), ScrollThumb: mustCellGlyph("█"),
+		SliderTrack: mustCellGlyph("─"), SliderThumb: mustCellGlyph("●"),
+		BarFull: mustCellGlyph("█"), BarEmpty: mustCellGlyph("░"),
+		BarSteps:  mustCellGlyphs("▏", "▎", "▍", "▌", "▋", "▊", "▉"),
+		Sparkline: mustCellGlyphs("▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"),
 		Expanded:  "▾",
 		Collapsed: "▸",
 		Ascending: "↑", Descending: "↓",
@@ -87,10 +84,10 @@ func ASCII() Glyphs {
 		Marker:      ">",
 		Taken:       "x",
 		Free:        "-",
-		ScrollTrack: "|", ScrollThumb: "#",
-		SliderTrack: "-", SliderThumb: "O",
-		BarFull: "#", BarEmpty: "-",
-		Sparkline: []string{".", ":", "-", "=", "+", "*", "#", "@"},
+		ScrollTrack: mustCellGlyph("|"), ScrollThumb: mustCellGlyph("#"),
+		SliderTrack: mustCellGlyph("-"), SliderThumb: mustCellGlyph("O"),
+		BarFull: mustCellGlyph("#"), BarEmpty: mustCellGlyph("-"),
+		Sparkline: mustCellGlyphs(".", ":", "-", "=", "+", "*", "#", "@"),
 		Expanded:  "-", Collapsed: "+",
 		Ascending: "^", Descending: "v",
 		Spinner: []string{".", "o", "O", "o"},

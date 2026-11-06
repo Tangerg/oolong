@@ -43,7 +43,7 @@ func (s Sparkline) Draw(v grid.View) {
 			continue
 		}
 		level := int(math.Round(fraction * float64(len(s.Glyphs.Sparkline)-1)))
-		v.Text(x, 0, s.Glyphs.Sparkline[level], s.Theme.Accent)
+		v.Text(x, 0, s.Glyphs.Sparkline[level].value, s.Theme.Accent)
 	}
 }
 

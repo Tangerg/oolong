@@ -63,7 +63,8 @@ func TestAnInlineBlockIsAsTallAsWhatWasDrawn(t *testing.T) {
 	// and the eight it was offered stay the terminal's.
 	i := grid.NewInline(10, 10)
 	got := inline(t, i, grid.Cursor{}, lines("ab", "cd"))
-	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "ab" + "\x1b[K" + "\r\n" + "cd" + "\x1b[K" + "\r" + "\x1b[?25l"
+	want := "\x1b]8;;\x1b\\\x1b[0m\r\x1b[K" + strings.Repeat(" ", 20) +
+		"\r\x1b[1Aab        \r\x1b[1Bcd        \r\x1b[?25l"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -133,7 +134,7 @@ func TestOnlyTheRowsThatChangedAreRewritten(t *testing.T) {
 	inline(t, i, grid.Cursor{}, lines("keep", "change"))
 
 	got := inline(t, i, grid.Cursor{}, lines("keep", "changed"))
-	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[1A" + "\r\n" + "changed" + "\x1b[K" + "\r"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[1A\x1b[1B" + "changed   " + "\r"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -186,8 +187,8 @@ func TestABlockIsTallEnoughToHoldTheCursor(t *testing.T) {
 	// cursor on a row it does not own.
 	i := grid.NewInline(10, 6)
 	got := inline(t, i, grid.Cursor{Visible: true, Pos: image.Pt(0, 2)}, lines("ab"))
-	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "ab" + "\x1b[K" +
-		"\r\n" + "\x1b[K" + "\r\n" + "\x1b[K" + "\x1b[0 q" + "\x1b[?25h"
+	want := "\x1b]8;;\x1b\\\x1b[0m\r\x1b[K" + strings.Repeat(" ", 30) +
+		"\r\x1b[2Aab        \r" + strings.Repeat("\x1b[1B          \r", 2) + "\x1b[0 q\x1b[?25h"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -241,7 +242,7 @@ func TestWritingCellsReAnchorsTheCursor(t *testing.T) {
 	at := grid.Cursor{Visible: true, Pos: image.Pt(1, 0)}
 	inline(t, i, at, lines("ab"))
 	got := inline(t, i, at, lines("xy"))
-	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "xy" + "\x1b[K" + "\r" + "\x1b[1C"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "xy        " + "\r" + "\x1b[1C"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -255,7 +256,8 @@ func TestPrintedRowsGoAboveTheBlock(t *testing.T) {
 
 	frozen := captureInline(t, i, content(1, func(v grid.View) { v.Text(0, 0, "done", grid.Style{}) }))
 	got := inline(t, i, grid.Cursor{}, lines("prompt"), frozen)
-	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "done" + "\x1b[K" + "\r\n" + "prompt" + "\x1b[K" + "\r"
+	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "done" + "\x1b[K" +
+		"\r\n\x1b[K          \rprompt    \r"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
 	}
@@ -298,7 +300,7 @@ func TestPrintingTakesTheRowsTheBlockNoLongerReaches(t *testing.T) {
 	got := inline(t, i, grid.Cursor{}, lines("a"), frozen)
 	want := "\x1b]8;;\x1b\\\x1b[0m" + "\r" + "\x1b[2A" +
 		"said" + "\x1b[K" + "\r\n" +
-		"a" + "\x1b[K" + "\r\n" + "\x1b[K" +
+		"\x1b[K          \ra         \r\r\n\x1b[K" +
 		"\x1b[1A"
 	if got != want {
 		t.Fatalf("frame  = %q\nwant   = %q", got, want)
@@ -358,8 +360,8 @@ func TestAnInlineBlockCannotOutgrowTheRoomItWasGiven(t *testing.T) {
 	if strings.Contains(got, "three") || strings.Contains(got, "four") {
 		t.Fatalf("frame = %q, want nothing past the two rows there was room for", got)
 	}
-	if n := strings.Count(got, "\r\n"); n != 1 {
-		t.Fatalf("frame = %q, want one row break for two rows", got)
+	if !strings.Contains(got, "one       \r\x1b[1Btwo       ") {
+		t.Fatalf("frame = %q, want exactly two full-width rows", got)
 	}
 }
 
@@ -384,7 +386,7 @@ func TestFinishLeavesTheCursorBelowTheBlock(t *testing.T) {
 	if err := i.Finish(&buf); err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
-	want := "\x1b[1B" + "\r\n" + "\x1b]8;;\x1b\\\x1b[0m" + "\x1b[0 q" + "\x1b[?25h"
+	want := "\r\n\r\n" + "\x1b]8;;\x1b\\\x1b[0m" + "\x1b[0 q" + "\x1b[?25h"
 	if got := buf.String(); got != want {
 		t.Fatalf("Finish  = %q\nwant    = %q", got, want)
 	}
@@ -547,16 +549,14 @@ func TestInlineSizeIsTheRoomItWasGiven(t *testing.T) {
 }
 
 func TestFullWidthInlineRowsKeepTheirRightmostCell(t *testing.T) {
-	// A row that filled the last column leaves the terminal in its pending-wrap state,
-	// where erase-to-end would erase that last cell. Carriage return both preserves the
-	// cell and cancels pending wrap before the newline moves to the next row.
+	// Erasure at the pending-wrap margin would remove the rightmost cell.
 	i := grid.NewInline(4, 3)
 	got := inline(t, i, grid.Cursor{}, lines("abcd", "efgh"))
 	if strings.Contains(got, "abcd"+"\x1b[K") || strings.Contains(got, "efgh"+"\x1b[K") {
 		t.Fatalf("frame = %q erases a rightmost cell after filling its row", got)
 	}
-	if !strings.Contains(got, "abcd"+"\r\n") {
-		t.Fatalf("frame = %q, want the full row ended by carriage return and newline", got)
+	if !strings.Contains(got, "abcd\r\x1b[1Befgh\r") {
+		t.Fatalf("frame = %q, want both complete rows with a cursor barrier between them", got)
 	}
 	for at := range got {
 		if got[at] == '\n' && (at == 0 || got[at-1] != '\r') {
@@ -566,17 +566,19 @@ func TestFullWidthInlineRowsKeepTheirRightmostCell(t *testing.T) {
 }
 
 func TestFullWidthInlineRowsUseCellGeometryWithStylesAndLinks(t *testing.T) {
-	// ANSI styling and hyperlink wrappers make the encoded byte string much longer
-	// than the cells it paints. Margin detection therefore belongs to the surface row,
-	// before encoding, and must stay true when presentation metadata is present.
+	// Styling and hyperlink metadata must not disturb the margin's pending wrap.
 	i := grid.NewInline(4, 2)
 	got := inline(t, i, grid.Cursor{}, func(v grid.View) {
 		v.Text(0, 0, "ab", grid.Style{})
 		v.Text(2, 0, "cd", grid.Style{Attr: grid.Bold})
 		v.Link(0, 0, 4, "https://example.test/full")
 	})
-	if strings.Contains(got, "\x1b[K") {
-		t.Fatalf("frame = %q erases a styled, linked row that fills its cells", got)
+	start := strings.Index(got, "ab")
+	if start < 0 {
+		t.Fatalf("frame = %q, want the complete row", got)
+	}
+	if strings.Contains(got[start:], "\x1b[K") {
+		t.Fatalf("frame = %q erases a styled, linked row after filling its cells", got)
 	}
 	if !strings.Contains(got, "https://example.test/full") || !strings.Contains(got, "cd") {
 		t.Fatalf("frame = %q, want the complete linked and styled row", got)

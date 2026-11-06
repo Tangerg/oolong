@@ -364,7 +364,8 @@ func (p *Paragraph) rows(width int) []row {
 	if p.MaxRows > 0 && len(rows) > p.MaxRows {
 		rows = rows[:p.MaxRows]
 		last := len(rows) - 1
-		rows[last].Line = cutOff(rows[last].Line, room, p.Ellipsis)
+		// Hidden rows require a marker even when the surviving row itself fits.
+		rows[last].Line = rows[last].Line.WithSuffix(room, p.Ellipsis)
 		rows[last].elided = true
 	}
 	if len(rows) == 0 {
@@ -374,24 +375,6 @@ func (p *Paragraph) rows(width int) []row {
 	}
 	p.wrapped, p.atWidth, p.atLimit, p.atEllipsis, p.fresh = rows, room, p.MaxRows, p.Ellipsis, true
 	return rows
-}
-
-// A height cap can discard whole rows even when the surviving row fits, so its
-// configured marker must not depend on whether that row itself overflows.
-func cutOff(l text.Line, room int, ellipsis string) text.Line {
-	ellipsis = text.Truncate(ellipsis, room, "")
-	style := grid.Style{}
-	if n := len(l); n > 0 {
-		style = l[n-1].Style
-	}
-	l = l.Truncate(layout.Remaining(room, text.Width(ellipsis)), "")
-	if n := len(l); n > 0 {
-		style = l[n-1].Style
-	}
-	if ellipsis == "" {
-		return l
-	}
-	return append(l, text.Span{Text: ellipsis, Style: style})
 }
 
 func linesOf(s string, style grid.Style) []text.Line {
