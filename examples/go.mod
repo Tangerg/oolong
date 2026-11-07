@@ -5,9 +5,9 @@ go 1.27.0
 require (
 	github.com/Tangerg/oolong/extensions/highlight v0.26.1
 	github.com/Tangerg/oolong/extensions/latex v0.27.0
-	github.com/Tangerg/oolong/extensions/markdown v0.27.1-0.20261106125204-c12efc12d7da
+	github.com/Tangerg/oolong/extensions/markdown v0.27.1-0.20261107191513-3bde295f74eb
 	github.com/Tangerg/oolong/extensions/mermaid v0.27.0
-	github.com/Tangerg/oolong/ui v0.27.1-0.20261106125204-c12efc12d7da
+	github.com/Tangerg/oolong/ui v0.27.1-0.20261107191513-3bde295f74eb
 	golang.org/x/sys v0.49.0
 )
 
