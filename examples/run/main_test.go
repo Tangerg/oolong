@@ -69,6 +69,7 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 				// Not newRunner: that one starts a process, and what is being tested is
 				// what happens to what it says.
 				r = &runner{
+					keys:    runnerKeys(),
 					runtime: runtime,
 					command: []string{"a", "command"},
 				}

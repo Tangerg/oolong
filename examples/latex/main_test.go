@@ -24,7 +24,7 @@ func TestTheFormulaDrawsDirectlyAndQuits(t *testing.T) {
 	host.Shows(t, "LaTeX")
 	host.Shows(t, "√")
 	host.Shows(t, "±")
-	host.Shows(t, "latex.Formula")
+	host.Shows(t, "q quit")
 
 	host.Type("q")
 	if err := <-done; err != nil {

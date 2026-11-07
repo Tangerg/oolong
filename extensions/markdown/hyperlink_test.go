@@ -95,6 +95,41 @@ func TestBrowserAndMailDestinationsStayHyperlinks(t *testing.T) {
 	}
 }
 
+func TestBareWebAddressesUseTheSameHostTrustPolicy(t *testing.T) {
+	for _, label := range []string{
+		"github.com", "example.org/path", "127.0.0.1", "127.0.0.1:8080/path",
+		"2001:db8::1", "[2001:db8::1]:8080", "[2001:db8::1]:invalid", "2001:db8::xyz", "例子.测试", "BÜCHER.example",
+		"example。com", "see (github.com)", "github..com", "github.com:invalid", "README.md",
+	} {
+		t.Run(label, func(t *testing.T) {
+			const destination = "https://different.example/path"
+			shown, links := linkedText(t, "["+label+"]("+destination+")", markdown.Look{})
+			if want := label + " (" + destination + ")"; shown != want || links[destination] != " ("+destination+")" {
+				t.Fatalf("shown %q, links %v; want %q with only the explicit destination linked", shown, links, want)
+			}
+		})
+	}
+	for _, tc := range []struct{ label, destination string }{
+		{"github.com", "https://GITHUB.com/path"},
+		{"example.org:8080/label", "https://example.org/target"},
+		{"127.0.0.1", "https://127.0.0.1/path"},
+		{"2001:0db8::1", "https://[2001:db8::1]/path"},
+		{"[2001:0db8::1]:8080", "https://[2001:db8::1]/path"},
+		{"例子.测试", "https://xn--fsqu00a.xn--0zwm56d/path"},
+		{"BÜCHER.example", "https://xn--bcher-kva.example/path"},
+		{"example。com", "https://example.com/path"},
+		{"documentation", "https://example.com/docs"},
+		{"read the documentation.", "https://example.com/docs"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			shown, links := linkedText(t, "["+tc.label+"]("+tc.destination+")", markdown.Look{})
+			if shown != tc.label || links[tc.destination] != tc.label {
+				t.Fatalf("shown %q, links %v; want the matching or descriptive label linked", shown, links)
+			}
+		})
+	}
+}
+
 func TestALabelNamingAnotherAddressCannotHideTheDestination(t *testing.T) {
 	for _, tc := range []struct{ source, shown, destination string }{
 		{"[https://github.com](https://evil.example/x)", "https://github.com (https://evil.example/x)", "https://evil.example/x"},

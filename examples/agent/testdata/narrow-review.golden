@@ -15,4 +15,4 @@ i│   4 +                                  │
 ╰│ ● apply  ○ deny                        │╯
 ⠋│ enter submit  esc cancel               │
 ❯╰────────────────────────────────────────╯
-enter send  ctrl+x cancel run  ctrl+c quit
+enter send  ctrl+x cancel source

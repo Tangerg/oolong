@@ -179,7 +179,8 @@ type layoutSnapshot struct {
 	geometry    []geometry
 	byNode      map[NodeID]int
 	projections map[stagedState]any
-	writtenAt   time.Time
+	admittedAt  time.Time
+	hasOutput   bool
 	epoch       uint64
 }
 
@@ -204,8 +205,9 @@ type Prepared struct {
 	layout *layoutSnapshot
 }
 
-// Commit atomically publishes the candidate after writer admission. Zero inherits the previous writer sequence.
-// Wrote then publishes its input geometry, including when that watermark was already confirmed.
+// Commit atomically publishes the candidate after writer admission. Zero inherits
+// the previous writer sequence without creating transport completion. Physical
+// input still needs the writer's evidence; Wrote updates owner-side progress.
 // It panics if the candidate has already settled, is foreign, regresses the writer sequence, or settlement interrupts a pure phase.
 func (p *Prepared) Commit(sequence uint64) {
 	if p == nil || p.root == nil {
@@ -213,6 +215,7 @@ func (p *Prepared) Commit(sequence uint64) {
 	}
 	p.requireSettlement()
 	r := p.root
+	p.layout.hasOutput = sequence != 0
 	if sequence == 0 {
 		sequence = r.lastSequence
 	}
@@ -228,6 +231,8 @@ func (p *Prepared) Commit(sequence uint64) {
 	} else {
 		r.inFlight = append(r.inFlight, p.layout)
 	}
+	p.layout.admittedAt = time.Now()
+	r.publishGeometry(p.layout)
 	p.settle()
 	r.signal()
 }
@@ -247,11 +252,14 @@ func (p *Prepared) Abort() {
 // or the live scene, and losing the owner is itself the terminal state.
 func (p *Prepared) settle() {
 	p.root.pending = nil
+	if history := p.root.published.Load(); history != nil && history.pending {
+		p.root.published.Store(&inputGeometry{layouts: history.layouts})
+	}
 	p.root, p.tx, p.layout = nil, nil, nil
 }
 
-// The writer clock may be sampled between preparation and admission. Its pure
-// read must not be able to commit or discard the candidate it interrupted.
+// A projection borrows candidate storage; settlement cannot revoke or publish
+// that storage from inside the read that currently owns the borrow.
 func (p *Prepared) requireSettlement() {
 	if p.root.pending != p {
 		panic("scene: candidate is not owned by this root")
@@ -296,6 +304,12 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 		candidate.projections[state] = state.prepared()
 	}
 	r.pending = prepared
+	history := r.published.Load()
+	if history == nil {
+		r.published.Store(&inputGeometry{pending: true})
+	} else {
+		r.published.Store(&inputGeometry{layouts: history.layouts, pending: true})
+	}
 	succeeded = true
 	return prepared, nil
 }
@@ -343,10 +357,7 @@ func (r *Root) Wrote(sequence uint64) {
 		return
 	}
 	if covered > 0 {
-		// One watermark provides one observation time. Intermediate frames
-		// crossed together cannot be assigned invented timestamps.
-		at := r.readOnly(r.now)
-		r.publishWritten(r.inFlight[covered-1], at)
+		r.written = r.inFlight[covered-1]
 		clear(r.inFlight[:covered])
 		r.inFlight = r.inFlight[covered:]
 		if len(r.inFlight) == 0 {
@@ -382,11 +393,14 @@ func (r *Root) InvalidateGeometry() {
 	}
 }
 
-type writtenHistory struct{ layouts []*layoutSnapshot }
+// A candidate may reach the writer before Commit returns. Readers must not
+// authorize an older map while that admission's geometry is still unsettled.
+type inputGeometry struct {
+	layouts []*layoutSnapshot
+	pending bool
+}
 
-func (r *Root) publishWritten(snapshot *layoutSnapshot, at time.Time) {
-	snapshot.writtenAt = at
-	r.written = snapshot
+func (r *Root) publishGeometry(snapshot *layoutSnapshot) {
 	history := r.published.Load()
 	var layouts []*layoutSnapshot
 	if history != nil {
@@ -394,7 +408,7 @@ func (r *Root) publishWritten(snapshot *layoutSnapshot, at time.Time) {
 		layouts = append(layouts, history.layouts[start:]...)
 	}
 	layouts = append(layouts, snapshot)
-	r.published.Store(&writtenHistory{layouts: layouts})
+	r.published.Store(&inputGeometry{layouts: layouts})
 }
 
 func (r *Root) layoutRevision() uint64 {

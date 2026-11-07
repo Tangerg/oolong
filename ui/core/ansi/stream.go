@@ -2,15 +2,16 @@ package ansi
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 )
 
 // ErrSequenceTooLong bounds retained escape syntax. The bound applies to whole
 // sequences as well as incomplete ones so acceptance cannot depend on read splits.
-var ErrSequenceTooLong = errors.New("ansi: sequence exceeds 65536 bytes")
+var ErrSequenceTooLong = fmt.Errorf("ansi: sequence exceeds %d bytes", maxSequenceBytes)
 
-const maxPending = 1 << 16
+const maxSequenceBytes = 1 << 16
 
 // Scanner assembles [Piece]s across arbitrary input chunks. Pieces are borrowed
 // only during the visitor call; retained strings must be cloned. Incomplete escapes
@@ -57,7 +58,7 @@ func (s *Scanner) Feed(chunk string, visit func(Piece) error) error {
 		s.held.WriteString(chunk)
 		source = s.held.String()
 		if s.incomplete(source) {
-			if len(source) > maxPending {
+			if len(source) > maxSequenceBytes {
 				return s.refuse(source)
 			}
 			return nil
@@ -89,7 +90,7 @@ func (s *Scanner) scan(source string, visit func(Piece) error) error {
 		// Plain text is exempt from the bound: it is a run rather than a sequence, and
 		// nothing is waiting on a terminator for it. Everything else is bounded whether
 		// or not it ended, so that a chunk boundary cannot decide the answer.
-		if piece.Kind != Plain && n > maxPending {
+		if piece.Kind != Plain && n > maxSequenceBytes {
 			refused = ErrSequenceTooLong
 			continue
 		}
@@ -103,7 +104,7 @@ func (s *Scanner) scan(source string, visit func(Piece) error) error {
 func (s *Scanner) unfinished(tail string) error {
 	// Anything unfinished and this long is an escape sequence: an unfinished character
 	// is three bytes at the outside.
-	if len(tail) > maxPending {
+	if len(tail) > maxSequenceBytes {
 		return s.refuse(tail)
 	}
 	s.hold(tail)

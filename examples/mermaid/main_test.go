@@ -6,6 +6,7 @@ import (
 	"errors"
 	"image"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -209,7 +210,7 @@ func TestExportPreservesBytes(t *testing.T) {
 
 func TestImageOpenActionUsesAcceptedExport(t *testing.T) {
 	host := uitest.New(t, uitest.Config{Width: 100, Height: 20})
-	screen := &diagramScreen{source: flowchart, prepared: new(mermaid.Image)}
+	screen := &diagramScreen{source: flowchart, prepared: new(mermaid.Image), keys: diagramKeys()}
 	opened := make(chan string, 1)
 	screen.open = func(_ context.Context, path string) error { opened <- path; return nil }
 	done := make(chan error, 1)
@@ -245,6 +246,31 @@ func TestImageOpenActionUsesAcceptedExport(t *testing.T) {
 	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDiagramHintsAndMouseTargetsFollowReboundKeys(t *testing.T) {
+	screen := &diagramScreen{keys: diagramKeys(), source: flowchart}
+	screen.keys.Unbind(input.Chord{Rune: 'o'})
+	screen.keys.Unbind(input.Chord{Rune: 'c'})
+	screen.keys.Bind(openDiagram, input.Ctrl.Rune('o'))
+	screen.keys.Bind(copyDiagramSource, input.Alt.Rune('y'))
+	surface := grid.NewSurface(120, 1)
+	screen.drawActions(surface.View())
+	row := surface.Rows()[0]
+	if !strings.Contains(row, "[Open Image (ctrl+o)]") || strings.Contains(row, "(c)") {
+		t.Fatalf("stale button hints: %q", row)
+	}
+	if screen.Handle(input.Key{Rune: 'c'}) {
+		t.Fatal("removed shortcut still copies source")
+	}
+	if !screen.Handle(input.Key{Rune: 'y', Mods: input.Alt}) || screen.notice != "Clipboard unavailable" {
+		t.Fatalf("rebound shortcut did not reach source copy: %q", screen.notice)
+	}
+	screen.notice = ""
+	column := strings.Index(row, "[Copy Source (alt+y)]")
+	if column < 0 || !screen.clickAction(column) || screen.notice != "Clipboard unavailable" {
+		t.Fatalf("resized button row routed source click incorrectly: %q, %q", row, screen.notice)
 	}
 }
 

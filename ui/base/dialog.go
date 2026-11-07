@@ -224,28 +224,27 @@ func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
 		}
 		return scene.EventResult{}
 	}
-	// Key.Is ignores the transition. A release can arrive here after a field's
-	// keymap consumed the same key's press, so only a key going down traverses.
 	key, ok := event.Input().(input.Key)
 	if !ok || !key.Down() {
 		return scene.EventResult{}
-	}
-	if key.Is(input.Tab, 0) {
-		return scene.EventResult{Consumed: event.FocusNext(false)}
-	}
-	if key.Is(input.Tab, input.Shift) {
-		return scene.EventResult{Consumed: event.FocusNext(true)}
 	}
 	keys := d.keys
 	if keys == nil {
 		keys = dialogKeys()
 	}
-	_, handled := d.matcher.Handle(keys, key, d.Element().KeyboardLease().Valid, func(action keymap.Action) bool {
-		if action != Close {
+	keyboard := d.Element().KeyboardLease()
+	_, handled := d.matcher.Handle(keys, key, keyboard.Valid, func(action keymap.Action) bool {
+		switch action {
+		case FocusNext:
+			return keyboard.FocusNext(false)
+		case FocusPrev:
+			return keyboard.FocusNext(true)
+		case Close:
+			d.Dismiss()
+			return true
+		default:
 			return false
 		}
-		d.Dismiss()
-		return true
 	})
 	return scene.EventResult{Consumed: handled}
 }

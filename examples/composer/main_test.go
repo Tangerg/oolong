@@ -3,11 +3,46 @@ package main
 import (
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/uitest"
 )
+
+func TestCompletionHelpFollowsAReplacedKeyMap(t *testing.T) {
+	host := uitest.New(t, uitest.Config{Width: 80, Height: 16})
+	ready := make(chan *prompt, 1)
+	done := make(chan error, 1)
+	go func() {
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
+			p := newPrompt(runtime)
+			ready <- p
+			return p.Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
+	}()
+	p := <-ready
+	host.Type("@arch")
+	host.Shows(t, "tab accept")
+	if err := p.runtime.Dispatcher().Invoke(t.Context(), func() error {
+		p.completion.Keys = new(keymap.Map)
+		p.completion.Keys.Bind(base.Accept, input.Ctrl.Rune('l'))
+		p.element.Invalidate()
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	host.Shows(t, "ctrl+l accept")
+	host.Send(input.Key{Rune: 'l', Mods: input.Ctrl})
+	host.Press(input.Enter)
+	host.Shows(t, "sent: @docs/core/architecture.md")
+	quit(t, host, done)
+}
 
 func runPrompt(t *testing.T) (*uitest.Host, <-chan error) {
 	t.Helper()

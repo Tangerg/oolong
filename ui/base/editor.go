@@ -664,23 +664,6 @@ func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed fun
 	}
 	e.ensure()
 
-	// Shift turns any way of moving into a way of selecting. The chord is looked up
-	// with the shift taken off it, and the anchor is dropped first and taken back if
-	// what it named was not a movement after all — which is what keeps this to one
-	// rule instead of a second binding for every direction.
-	if key.Mods&input.Shift != 0 {
-		unshifted := key
-		unshifted.Mods &^= input.Shift
-		if action, bound := e.keys().ActionFor(unshifted); bound {
-			had := e.selecting
-			e.Anchor()
-			if e.move(action) {
-				return true
-			}
-			e.selecting = had
-		}
-	}
-
 	matched, handled := e.matcher.Handle(e.keys(), key, keyboardReceipt(&e.element), do)
 	if !matched {
 		return typed(key)
@@ -694,6 +677,10 @@ func (e *Editor) Do(action keymap.Action) bool {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
+	if movement := selectionMovement(action); movement != "" {
+		e.Anchor()
+		return e.move(movement)
+	}
 	if e.move(action) {
 		e.SelectNone()
 		return true
@@ -704,6 +691,29 @@ func (e *Editor) Do(action keymap.Action) bool {
 	}
 	do(e)
 	return true
+}
+
+func selectionMovement(action keymap.Action) keymap.Action {
+	switch action {
+	case ExtendLeft:
+		return MoveLeft
+	case ExtendRight:
+		return MoveRight
+	case ExtendUp:
+		return MoveUp
+	case ExtendDown:
+		return MoveDown
+	case ExtendWordLeft:
+		return MoveWordLeft
+	case ExtendWordRight:
+		return MoveWordRight
+	case ExtendLineStart:
+		return MoveLineStart
+	case ExtendLineEnd:
+		return MoveLineEnd
+	default:
+		return ""
+	}
 }
 
 func (e *Editor) typed(key input.Key) bool {
@@ -1021,11 +1031,8 @@ func (e *Editor) atLine(x int) Caret {
 	return Caret{Byte: e.document().snapElement(0, byteOffset, true)}
 }
 
-// Anchor begins or continues a selection at the cursor.
-//
-// A selection is not a separate mode with commands of its own. It is what movement
-// means while the shift key is held, so every way of moving a cursor selects with
-// shift and none of them had to be taught to — see [Editor.Handle].
+// Anchor preserves an existing selection's origin so repeated extension actions
+// can move the caret without moving the start of the gesture.
 func (e *Editor) Anchor() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
@@ -1129,7 +1136,6 @@ func (e *Editor) Cut() bool {
 	return e.DeleteSelection()
 }
 
-// Shift-selection and ordinary movement share actions; only ordinary movement releases the anchor.
 func (e *Editor) move(action keymap.Action) bool {
 	switch action {
 	case MoveLeft:

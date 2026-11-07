@@ -30,6 +30,9 @@ type WriterConfig struct {
 	MaxFrames       int
 	MaxFrameBytes   int
 	MaxPendingBytes int
+	// CompletionHistory bounds timestamp evidence for buffered input. Once
+	// evicted, an earlier timestamp cannot be reinterpreted using newer output.
+	CompletionHistory int
 }
 
 // ErrDrainTimeout means accepted frames did not settle before their caller's
@@ -56,11 +59,12 @@ var errWriteInterrupted = errors.New("term: destination write interrupted; write
 const DrainGrace = 250 * time.Millisecond
 
 const (
-	defaultMaxFrames       = 64
-	defaultMaxFrameBytes   = 16 << 20
-	defaultMaxPendingBytes = 32 << 20
-	controlFrameLimit      = 4
-	controlByteLimit       = 64 << 10
+	defaultMaxFrames         = 64
+	defaultMaxFrameBytes     = 16 << 20
+	defaultMaxPendingBytes   = 32 << 20
+	defaultCompletionHistory = 64
+	controlFrameLimit        = 4
+	controlByteLimit         = 64 << 10
 )
 
 // Writer keeps blocking terminal I/O off producer goroutines. Admission assigns
@@ -92,9 +96,9 @@ type Writer struct {
 	advanceMu sync.Mutex
 	advanced  chan struct{}
 
-	queued    atomicSequence
-	written   atomic.Uint64
-	processed atomic.Uint64
+	queued     atomicSequence
+	completion writeHistory
+	processed  atomic.Uint64
 
 	// discarding tells the write goroutine to fail queued frames instead of writing
 	// them once the grace period has passed. A write already in dst cannot be
@@ -123,7 +127,7 @@ type frame struct {
 // on first use would report the fault on that second goroutine, in a stack that no
 // longer names whoever failed to open the terminal.
 func NewWriter(cfg WriterConfig) *Writer {
-	if cfg.MaxFrames < 0 || cfg.MaxFrameBytes < 0 || cfg.MaxPendingBytes < 0 {
+	if cfg.MaxFrames < 0 || cfg.MaxFrameBytes < 0 || cfg.MaxPendingBytes < 0 || cfg.CompletionHistory < 0 {
 		panic("term: negative writer budget")
 	}
 	if cfg.MaxFrames == 0 {
@@ -135,6 +139,9 @@ func NewWriter(cfg WriterConfig) *Writer {
 	if cfg.MaxPendingBytes == 0 {
 		cfg.MaxPendingBytes = defaultMaxPendingBytes
 	}
+	if cfg.CompletionHistory == 0 {
+		cfg.CompletionHistory = defaultCompletionHistory
+	}
 	if cfg.MaxFrameBytes > cfg.MaxPendingBytes {
 		panic("term: frame limit exceeds pending byte limit")
 	}
@@ -144,10 +151,11 @@ func NewWriter(cfg WriterConfig) *Writer {
 	w := &Writer{
 		dst:       cfg.Destination,
 		maxFrames: cfg.MaxFrames, maxFrameBytes: cfg.MaxFrameBytes, maxPendingBytes: cfg.MaxPendingBytes,
-		wake:     make(chan struct{}, 1),
-		changes:  make(chan struct{}, 1),
-		advanced: make(chan struct{}),
-		loopDone: make(chan struct{}),
+		wake:       make(chan struct{}, 1),
+		changes:    make(chan struct{}, 1),
+		advanced:   make(chan struct{}),
+		loopDone:   make(chan struct{}),
+		completion: writeHistory{opened: time.Now(), limit: cfg.CompletionHistory},
 	}
 	go w.run()
 	return w
@@ -159,6 +167,7 @@ type FrameSink interface {
 	Queue(data []byte) (uint64, error)
 	Changes() <-chan struct{}
 	Written() uint64
+	WrittenAt(at time.Time) (uint64, bool)
 	Queued() uint64
 	Err() error
 	Drain(timeout time.Duration) error
@@ -294,7 +303,15 @@ func (w *Writer) Queued() uint64 { return w.queued.current() }
 // terminal. A refused or failed frame stops it there, whatever is written afterwards:
 // it is what a caller waits on to know its output arrived, and a later frame cannot
 // vouch for an earlier one that never did.
-func (w *Writer) Written() uint64 { return w.written.Load() }
+func (w *Writer) Written() uint64 { return w.completion.latest() }
+
+// WrittenAt proves the completed FIFO prefix at at, using the same process clock
+// as time.Now. It returns false during a write, after a failed write, before this
+// writer existed, for future timestamps, or when the required history was evicted.
+// Completion is transport evidence, not proof of physical terminal presentation.
+func (w *Writer) WrittenAt(at time.Time) (uint64, bool) {
+	return w.completion.at(at, time.Now())
+}
 
 // Err preserves the first delivery failure; admission refusals stay with
 // their Queue caller. A clean ErrFrameRefused still permits later restoration
@@ -373,7 +390,7 @@ func (w *Writer) Close() error {
 			w.discarding.Store(true)
 			w.signal()
 			w.closeErr = fmt.Errorf("term: %d frame(s) never reached the terminal: %w",
-				target-min(target, w.written.Load()), ErrClosed)
+				target-min(target, w.Written()), ErrClosed)
 		}
 	})
 	return w.closeErr
@@ -399,11 +416,6 @@ func (w *Writer) run() {
 		close(w.changes)
 		close(w.loopDone)
 	}()
-	// A refused frame leaves the destination able to take the next one, so a frame
-	// can succeed after an earlier one never arrived. The watermark is what a caller
-	// waits on to know its output is on the screen, so it stops at the last frame
-	// that got there.
-	arrived := true
 	for {
 		f, ok := w.next()
 		if !ok {
@@ -411,13 +423,12 @@ func (w *Writer) run() {
 			return
 		}
 		err, refused := ErrClosed, false
+		w.completion.begin(f.seq, time.Now())
 		if !w.discarding.Load() {
 			refused, err = writeFrame(w.dst, f.data)
 		}
-		if err != nil {
-			arrived = false
-		} else if arrived {
-			w.written.Store(f.seq)
+		if err == nil {
+			w.completion.complete(f.seq, time.Now())
 		}
 		w.release(f)
 		w.finish(f.seq, err, refused)

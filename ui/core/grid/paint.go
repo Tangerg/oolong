@@ -392,8 +392,11 @@ func LinkTarget(target string) string {
 // atoms cannot merge on the wire. The caller must position the cursor before
 // output to end any preceding grapheme; the row must fit to the terminal margin.
 // No absolute screen position is assumed. It closes links and resets style before
-// return. Partial atoms become styled blanks.
+// return. Partial atoms become styled blanks. An invalid depth panics before encoding.
 func EncodeRow(cells []Cell, depth Depth) string {
+	if err := depth.Validate(); err != nil {
+		panic(err)
+	}
 	p := painter{depth: depth}
 	p.begin()
 	p.paintCells(trimBlankTail(cells))

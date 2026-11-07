@@ -75,6 +75,9 @@ func disguises(label string, target addressIdentity) bool {
 	for word := range strings.FieldsSeq(label) {
 		start := labelAddressStart.FindStringIndex(word)
 		if start == nil {
+			if address, recognized := identifyBareWebAddress(word); recognized && !address.matches(target) {
+				return true
+			}
 			continue
 		}
 		if !identifyLabelAddress(word[start[0]:]).matches(target) {
@@ -82,6 +85,29 @@ func disguises(label string, target addressIdentity) bool {
 		}
 	}
 	return false
+}
+
+func identifyBareWebAddress(label string) (addressIdentity, bool) {
+	label = strings.Trim(label, "<>(){},;!?\"")
+	if _, err := netip.ParseAddr(label); err == nil {
+		return addressIdentity{kind: webAddress, name: addressHost(label)}, true
+	}
+	label = strings.TrimPrefix(label, "//")
+	authority, _, _ := strings.Cut(label, "/")
+	authority, _, _ = strings.Cut(authority, "?")
+	authority, _, _ = strings.Cut(authority, "#")
+	// A dotted word can be a filename as well as a host. That ambiguity must
+	// reveal the destination; a TLD allowlist would silently miss other hosts.
+	addressLike := strings.ContainsAny(strings.Trim(authority, ".\u3002\uff0e\uff61"), ".\u3002\uff0e\uff61") || strings.Count(authority, ":") >= 2
+	target, err := url.Parse(schemeHTTPS + "://" + label)
+	if err != nil {
+		return addressIdentity{}, addressLike
+	}
+	_, ipErr := netip.ParseAddr(target.Hostname())
+	if !addressLike && ipErr != nil {
+		return addressIdentity{}, false
+	}
+	return identifyAddress(target), true
 }
 
 type addressKind uint8
@@ -241,7 +267,6 @@ func (h hyperlink) labelLink() string {
 	return ""
 }
 
-// addressLink is the destination the written-out address may carry.
 func (h hyperlink) addressLink() string {
 	if h.openable {
 		return h.target

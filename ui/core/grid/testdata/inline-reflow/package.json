@@ -2,7 +2,7 @@
   "name": "oolong-inline-reflow-test",
   "private": true,
   "scripts": {
-    "test": "go run fixture.go | node inline-reflow.test.cjs"
+    "test": "go run . | node inline-reflow.test.cjs"
   },
   "devDependencies": {
     "@xterm/headless": "5.5.0"

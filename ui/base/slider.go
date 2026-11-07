@@ -170,7 +170,6 @@ func (s *Slider) Label() string {
 	return s.label
 }
 
-// SetLabel changes the control's semantic label.
 func (s *Slider) SetLabel(label string) {
 	if s != nil {
 		requireMutable(s.element)

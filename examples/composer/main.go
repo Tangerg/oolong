@@ -24,12 +24,13 @@ import (
 )
 
 const (
-	submitPrompt    keymap.Action    = "submit"
-	previousPrompt  keymap.Action    = "previous-prompt"
-	nextPrompt      keymap.Action    = "next-prompt"
-	quitPrompt      keymap.Action    = "quit"
-	pasteElement    base.ElementKind = 1
-	largePasteLines                  = 3
+	submitPrompt                 keymap.Action    = "submit"
+	previousPrompt               keymap.Action    = "previous-prompt"
+	nextPrompt                   keymap.Action    = "next-prompt"
+	quitPrompt                   keymap.Action    = "quit"
+	pasteElement                 base.ElementKind = 1
+	largePasteLines                               = 3
+	minimumReferencePopupColumns                  = 38
 )
 
 func main() {
@@ -94,7 +95,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 	p.composer.Controller().SetSingleLine(true)
 	p.composer.Controller().Clipboard = runtime.Clipboard()
 	p.completion = base.Completion{
-		Look: theme.Look(glyphs), MaxRows: 5,
+		Look: theme.Look(glyphs), MaxRows: 5, Keys: base.DefaultCompletionKeys(),
 		CurrentToken: func() (base.Token, bool) {
 			return p.composer.Controller().TokenAtCursor(base.Trigger{Prefix: "@"})
 		},
@@ -117,18 +118,24 @@ func newPrompt(runtime *program.Runtime) *prompt {
 			return []image.Rectangle{grid.Area(0, space.Y-height, space.X, height)}
 		},
 	})
+	completionHelp := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+		kit.Help{Theme: p.theme, Keys: p.completion.Keys, Show: []keymap.Action{base.Accept}}.Draw(frame.View)
+	}})
+	completionBody := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
+		{Element: p.completion.Element(), Size: layout.Measured(0, 0)},
+		{Element: completionHelp, Size: layout.Fixed(1)},
+	}})
 	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{
-		Theme: theme, Glyphs: glyphs, Title: "references", Footer: "tab complete",
-		FooterAlign: layout.End, Padding: layout.Symmetric(0, 1),
-	}, Content: p.completion.Element()})
+		Theme: theme, Glyphs: glyphs, Title: "references", Padding: layout.Symmetric(0, 1),
+	}, Content: completionBody.Element()})
 	popup := scene.NewGroup(scene.GroupConfig{
 		Element: scene.ElementConfig{Enabled: p.completion.Open}, Items: []scene.Item{{Element: panel.Element()}},
 		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
 			if !p.completion.Open() {
 				return []image.Rectangle{{}}
 			}
-			width := max(0, min(max(p.completion.Width()+4, 38), space.X-2))
-			height := min(p.completion.HeightForWidth(width)+2, space.Y)
+			width := max(0, min(max(p.completion.Width()+panel.Box.Overhead().X, minimumReferencePopupColumns), space.X-2))
+			height := min(panel.HeightForWidth(width), space.Y)
 			y := max(space.Y-p.composer.HeightForWidth(space.X)-height, 0)
 			return []image.Rectangle{grid.Area(1, y, width, height)}
 		},

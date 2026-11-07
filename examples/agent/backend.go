@@ -214,7 +214,7 @@ func (b *agentBridge) Review(ctx context.Context, proposal changeProposal) (bool
 
 func (b *agentBridge) post(ctx context.Context, fn func() error) error {
 	return b.dispatch.Invoke(ctx, func() error {
-		if b.owner.run != b.run {
+		if b.owner.run != b.run || b.run.finishing {
 			return context.Canceled
 		}
 		return fn()

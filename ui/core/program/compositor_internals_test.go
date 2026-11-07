@@ -15,22 +15,37 @@ import (
 )
 
 type admissionWriter struct {
-	refuse  bool
-	frames  [][]byte
-	changes chan struct{}
+	mu        sync.Mutex
+	refuse    bool
+	frames    [][]byte
+	changes   chan struct{}
+	writtenAt time.Time
 }
 
 func (w *admissionWriter) Queue(frame []byte) (uint64, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.refuse {
 		return 0, term.ErrQueueFull
 	}
 	w.frames = append(w.frames, frame)
+	w.writtenAt = time.Now()
 	return uint64(len(w.frames)), nil
 }
 func (w *admissionWriter) Changes() <-chan struct{} { return w.changes }
-func (w *admissionWriter) Written() uint64          { return uint64(len(w.frames)) }
-func (*admissionWriter) Err() error                 { return nil }
-func (*admissionWriter) Drain(time.Duration) error  { return nil }
+func (w *admissionWriter) Written() uint64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return uint64(len(w.frames))
+}
+
+func (w *admissionWriter) WrittenAt(at time.Time) (uint64, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return uint64(len(w.frames)), !w.writtenAt.IsZero() && !at.Before(w.writtenAt) && !at.After(time.Now())
+}
+func (*admissionWriter) Err() error                { return nil }
+func (*admissionWriter) Drain(time.Duration) error { return nil }
 
 type permanentLine string
 
@@ -119,8 +134,9 @@ func (w *drainingWriter) Queue(frame []byte) (uint64, error) {
 	return w.queued, nil
 }
 
-func (w *drainingWriter) Changes() <-chan struct{} { return w.changes }
-func (*drainingWriter) Err() error                 { return nil }
+func (w *drainingWriter) Changes() <-chan struct{}         { return w.changes }
+func (*drainingWriter) Err() error                         { return nil }
+func (*drainingWriter) WrittenAt(time.Time) (uint64, bool) { return 0, false }
 
 func (w *drainingWriter) Written() uint64 {
 	w.mu.Lock()

@@ -95,7 +95,7 @@ func newReleaseSnapshot(t *testing.T, valid bool) releaseSnapshot {
 		t.Fatal(err)
 	}
 	fixture := releaseSnapshot{root: t.TempDir(), bin: t.TempDir(), goBin: goBin}
-	for _, name := range []string{"release.sh", "module-tag.sh", "build-module.sh"} {
+	for _, name := range []string{"release.sh", "module-tag.sh", "build-module.sh", "tools.sh"} {
 		body, err := readRepositoryFile(filepath.Join(repoRoot(t), "scripts", name))
 		if err != nil {
 			t.Fatal(err)
@@ -122,10 +122,12 @@ func TestValid(t *testing.T) {
 	for _, name := range []string{"apidiff", "deadcode", "golangci-lint", "gofumpt", "govulncheck", "npx", "shfmt", "npm", "gorelease"} {
 		writeReleaseFixture(t, filepath.Join(fixture.bin, name), "#!/bin/sh\nexit 0\n")
 	}
+	writeToolBuildInfo(t, fixture.bin)
 	// Build, vet, tests and Git remain real. Unrelated gates cannot reach a service,
 	// and the one injected edit occurs only after the release captures its commit.
 	writeReleaseFixture(t, filepath.Join(fixture.bin, "go"), `#!/bin/sh
 set -eu
+if [ "${1-} ${2-}" = 'version -m' ]; then cat "$3.buildinfo"; exit; fi
 if [ -n "${GOOS-}" ] || [ "${1-}" = fix ]; then exit 0; fi
 if [ "${1-}" = -C ] && [ "${3-}" = run ]; then exit 0; fi
 if [ "${1-}" = -C ] && [ "${3-}" = build ] && [ ! -e "$FIXTURE_EDIT_MARKER" ]; then

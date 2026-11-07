@@ -21,4 +21,4 @@ functio│ 3 2      return state.advance(token)                                 
 ╰────────────────────────────────────────────────────────────────────────────────────────╯
 ⠋ waiting for tool approval
 ❯ Ask the mock agent to change something
-enter send  ctrl+x cancel run  ctrl+c quit
+enter send  ctrl+x cancel source  ctrl+c quit

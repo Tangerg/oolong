@@ -51,7 +51,7 @@ Aborting a candidate preserves the previous complete geometry and terminal basel
 
 ## Composition has one structural mechanism
 
-`scene.Group` and `scene.Overlay` own actual child attachment. Base components choose behavior and assemble these primitives. Kit components fill appearance slots or compose more primitives around the same behavior parts. There is no independently mutable widget tree for focus and another one for automation.
+`scene.Group` owns actual child attachment, including overlays and modal boundaries configured by `GroupConfig.Overlay` and `GroupConfig.Modal`. Base components choose behavior and assemble these primitives. Kit components fill appearance slots or compose more primitives around the same behavior parts. There is no independently mutable widget tree for focus and another one for automation.
 
 `scene.Action[P, R]` owns availability, parameter validation and the invocation result. Keyboard, pointer and automation paths reuse that action or the same typed owner operation. Disabled, read-only, busy and modal constraints remain meaningful for semantic callers.
 

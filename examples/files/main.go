@@ -11,8 +11,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Tangerg/oolong/examples/internal/regularfile"
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -22,9 +24,10 @@ import (
 )
 
 const (
-	directoryScanDepth = 2
-	maxPreviewBytes    = 64 << 10
-	maxPreviewRows     = 200
+	directoryScanDepth               = 2
+	maxPreviewBytes                  = 64 << 10
+	maxPreviewRows                   = 200
+	quitBrowser        keymap.Action = "quit"
 )
 
 func main() {
@@ -87,6 +90,11 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 		Text: func(e entry) string { return e.name },
 	})
 	b.tree = b.dressed.Controller()
+	b.tree.Keys = base.DefaultTreeKeys()
+	for _, binding := range base.DefaultFocusKeys().Bindings() {
+		b.tree.Keys.Bind(binding.Action, binding.Keys...)
+	}
+	b.tree.Keys.Bind(quitBrowser, input.Chord{Rune: 'q'})
 	previewElement := scene.NewElement(scene.ElementConfig{
 		Key:   "file-preview",
 		Paint: func(frame scene.Frame) { b.preview.Draw(frame.View) },
@@ -105,14 +113,20 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 		{Size: layout.Flex(1), Element: b.viewBox.Element()},
 	}})
 	footer := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		kit.Label{Text: "tab: other pane   →/←: open, close   q: quit", Style: b.theme.Subtle}.Draw(frame.View)
+		actions := []keymap.Action{base.FocusNext, quitBrowser}
+		if b.tree.Element().FocusedWithin() {
+			actions = []keymap.Action{base.FocusNext, base.Expand, base.Collapse, quitBrowser}
+		}
+		kit.Help{Theme: b.theme, Keys: b.tree.Keys, Show: actions}.Draw(frame.View)
 	}})
 	unsubscribe := b.tree.Subscribe(b.show)
 	b.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
 		Key: "files",
 		Preview: func(event scene.Event) scene.EventResult {
-			if key, ok := event.Input().(input.Key); ok && key.Down() && key.Code == input.Tab {
-				return scene.EventResult{Consumed: event.FocusNext(key.Mods.Has(input.Shift))}
+			if key, ok := event.Input().(input.Key); ok {
+				if action, bound := b.tree.Keys.ActionFor(key); bound && (action == base.FocusNext || action == base.FocusPrev) {
+					return scene.EventResult{Consumed: event.FocusNext(action == base.FocusPrev)}
+				}
 			}
 			return scene.EventResult{Consumed: b.Handle(event.Input())}
 		},
@@ -177,9 +191,11 @@ func (b *browser) show() {
 }
 
 func (b *browser) Handle(ev input.Event) bool {
-	if key, ok := ev.(input.Key); ok && key.Down() && key.Rune == 'q' {
-		b.runtime.Quit()
-		return true
+	if key, ok := ev.(input.Key); ok {
+		if action, bound := b.tree.Keys.ActionFor(key); bound && action == quitBrowser {
+			b.runtime.Quit()
+			return true
+		}
 	}
 	return false
 }
@@ -192,18 +208,11 @@ func preview(of entry, theme kit.Theme) []text.Line {
 		return []text.Line{text.Of(of.path+" is a directory", theme.Muted)}
 	}
 	// Preview budgets bound retained file content independently of terminal size.
-	file, err := openPreview(of.path)
+	file, err := regularfile.Open(of.path)
 	if err != nil {
 		return []text.Line{text.Of(err.Error(), theme.Danger)}
 	}
 	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil {
-		return []text.Line{text.Of(err.Error(), theme.Danger)}
-	}
-	if !info.Mode().IsRegular() {
-		return []text.Line{text.Of("Preview requires a regular file", theme.Danger)}
-	}
 	body, err := io.ReadAll(io.LimitReader(file, maxPreviewBytes))
 	if err != nil {
 		return []text.Line{text.Of(err.Error(), theme.Danger)}

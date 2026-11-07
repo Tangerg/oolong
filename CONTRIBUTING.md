@@ -12,10 +12,10 @@ Before changing behaviour or an exported API, read the boundaries in the
 
 - **Go 1.27 or newer.** Every module declares and independently tests that same language floor, so a workspace
   build cannot hide a newer language dependency from a downstream user.
-- **Pinned checkers.** `golangci-lint` v2 (CI pins v2.14.0), `deadcode` from `golang.org/x/tools` (v0.50.0),
-  `gofumpt` (`v0.11.1-0.20260820074422-a2bc6805583d`), `shfmt` (v3.13.1), and `govulncheck` (v1.8.0). API and
-  release checks pin `golang.org/x/exp/cmd/apidiff` and `golang.org/x/exp/cmd/gorelease` at
-  `v0.0.0-20261007192929-f45ad48fbe92`.
+- **Pinned checkers.** [`scripts/tools.sh`](./scripts/tools.sh) owns the versions used by CI and release
+  admission. Run `scripts/tools.sh list` to inspect them, `scripts/tools.sh install` to install them, and
+  `scripts/tools.sh check` to verify the Go build identity of the binaries on `PATH`. An optional list of
+  tool names limits each command. Ensure your Go binary directory is on `PATH`.
 - **Node.js 22.18 or newer** when changing Markdown or preparing a release. The exact documentation toolchain
   is in `package-lock.json`.
 - Tests use the standard `testing` package.
@@ -56,6 +56,7 @@ Before opening a pull request, run the whole gate CI runs:
 
 ```sh
 set -eu
+scripts/tools.sh check
 unformatted=$(gofumpt -l .)
 test -z "$unformatted"
 shfmt -d scripts
@@ -89,8 +90,10 @@ Fuzz targets run in CI on every push. Run one locally with:
 cd ui && go test ./core/input/ -run '^$' -fuzz FuzzParserDoesNotCareHowBytesArrive -fuzztime=30s
 ```
 
-The inline terminal tests run the renderer's actual output through the pinned xterm emulator. A fixed-size
-test screen cannot reproduce the terminal's own reflow during a resize.
+The terminal tests run actual renderer output through the pinned xterm emulator. They cover inline reflow
+and stateful Screen diff/full sequences, including styles, links, wide cells, resize and cursor changes.
+The sequence model uses literal widths for a bounded character set, independently of the production width
+estimator. Native graphics and terminal-specific emoji presentation need separate destination tests.
 
 ## Boundaries
 

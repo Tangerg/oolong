@@ -9,7 +9,7 @@ import (
 // produce no rows at one width and visible content at another. Keeping the children
 // together also gives a retained Block the same semantics outside its original Doc.
 type listItem struct {
-	body   documentView
+	body   Snapshot
 	prefix blockPrefix
 	marker *prefixMark
 }

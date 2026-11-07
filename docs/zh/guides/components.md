@@ -22,7 +22,7 @@ contentType: How-to
 
 ## 装配实际部件
 
-`scene.Group` 接收带 key 的 `scene.Item` 子项与布局函数。覆盖层使用 `scene.Overlay` 提供实际挂载与模态边界。绘制、焦点、路由、生命周期和语义观察由这些相同部件决定。
+`scene.Group` 接收带 key 的 `scene.Item` 子项与布局函数。覆盖层通过 `scene.Group` 的 `GroupConfig.Overlay` 配置实际挂载，`GroupConfig.Modal` 配置模态边界。绘制、焦点、路由、生命周期和语义观察由这些相同部件决定。
 
 创建一次并保留组件实例。重复调用 `Element()` 是安全的；每次绘制都重建控制器，会丢失身份与手势。在 `Prepare` 前的所有者阶段更新 group 成员，然后绘制稳定的结果树。
 

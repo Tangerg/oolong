@@ -3,6 +3,7 @@ package program
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func TestNormalizedInputBudgetPreservesEdges(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := &pipeSource{events: make(chan input.Event, 2)}
-	pipe := newInputPipe(ctx, root, source, source.Events(), Config{InputEvents: 1, InputBytes: 2})
+	pipe := newInputPipe(ctx, root, source, source.Events(), nil, Config{InputEvents: 1, InputBytes: 2})
 	source.events <- input.Key{Text: "a"}
 	source.events <- input.Key{Transition: input.Release}
 	close(source.events)
@@ -52,7 +53,7 @@ func TestOversizedNormalizedInputEndsWithAnExplicitCause(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	source := &pipeSource{events: make(chan input.Event, 1)}
-	pipe := newInputPipe(ctx, nil, source, source.Events(), Config{InputBytes: 2})
+	pipe := newInputPipe(ctx, nil, source, source.Events(), nil, Config{InputBytes: 2})
 	source.events <- input.Paste{Text: "too large"}
 	if _, open := <-pipe.events; open {
 		t.Fatal("oversized input retained")
@@ -70,7 +71,7 @@ func TestNormalizedInputCannotBypassTheBudgetThroughItsShape(t *testing.T) {
 		source := &pipeSource{events: make(chan input.Event, 1)}
 		source.events <- tc.event
 		close(source.events)
-		pipe := newInputPipe(t.Context(), nil, source, source.Events(), Config{InputBytes: 2})
+		pipe := newInputPipe(t.Context(), nil, source, source.Events(), nil, Config{InputBytes: 2})
 		if item, open := <-pipe.events; open {
 			t.Errorf("%T bypassed budget with a charge of %d", tc.event, item.bytes)
 		}
@@ -84,7 +85,7 @@ func TestNormalizedInputCannotBypassTheBudgetThroughItsShape(t *testing.T) {
 func TestSceneCannotRetainAMutableInputAlias(t *testing.T) {
 	p, _ := taskOwner(t)
 	mouse := &input.Mouse{}
-	arrival := p.root.CaptureInput(mouse)
+	arrival := p.root.CaptureInput(mouse, nil)
 	mouse.Action = input.MouseDown
 	if arrival.Input() != nil || p.root.HandleInput(arrival) {
 		t.Fatal("mutable input escaped the capture boundary")
@@ -104,7 +105,7 @@ func TestInputSourceFailureUnwindsOnTheProgramOwner(t *testing.T) {
 	s := &sourceWithResult{result: func() error { called = true; panic(cause) }}
 	s.events = make(chan input.Event)
 	close(s.events)
-	p := newInputPipe(t.Context(), nil, s, s.Events(), Config{})
+	p := newInputPipe(t.Context(), nil, s, s.Events(), nil, Config{})
 	<-p.done
 	if called {
 		t.Fatal("input worker invoked external status callback")
@@ -127,7 +128,7 @@ func TestDefaultInputBudgetDeliversALargeBracketedPaste(t *testing.T) {
 		source.events <- ev
 	}
 	close(source.events)
-	pipe := newInputPipe(t.Context(), nil, source, source.Events(), Config{})
+	pipe := newInputPipe(t.Context(), nil, source, source.Events(), nil, Config{})
 	var delivered strings.Builder
 	for item := range pipe.events {
 		paste, ok := item.event.Input().(input.Paste)
@@ -139,5 +140,45 @@ func TestDefaultInputBudgetDeliversALargeBracketedPaste(t *testing.T) {
 	}
 	if err := pipe.err(); err != nil || delivered.String() != strings.ToValidUTF8(text, "�") {
 		t.Fatalf("delivered %d bytes; input ended with %v", delivered.Len(), err)
+	}
+}
+
+func TestInputCompletionFailureUnwindsOnTheProgramOwner(t *testing.T) {
+	for _, exit := range []string{"panic", "Goexit"} {
+		t.Run(exit, func(t *testing.T) {
+			cause := errors.New("completion query failed")
+			root, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			source := &pipeSource{events: make(chan input.Event, 1)}
+			source.events <- input.Mouse{Action: input.MouseDown}
+			close(source.events)
+			pipe := newInputPipe(t.Context(), root, source, source.events, func(time.Time) (uint64, bool) {
+				if exit == "Goexit" {
+					runtime.Goexit()
+				}
+				panic(cause)
+			}, Config{})
+			<-pipe.done
+			if _, ok := <-pipe.events; ok {
+				t.Fatal("failed proof admitted input")
+			}
+			var recovered any
+			returned := false
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				defer func() { recovered = recover() }()
+				_ = pipe.err()
+				returned = true
+			}()
+			<-done
+			failure, _ := recovered.(error)
+			if returned || exit == "panic" && !errors.Is(failure, cause) || exit == "Goexit" && recovered != nil {
+				t.Fatalf("returned=%t recovered=%v", returned, recovered)
+			}
+		})
 	}
 }

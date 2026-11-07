@@ -166,6 +166,40 @@ func TestDialogTraversesFocusOncePerKeyGoingDown(t *testing.T) {
 	}
 }
 
+func TestDialogHonorsExplicitTabBinding(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+	keys := base.DefaultDialogKeys()
+	keys.Bind(base.Close, input.Chord{Code: input.Tab})
+	body := base.NewButton(base.ButtonConfig{Label: "inside"})
+	dialog := base.NewDialog(base.DialogConfig{Initial: true, Content: body.Element(), Keys: keys})
+	root := scenes.Mount(dialog)
+	root.Draw(grid.NewSurface(20, 3).View())
+	if !root.Handle(input.Key{Code: input.Tab}) || dialog.Open() {
+		t.Fatal("Tab did not run its explicit Close action")
+	}
+}
+
+func TestDeferredDialogTraversalUsesKeyboardLease(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+	keys, resolve := deferredKeys(base.FocusNext, base.FocusPrev)
+	first := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }})
+	second := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }})
+	content := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: first}, {Element: second}}})
+	dialog := base.NewDialog(base.DialogConfig{Initial: true, Content: content.Element(), Keys: keys})
+	root := scenes.Mount(dialog)
+	root.Draw(grid.NewSurface(20, 3).View())
+	focusElement(t, first)
+	if !root.Handle(input.Key{Rune: 'x'}) || *resolve == nil {
+		t.Fatal("dialog traversal was not deferred")
+	}
+	(*resolve)()
+	if !second.Focused() {
+		t.Fatal("deferred traversal did not move focus after the event expired")
+	}
+}
+
 func TestDialogReopenWaitsForDetachedContentCleanup(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)

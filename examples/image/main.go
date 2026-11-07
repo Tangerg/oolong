@@ -40,7 +40,7 @@ func main() {
 }
 
 func run(ctx context.Context, path string, host program.Host) (err error) {
-	data, err := os.ReadFile(path) //nolint:gosec // The user selects the PNG to display.
+	data, err := readPNG(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,8 @@ func viewer(picture *kit.Image, quit func()) scene.Element {
 		Focusable: func() bool { return true },
 		Paint: func(frame scene.Frame) {
 			width, height := frame.Size()
-			frame.Text(0, 0, "1 full   2 left   3 right   q quit", grid.Style{})
+			kit.Help{Keys: &keys, Show: []keymap.Action{full, left, right, exit}}.
+				Draw(frame.View.Sub(grid.Area(0, 0, width, 1)))
 			preview := *picture
 			preview.MaxRows = max(0, height-1)
 			preview.Draw(frame.View.Sub(grid.Area(0, 1, width, preview.MaxRows)))

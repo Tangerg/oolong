@@ -55,10 +55,12 @@ const defaultTranscriptItems = 64
 
 // TranscriptConfig combines reading policy, bounded retention and an optional publication owner.
 type TranscriptConfig struct {
-	Key            string
-	Name           string
-	Publisher      TranscriptPublisher
-	Retention      Retention
+	Key       string
+	Name      string
+	Publisher TranscriptPublisher
+	Retention Retention
+	// PublishPartial permits terminal failures too. A failed document with no
+	// body transfers an empty capture while its item retains the failure cause.
 	PublishPartial bool
 	// KeepCompleted retains this many trailing items of the complete leading run.
 	// It must leave at least one reference available within MaxItems.
@@ -256,6 +258,10 @@ func (t *Transcript) Sticky() *Sticky { return &t.sticky }
 
 func (t *Transcript) Len() int { return t.entries.Len() }
 
+// ContentRevision is the content identity used by scene semantics and derived
+// projections. Width changes never advance it.
+func (t *Transcript) ContentRevision() uint64 { return t.revision }
+
 // Width is the last committed layout width; preparing or aborting a frame does not advance it.
 func (t *Transcript) Width() int { return t.geometry.Value().Width() }
 
@@ -334,8 +340,8 @@ func (t *Transcript) publish() {
 	completed := 0
 	for item := range t.entries.Values() {
 		change := item.content()
-		complete := change.State == content.Final || t.cfg.PublishPartial && change.State == content.Partial
-		if change.Body == nil || !complete {
+		complete := change.State == content.Final || t.cfg.PublishPartial && (change.State == content.Partial || change.State == content.Failed)
+		if !complete {
 			break
 		}
 		completed++
@@ -421,7 +427,14 @@ func (t *Transcript) Last() Block {
 func (t *Transcript) Stage(frame scene.Frame, width int) TranscriptLayout {
 	requireProjection(t.element, frame)
 	width = max(width, 0)
-	state := TranscriptLayout{key: transcriptLayoutKey{owner: t.namespace, revision: t.revision, width: width}, start: t.start, first: t.FirstBlock()}
+	key := transcriptLayoutKey{owner: t.namespace, revision: t.revision, width: width}
+	if previous := t.geometry.Value(); previous.key == key {
+		// Only an admitted immutable projection can be reused; an aborted frame
+		// must not replace the geometry or retain a second cache of its content.
+		t.geometry.Stage(frame, previous)
+		return previous
+	}
+	state := TranscriptLayout{key: key, start: t.start, first: t.FirstBlock()}
 	top := t.start
 	for item := range t.entries.Values() {
 		change := item.content()

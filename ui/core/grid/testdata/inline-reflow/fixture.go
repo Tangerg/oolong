@@ -50,7 +50,10 @@ func main() {
 		publicationScenario(),
 		clippedHeightScenario(),
 	}
-	check(json.NewEncoder(os.Stdout).Encode(scenarios))
+	check(json.NewEncoder(os.Stdout).Encode(struct {
+		Inline []scenario       `json:"inline"`
+		Screen []screenSequence `json:"screen"`
+	}{scenarios, screenSequences()}))
 }
 
 func resizeScenario(name string, cursorRow int) scenario {

@@ -19,6 +19,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -50,12 +51,14 @@ type reader struct {
 	scope    *program.Scope
 	spinner  kit.Spinner
 	stepErr  error
+	keys     keymap.Map
 }
 
 // Tests control the mock delivery pace without introducing real-time waits.
 const (
-	piece = 7
-	pace  = 60 * time.Millisecond
+	piece               = 7
+	pace                = 60 * time.Millisecond
+	leave keymap.Action = "leave"
 )
 
 func newReader(runtime *program.InlineRuntime) *reader { return read(runtime, piece, pace) }
@@ -70,6 +73,7 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 		pieces:  pieces(answer(), size),
 		spinner: kit.Spinner{Theme: theme, Glyphs: glyphs, Label: "writing"},
 	}
+	r.keys.Bind(leave, input.Ctrl.Rune('c'))
 	// Appearance is application composition: the three peer modules still share no
 	// import edge and expose only their core text boundary to one another.
 	look := markdownlook.New(theme, glyphs)
@@ -156,7 +160,10 @@ func (r *reader) paintStatus(frame scene.Frame) {
 	case err != nil:
 		kit.Label{Text: err.Error(), Style: r.theme.Danger}.Draw(frame.View)
 	case change.State == content.Final:
-		kit.Label{Text: "that is the whole answer — ctrl+c to leave", Style: r.theme.Muted}.Draw(frame.View)
+		x := frame.Text(0, 0, "that is the whole answer — ", r.theme.Muted)
+		width, _ := frame.Size()
+		kit.Help{Theme: r.theme, Keys: &r.keys, Show: []keymap.Action{leave}}.
+			Draw(frame.View.Sub(grid.Area(x, 0, width-x, 1)))
 	default:
 		r.spinner.Draw(frame.View)
 	}
@@ -169,7 +176,7 @@ func (r *reader) Handle(ev input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	if key.Rune == 'c' && key.Mods.Has(input.Ctrl) {
+	if action, bound := r.keys.ActionFor(key); bound && action == leave {
 		r.runtime.Quit()
 		return true
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/oolong/extensions/latex"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -34,17 +35,23 @@ type latexScreen struct {
 	runtime *program.Runtime
 	theme   kit.Theme
 	formula *latex.Formula
+	keys    keymap.Map
 }
+
+const quitLatex keymap.Action = "quit"
 
 func newLatex(runtime *program.Runtime) *latexScreen {
 	theme := kit.Suited(runtime.Environment().Ground())
 	look := latexlook.New(theme, runtime.Environment().Locale())
 	look.Align = layout.Center
-	return &latexScreen{
+	screen := &latexScreen{
 		runtime: runtime,
 		theme:   theme,
 		formula: latex.Render(latexSource, look),
 	}
+	screen.keys.Bind(quitLatex, input.Chord{Rune: 'q'})
+	screen.keys.Bind(quitLatex, input.Ctrl.Rune('c'))
+	return screen
 }
 
 func (s *latexScreen) Draw(view grid.View) {
@@ -60,7 +67,7 @@ func (s *latexScreen) Draw(view grid.View) {
 	top := max((height-wanted)/2, 0)
 	s.formula.Draw(rows[1].Sub(grid.Area(0, top, width, wanted)))
 
-	kit.Label{Text: "q quits · latex.Render → *latex.Formula", Style: s.theme.Subtle}.Draw(rows[2])
+	kit.Help{Theme: s.theme, Keys: &s.keys, Show: []keymap.Action{quitLatex}}.Draw(rows[2])
 }
 
 func (s *latexScreen) Handle(event input.Event) bool {
@@ -68,7 +75,7 @@ func (s *latexScreen) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	if key.Rune != 'q' && (key.Rune != 'c' || !key.Mods.Has(input.Ctrl)) {
+	if action, bound := s.keys.ActionFor(key); !bound || action != quitLatex {
 		return false
 	}
 	s.runtime.Quit()

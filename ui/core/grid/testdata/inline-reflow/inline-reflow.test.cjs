@@ -4,6 +4,7 @@ const test = require('node:test');
 const { Terminal } = require('@xterm/headless');
 
 const scenarios = JSON.parse(fs.readFileSync(0, 'utf8'));
+require('./frame-sequence.cjs')(scenarios.screen);
 
 function write(terminal, output) {
   return new Promise(resolve => terminal.write(output, resolve));
@@ -56,7 +57,7 @@ function assertDisplay(terminal, expected, label) {
   }
 }
 
-for (const scenario of scenarios) {
+for (const scenario of scenarios.inline) {
   test(scenario.name, async () => {
     const terminal = new Terminal({
       cols: scenario.size.columns,

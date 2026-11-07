@@ -37,6 +37,10 @@ const (
 	waiting = "waiting"
 	running = "running"
 	done    = "done"
+
+	dashboardTickInterval = 120 * time.Millisecond
+	activityHistoryLength = 64
+	maximumUnitsPerTick   = 4
 )
 
 type task struct {
@@ -114,7 +118,7 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	if err != nil {
 		panic(err)
 	}
-	d.timer, err = runtime.Every(d.scope, 120*time.Millisecond, d.advance)
+	d.timer, err = runtime.Every(d.scope, dashboardTickInterval, d.advance)
 	if err != nil {
 		d.scope.Close()
 		panic(err)
@@ -174,8 +178,15 @@ func (d *dashboard) drawHelp(frame scene.Frame) {
 }
 
 func (d *dashboard) advance() {
-	d.work.advance(d.watch.rate.Controller().Value())
-	d.watch.record()
+	if d.work.advance(d.watch.rate.Controller().Value()) {
+		d.watch.record()
+	}
+	completed, total := d.work.completionTotals()
+	if completed >= total {
+		d.timer.Stop()
+		d.timer = nil
+		return
+	}
 	if d.motion {
 		d.watch.tick()
 	}
@@ -364,16 +375,24 @@ func (q *queue) stateStyle(of task) grid.Style {
 	}
 }
 
-func (q *queue) advance(by int) {
+func (q *queue) advance(by int) bool {
+	if by <= 0 {
+		return false
+	}
 	items := q.rows.Items()
+	changed := false
 	for i := range items {
 		item := &items[i]
 		if item.done >= item.total {
 			continue
 		}
-		item.done = min(item.done+max(by, 0), item.total)
+		item.done = min(item.done+by, item.total)
+		changed = true
 	}
-	q.rows.SetItems(items)
+	if changed {
+		q.rows.SetItems(items)
+	}
+	return changed
 }
 
 func (q *queue) completionTotals() (completedUnits, totalUnits int) {
@@ -397,12 +416,12 @@ type activity struct {
 func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 	activity := &activity{
 		theme: theme, glyphs: glyphs, of: of,
-		samples: make([]float64, 0, 64),
+		samples: make([]float64, 0, activityHistoryLength),
 	}
 	activity.rate = kit.NewSlider(kit.SliderConfig{
 		Behavior: base.SliderConfig{
 			Initial: 1,
-			Minimum: 1, Maximum: 4, Label: "rate",
+			Minimum: 1, Maximum: maximumUnitsPerTick, Label: "rate",
 		}, Theme: theme, Glyphs: glyphs,
 	})
 	activity.rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }

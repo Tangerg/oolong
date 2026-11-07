@@ -29,7 +29,7 @@ func runVisualAgent(t *testing.T, width, height int, depth grid.Depth) (*visualt
 		app, err := program.NewInline(program.InlineConfig{
 			Host:  host,
 			Color: depth, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-				agent, err := newAgent(ctx, runtime, mockBackend{})
+				agent, err := newAgent(runtime, mockBackend{})
 				if err != nil {
 					return scene.Element{}, err
 				}

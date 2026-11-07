@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/examples/internal/docprep"
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
 	"github.com/Tangerg/oolong/examples/internal/streamtask"
 	"github.com/Tangerg/oolong/extensions/markdown"
@@ -29,7 +30,7 @@ import (
 
 func main() {
 	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-		chat, err := newChat(context.Background(), runtime)
+		chat, err := newChat(runtime)
 		if err != nil {
 			return scene.Element{}, err
 		}
@@ -51,12 +52,14 @@ func main() {
 type replySource func(ctx context.Context, prompt string, dst io.Writer) error
 
 const (
-	send        keymap.Action = "send"
-	cancelReply keymap.Action = "cancel reply"
-	quit        keymap.Action = "quit"
+	send         keymap.Action = "send"
+	cancelSource keymap.Action = "cancel-source"
+	quit         keymap.Action = "quit"
 
 	ingressLimit        = 64 << 10
 	maxReplySourceBytes = 1 << 20
+	mockChunkBytes      = 13
+	mockChunkInterval   = 24 * time.Millisecond
 )
 
 // chat owns the product state and composes the lower-level state machines. Each
@@ -70,36 +73,36 @@ type chat struct {
 	glyphs  kit.Glyphs
 	keys    *keymap.Map
 
-	content      *base.Transcript
-	view         *kit.Transcript
-	composer     *kit.Composer
-	status       kit.Status
-	element      scene.Element
-	confirm      *base.Confirm
-	form         *base.Form
-	dialog       *kit.Dialog
-	pending      string
-	document     *content.StreamDocument
-	item         *base.TranscriptItem
-	render       content.Renderer
-	prepareScope *program.Scope
+	content     *base.Transcript
+	view        *kit.Transcript
+	composer    *kit.Composer
+	status      kit.Status
+	element     scene.Element
+	confirm     *base.Confirm
+	form        *base.Form
+	dialog      *kit.Dialog
+	pending     string
+	document    *content.StreamDocument
+	item        *base.TranscriptItem
+	render      content.Renderer
+	preparation *docprep.Queue
 
 	producer *program.Task
 }
 
-func newChat(ctx context.Context, runtime *program.InlineRuntime) (*chat, error) {
-	return newChatWithSource(ctx, runtime, defaultReplySource)
+func newChat(runtime *program.InlineRuntime) (*chat, error) {
+	return newChatWithSource(runtime, defaultReplySource)
 }
 
-func newChatWithSource(ctx context.Context, runtime *program.InlineRuntime, source replySource) (*chat, error) {
+func newChatWithSource(runtime *program.InlineRuntime, source replySource) (*chat, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	keys := base.DefaultEditorKeys()
 	keys.Bind(send, input.Chord{Code: input.Enter})
-	keys.Bind(cancelReply, input.Ctrl.Rune('x'))
+	keys.Bind(cancelSource, input.Ctrl.Rune('x'))
 	keys.Bind(quit, input.Ctrl.Rune('c'))
 
-	scope, err := runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // ScopeConfig passes ctx to the session lifetime owner.
+	scope, err := runtime.NewScope(program.ScopeConfig{})
 	if err != nil {
 		return nil, err
 	}
@@ -112,12 +115,18 @@ func newChatWithSource(ctx context.Context, runtime *program.InlineRuntime, sour
 		keys:    keys,
 		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
 	}
-	c.view, err = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: runtime.Publisher(), Retention: base.PublishCompleted, PublishPartial: true}, Theme: theme, Glyphs: glyphs})
+	c.preparation = docprep.New(docprep.Config{Runtime: runtime.Runtime, Scope: scope, Failed: c.setOutcome})
+	c.view, err = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: c.preparation.Publisher(runtime.Publisher()), Retention: base.PublishCompleted, PublishPartial: true}, Theme: theme, Glyphs: glyphs})
 	if err != nil {
 		scope.Close()
 		return nil, err
 	}
 	c.content = c.view.Controller()
+	if err := runtime.SetFramePreparation(func(width, _ int) (bool, error) { return c.preparation.Ready(width, c.content) }); err != nil {
+		c.content.Close()
+		scope.Close()
+		return nil, err
+	}
 	c.content.Scroll().Wheel(runtime.Environment().Wheel())
 	if err := c.view.Element().SetFocusable(func() bool { return false }); err != nil {
 		panic(err)
@@ -125,9 +134,9 @@ func newChatWithSource(ctx context.Context, runtime *program.InlineRuntime, sour
 	c.composer = kit.NewComposer(kit.ComposerConfig{
 		Theme:  theme,
 		Prompt: glyphs.Marker + " ",
-		Hints:  []keymap.Action{send, base.InsertNewline, cancelReply, quit},
+		Hints:  []keymap.Action{send, base.InsertNewline, cancelSource, quit},
 	})
-	c.composer.Controller().Placeholder = "Ask something, or press ctrl+c to leave"
+	c.composer.Controller().Placeholder = "Ask something"
 	c.composer.Controller().Keys = keys
 	c.composer.Controller().Clipboard = runtime.Clipboard()
 	c.render = markdown.NewRenderer(markdown.RendererConfig{Look: markdownlook.New(theme, glyphs)})
@@ -137,15 +146,13 @@ func newChatWithSource(ctx context.Context, runtime *program.InlineRuntime, sour
 		{Size: layout.Fixed(1), Element: status},
 		{Size: layout.Measured(1, 0), Element: c.composer.Element()},
 	}})
-	c.buildApproval() //nolint:contextcheck // Deferred approval and preparation use c.scope.Context(), derived from ctx above.
+	c.buildApproval()
 	c.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
 		Key:     "streaming",
-		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: c.Handle(event.Input())} }, //nolint:contextcheck // Input actions use the scope created from ctx above.
+		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: c.Handle(event.Input())} },
 		Detached: func() {
 			c.scope.Close()
-			if c.prepareScope != nil {
-				c.prepareScope.Close()
-			}
+			c.preparation.Close()
 			c.content.Close()
 		},
 	}, Items: []scene.Item{{Element: body.Element()}, {Element: c.dialog.Element()}}}).Element()
@@ -195,8 +202,8 @@ func (c *chat) Handle(event input.Event) bool {
 	case send:
 		c.requestApproval()
 		return true
-	case cancelReply:
-		c.stopReply()
+	case cancelSource:
+		c.stopSource()
 		return true
 	default:
 		return false
@@ -254,7 +261,7 @@ func (c *chat) startReply(prompt string) {
 		c.setOutcome(err)
 		return
 	}
-	c.status.Doing = "receiving — ctrl+x cancels"
+	c.status.Doing = "receiving"
 	_ = c.runtime.Session().SetTitle("receiving")
 	document := c.document
 	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: c.runtime.Dispatcher(), Limit: ingressLimit, Consume: func(batch program.ByteBatch) { c.accept(document, batch) }})
@@ -269,7 +276,8 @@ func (c *chat) startReply(prompt string) {
 }
 
 // The ingress owner appends each accepted batch once. Rendering consumes immutable
-// source snapshots in scoped tasks; a newer snapshot revokes an older delivery.
+// source snapshots; the preparation queue coalesces pending revisions without
+// pretending that cancellation has stopped an executing parser.
 func (c *chat) accept(document *content.StreamDocument, batch program.ByteBatch) {
 	// Closing an ingress does not withdraw a batch already queued on the UI owner.
 	if c.document != document || document.Current().State == content.Finalizing {
@@ -290,44 +298,13 @@ func (c *chat) accept(document *content.StreamDocument, batch program.ByteBatch)
 }
 
 func (c *chat) prepare() {
-	document, renderer := c.document, c.render
-	sourceErr := document.Current().SourceError
-	if c.prepareScope != nil {
-		c.prepareScope.Close()
-	}
-	scope, err := c.runtime.NewScope(program.ScopeConfig{Context: c.scope.Context()})
-	if err != nil {
-		c.setOutcome(errors.Join(sourceErr, err))
-		return
-	}
-	c.prepareScope = scope
-	snapshot := document.Snapshot()
-	_, err = c.runtime.Start(scope, program.Work[content.Prepared]{
-		Run: func(ctx context.Context) (content.Prepared, error) { return snapshot.Prepare(ctx, renderer), nil },
-		Apply: func(prepared content.Prepared, err error) {
-			defer scope.Close()
-			if c.document != document {
-				return
-			}
-			c.prepareScope = nil
-			if err == nil {
-				err = document.Accept(prepared)
-			}
-			if err != nil {
-				c.setOutcome(errors.Join(sourceErr, err))
-				return
-			}
-			if snapshot.Final() {
-				if prepareErr := document.Current().PrepareError; prepareErr != nil {
-					sourceErr = errors.Join(sourceErr, prepareErr)
-				}
-				c.setOutcome(sourceErr)
-			}
-		},
-	})
-	if err != nil {
-		scope.Close()
-		c.setOutcome(errors.Join(sourceErr, err))
+	document := c.document
+	if err := c.preparation.Prepare(document, c.render, func(err error) {
+		if c.document == document {
+			c.setOutcome(err)
+		}
+	}); err != nil {
+		c.setOutcome(errors.Join(document.Current().SourceError, err))
 	}
 }
 
@@ -339,16 +316,14 @@ func (c *chat) finishReply(err error) {
 		c.setOutcome(errors.Join(err, endErr))
 		return
 	}
+	c.status.Doing = "preparing final answer"
 	c.prepare()
 }
 
 func (c *chat) setOutcome(err error) {
 	document := c.document
 	c.document = nil
-	if c.prepareScope != nil {
-		c.prepareScope.Close()
-		c.prepareScope = nil
-	}
+	c.preparation.Clear()
 	c.producer.Cancel()
 	c.producer = nil
 	if document != nil && err != nil {
@@ -381,12 +356,11 @@ func (c *chat) setOutcome(err error) {
 	c.element.Invalidate()
 }
 
-func (c *chat) stopReply() {
-	if c.producer == nil {
+func (c *chat) stopSource() {
+	if !c.producer.Cancel() {
 		return
 	}
 	c.status.Doing = "cancelling"
-	c.producer.Cancel()
 	c.element.Invalidate()
 }
 
@@ -395,11 +369,11 @@ func (c *chat) stopReply() {
 // sources without replacing any application state or publication logic.
 func defaultReplySource(ctx context.Context, prompt string, dst io.Writer) error {
 	answer := reply(prompt)
-	for _, chunk := range pieces(answer, 13) {
+	for _, chunk := range pieces(answer, mockChunkBytes) {
 		select {
 		case <-ctx.Done():
 			return context.Cause(ctx)
-		case <-time.After(24 * time.Millisecond):
+		case <-time.After(mockChunkInterval):
 		}
 		n, err := io.WriteString(dst, chunk)
 		if err != nil {
@@ -426,7 +400,7 @@ func reply(prompt string) string {
 		"- provisional content may change; published captures cannot",
 		"- source and publication queues have explicit memory budgets",
 		"",
-		"> Ctrl+X cancels the source without confusing cancellation with failure.",
+		"> Source cancellation remains distinct from failure.",
 		"",
 		"When this paragraph finishes, the interface becomes idle and owns no timer.",
 		"",

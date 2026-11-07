@@ -2,10 +2,12 @@ package base
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 type benchmarkBlock struct{ bytes int }
@@ -76,6 +78,48 @@ func BenchmarkTranscriptRetainedReflow(b *testing.B) {
 				sequence++
 				candidate.Commit(sequence)
 				root.Wrote(sequence)
+			}
+		})
+	}
+}
+
+func BenchmarkTranscriptSteadyTextProjection(b *testing.B) {
+	for _, kib := range []int{4, 16, 64, 256} {
+		b.Run(fmt.Sprintf("%dKiB", kib), func(b *testing.B) {
+			transcript, err := NewTranscript(TranscriptConfig{})
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer transcript.Close()
+			line := strings.Repeat("abcdefghijklmnopqrstuvwxyz ", (kib*1024)/27+1)
+			body := text.NewBlock(text.BlockConfig{Lines: []text.Line{text.Of(line, grid.Style{})}, Wrap: true})
+			if _, addErr := transcript.Add(body); addErr != nil {
+				b.Fatal(addErr)
+			}
+			element := transcript.Element()
+			if paintErr := element.SetPaint(func(frame scene.Frame) { transcript.Stage(frame, 80) }); paintErr != nil {
+				b.Fatal(paintErr)
+			}
+			root, err := scene.NewRoot(scene.RootConfig{Element: element})
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer root.Close()
+			surface := grid.NewSurface(80, 24)
+			sequence := uint64(0)
+			paint := func() {
+				candidate, err := root.Prepare(surface.View())
+				if err != nil {
+					b.Fatal(err)
+				}
+				sequence++
+				candidate.Commit(sequence)
+				root.Wrote(sequence)
+			}
+			paint()
+			b.ReportAllocs()
+			for b.Loop() {
+				paint()
 			}
 		})
 	}

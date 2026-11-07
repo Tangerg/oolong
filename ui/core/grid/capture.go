@@ -12,6 +12,11 @@ var ErrCaptureLimit = errors.New("grid: captured content exceeds its budget")
 
 var errScrollbackPaint = fmt.Errorf("grid: scrollback cannot retain native paint regions: %w", errors.ErrUnsupported)
 
+const (
+	defaultCaptureCells = 1 << 18
+	defaultCaptureBytes = 16 << 20
+)
+
 // CaptureConfig bounds the cells and owned strings produced by a drawable. The
 // bounds cover framework allocations, not allocations made inside user callbacks.
 type CaptureConfig struct {
@@ -125,10 +130,10 @@ func (cfg CaptureConfig) normalized() (CaptureConfig, error) {
 		return CaptureConfig{}, errors.New("grid: invalid capture configuration")
 	}
 	if cfg.MaxCells == 0 {
-		cfg.MaxCells = 1 << 18
+		cfg.MaxCells = defaultCaptureCells
 	}
 	if cfg.MaxBytes == 0 {
-		cfg.MaxBytes = 16 << 20
+		cfg.MaxBytes = defaultCaptureBytes
 	}
 	return cfg, nil
 }

@@ -68,7 +68,6 @@ func (p *Viewport) Element() scene.Element {
 	return p.group.Element()
 }
 
-// Content returns the current child identity.
 func (p *Viewport) Content() scene.Element { item, _ := p.group.At(0); return item.Element }
 
 // SetContent replaces the child and requests focus transfer when appropriate. It panics for an invalid scene relation or mutation during presentation or observation.

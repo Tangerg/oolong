@@ -21,6 +21,8 @@ import (
 // those would turn this test helper into the terminal emulator it is meant to avoid.
 var ErrUnsupportedOutput = errors.New("ptytest: unsupported screen output")
 
+const maxGraphemeBytes = 64 << 10
+
 type screenCell struct {
 	text  string
 	trail bool
@@ -398,8 +400,8 @@ func (s *Screen) writeText(raw string) error {
 		s.putText(last)
 		// An arbitrary number of combining marks can extend even one cell.
 		// Check before retaining it as either a displayed or undecided cluster.
-		if len(cluster) > 64<<10 {
-			return fmt.Errorf("%w: grapheme exceeds 64 KiB", ErrUnsupportedOutput)
+		if len(cluster) > maxGraphemeBytes {
+			return fmt.Errorf("%w: grapheme exceeds %d bytes", ErrUnsupportedOutput, maxGraphemeBytes)
 		}
 		last = cluster
 	}

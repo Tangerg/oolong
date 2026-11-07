@@ -3,6 +3,8 @@ package program
 import (
 	"context"
 	"errors"
+	"runtime"
+	"time"
 
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -32,7 +34,7 @@ type inputPipe struct {
 	result   func() error // Transferred to the owner by closing events.
 }
 
-func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, cfg Config) *inputPipe {
+func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, writtenAt func(time.Time) (uint64, bool), cfg Config) *inputPipe {
 	count, bytes := cfg.InputEvents, cfg.InputBytes
 	if count == 0 {
 		count = defaultInputEventCapacity
@@ -45,13 +47,31 @@ func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, eve
 	if source, ok := source.(RepaintSource); ok {
 		repaints = source.Repaints()
 	}
-	go p.read(ctx, root, source, events, repaints, bytes)
+	go p.read(ctx, root, source, events, repaints, writtenAt, bytes)
 	return p
 }
 
-func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(int, int, error), limit int) {
+func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(int, int, error), writtenAt func(time.Time) (uint64, bool), limit int) {
 	defer close(p.done)
 	defer close(p.events)
+	completed := false
+	defer func() {
+		if completed {
+			return
+		}
+		// A host's completion query runs on the reader, but its abnormal exit
+		// must unwind the Run owner and its terminal cleanup, not this worker.
+		if cause := recover(); cause != nil {
+			p.result = func() error { panic(cause) }
+		} else {
+			p.result = func() error { runtime.Goexit(); return nil }
+		}
+	}()
+	p.receive(ctx, root, source, events, repaints, writtenAt, limit)
+	completed = true
+}
+
+func (p *inputPipe) receive(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(int, int, error), writtenAt func(time.Time) (uint64, bool), limit int) {
 	pending := 0
 	for {
 		var item ownerInput
@@ -72,7 +92,7 @@ func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSour
 				p.result = source.Err
 				return
 			}
-			captured := root.CaptureInput(event)
+			captured := root.CaptureInput(event, writtenAt)
 			item = ownerInput{event: captured, bytes: input.ByteSize(captured.Input())}
 		}
 		switch {

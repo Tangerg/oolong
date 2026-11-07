@@ -47,8 +47,8 @@ func TestPhysicalGeometryChangesRevokeCaptureAndQueuedCoordinates(t *testing.T) 
 		if !p.root.Handle(mouse) || *presses != 1 {
 			t.Fatal("initial written target did not capture")
 		}
-		old := p.root.CaptureInput(mouse)
-		if err := p.handleInput(p.root.CaptureInput(event)); err != nil {
+		old := p.root.CaptureInput(mouse, p.writer.WrittenAt)
+		if err := p.handleInput(p.root.CaptureInput(event, p.writer.WrittenAt)); err != nil {
 			t.Fatal(err)
 		}
 		if *cancellations != 1 {
@@ -79,7 +79,7 @@ func TestDisplayHandoverInvalidatesCoordinatesBeforeExternalOutput(t *testing.T)
 	p, presses, _ := geometryOwner(t)
 	p.host.handover = geometryHandover{}
 	mouse := input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(1, 0)}
-	old := p.root.CaptureInput(mouse)
+	old := p.root.CaptureInput(mouse, p.writer.WrittenAt)
 	err := (Session{runtime: &Runtime{p: p}}).Hand(func() error {
 		if p.root.HandleInput(old) || p.root.Handle(mouse) {
 			t.Fatal("external output reused the UI's old hit map")

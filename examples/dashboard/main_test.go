@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"image"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -14,6 +18,43 @@ import (
 	"github.com/Tangerg/oolong/ui/kit"
 	"github.com/Tangerg/oolong/ui/uitest"
 )
+
+func TestCompletedDashboardStopsPainting(t *testing.T) {
+	for _, motion := range []bool{false, true} {
+		synctest.Test(t, func(t *testing.T) {
+			host := uitest.New(t, uitest.Config{Width: 70, Height: 14})
+			var paints atomic.Int64
+			ctx, cancel := context.WithCancel(t.Context())
+			finished := make(chan error, 1)
+			go func() {
+				app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) { //nolint:contextcheck // Runtime scopes inherit Run(ctx); the builder has no separate context parameter.
+					d := newDashboard(runtime)
+					d.motion = motion
+					d.work.rows.SetItems([]task{{name: "last task", total: 1}})
+					return d.Element(), d.Element().SetPaint(func(scene.Frame) { paints.Add(1) })
+				}})
+				if err == nil {
+					err = app.Run(ctx)
+				}
+				finished <- err
+			}()
+			defer func() {
+				cancel()
+				if err := <-finished; err != nil {
+					t.Error(err)
+				}
+			}()
+			host.Shows(t, "waiting")
+			host.Shows(t, "done")
+			time.Sleep(dashboardTickInterval)
+			before := paints.Load()
+			time.Sleep(4 * dashboardTickInterval)
+			if after := paints.Load(); after != before {
+				t.Fatalf("motion=%v: completed dashboard painted %d extra frames", motion, after-before)
+			}
+		})
+	}
+}
 
 func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 	host := uitest.New(t, uitest.Config{Width: 70, Height: 14})

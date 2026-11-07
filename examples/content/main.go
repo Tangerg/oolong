@@ -15,6 +15,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -41,12 +42,14 @@ type contentScreen struct {
 	body      grid.Drawable
 	registry  *content.Registry
 	renderErr error
+	keys      keymap.Map
 }
 
 const (
 	goFormat       content.Format = "go"
 	latexFormat    content.Format = "latex"
 	markdownFormat content.Format = "markdown"
+	quitContent    keymap.Action  = "quit"
 )
 
 func newContent(runtime *program.Runtime) *contentScreen {
@@ -55,6 +58,11 @@ func newContent(runtime *program.Runtime) *contentScreen {
 	highlighter := highlight.New("github-dark")
 	formulaLook := latexlook.New(theme, runtime.Environment().Locale())
 	screen := &contentScreen{runtime: runtime, theme: theme}
+	screen.keys.Bind(keymap.Action(markdownFormat), input.Chord{Rune: '1'})
+	screen.keys.Bind(keymap.Action(goFormat), input.Chord{Rune: '2'})
+	screen.keys.Bind(keymap.Action(latexFormat), input.Chord{Rune: '3'})
+	screen.keys.Bind(quitContent, input.Chord{Rune: 'q'})
+	screen.keys.Bind(quitContent, input.Ctrl.Rune('c'))
 	registry, err := content.New(content.Config{Bindings: []content.Binding{
 		{Format: goFormat, Render: func(_ context.Context, source string) (grid.Drawable, error) {
 			return text.NewBlock(text.BlockConfig{Lines: highlighter.Lines(string(goFormat), source), Wrap: true}), nil
@@ -107,7 +115,9 @@ func (s *contentScreen) Draw(view grid.View) {
 		kit.Label{Text: s.renderErr.Error(), Style: s.theme.Danger}.Draw(rows[2])
 		return
 	}
-	kit.Label{Text: "1 Markdown · 2 Go · 3 LaTeX · q quits", Style: s.theme.Subtle}.Draw(rows[2])
+	kit.Help{Theme: s.theme, Keys: &s.keys, Show: []keymap.Action{
+		keymap.Action(markdownFormat), keymap.Action(goFormat), keymap.Action(latexFormat), quitContent,
+	}}.Draw(rows[2])
 }
 
 func (s *contentScreen) Handle(event input.Event) bool {
@@ -115,20 +125,24 @@ func (s *contentScreen) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
+	action, bound := s.keys.ActionFor(key)
+	if !bound {
+		return false
+	}
 	if s.registry != nil {
-		switch key.Rune {
-		case '1':
+		switch content.Format(action) {
+		case markdownFormat:
 			s.show(markdownFormat, contentSource)
 			return true
-		case '2':
+		case goFormat:
 			s.show(goFormat, "func main() { println(\"Oolong\") }")
 			return true
-		case '3':
+		case latexFormat:
 			s.show(latexFormat, `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`)
 			return true
 		}
 	}
-	if key.Rune != 'q' && (key.Rune != 'c' || !key.Mods.Has(input.Ctrl)) {
+	if action != quitContent {
 		return false
 	}
 	s.runtime.Quit()

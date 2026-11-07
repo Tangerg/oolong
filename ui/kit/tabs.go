@@ -29,6 +29,8 @@ type Tabs struct {
 	controller *base.Tabs
 }
 
+const defaultTabGap = 2
+
 // NewTabs constructs the controller and strip appearance. It panics for duplicate keys, an invalid selected child, or competing Theme and Scope sources.
 func NewTabs(config TabsConfig) *Tabs {
 	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
@@ -40,7 +42,7 @@ func NewTabs(config TabsConfig) *Tabs {
 		t.rule = strings.Clone(config.Glyphs.Rule)
 	}
 	t.controller = base.NewTabs(base.TabsConfig{
-		Items: config.Items, Initial: config.Initial, Keys: config.Keys, NoWrap: config.NoWrap, Gap: 2, StripRows: func() int {
+		Items: config.Items, Initial: config.Initial, Keys: config.Keys, NoWrap: config.NoWrap, Gap: defaultTabGap, StripRows: func() int {
 			if t.rule != "" {
 				return 2
 			}

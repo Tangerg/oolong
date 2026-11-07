@@ -29,11 +29,12 @@ var internalAssertions = map[string]string{
 
 	// Dimensions are validated in one place for both of a renderer's buffers. The
 	// exported callers, NewSurface and Surface.Resize, document the panic themselves.
-	"extensions/markdown:documentView.arrange": "Doc measurement, drawing and row projection document refusal when combined block heights cannot fit an int",
-	"ui/core/grid:surfaceSize":                 "NewSurface and Surface.Resize document the overflow panic",
-	"ui/core/grid:normalizedOpacity":           "RGB.Blend, Color.Blend, View.Blend and View.Fade document NaN refusal before changing colors or cells",
-	"ui/core/grid:publication.requireIdle":     "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
-	"ui/core/grid:viewScope.requireWritable":   "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
+	"extensions/markdown:Snapshot.prepareLayout": "Doc and Snapshot measurement, drawing, row projection and Snapshot.PrepareWidth document refusal when combined block heights cannot fit an int",
+	"ui/core/grid:surfaceSize":                   "NewSurface and Surface.Resize document the overflow panic",
+	"ui/core/grid:normalizedOpacity":             "RGB.Blend, Color.Blend, View.Blend and View.Fade document NaN refusal before changing colors or cells",
+	"ui/core/grid:frameBuffer.setDepth":          "Screen.SetDepth and Inline.SetDepth document invalid Depth refusal; Depth.Validate runs before either canvas changes its encoding baseline",
+	"ui/core/grid:publication.requireIdle":       "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
+	"ui/core/grid:viewScope.requireWritable":     "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
 
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.
@@ -54,6 +55,12 @@ var internalAssertions = map[string]string{
 	"ui/core/scene:Prepared.requireSettlement": "Prepared.Commit and Prepared.Abort document the live candidate identity and pure-phase preconditions",
 	"ui/core/scene:Snapshot.commit":            "Snapshot.Stage enlists a snapshot at most once in its owning transaction; only that transaction can commit it",
 	"ui/core/scene:Group.rectangles":           "GroupConfig.Layout documents exactly one rectangle per item; preparation validates that contract before use",
+
+	"ui/core/program:program.frameReady":    "Runtime.SetFramePreparation documents that reentering rendering from its callback panics; the owner flag prevents a second readiness invocation before the first returns",
+	"ui/core/program:program.answerRepaint": "wait disables input while a repaint is claimed, and completeRepaint clears that claim before invoking its reply, so the owner cannot accept two pending requests",
+	"ui/core/program:inputPipe.read":        "only rethrows an existing reader panic on the Run owner after closing the input stream; FrameWriter.WrittenAt documents this cleanup-preserving transfer",
+
+	"ui/core/grid/testdata/inline-reflow:frameCursor.place": "the fixture consumes only literal cursor shapes and a seeded generator choosing block, underline or bar; it never parses caller-supplied shapes",
 
 	// Identity counters. These are uint64 and are consumed once per operation, so
 	// exhausting one is not a state a caller can arrange within a session; the

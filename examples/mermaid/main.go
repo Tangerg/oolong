@@ -19,6 +19,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/term"
@@ -59,7 +60,7 @@ func runScreen(ctx context.Context, host program.Host, prepare func(context.Cont
 		if lifetimeErr != nil {
 			return scene.Element{}, lifetimeErr
 		}
-		screen = &diagramScreen{lifetime: lifetime, runtime: runtime, images: images, prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground())}
+		screen = &diagramScreen{lifetime: lifetime, runtime: runtime, images: images, prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground()), keys: diagramKeys()}
 		screen.start(ctx, flowchart)
 		return screen.Element(), nil //nolint:contextcheck // Future input starts work through screen.lifetime, derived from ctx above.
 	}})
@@ -87,6 +88,7 @@ type diagramScreen struct {
 	open             func(context.Context, string) error
 	workers          sync.WaitGroup
 	pending, closed  bool
+	keys             *keymap.Map
 }
 
 func (s *diagramScreen) start(ctx context.Context, source string) {
@@ -261,7 +263,7 @@ func (s *diagramScreen) Draw(view grid.View) {
 	}
 	s.drawActions(view.Sub(grid.Area(0, 0, width, 1)))
 	s.doc.Draw(view.Sub(grid.Area(0, 1, width, max(0, height-2))))
-	status, style := "r replaces source · q quits", s.theme.Subtle
+	status, style := "", s.theme.Subtle
 	switch {
 	case s.err != nil:
 		status, style = s.err.Error(), s.theme.Danger
@@ -270,7 +272,12 @@ func (s *diagramScreen) Draw(view grid.View) {
 	case s.notice != "":
 		status = s.notice
 	}
-	kit.Label{Text: status, Style: style}.Draw(view.Sub(grid.Area(0, height-1, width, 1)))
+	footer := view.Sub(grid.Area(0, height-1, width, 1))
+	if status != "" {
+		kit.Label{Text: status, Style: style}.Draw(footer)
+	} else {
+		kit.Help{Theme: s.theme, Keys: s.keys, Show: []keymap.Action{replaceDiagramSource, quitDiagram}}.Draw(footer)
+	}
 }
 
 func (s *diagramScreen) Handle(event input.Event) bool {
@@ -278,69 +285,68 @@ func (s *diagramScreen) Handle(event input.Event) bool {
 		return mouse.Pos.Y == 0 && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft && s.clickAction(mouse.Pos.X)
 	}
 	key, ok := event.(input.Key)
-	if !ok || !key.Down() {
+	if !ok {
 		return false
 	}
-	if key.Rune == 'q' || key.Rune == 'c' && key.Mods.Has(input.Ctrl) {
-		s.runtime.Quit()
-		return true
-	}
-	if s.act(key.Rune) {
+	if action, bound := s.keys.ActionFor(key); bound && s.act(action) {
 		s.element.Invalidate()
-		return true
-	}
-	if key.Rune == 'r' {
-		source := sequence
-		if s.source == sequence {
-			source = flowchart
-		}
-		s.start(s.lifetime.Context(), source)
 		return true
 	}
 	return false
 }
 
 const (
-	flowchart = "flowchart TD\n Owner --> Worker --> PNG --> Owner --> Terminal"
-	sequence  = "sequenceDiagram\n Owner->>Worker: Prepare source\n Worker-->>Owner: Neutral PNG\n Owner->>Terminal: Upload accepted image"
+	flowchart        = "flowchart TD\n Owner --> Worker --> PNG --> Owner --> Terminal"
+	sequence         = "sequenceDiagram\n Owner->>Worker: Prepare source\n Worker-->>Owner: Neutral PNG\n Owner->>Terminal: Upload accepted image"
+	diagramActionGap = 2
+	viewerTimeout    = 5 * time.Second
 )
 
 func (s *diagramScreen) drawActions(view grid.View) {
 	x := 0
 	for _, action := range diagramActions() {
-		kit.Label{Text: action.label, Style: s.theme.Accent}.Draw(view.Sub(grid.Area(x, 0, text.Width(action.label), 1)))
-		x += text.Width(action.label) + 2
+		label := action.text(s.keys)
+		kit.Label{Text: label, Style: s.theme.Accent}.Draw(view.Sub(grid.Area(x, 0, text.Width(label), 1)))
+		x += text.Width(label) + diagramActionGap
 	}
 }
 
 func (s *diagramScreen) clickAction(x int) bool {
 	offset := 0
 	for _, action := range diagramActions() {
-		width := text.Width(action.label)
+		width := text.Width(action.text(s.keys))
 		if x >= offset && x < offset+width {
-			consumed := s.act(action.key)
+			consumed := s.act(action.action)
 			s.element.Invalidate()
 			return consumed
 		}
-		offset += width + 2
+		offset += width + diagramActionGap
 	}
 	return false
 }
 
-func (s *diagramScreen) act(key rune) bool {
-	switch key {
-	case 'c':
+func (s *diagramScreen) act(action keymap.Action) bool {
+	switch action {
+	case quitDiagram:
+		s.runtime.Quit()
+	case replaceDiagramSource:
+		source := sequence
+		if s.source == sequence {
+			source = flowchart
+		}
+		s.start(s.lifetime.Context(), source)
+	case copyDiagramSource:
 		if !s.runtime.Clipboard().Copy(s.source) {
 			s.notice = "Clipboard unavailable"
 		} else {
 			s.notice = "Source copied"
 		}
-	case 'o', 'p':
+	case openDiagram, copyDiagramPath:
 		path, ok := s.exportedPath()
 		if !ok {
 			return true
 		}
-		if key == 'p' {
+		if action == copyDiagramPath {
 			if !s.runtime.Clipboard().Copy(path) {
 				s.notice = "Clipboard unavailable: " + path
 			} else {
@@ -379,7 +385,7 @@ func (s *diagramScreen) openExported(path string) {
 	_, err := s.runtime.Start(s.scope, program.Work[struct{}]{
 		Run: func(ctx context.Context) (struct{}, error) {
 			defer s.workers.Done()
-			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, viewerTimeout)
 			defer cancel()
 			return struct{}{}, open(ctx, path)
 		},

@@ -35,6 +35,9 @@ type Config struct {
 
 // Validate rejects impossible resource policies without opening a host.
 func (c Config) Validate() error {
+	if err := c.Color.Validate(); err != nil {
+		return err
+	}
 	if c.Host != nil && identity.IsNil(c.Host) {
 		return errors.New("program: supplied host is nil")
 	}

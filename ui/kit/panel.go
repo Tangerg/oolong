@@ -46,7 +46,6 @@ func (p *Panel) ensure() {
 
 func (p *Panel) Element() scene.Element { p.ensure(); return p.group.Element() }
 
-// Content returns the scene child currently inside the panel.
 func (p *Panel) Content() scene.Element { item, _ := p.group.At(0); return item.Element }
 
 // SetContent replaces the child and requests focus transfer from the old content. It panics for an invalid scene relation or mutation during presentation or observation.

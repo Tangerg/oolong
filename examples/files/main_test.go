@@ -56,7 +56,7 @@ func TestTheKeyboardMovesBetweenPanesAndTheBranchesOpen(t *testing.T) {
 	// knows about the other.
 	host.Press(input.Tab)
 	host.Press(input.Down)
-	host.Shows(t, "tab: other pane")
+	host.Shows(t, "tab focus next")
 
 	host.Type("q")
 	if err := <-done; err != nil {

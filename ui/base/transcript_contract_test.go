@@ -336,7 +336,7 @@ func TestTranscriptPointerUsesArrivalFrameLocalProjection(t *testing.T) {
 	m.Scroll().ToTop()
 	r := transcriptScene(t, m)
 	transcriptCommit(t, r, 20, 2, 1)
-	captured := r.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0)})
+	captured := r.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0), At: time.Now()}, func(time.Time) (uint64, bool) { return 1, true })
 	m.Scroll().By(1)
 	candidate, err := r.Prepare(grid.NewSurface(20, 2).View())
 	if err != nil {
@@ -373,14 +373,14 @@ func TestTranscriptSelectionUsesItsConfiguredClickInterval(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			model := transcriptModel(t, base.TranscriptConfig{})
 			transcriptAdd(t, model, transcriptBody("alpha beta"))
-			started := time.Unix(100, 0)
-			root, err := scene.NewRoot(scene.RootConfig{Element: model.Element(), Now: func() time.Time { return started }})
+			root, err := scene.NewRoot(scene.RootConfig{Element: model.Element()})
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(root.Close)
 			transcriptCommit(t, root, 20, 1, 1)
 			model.Selection().SetClickInterval(test.interval)
+			started := time.Now()
 			for _, elapsed := range []time.Duration{0, 50 * time.Millisecond} {
 				press := input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(1, 0), At: started.Add(elapsed)}
 				if !root.Handle(press) {

@@ -5,6 +5,7 @@ import (
 	"image"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -265,7 +266,7 @@ func TestListRejectsAnOldHitAfterCollectionReplacement(t *testing.T) {
 	list.SetItems([]string{"old a", "old b"})
 	root := scenes.Mount(list)
 	root.Draw(grid.NewSurface(10, 2).View())
-	old := root.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 1)})
+	old := root.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 1), At: time.Now()}, func(time.Time) (uint64, bool) { return 1, true })
 	list.SetItems([]string{"new a", "new b"})
 	root.Draw(grid.NewSurface(10, 2).View())
 	if root.HandleInput(old) || list.Selected() != 0 {

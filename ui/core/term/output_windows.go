@@ -24,6 +24,8 @@ type terminalOutput struct {
 
 var cancelSynchronousIO = windows.NewLazySystemDLL("kernel32.dll").NewProc("CancelSynchronousIo")
 
+const writeDeadlinePollInterval = time.Millisecond
+
 func newTerminalOutput(file *os.File) (*terminalOutput, error) {
 	if err := cancelSynchronousIO.Find(); err != nil {
 		return nil, err
@@ -66,7 +68,7 @@ func (o *terminalOutput) Write(value []byte) (n int, err error) {
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(time.Millisecond)
+		ticker := time.NewTicker(writeDeadlinePollInterval)
 		defer ticker.Stop()
 		for {
 			select {

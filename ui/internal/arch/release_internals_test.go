@@ -212,7 +212,7 @@ func testReleaseGatesKeepTheSelectedModule(t *testing.T, root string) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"release.sh", "module-tag.sh", "build-module.sh"} {
+	for _, name := range []string{"release.sh", "module-tag.sh", "build-module.sh", "tools.sh"} {
 		body, err := readRepositoryFile(filepath.Join(repoRoot(t), "scripts", name))
 		if err != nil {
 			t.Fatal(err)
@@ -229,9 +229,12 @@ func testReleaseGatesKeepTheSelectedModule(t *testing.T, root string) {
 	for _, name := range []string{"apidiff", "deadcode", "golangci-lint", "gofumpt", "govulncheck", "npx", "shfmt", "npm"} {
 		write("bin/"+name, "#!/bin/sh\nprintf '%s|%s|%s\\n' \"${0##*/}\" \"$PWD\" \"$*\" >> \"$TRACE\"\n")
 	}
+	writeToolBuildInfo(t, filepath.Join(root, "bin"))
 	write("bin/go", `#!/bin/sh
 printf 'go|%s|%s\n' "$PWD" "$*" >> "$TRACE"
-if [ "$1" = -C ] && [ "$3" = mod ]; then
+if [ "$1 $2" = 'version -m' ]; then
+ cat "$3.buildinfo"
+elif [ "$1" = -C ] && [ "$3" = mod ]; then
  exec "$FIXTURE_GO" "$@"
 elif [ "$1" = -C ] && [ "$3" = list ]; then
  awk '$1 == "module" {print $2}' "$2/go.mod"

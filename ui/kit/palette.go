@@ -75,14 +75,16 @@ func (p Palette) Draw(v grid.View) {
 	}
 }
 
+const paletteDetailGap = 2
+
 func (p Palette) row(v grid.View, y, x, w int, found base.Found, style grid.Style) {
 	name := text.Highlight(found.Command.Name, found.At, style, style.Merge(p.Theme.Accent))
 	x = layout.Sum(x, name.Draw(v, x, y))
 
-	if found.Command.Title == "" || layout.Sum(x, 2) >= w {
+	if found.Command.Title == "" || layout.Sum(x, paletteDetailGap) >= w {
 		return
 	}
-	x = layout.Sum(x, 2)
+	x = layout.Sum(x, paletteDetailGap)
 	Label{Text: found.Command.Title, Style: style.Merge(p.Theme.Muted), Ellipsis: p.Glyphs.Ellipsis}.
 		Draw(v.Sub(grid.Area(x, y, layout.Remaining(w, x), 1)))
 }

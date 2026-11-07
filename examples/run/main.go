@@ -12,6 +12,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/publication"
@@ -21,7 +22,13 @@ import (
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
-const defaultEditor = "vi"
+const (
+	defaultEditor                     = "vi"
+	spinnerTickInterval               = 120 * time.Millisecond
+	leaveRunner         keymap.Action = "leave"
+	openEditor          keymap.Action = "editor"
+	suspendRunner       keymap.Action = "suspend"
+)
 
 func main() {
 	command := os.Args[1:]
@@ -48,6 +55,7 @@ type runner struct {
 	runtime *program.InlineRuntime
 	theme   kit.Theme
 	command []string
+	keys    *keymap.Map
 
 	// Escape sequences may span command chunks, so one decoder must retain colour
 	// and partial-sequence state for the whole output stream.
@@ -60,7 +68,7 @@ type runner struct {
 func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
-	r := &runner{runtime: runtime, theme: theme, command: command}
+	r := &runner{runtime: runtime, theme: theme, command: command, keys: runnerKeys()}
 	r.out.Base = theme.Text
 	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs}
 
@@ -72,7 +80,7 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 		r.finish(err)
 		return r
 	}
-	if _, err := runtime.Every(scope, 120*time.Millisecond, r.spinner.Tick); err != nil {
+	if _, err := runtime.Every(scope, spinnerTickInterval, r.spinner.Tick); err != nil {
 		scope.Close()
 		r.finish(err)
 		return r
@@ -81,6 +89,22 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 		r.finish(err)
 	}
 	return r
+}
+
+func runnerKeys() *keymap.Map {
+	keys := new(keymap.Map)
+	keys.Bind(leaveRunner, input.Ctrl.Rune('c'))
+	keys.Bind(openEditor, input.Ctrl.Rune('e'))
+	keys.Bind(suspendRunner, input.Ctrl.Rune('z'))
+	return keys
+}
+
+func (r *runner) hint(action keymap.Action) string {
+	bound := r.keys.Keys(action)
+	if len(bound) == 0 {
+		return ""
+	}
+	return bound[0].String() + ": " + action.String()
 }
 
 func (r *runner) start(scope *program.Scope) (*program.Task, error) {
@@ -191,28 +215,41 @@ func (r *runner) Draw(v grid.View) {
 	r.out.Open().Draw(rows[0], 0, 0)
 
 	if r.result != "" {
-		kit.Label{Text: r.result + "   ctrl+c: leave", Style: r.theme.Muted}.Draw(rows[1])
+		kit.Label{Text: r.result + "   " + r.hint(leaveRunner), Style: r.theme.Muted}.Draw(rows[1])
 		return
 	}
 	spinner := r.spinner
-	spinner.Label = strings.Join(r.command, " ") + " — ctrl+e: editor, ctrl+z: suspend"
+	var hints []string
+	for _, action := range []keymap.Action{openEditor, suspendRunner} {
+		if hint := r.hint(action); hint != "" {
+			hints = append(hints, hint)
+		}
+	}
+	spinner.Label = strings.Join(r.command, " ")
+	if len(hints) != 0 {
+		spinner.Label += " — " + strings.Join(hints, ", ")
+	}
 	spinner.Draw(rows[1])
 }
 
 func (r *runner) Handle(ev input.Event) bool {
 	key, ok := ev.(input.Key)
-	if !ok || !key.Down() || !key.Mods.Has(input.Ctrl) {
+	if !ok {
 		return false
 	}
-	switch key.Rune {
-	case 'c':
+	action, bound := r.keys.ActionFor(key)
+	if !bound {
+		return false
+	}
+	switch action {
+	case leaveRunner:
 		r.runtime.Quit()
-	case 'e':
+	case openEditor:
 		// The terminal is given away and taken back: the modes this session turned on
 		// go off in the opposite order, the child gets a terminal with no idea a
 		// program was using it, and the whole of that happens again in reverse.
 		r.actionErr = r.runtime.Session().Hand(edit)
-	case 'z':
+	case suspendRunner:
 		r.actionErr = r.runtime.Session().Suspend()
 	default:
 		return false

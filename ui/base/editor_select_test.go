@@ -51,10 +51,7 @@ func editorWith(text string) *base.Editor {
 	return e
 }
 
-// TestEditorSelectsWithShiftAndAnyMovement is the whole rule. Nothing was taught to
-// select: shift with a way of moving is what selects, so a binding added for a new
-// way of moving selects with shift on the day it is added.
-func TestEditorSelectsWithShiftAndAnyMovement(t *testing.T) {
+func TestEditorDefaultBindingsExtendSelection(t *testing.T) {
 	e := editorWith("hello world")
 	for range 5 {
 		e.Handle(shift(input.Right))
@@ -67,6 +64,54 @@ func TestEditorSelectsWithShiftAndAnyMovement(t *testing.T) {
 	e.Handle(shift(input.Right))
 	if got := e.Selected(); got != "hello " {
 		t.Errorf("extended to %q, want %q", got, "hello ")
+	}
+}
+
+func TestEditorHonorsExplicitShiftBinding(t *testing.T) {
+	keys := base.DefaultEditorKeys()
+	keys.Bind(base.DeleteForward, input.Shift.With(input.Left))
+	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
+	editor.Keys = keys
+	editor.SetCursor(0, 2)
+	if !editor.Handle(shift(input.Left)) || editor.Text() != "abd" {
+		t.Fatalf("explicit shifted deletion produced %q, want abd", editor.Text())
+	}
+}
+
+func TestEditorShiftPrefixReachesMatcher(t *testing.T) {
+	keys := base.DefaultEditorKeys()
+	keys.Bind(base.SelectAll, input.Shift.With(input.Left), input.Ctrl.Rune('a'))
+	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
+	editor.Keys = keys
+	editor.SetCursor(0, 2)
+	editor.Handle(shift(input.Left))
+	if _, offset := editor.Cursor(); offset != 2 || editor.Selected() != "" {
+		t.Fatal("unfinished shifted sequence changed the selection")
+	}
+	editor.Handle(input.Key{Code: input.Character, Rune: 'a', Mods: input.Ctrl})
+	if got := editor.Selected(); got != "abcd" {
+		t.Fatalf("shifted sequence selected %q, want abcd", got)
+	}
+}
+
+func TestEditorSelectionExtensionBelongsToTheAction(t *testing.T) {
+	keys := base.DefaultEditorKeys()
+	keys.Unbind(input.Shift.With(input.Left))
+	keys.Bind(base.ExtendLeft, input.Ctrl.Rune('b'))
+	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
+	editor.Keys = keys
+	editor.SetCursor(0, 2)
+	if editor.Handle(shift(input.Left)) {
+		t.Fatal("unbound shifted movement was consumed")
+	}
+	if _, offset := editor.Cursor(); offset != 2 || editor.Selected() != "" {
+		t.Fatal("unbound shifted movement changed the selection")
+	}
+	if !editor.Handle(input.Key{Rune: 'b', Mods: input.Ctrl}) || editor.Selected() != "b" {
+		t.Fatal("an extension bound without Shift did not select")
+	}
+	if !editor.Do(base.ExtendLeft) || editor.Selected() != "ab" {
+		t.Fatal("the same semantic action did not continue the selection")
 	}
 }
 
@@ -318,8 +363,6 @@ func TestPastingReplacesASelection(t *testing.T) {
 }
 
 func TestShiftWithSomethingThatIsNotAMovementStillTypes(t *testing.T) {
-	// The anchor is dropped before the key is tried and taken back when it turns out
-	// not to be a movement, so a capital letter is a capital letter.
 	e := editorWith("")
 	e.Handle(input.Key{Code: input.Character, Rune: 'A', Mods: input.Shift})
 	if got := e.Text(); got != "A" {

@@ -12,7 +12,11 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-const maxBlockNesting = 256
+const (
+	maxBlockNesting = 256
+	// Math must claim its opening delimiter before Goldmark's paragraph parser.
+	mathBlockPriority = 650
+)
 
 // ErrBlockNestingLimit rejects excessive active block nesting before rendering
 // or invoking extensions, so it never accompanies partial blocks.
@@ -53,7 +57,7 @@ var parser = sync.OnceValue(func() gparser.Parser {
 	return goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 		goldmark.WithParserOptions(gparser.WithBlockParsers(
-			util.Prioritized(&mathBlockParser{}, 650),
+			util.Prioritized(&mathBlockParser{}, mathBlockPriority),
 		)),
 	).Parser()
 })

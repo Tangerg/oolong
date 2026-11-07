@@ -31,6 +31,13 @@ func (p *program) draw() error {
 // and permanent contributions. No user callback can run between admission and
 // the three non-failing commits.
 func (p *program) compose(full bool) (uint64, error) {
+	ready, prepareErr := p.frameReady()
+	if prepareErr != nil {
+		return 0, fmt.Errorf("program: prepare frame: %w", prepareErr)
+	}
+	if !ready {
+		return 0, errFrameNotReady
+	}
 	if full {
 		p.canvas.Invalidate()
 	}
@@ -43,12 +50,7 @@ func (p *program) compose(full bool) (uint64, error) {
 	var batch publication.Batch
 	if p.inline != nil {
 		batch = p.publisher.Prepare()
-		items := batch.Items()
-		contents := make([]grid.Frozen, len(items))
-		for at, item := range items {
-			contents[at] = item.Content
-		}
-		output, err = p.inline.Prepare(contents...)
+		output, err = p.prepareInline(batch)
 	} else {
 		screen, ok := p.canvas.(*grid.Screen)
 		if !ok {
@@ -84,6 +86,15 @@ func (p *program) wrote(sequence uint64) {
 	if p.publisher != nil {
 		p.publisher.Written(sequence)
 	}
+}
+
+func (p *program) prepareInline(batch publication.Batch) (*grid.Output, error) {
+	items := batch.Items()
+	contents := make([]grid.Frozen, len(items))
+	for at, item := range items {
+		contents[at] = item.Content
+	}
+	return p.inline.Prepare(contents...)
 }
 
 // queue transfers one non-empty frame and validates the watermark that now owns it.
@@ -188,7 +199,38 @@ func (p *program) leaveBlock() error {
 	if !p.frameFailed {
 		err = p.renderBlock()
 	}
+	if !p.frameFailed && errors.Is(err, errFrameNotReady) {
+		return p.finishPreparedOutput()
+	}
 	return errors.Join(err, p.finishBlock())
+}
+
+// The pending model may have retired content now owned by a publication. Leaving
+// that old live projection in place would print it twice. Accepted publications
+// replace it without repainting the unprepared model; otherwise the old block stays.
+func (p *program) finishPreparedOutput() error {
+	batch := p.publisher.Prepare()
+	if batch.Len() == 0 {
+		return p.finishBlock()
+	}
+	if err := p.writer.Drain(term.DrainGrace); err != nil {
+		return frameDrainError(p.writer, err)
+	}
+	p.wrote(p.writer.Written())
+	p.inline.Frame()
+	output, err := p.prepareInline(batch)
+	if err != nil {
+		return err
+	}
+	defer output.Abort()
+	sequence, err := p.queue(output.Bytes(), batch)
+	if err != nil {
+		return err
+	}
+	output.Commit()
+	p.publisher.Commit(batch, sequence)
+	p.wrote(p.writer.Written())
+	return p.finishBlock()
 }
 
 // renderBlock builds one inline frame. It owns the frameFailed transition because
@@ -200,7 +242,7 @@ func (p *program) renderBlock() error {
 	}
 	p.wrote(p.writer.Written())
 	_, err := p.compose(false)
-	if err != nil {
+	if err != nil && !errors.Is(err, errFrameNotReady) {
 		p.frameFailed = true
 	}
 	return err
@@ -254,6 +296,10 @@ func (p *program) repaint() error {
 // Callbacks run on the program owner and must not block. Closing the stream only
 // ends repaint requests. Run can stop before claiming a request, so callers must
 // also observe their Run context or completion.
+// A claimed request waits through frame preparation without consuming later
+// input. Input EOF answers a waiting request with ErrStopped and zero dimensions,
+// then drains already admitted input before Run returns the source result.
+// Shutdown also answers it with ErrStopped if no complete repaint was written.
 type RepaintSource interface {
 	Repaints() <-chan func(width, height int, err error)
 }

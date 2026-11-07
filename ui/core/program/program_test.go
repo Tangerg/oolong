@@ -114,11 +114,12 @@ type stalledWriter struct {
 
 func newStalledWriter() *stalledWriter { return &stalledWriter{changes: make(chan struct{})} }
 
-func (w *stalledWriter) Queue([]byte) (uint64, error) { return w.queued.Add(1), nil }
-func (w *stalledWriter) Changes() <-chan struct{}     { return w.changes }
-func (w *stalledWriter) Written() uint64              { return 0 }
-func (w *stalledWriter) Err() error                   { return nil }
-func (w *stalledWriter) Drain(time.Duration) error    { return term.ErrDrainTimeout }
+func (w *stalledWriter) Queue([]byte) (uint64, error)     { return w.queued.Add(1), nil }
+func (w *stalledWriter) Changes() <-chan struct{}         { return w.changes }
+func (w *stalledWriter) Written() uint64                  { return 0 }
+func (*stalledWriter) WrittenAt(time.Time) (uint64, bool) { return 0, false }
+func (w *stalledWriter) Err() error                       { return nil }
+func (w *stalledWriter) Drain(time.Duration) error        { return term.ErrDrainTimeout }
 
 type stalledHost struct {
 	events chan input.Event
@@ -132,11 +133,12 @@ type protocolWriter struct {
 	err     error
 }
 
-func (w *protocolWriter) Queue([]byte) (uint64, error) { return w.queued.Add(1), nil }
-func (w *protocolWriter) Changes() <-chan struct{}     { return w.changes }
-func (w *protocolWriter) Written() uint64              { return 0 }
-func (w *protocolWriter) Err() error                   { return w.err }
-func (w *protocolWriter) Drain(time.Duration) error    { return nil }
+func (w *protocolWriter) Queue([]byte) (uint64, error)     { return w.queued.Add(1), nil }
+func (w *protocolWriter) Changes() <-chan struct{}         { return w.changes }
+func (w *protocolWriter) Written() uint64                  { return 0 }
+func (*protocolWriter) WrittenAt(time.Time) (uint64, bool) { return 0, false }
+func (w *protocolWriter) Err() error                       { return w.err }
+func (w *protocolWriter) Drain(time.Duration) error        { return nil }
 
 type sequenceWriter struct {
 	sequences []uint64
@@ -159,10 +161,11 @@ func (w *sequenceWriter) Queue([]byte) (uint64, error) {
 	return seq, nil
 }
 
-func (w *sequenceWriter) Changes() <-chan struct{}  { return w.changes }
-func (w *sequenceWriter) Written() uint64           { return w.written.Load() }
-func (w *sequenceWriter) Err() error                { return nil }
-func (w *sequenceWriter) Drain(time.Duration) error { return nil }
+func (w *sequenceWriter) Changes() <-chan struct{}         { return w.changes }
+func (w *sequenceWriter) Written() uint64                  { return w.written.Load() }
+func (*sequenceWriter) WrittenAt(time.Time) (uint64, bool) { return 0, false }
+func (w *sequenceWriter) Err() error                       { return nil }
+func (w *sequenceWriter) Drain(time.Duration) error        { return nil }
 
 type protocolHost struct {
 	events chan input.Event

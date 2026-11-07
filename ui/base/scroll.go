@@ -92,6 +92,9 @@ func (s *Scroll) By(rows int) {
 }
 
 func (s *Scroll) move(rows int) {
+	if rows == 0 {
+		return
+	}
 	s.reveal = nil
 	s.current.offset = scrollOffset(s.current.offset, rows, s.current.max())
 	s.following = s.current.offset == s.current.max()

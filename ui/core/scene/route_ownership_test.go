@@ -80,7 +80,7 @@ func TestPointerChecksEachReceiverAndTheArrivalOfCapturedRelease(t *testing.T) {
 	}
 	draw(t, r, 4, 1, 0)
 	r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
-	r.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft, At: time.Unix(1, 0)})
+	r.HandleInput(r.CaptureInput(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft, At: time.Unix(1, 0)}, func(time.Time) (uint64, bool) { return 0, true }))
 	if staleReleases != 0 || cancels != 1 {
 		t.Errorf("out-of-history release: releases=%d cancels=%d", staleReleases, cancels)
 	}

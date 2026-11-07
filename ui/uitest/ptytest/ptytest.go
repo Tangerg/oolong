@@ -27,6 +27,11 @@ func Supported() bool { return supported }
 // Size is a terminal size in cells.
 type Size struct{ Cols, Rows int }
 
+const (
+	defaultColumns = 80
+	defaultRows    = 24
+)
+
 // A zero-sized terminal silently draws nothing, hiding the invalid test setup.
 func (s Size) check() error {
 	_, _, err := s.dims()
@@ -91,7 +96,7 @@ type Session struct {
 func Start(ctx context.Context, cfg Config, name string, args ...string) (*Session, error) {
 	size := cfg.Size
 	if size == (Size{}) {
-		size = Size{Cols: 80, Rows: 24}
+		size = Size{Cols: defaultColumns, Rows: defaultRows}
 	}
 	if err := size.check(); err != nil {
 		return nil, err

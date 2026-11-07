@@ -13,8 +13,8 @@ import (
 // business, which is what lets the same field be driven by a key, by a menu, or by a
 // command typed by name — see [Editor.Do].
 //
-// There is deliberately no action for selecting in a direction. Shift with any way of
-// moving is what selects, so every movement selects and none of them was taught to.
+// Selection extension is an action too, so explicit bindings and sequences have
+// the same authority as the default Shift chords.
 const (
 	MoveLeft      keymap.Action = "move-left"
 	MoveRight     keymap.Action = "move-right"
@@ -24,6 +24,15 @@ const (
 	MoveWordRight keymap.Action = "move-word-right"
 	MoveLineStart keymap.Action = "move-line-start"
 	MoveLineEnd   keymap.Action = "move-line-end"
+
+	ExtendLeft      keymap.Action = "extend-left"
+	ExtendRight     keymap.Action = "extend-right"
+	ExtendUp        keymap.Action = "extend-up"
+	ExtendDown      keymap.Action = "extend-down"
+	ExtendWordLeft  keymap.Action = "extend-word-left"
+	ExtendWordRight keymap.Action = "extend-word-right"
+	ExtendLineStart keymap.Action = "extend-line-start"
+	ExtendLineEnd   keymap.Action = "extend-line-end"
 
 	DeleteBack     keymap.Action = "delete-back"
 	DeleteForward  keymap.Action = "delete-forward"
@@ -105,8 +114,8 @@ const (
 const (
 	// Toggle takes the choice under the cursor, or gives it back.
 	Toggle keymap.Action = "toggle"
-	// Submit finishes a [Form], and Cancel abandons it.
 	Submit keymap.Action = "submit"
+	// Cancel requests cancellation; pending attempts still settle through [Form.Settle].
 	Cancel keymap.Action = "cancel"
 )
 
@@ -127,14 +136,19 @@ const (
 // that has one.
 func DefaultEditorKeys() *keymap.Map {
 	m := &keymap.Map{}
-	m.Bind(MoveLeft, input.Chord{Code: input.Left})
-	m.Bind(MoveRight, input.Chord{Code: input.Right})
-	m.Bind(MoveUp, input.Chord{Code: input.Up})
-	m.Bind(MoveDown, input.Chord{Code: input.Down})
-	m.Bind(MoveWordLeft, input.Alt.Rune('b'))
-	m.Bind(MoveWordRight, input.Alt.Rune('f'))
-	m.Bind(MoveLineStart, input.Ctrl.Rune('a'))
-	m.Bind(MoveLineEnd, input.Ctrl.Rune('e'))
+	bindMovement := func(move, extend keymap.Action, chord input.Chord) {
+		m.Bind(move, chord)
+		chord.Mods |= input.Shift
+		m.Bind(extend, chord)
+	}
+	bindMovement(MoveLeft, ExtendLeft, input.Chord{Code: input.Left})
+	bindMovement(MoveRight, ExtendRight, input.Chord{Code: input.Right})
+	bindMovement(MoveUp, ExtendUp, input.Chord{Code: input.Up})
+	bindMovement(MoveDown, ExtendDown, input.Chord{Code: input.Down})
+	bindMovement(MoveWordLeft, ExtendWordLeft, input.Alt.Rune('b'))
+	bindMovement(MoveWordRight, ExtendWordRight, input.Alt.Rune('f'))
+	bindMovement(MoveLineStart, ExtendLineStart, input.Ctrl.Rune('a'))
+	bindMovement(MoveLineEnd, ExtendLineEnd, input.Ctrl.Rune('e'))
 
 	m.Bind(DeleteBack, input.Chord{Code: input.Backspace})
 	m.Bind(DeleteForward, input.Chord{Code: input.Delete})
@@ -207,7 +221,7 @@ func DefaultCompletionKeys() *keymap.Map {
 }
 
 func DefaultDialogKeys() *keymap.Map {
-	m := &keymap.Map{}
+	m := DefaultFocusKeys()
 	m.Bind(Close, input.Chord{Code: input.Esc})
 	return m
 }

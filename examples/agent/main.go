@@ -28,17 +28,20 @@ import (
 
 const (
 	sendPrompt              keymap.Action = "send"
-	cancelRun               keymap.Action = "cancel-run"
+	cancelSource            keymap.Action = "cancel-source"
 	quitAgent               keymap.Action = "quit"
 	ingressSize                           = 64 << 10
 	mockStreamDelay                       = 18 * time.Millisecond
 	statusTickInterval                    = 120 * time.Millisecond
 	settledProgressDuration               = 2 * time.Second
+	promptPreviewColumns                  = 52
+	diffContextLines                      = 2
+	commandPopupMinWidth                  = 32
 )
 
 func main() {
 	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-		agent, err := newAgent(context.Background(), runtime, mockBackend{delay: mockStreamDelay})
+		agent, err := newAgent(runtime, mockBackend{delay: mockStreamDelay})
 		if err != nil {
 			return scene.Element{}, err
 		}
@@ -89,12 +92,12 @@ type commandAction struct {
 	run      func(string)
 }
 
-func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agentBackend) (*agent, error) {
+func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	keys := base.DefaultEditorKeys()
 	keys.Bind(sendPrompt, input.Chord{Code: input.Enter})
-	keys.Bind(cancelRun, input.Ctrl.Rune('x'))
+	keys.Bind(cancelSource, input.Ctrl.Rune('x'))
 	keys.Bind(quitAgent, input.Ctrl.Rune('c'))
 
 	a := &agent{
@@ -107,16 +110,20 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 		status:       kit.Status{Theme: theme, Glyphs: glyphs},
 	}
 	var err error
-	a.scope, err = runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // ScopeConfig explicitly carries ctx; the analyser does not track context through config fields.
+	a.scope, err = runtime.NewScope(program.ScopeConfig{})
 	if err != nil {
 		return nil, err
 	}
-	a.conversation = newConversation(theme, glyphs, runtime.Environment().Wheel(), runtime.Publisher())
+	a.conversation, err = newConversation(conversationConfig{Runtime: runtime.Runtime, Scope: a.scope, Theme: theme, Glyphs: glyphs, Wheel: runtime.Environment().Wheel(), Publisher: runtime.Publisher()})
+	if err != nil {
+		a.scope.Close()
+		return nil, err
+	}
 	a.workflow = newWorkflow(theme, glyphs)
 	a.composer = kit.NewComposer(kit.ComposerConfig{
 		Theme:   theme,
 		Prompt:  glyphs.Marker + " ",
-		Hints:   []keymap.Action{sendPrompt, cancelRun, quitAgent},
+		Hints:   []keymap.Action{sendPrompt, cancelSource, quitAgent},
 		MaxRows: 5,
 	})
 	a.composer.Controller().Placeholder = "Ask the mock agent to change something"
@@ -138,7 +145,7 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 			a.completion.Dismiss()
 		},
 	}
-	a.registerCommands() //nolint:contextcheck // Deferred UI actions use a.scope.Context(), derived from ctx above, after this constructor returns.
+	a.registerCommands()
 
 	workflow := scene.NewElement(scene.ElementConfig{
 		Paint: func(frame scene.Frame) { a.workflow.Draw(frame.View) },
@@ -156,19 +163,26 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 		{Size: layout.Fixed(1), Element: status},
 		{Size: layout.Measured(1, 0), Element: a.composer.Element()},
 	}})
-	a.buildReview() //nolint:contextcheck // Review callbacks use the session Scope.Context rather than retaining the construction call.
+	a.buildReview()
+	completionHelp := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
+		kit.Help{Theme: theme, Keys: a.completion.Keys, Show: []keymap.Action{base.Accept}}.Draw(frame.View)
+	}})
+	completionBody := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
+		{Element: a.completion.Element(), Size: layout.Measured(0, 0)},
+		{Element: completionHelp, Size: layout.Fixed(1)},
+	}})
 	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{
 		Theme: theme, Glyphs: glyphs,
-		Padding: layout.Symmetric(0, 1), Title: "commands", Footer: "enter complete", FooterAlign: layout.End,
-	}, Content: a.completion.Element()})
+		Padding: layout.Symmetric(0, 1), Title: "commands",
+	}, Content: completionBody.Element()})
 	popup := scene.NewGroup(scene.GroupConfig{
 		Element: scene.ElementConfig{Enabled: a.completion.Open}, Items: []scene.Item{{Element: panel.Element()}},
 		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
 			if !a.completion.Open() || a.reviewDialog.Controller().Open() {
 				return []image.Rectangle{{}}
 			}
-			width := max(0, min(max(a.completion.Width()+4, 32), space.X-2))
-			height := min(a.completion.HeightForWidth(width)+2, space.Y)
+			width := max(0, min(max(a.completion.Width()+panel.Box.Overhead().X, commandPopupMinWidth), space.X-2))
+			height := min(panel.HeightForWidth(width), space.Y)
 			y := max(space.Y-a.composer.HeightForWidth(space.X)-height, 0)
 			return []image.Rectangle{grid.Area(1, y, width, height)}
 		},
@@ -176,12 +190,12 @@ func newAgent(ctx context.Context, runtime *program.InlineRuntime, backend agent
 	unsubscribe := a.composer.Controller().Session().Subscribe(func(base.ChangeMap) { a.refreshCompletion() })
 	a.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
 		Key:     "agent",
-		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: a.Handle(event.Input())} }, //nolint:contextcheck // Input uses the session scope created from ctx above.
+		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: a.Handle(event.Input())} },
 		Detached: func() {
 			unsubscribe()
 			a.withdrawReview(program.ErrScopeClosed)
 			a.scope.Close()
-			a.conversation.content.Close()
+			a.conversation.Close()
 		},
 	}, Items: []scene.Item{{Element: a.body.Element()}, {Element: popup.Element()}, {Element: a.reviewDialog.Element()}}}).Element()
 	// The scene and source lifecycle do not require terminal metadata support.
@@ -217,9 +231,9 @@ func (a *agent) sessionKey(key input.Key) bool {
 	case quitAgent:
 		a.runtime.Quit()
 		return true
-	case cancelRun:
+	case cancelSource:
 		if a.run != nil {
-			a.stopRun()
+			a.stopSource()
 			return true
 		}
 	}
@@ -383,6 +397,9 @@ func (a *agent) startRun(prompt string) {
 }
 
 func (a *agent) accept(batch program.ByteBatch) {
+	if a.run == nil || a.run.finishing {
+		return
+	}
 	if len(batch.Data) > 0 {
 		if err := a.conversation.Markdown(a.scope.Context(), string(batch.Data)); err != nil {
 			a.finishRun(errors.Join(batch.Err, err))
@@ -395,14 +412,35 @@ func (a *agent) accept(batch program.ByteBatch) {
 }
 
 func (a *agent) finishRun(err error) {
-	err = a.conversation.FinishMarkdown(a.scope.Context(), err)
+	run := a.run
+	if run == nil || run.finishing {
+		return
+	}
+	run.finishing = true
+	if endErr := a.conversation.FinishMarkdown(a.scope.Context(), err); endErr != nil {
+		err = errors.Join(err, endErr)
+	}
+	a.withdrawReview(context.Canceled)
+	run.task.Cancel()
+	a.inform("preparing final answer")
+	settleErr := a.conversation.Settled(func(prepareErr error) {
+		if a.run != run {
+			return
+		}
+		if prepareErr != nil {
+			err = errors.Join(err, prepareErr)
+		}
+		a.settleRun(err)
+	})
+	if settleErr != nil {
+		a.settleRun(errors.Join(err, settleErr))
+	}
+}
+
+func (a *agent) settleRun(err error) {
 	if a.stopClock != nil {
 		a.stopClock()
 		a.stopClock = nil
-	}
-	a.withdrawReview(context.Canceled)
-	if a.run != nil {
-		a.run.task.Cancel()
 	}
 	a.run = nil
 	a.status.Doing = ""
@@ -450,13 +488,12 @@ func (a *agent) settledProgress(progress term.Progress) error {
 	return nil
 }
 
-func (a *agent) stopRun() {
-	if a.run == nil {
+func (a *agent) stopSource() {
+	if a.run == nil || a.run.finishing || !a.run.task.Cancel() {
 		return
 	}
 	a.inform("cancelling")
 	a.element.Invalidate()
-	a.run.task.Cancel()
 	a.withdrawReview(context.Canceled)
 }
 
@@ -468,9 +505,12 @@ func (a *agent) tick() {
 	a.status.Elapsed = fmt.Sprintf("%4.1fs", time.Since(a.started).Seconds())
 }
 
-func clip(s string) string { return text.Truncate(strings.TrimSpace(s), 52, "…") }
+func clip(s string) string { return text.Truncate(strings.TrimSpace(s), promptPreviewColumns, "…") }
 
-type agentRun struct{ task *program.Task }
+type agentRun struct {
+	task      *program.Task
+	finishing bool
+}
 
 // An idle spinner would imply unfinished work, so settled outcomes use a
 // plain label derived from their typed result.
@@ -562,7 +602,7 @@ func (a *agent) openReview(request *reviewRequest) error {
 		return err
 	}
 	a.review = request
-	a.reviewPane.diff.SetHunks(diff.Between(request.proposal.Before, request.proposal.After).Hunks(2))
+	a.reviewPane.diff.SetHunks(diff.Between(request.proposal.Before, request.proposal.After).Hunks(diffContextLines))
 	a.reviewPane.window.Scroll().ToTop()
 	a.reviewPane.title = request.proposal.Path + " — " + request.proposal.Summary
 	a.reviewDialog.Controller().SetDescription(request.proposal.Summary + " — " + request.proposal.Path)
@@ -614,7 +654,7 @@ func (a *agent) showTool(result toolResult) error {
 	entry := &kit.Entry{Theme: a.theme, Label: result.Name, Body: oneLine(result.Summary)}
 	shown := kit.NewDiff(kit.DiffConfig{
 		Theme: a.theme, Glyphs: a.glyphs,
-		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(2), Numbers: true,
+		Hunks: diff.Between(result.Change.Before, result.Change.After).Hunks(diffContextLines), Numbers: true,
 	})
 	return a.conversation.Append(a.scope.Context(), entry, shown)
 }

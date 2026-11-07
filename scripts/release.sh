@@ -118,9 +118,9 @@ scripts/sync-workspace.sh --check
 
 step "Gate"
 
-for tool in apidiff deadcode golangci-lint gofumpt govulncheck npx shfmt; do
-	command -v "$tool" >/dev/null || die "$tool is required for a release. Install the version in CONTRIBUTING.md."
-done
+scripts/tools.sh check || die "release checkers do not match the committed tool pins."
+gorelease_bin=$(command -v gorelease)
+command -v npx >/dev/null || die "Node.js is required for a release. See CONTRIBUTING.md."
 
 for directory in "${ALL_MODULES[@]}"; do
 	scripts/build-module.sh "$directory" && (cd "$directory" && go vet ./...) || die "$directory does not build or vet."
@@ -199,8 +199,6 @@ note "WASI and JavaScript WebAssembly source sets"
 step "Published dependency graph"
 (cd "$module" && GOWORK=off go mod tidy -diff && GOWORK=off go test -count=1 ./...) ||
 	die "$module is not independently consumable with its declared dependency versions"
-command -v gorelease >/dev/null || die "install the pinned gorelease version from CONTRIBUTING.md"
-gorelease_bin=$(command -v gorelease)
 compatibility "$module"
 candidate_head=$(git rev-parse HEAD)
 [[ "$candidate_head" == "$head" ]] || die "release checks changed the candidate commit"

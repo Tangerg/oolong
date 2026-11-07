@@ -18,6 +18,8 @@ type meterLayout struct {
 	value image.Rectangle
 }
 
+const meterLabelWidthDivisor = 2
+
 func layoutMeter(width, labelWidth, valueWidth int) meterLayout {
 	width = max(width, 0)
 	valueWidth = max(valueWidth, 0)
@@ -30,7 +32,7 @@ func layoutMeter(width, labelWidth, valueWidth int) meterLayout {
 	if valueWidth > 0 && trackEnd > 0 {
 		trackEnd--
 	}
-	labelWidth = min(max(labelWidth, 0), min(width/2, trackEnd))
+	labelWidth = min(max(labelWidth, 0), min(width/meterLabelWidthDivisor, trackEnd))
 	label := grid.Area(0, 0, labelWidth, 1)
 	trackStart := label.Max.X
 	if labelWidth > 0 && trackStart < trackEnd {

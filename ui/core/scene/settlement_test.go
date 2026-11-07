@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -33,12 +32,12 @@ func TestSnapshotRevisionProjectsTheOwningLayout(t *testing.T) {
 	}
 }
 
-func TestCommitNeverCallsTheClockOrOtherApplicationCode(t *testing.T) {
+func TestSettlementNeverCallsApplicationProjections(t *testing.T) {
 	reads := 0
-	r, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{}), Now: func() time.Time {
+	r, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Semantics: func() scene.Semantic {
 		reads++
-		return time.Unix(100, 0)
-	}})
+		return scene.Semantic{}
+	}})})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,12 +46,13 @@ func TestCommitNeverCallsTheClockOrOtherApplicationCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	reads = 0
 	candidate.Commit(0)
 	if reads != 0 || r.Progress().WrittenFrame != 0 {
 		t.Fatal("commit crossed the callback-free admission boundary")
 	}
 	r.Wrote(0)
-	if reads != 1 || r.Progress().WrittenFrame != r.Progress().LayoutRevision {
+	if reads != 0 || r.Progress().WrittenFrame != r.Progress().LayoutRevision {
 		t.Fatal("explicit write confirmation did not publish the zero-byte layout")
 	}
 }

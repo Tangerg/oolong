@@ -18,6 +18,8 @@ import (
 
 var update = flag.Bool("update", false, "update visual golden files")
 
+const captureTimeout = 5 * time.Second
+
 // Host adds only terminal ground because inventing unrelated capabilities would make
 // visual tests exercise a different host contract.
 type Host struct {
@@ -61,7 +63,7 @@ func (h *Host) Capture(tb testing.TB) Capture {
 	if h == nil || h.Host == nil {
 		tb.Fatal("visualtest: capture from nil host")
 	}
-	ctx, cancel := context.WithTimeout(tb.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(tb.Context(), captureTimeout)
 	defer cancel()
 	snapshot, err := h.Repaint(ctx)
 	if err != nil {

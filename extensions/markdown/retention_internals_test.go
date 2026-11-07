@@ -11,7 +11,7 @@ import (
 )
 
 func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
-	doc := &documentView{}
+	doc := &Snapshot{}
 	doc.layout.Store(&documentLayout{width: 8, places: []placedBlock{{layout: blockLayout{rows: []text.Wrapped{{Line: text.Of("old", grid.Style{})}}}}}})
 	if len(doc.arrange(10).places) != 0 {
 		t.Fatal("removed block still retained")
@@ -46,7 +46,7 @@ func TestDocCopyDetachesItsWrap(t *testing.T) {
 
 func TestDocCopyOwnsSubsequentAppends(t *testing.T) {
 	blocks := mustRender(t, "first", Look{})
-	original := Doc{view: &documentView{blocks: make([]Block, len(blocks), len(blocks)+2)}}
+	original := Doc{view: &Snapshot{blocks: make([]Block, len(blocks), len(blocks)+2)}}
 	copy(original.view.blocks, blocks)
 
 	copied := original

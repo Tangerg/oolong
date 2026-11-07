@@ -13,11 +13,12 @@ import (
 // [FrameWriter] promises not to do.
 type stuckWriter struct{ accepted int }
 
-func (w *stuckWriter) Queue([]byte) (uint64, error) { w.accepted++; return 1, nil }
-func (*stuckWriter) Changes() <-chan struct{}       { return nil }
-func (*stuckWriter) Written() uint64                { return 0 }
-func (*stuckWriter) Err() error                     { return nil }
-func (*stuckWriter) Drain(time.Duration) error      { return nil }
+func (w *stuckWriter) Queue([]byte) (uint64, error)     { w.accepted++; return 1, nil }
+func (*stuckWriter) Changes() <-chan struct{}           { return nil }
+func (*stuckWriter) Written() uint64                    { return 0 }
+func (*stuckWriter) WrittenAt(time.Time) (uint64, bool) { return 0, false }
+func (*stuckWriter) Err() error                         { return nil }
+func (*stuckWriter) Drain(time.Duration) error          { return nil }
 
 type refusingWriter struct {
 	stuckWriter

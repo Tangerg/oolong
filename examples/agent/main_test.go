@@ -44,8 +44,8 @@ func runAgent(t *testing.T, backend agentBackend) (*uitest.Host, func()) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-			agent, err := newAgent(ctx, runtime, backend)
+		app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) { //nolint:contextcheck // Runtime scopes inherit ctx from Run; the app does not own a second parent lifetime.
+			agent, err := newAgent(runtime, backend)
 			if err != nil {
 				return scene.Element{}, err
 			}
@@ -183,7 +183,7 @@ func runAgentAt(t *testing.T, width, height int) (*uitest.Host, func()) {
 	done := make(chan error, 1)
 	go func() {
 		app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-			agent, err := newAgent(t.Context(), runtime, mockBackend{})
+			agent, err := newAgent(runtime, mockBackend{})
 			if err != nil {
 				return scene.Element{}, err
 			}

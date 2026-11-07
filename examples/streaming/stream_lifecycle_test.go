@@ -72,7 +72,7 @@ func TestAnEmptyFinalProjectionStillCompletesTheTranscript(t *testing.T) {
 		{name: "cancelled", err: context.Canceled},
 	} {
 		t.Run(ending.name, func(t *testing.T) {
-			h := newHost()
+			h := newHost(t)
 			t.Cleanup(func() {
 				if err := h.writer.Close(); err != nil {
 					t.Errorf("closing the test writer: %v", err)
@@ -122,7 +122,7 @@ func TestAnEmptyFinalProjectionStillCompletesTheTranscript(t *testing.T) {
 }
 
 func TestSourceExitSettlesTheDocument(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	c, stop := runSource(t, h, func(context.Context, string, io.Writer) error {
 		runtime.Goexit()
 		return nil
@@ -135,7 +135,7 @@ func TestSourceExitSettlesTheDocument(t *testing.T) {
 }
 
 func TestTranscriptRefusalPreservesPromptAndSourceFailure(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	c, stop := runSource(t, h, func(context.Context, string, io.Writer) error {
 		t.Error("started a source after refusing its prompt")
 		return nil

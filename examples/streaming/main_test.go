@@ -31,9 +31,16 @@ type host struct {
 	writer *term.Writer
 }
 
-func newHost() *host {
+func newHost(t *testing.T) *host {
+	t.Helper()
 	b := &buffer{}
-	return &host{events: make(chan input.Event, 64), out: b, writer: term.NewWriter(term.WriterConfig{Destination: b})}
+	h := &host{events: make(chan input.Event, 64), out: b, writer: term.NewWriter(term.WriterConfig{Destination: b})}
+	t.Cleanup(func() {
+		if err := h.writer.Close(); err != nil {
+			t.Errorf("close test writer: %v", err)
+		}
+	})
+	return h
 }
 
 func (h *host) Input() program.EventSource  { return h }
@@ -153,8 +160,8 @@ func runSource(t *testing.T, h *host, source replySource) (*chat, func()) {
 	started := make(chan *chat, 1)
 	done := make(chan error, 1)
 	go func() {
-		app, err := program.NewInline(program.InlineConfig{Host: h, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-			c, chatErr := newChatWithSource(ctx, runtime, source)
+		app, err := program.NewInline(program.InlineConfig{Host: h, Build: func(runtime *program.InlineRuntime) (scene.Element, error) { //nolint:contextcheck // Runtime scopes inherit ctx from Run; the app does not own a second parent lifetime.
+			c, chatErr := newChatWithSource(runtime, source)
 			if chatErr != nil {
 				return scene.Element{}, chatErr
 			}
@@ -199,14 +206,14 @@ func approve(t *testing.T, h *host, c *chat, prompt string) {
 }
 
 func TestThePlaceholderIsUpBeforeAnybodyTypes(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	_, stop := runSource(t, h, func(context.Context, string, io.Writer) error { return nil })
 	defer stop()
 	awaitText(t, h, "Ask something")
 }
 
 func TestApprovalOwnsTheTransitionIntoBackgroundWork(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	called := make(chan string, 1)
 	c, stop := runSource(t, h, func(_ context.Context, prompt string, dst io.Writer) error {
 		called <- prompt
@@ -242,7 +249,7 @@ func TestApprovalOwnsTheTransitionIntoBackgroundWork(t *testing.T) {
 }
 
 func TestFinalDocumentTransfersOnlyAfterEOFAndWritingSettles(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	chunks := make(chan string)
 	c, stop := runSource(t, h, func(ctx context.Context, _ string, dst io.Writer) error {
 		for {
@@ -289,7 +296,7 @@ func TestFinalDocumentTransfersOnlyAfterEOFAndWritingSettles(t *testing.T) {
 }
 
 func TestSourceFailureKeepsAcceptedOutputAndBecomesDomainState(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	cause := errors.New("upstream broke")
 	c, stop := runSource(t, h, func(_ context.Context, _ string, dst io.Writer) error {
 		_, _ = io.WriteString(dst, "accepted before failure\n\nopen tail")
@@ -306,7 +313,7 @@ func TestSourceFailureKeepsAcceptedOutputAndBecomesDomainState(t *testing.T) {
 }
 
 func TestCancellationSettlesSeparatelyFromFailure(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	entered := make(chan struct{})
 	c, stop := runSource(t, h, func(ctx context.Context, _ string, _ io.Writer) error {
 		close(entered)
@@ -338,7 +345,7 @@ func TestCancellationCannotHideASourceFailure(t *testing.T) {
 		{name: "wrapped", cause: fmt.Errorf("source failed: %w", context.Canceled)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newHost()
+			h := newHost(t)
 			c, stop := runSource(t, h, func(context.Context, string, io.Writer) error { return tc.cause })
 			defer stop()
 			approve(t, h, c, "fail")
@@ -351,7 +358,7 @@ func TestCancellationCannotHideASourceFailure(t *testing.T) {
 }
 
 func TestAnEmptyMessageDoesNotOpenApproval(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	called := make(chan string, 1)
 	c, stop := runSource(t, h, func(_ context.Context, prompt string, _ io.Writer) error {
 		called <- prompt
@@ -373,7 +380,7 @@ func TestAnEmptyMessageDoesNotOpenApproval(t *testing.T) {
 }
 
 func TestLateIngressCannotChangeTheNextReply(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	defer func() {
 		if err := h.writer.Close(); err != nil {
 			t.Error(err)
@@ -419,7 +426,7 @@ func TestLateIngressCannotChangeTheNextReply(t *testing.T) {
 }
 
 func TestSemanticDismissDropsOnlyTheUnsubmittedPrompt(t *testing.T) {
-	h := newHost()
+	h := newHost(t)
 	c, stop := runSource(t, h, func(context.Context, string, io.Writer) error { return nil })
 	defer stop()
 	h.typeText("unsubmitted")

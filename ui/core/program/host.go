@@ -17,6 +17,9 @@ import (
 // Events supplies immutable input values, not pointers or wrappers. It closes after the last event. Once it has closed, Err reports why the
 // stream ended: nil means a clean end of input, while a non-nil error is the
 // transport failure that ended it. Err must not report end-of-file as a failure.
+// Timed reports use time.Now's process clock, shared with FrameWriter.WrittenAt.
+// A source buffering input stamps it before admission; zero timestamps instead
+// mean reception by the program's reader, not an earlier physical arrival.
 //
 // The two methods form one lifecycle. Keeping the result on the source avoids a
 // race between an event channel closing and a separate error channel becoming
@@ -98,6 +101,12 @@ type FrameWriter interface {
 	// Changes coalesces state changes; the receiver must re-read Written and Err.
 	Changes() <-chan struct{}
 	Written() uint64
+	// WrittenAt proves the completed prefix at a time from the input source's
+	// process clock. It returns false during a write, after a delivery failure,
+	// for future timestamps, or when its bounded history cannot prove the answer.
+	// The input reader transfers a panic or goroutine exit from this query to the
+	// Run owner so the session's normal cleanup still unwinds.
+	WrittenAt(at time.Time) (uint64, bool)
 	Err() error
 	Drain(timeout time.Duration) error
 }

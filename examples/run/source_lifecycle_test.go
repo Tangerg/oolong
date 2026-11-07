@@ -44,6 +44,7 @@ func TestCommandDescendantsStopOnCancellationAndParentExit(t *testing.T) {
 			go func() {
 				app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) { //nolint:contextcheck // Run(ctx) parents this scope; cancellation through the runtime is under test.
 					r := &runner{
+						keys:    runnerKeys(),
 						runtime: runtime,
 						command: []string{os.Args[0], "-test.run=^TestCommandPipeHolder$", "--", pipeHolderFixture, ending, listener.Addr().String()},
 					}

@@ -5,7 +5,6 @@ import (
 	"image"
 	"runtime"
 	"testing"
-	"time"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -42,7 +41,7 @@ func TestPointerRouteRequiresTheOriginalContentAtDelivery(t *testing.T) {
 			}}, Items: []scene.Item{item("leaf", leaf)}})
 			r = root(t, g.Element())
 			draw(t, r, 10, 2, 0)
-			click := r.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+			click := capture(r, input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
 			if mutate == "replace" {
 				id = "b"
 				leaf.Invalidate()
@@ -198,42 +197,21 @@ func TestPendingFrameBudgetRefusesBeforePainting(t *testing.T) {
 	}
 }
 
-func TestWriterClockCannotSettleAnotherPreparedFrame(t *testing.T) {
-	for _, settle := range []string{"commit", "abort"} {
-		t.Run(settle, func(t *testing.T) {
-			var pending *scene.Prepared
-			var denied any
-			r, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{}), Now: func() time.Time {
-				if pending != nil {
-					func() {
-						defer func() { denied = recover() }()
-						if settle == "commit" {
-							pending.Commit(2)
-						} else {
-							pending.Abort()
-						}
-					}()
-				}
-				return time.Unix(1, 0)
-			}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer r.Close()
-			draw(t, r, 1, 1, 1)
-			pending, err = r.Prepare(grid.NewSurface(1, 1).View())
-			if err != nil {
-				t.Fatal(err)
-			}
-			r.Wrote(1)
-			deniedErr, _ := denied.(error)
-			if !errors.Is(deniedErr, scene.ErrBusy) || r.Progress().WrittenFrame != 1 || r.Progress().LayoutRevision != 1 {
-				t.Fatalf("writer clock settled a foreign obligation: denied=%v progress=%+v", denied, r.Progress())
-			}
-			pending.Commit(2)
-			pending = nil
-			r.Wrote(2)
-		})
+func TestWriterProgressDoesNotSettleAnotherPreparedFrame(t *testing.T) {
+	r := root(t, scene.NewElement(scene.ElementConfig{}))
+	draw(t, r, 1, 1, 1)
+	pending, err := r.Prepare(grid.NewSurface(1, 1).View())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Wrote(1)
+	if r.Progress().WrittenFrame != 1 || r.Progress().LayoutRevision != 1 {
+		t.Fatalf("write progress settled a foreign obligation: %+v", r.Progress())
+	}
+	pending.Commit(2)
+	r.Wrote(2)
+	if r.Progress().WrittenFrame != 2 || r.Progress().LayoutRevision != 2 {
+		t.Fatalf("candidate lost its settlement: %+v", r.Progress())
 	}
 }
 

@@ -22,7 +22,7 @@ An editor element snapshot carries its captured text: call `element.Text()` even
 
 ## Assemble real parts
 
-A `scene.Group` receives keyed `scene.Item` children and a layout function. An overlay uses `scene.Overlay` for its actual attachment and modal boundary. These same parts determine paint, focus, routing, lifecycle and semantic observation.
+A `scene.Group` receives keyed `scene.Item` children and a layout function. An overlay is a `scene.Group` with `GroupConfig.Overlay`; `GroupConfig.Modal` defines its modal boundary. These same parts determine paint, focus, routing, lifecycle and semantic observation.
 
 Construct once and keep the component instance. Repeated calls to `Element()` are safe; reconstructing a controller every paint discards its identity and gestures. Change group membership on the owner before `Prepare`, then render the stable resulting tree.
 

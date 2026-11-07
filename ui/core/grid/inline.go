@@ -81,6 +81,7 @@ func (i *Inline) Resize(w, h int) {
 
 // SetDepth says how much colour the terminal can show. It forces a full repaint,
 // because every row the terminal is holding was encoded at the old depth.
+// An invalid depth is a programmer error and panics before changing the canvas.
 func (i *Inline) SetDepth(d Depth) {
 	i.publication.requireIdle()
 	if i.buffers.setDepth(d) {

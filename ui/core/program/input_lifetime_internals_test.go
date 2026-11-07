@@ -16,7 +16,7 @@ func TestInputPipeReturnsCreditsWhileTheOwnerQueueIsFull(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		source := &pipeSource{events: make(chan input.Event)}
-		pipe := newInputPipe(ctx, nil, source, source.Events(), Config{InputEvents: 1, InputBytes: 8})
+		pipe := newInputPipe(ctx, nil, source, source.Events(), nil, Config{InputEvents: 1, InputBytes: 8})
 		defer func() { cancel(); <-pipe.done }()
 
 		// Delay two valid acknowledgements until the producer is waiting to send
@@ -56,7 +56,7 @@ func TestSmallInputQueueDrainsAContinuousKeyStreamThroughEOF(t *testing.T) {
 		}
 		defer root.Close()
 		source := &pipeSource{events: make(chan input.Event)}
-		pipe := newInputPipe(t.Context(), root, source, source.Events(), Config{InputEvents: 1, InputBytes: 8})
+		pipe := newInputPipe(t.Context(), root, source, source.Events(), nil, Config{InputEvents: 1, InputBytes: 8})
 		owner := &program{root: root, inputPipe: pipe, tasks: newTaskQueue()}
 		go func() {
 			defer close(source.events)
@@ -92,7 +92,7 @@ func TestInputEOFDoesNotWaitForAnAbsentCreditReader(t *testing.T) {
 		}
 		defer root.Close()
 		pipe := &inputPipe{events: make(chan ownerInput, 1), consumed: make(chan int, 2), done: make(chan struct{})}
-		pipe.events <- ownerInput{event: root.CaptureInput(input.Key{Rune: 'x'}), bytes: 1}
+		pipe.events <- ownerInput{event: root.CaptureInput(input.Key{Rune: 'x'}, nil), bytes: 1}
 		pipe.consumed <- 1
 		pipe.consumed <- 1
 		close(pipe.events)

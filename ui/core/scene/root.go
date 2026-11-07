@@ -5,7 +5,6 @@ import (
 	"math"
 	"slices"
 	"sync/atomic"
-	"time"
 )
 
 const (
@@ -16,14 +15,13 @@ const (
 // RootConfig supplies one scene and the bounded history used to resolve timestamped physical input.
 type RootConfig struct {
 	Element Element
-	// InputHistory bounds timestamp lookup for host-buffered mouse reports.
+	// InputHistory bounds admitted geometry retained for host-buffered mouse reports.
 	// Already captured inputs retain their own immutable snapshot separately.
 	InputHistory int
 	// MaxPendingFrames bounds admitted input maps awaiting writer confirmation.
 	// Zero selects the package default. Prepare returns ErrBusy at capacity,
 	// before painting.
 	MaxPendingFrames int
-	Now              func() time.Time
 }
 
 // Root is the sole owner of live attachment, actual focus, capture and geometry.
@@ -53,9 +51,8 @@ type Root struct {
 	maxPendingFrames      int
 	lastSequence          uint64
 	writtenSequence       uint64
-	published             atomic.Pointer[writtenHistory]
+	published             atomic.Pointer[inputGeometry]
 	inputHistory          int
-	now                   func() time.Time
 	geometryEpoch         uint64
 	namespace             *namespace
 	delivery              uint64
@@ -78,10 +75,6 @@ func NewRoot(cfg RootConfig) (*Root, error) {
 	r.inputHistory = cfg.InputHistory
 	if r.inputHistory == 0 {
 		r.inputHistory = defaultInputHistory
-	}
-	r.now = cfg.Now
-	if r.now == nil {
-		r.now = time.Now
 	}
 	// A focus predicate can observe a provisional attachment and then unwind
 	// the constructor. Revoke its lease without publishing lifecycle callbacks
@@ -626,7 +619,7 @@ func (r *Root) revoke() {
 	}
 	r.content = Element{}
 	r.closed = true
-	r.nodes, r.now = nil, nil
+	r.nodes = nil
 	r.capture = capture{}
 	r.scopes = nil
 	r.previousKeyboardRoute = nil

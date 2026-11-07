@@ -1,5 +1,10 @@
 package grid
 
+import (
+	"errors"
+	"fmt"
+)
+
 // Depth is applied only when truecolor cells cross the wire so themes and
 // drawing operations remain independent of terminal palettes. Auto delegates
 // selection to the host; encoding treats unresolved Auto as TrueColor.
@@ -15,6 +20,15 @@ const (
 	// NoColor retains text attributes so emphasis survives without color.
 	NoColor
 )
+
+var ErrInvalidDepth = errors.New("grid: invalid color depth")
+
+func (d Depth) Validate() error {
+	if d > NoColor {
+		return fmt.Errorf("%w: %d", ErrInvalidDepth, d)
+	}
+	return nil
+}
 
 // cube holds the six channel values of the 6×6×6 colour cube that occupies
 // indices 16–231 of the xterm palette.

@@ -246,7 +246,7 @@ func markdownDrawPurityCases() []drawPurityCase {
 	// trim the memo it just built.
 	doc := &Doc{}
 	item := &listItem{
-		body: documentView{blocks: []Block{{
+		body: Snapshot{blocks: []Block{{
 			lines:  []text.Line{plain("an item long enough to wrap twice over")},
 			prefix: blockPrefix{indent: 2},
 		}}},
@@ -273,15 +273,25 @@ func markdownDrawPurityCases() []drawPurityCase {
 		},
 		{lines: []text.Line{plain("after the rule")}, blankBefore: true},
 	})
-	prepared := &documentView{blocks: doc.Blocks()}
+	prepared := &Snapshot{blocks: doc.Blocks()}
+	projection := prepared.arrange(14)
 	return append(cases, drawPurityCase{
 		name: "*Doc", width: 14, height: 6,
 		draw: doc.Draw, measure: doc.HeightForWidth,
 		state: func() any { return meaningOfDoc(doc) },
 	}, drawPurityCase{
-		name: "*documentView", width: 14, height: 6,
+		name: "*Snapshot", width: 14, height: 6,
 		draw: prepared.Draw, measure: prepared.HeightForWidth,
 		state: func() any { return meaningOfDoc(&Doc{view: prepared}) },
+	}, drawPurityCase{
+		name: "*documentLayout", width: 14, height: 6,
+		draw: projection.Draw, measure: projection.HeightForWidth,
+		state: func() any {
+			return struct {
+				meaning       docMeaning
+				width, height int
+			}{meaningOfDoc(doc), projection.width, projection.height}
+		},
 	}, drawPurityCase{
 		name: "*listItem", width: 14, height: 6,
 		draw: item.Draw, measure: item.HeightForWidth,

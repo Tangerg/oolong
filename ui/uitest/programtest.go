@@ -33,7 +33,7 @@ const assertionTimeout = 5 * time.Second
 
 // Host is an in-memory program host for tests.
 //
-// Every method is safe to call from the test goroutine while [program.Run] owns the
+// Every method is safe to call from the test goroutine while a program session owns the
 // program goroutine. New arranges cleanup; Close is also available when a test wants
 // to settle the frame writer earlier. The zero Host is inert and refuses events. A
 // Host must not be copied after first use: its event stream, frame writer and captured
@@ -125,7 +125,7 @@ func (h *Host) Send(event input.Event) bool {
 	if resized, ok := event.(input.Resize); ok {
 		return h.Resize(resized.Width, resized.Height)
 	}
-	return h.input.post(event)
+	return h.input.post(input.Stamp([]input.Event{event}, time.Now())[0])
 }
 
 func (h *Host) Type(text string) bool {

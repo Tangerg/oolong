@@ -101,6 +101,32 @@ func TestScrollRevealWithNoWindowDoesNothing(t *testing.T) {
 	}
 }
 
+func TestZeroScrollPreservesPendingReveal(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		move func(*base.Scroll)
+	}{
+		{"rows", func(scroll *base.Scroll) { scroll.By(0) }},
+		{"pages", func(scroll *base.Scroll) { scroll.Pages(0) }},
+		{"fractional wheel", func(scroll *base.Scroll) {
+			scroll.Wheel(input.Wheel{Reports: 3, Rows: 1})
+			scroll.Handle(input.Mouse{Action: input.WheelUp}, nil)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var scroll base.Scroll
+			scroll.Reveal(50, 50)
+			test.move(&scroll)
+			if scroll.FollowingEnd() || scroll.Resolve(100, 10) != 41 {
+				t.Fatal("zero movement replaced the pending reveal")
+			}
+			if got := scroll.Resolve(100, 20); got != 31 {
+				t.Fatalf("reflow lost the pending reveal: offset=%d, want 31", got)
+			}
+		})
+	}
+}
+
 // TestScrollTakesTheTerminalsWordForWhatANotchIs. The same code used to scroll three
 // times as far on Apple Terminal as on iTerm2, because it moved a fixed number of rows
 // per report and they send a different number of reports.

@@ -4,11 +4,13 @@
 package markdown
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"slices"
+	"sort"
 	"sync/atomic"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -19,11 +21,15 @@ import (
 // the same sequence; subsequent replacements and appends affect only the receiver.
 // A projection finishes against the sequence captured when it started, even if
 // an embedded drawable replaces the document during a layout callback.
-type Doc struct{ view *documentView }
+type Doc struct{ view *Snapshot }
 
-// documentView binds the cache to the blocks it describes. A delayed layout may
-// populate its own version; it cannot publish geometry for a replacement.
-type documentView struct {
+// Snapshot retains one immutable block sequence and a bounded single-width layout
+// memo. A delayed preparation can populate only its own version, never a later
+// Doc replacement. The zero value is empty; a Snapshot must not be copied after use.
+// Concurrent projections may replace the width memo but cannot alter an already
+// returned layout. Embedded drawables must also support concurrent reads when used
+// this way, and retain the immutable-content contract of Block.
+type Snapshot struct {
 	blocks []Block
 	layout atomic.Pointer[documentLayout]
 	// One append may use the spare tail. Other copies deriving from this exact
@@ -33,7 +39,7 @@ type documentView struct {
 
 // SetBlocks copies the slice to prevent caller edits from replacing retained blocks.
 func (d *Doc) SetBlocks(blocks []Block) {
-	d.view = &documentView{blocks: slices.Clone(blocks)}
+	d.view = &Snapshot{blocks: slices.Clone(blocks)}
 }
 
 // Append lets copies advance independently; only one descendant can claim shared spare
@@ -49,7 +55,7 @@ func (d *Doc) Append(blocks ...Block) {
 			prefix = slices.Clip(prefix)
 		}
 	}
-	d.view = &documentView{blocks: append(prefix, blocks...)}
+	d.view = &Snapshot{blocks: append(prefix, blocks...)}
 }
 
 func (d *Doc) Len() int {
@@ -83,44 +89,110 @@ type placedBlock struct {
 }
 
 type documentLayout struct {
-	places        []placedBlock
+	places []placedBlock
+	// Measuring an embedded drawable must not allocate its complete text extent.
+	// Explicit preparation warms this separate memo before a UI owner needs rows.
+	rows          atomic.Pointer[rowProjection]
 	width, height int
 }
 
-func (d *documentView) HeightForWidth(width int) int { return d.arrange(width).height }
+type rowProjection struct{ values []text.Row }
 
-func (d *documentView) Draw(v grid.View) {
+// HeightForWidth prepares missing geometry without materializing text rows.
+// Combined row-space overflow panics before publishing the new geometry.
+func (d *Snapshot) HeightForWidth(width int) int { return d.arrange(width).height }
+
+// Draw uses the view's logical width; clipping does not change the layout width.
+// Combined row-space overflow panics before publishing the new geometry.
+func (d *Snapshot) Draw(v grid.View) {
+	width, _ := v.Size()
+	d.arrange(width).Draw(v)
+}
+
+// A prepared layout pins its block placements when the document caches another
+// width. Drawing into a smaller view clips those placements instead of reflowing.
+func (d *documentLayout) HeightForWidth(int) int { return d.height }
+
+func (d *documentLayout) Draw(v grid.View) {
 	if v.Empty() {
 		return
 	}
-	width, _ := v.Size()
-	positions, visible := d.arrange(width), v.Visible()
-	for _, placed := range positions.places {
-		if placed.top >= visible.Max.Y || placed.top+placed.layout.height <= visible.Min.Y {
-			continue
+	visible := v.Visible()
+	first := sort.Search(len(d.places), func(index int) bool {
+		placed := d.places[index]
+		return placed.top+placed.layout.height > visible.Min.Y
+	})
+	for _, placed := range d.places[first:] {
+		if placed.top >= visible.Max.Y {
+			break
 		}
-		placed.layout.draw(v.Sub(grid.Area(0, placed.top, width, placed.layout.height)))
+		placed.layout.draw(v.Sub(grid.Area(0, placed.top, d.width, placed.layout.height)))
 	}
 }
 
-func (d *documentView) Rows(width int) []text.Row {
-	positions := d.arrange(width)
-	rows := make([]text.Row, positions.height)
-	for _, placed := range positions.places {
-		copy(rows[placed.top:], placed.layout.project())
-	}
-	return rows
+// Rows returns an owned slice. Memoized text remains immutable after caller edits.
+// Combined row-space overflow panics before publishing the new geometry.
+func (d *Snapshot) Rows(width int) []text.Row {
+	rows, _ := d.arrange(width).prepareRows(context.Background())
+	return slices.Clone(rows.values)
 }
 
-func (d *documentView) arrange(width int) *documentLayout {
+func (d *Snapshot) arrange(width int) *documentLayout {
 	if d == nil {
 		return &documentLayout{}
 	}
 	if previous := d.layout.Load(); previous != nil && previous.width == width {
 		return previous
 	}
+	result, _ := d.prepareLayout(context.Background(), width)
+	return result
+}
+
+// PrepareWidth completes both wrapping and text projection before a UI owner
+// accepts this result. Cancellation is checked between blocks and projections;
+// an embedded callback must return before its cancellation can be observed.
+// A nonpositive width prepares empty content. Concurrent preparation of another
+// width may replace this memo, so readiness must still be read with PreparedLayout.
+// Combined row-space overflow panics before publishing the new geometry.
+func (d *Snapshot) PrepareWidth(ctx context.Context, width int) error {
+	layout, err := d.prepareLayout(ctx, width)
+	if err != nil {
+		return err
+	}
+	_, err = layout.prepareRows(ctx)
+	return err
+}
+
+// PreparedLayout never starts work. False means that geometry or text rows for
+// this width are not ready. Its result retains immutable block placements even
+// after another width replaces the snapshot's memo; embedded content remains
+// subject to Block's passive-content contract.
+func (d *Snapshot) PreparedLayout(width int) (grid.Drawable, bool) {
+	if d == nil {
+		return &documentLayout{}, true
+	}
+	result := d.layout.Load()
+	if result == nil || result.width != width || result.rows.Load() == nil {
+		return nil, false
+	}
+	return result, true
+}
+
+func (d *Snapshot) prepareLayout(ctx context.Context, width int) (*documentLayout, error) {
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	if d == nil {
+		return &documentLayout{}, nil
+	}
+	if previous := d.layout.Load(); previous != nil && previous.width == width {
+		return previous, nil
+	}
 	result := &documentLayout{width: width}
 	for _, block := range d.blocks {
+		if err := context.Cause(ctx); err != nil {
+			return nil, err
+		}
 		placed := block.layout(width)
 		if placed.height == 0 {
 			continue
@@ -136,8 +208,34 @@ func (d *documentView) arrange(width int) *documentLayout {
 		result.places = append(result.places, placedBlock{top: top, layout: placed})
 		result.height = top + placed.height
 	}
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
 	d.layout.Store(result)
-	return result
+	return result, nil
+}
+
+func (d *documentLayout) prepareRows(ctx context.Context) (*rowProjection, error) {
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	if previous := d.rows.Load(); previous != nil {
+		return previous, nil
+	}
+	result := &rowProjection{values: make([]text.Row, d.height)}
+	for _, placed := range d.places {
+		if err := context.Cause(ctx); err != nil {
+			return nil, err
+		}
+		copy(result.values[placed.top:], placed.layout.project())
+	}
+	if err := context.Cause(ctx); err != nil {
+		return nil, err
+	}
+	if d.rows.CompareAndSwap(nil, result) {
+		return result, nil
+	}
+	return d.rows.Load(), nil
 }
 
 // Look uses terminal-default appearance at its zero value so this parser module need not

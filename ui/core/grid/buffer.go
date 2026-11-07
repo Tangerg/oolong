@@ -33,6 +33,9 @@ func (b *frameBuffer) resize(w, h int) bool {
 }
 
 func (b *frameBuffer) setDepth(depth Depth) bool {
+	if err := depth.Validate(); err != nil {
+		panic(err)
+	}
 	if b.depth == depth {
 		return false
 	}

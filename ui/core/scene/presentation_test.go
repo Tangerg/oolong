@@ -32,7 +32,7 @@ func TestInputReadsItsWrittenProjectionRatherThanNewAdmission(t *testing.T) {
 	r := root(t, e)
 	draw(t, r, 10, 2, 1)
 	r.Wrote(1)
-	click := r.CaptureInput(input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 1)})
+	click := capture(r, input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 1)})
 	firstRow = 20
 	draw(t, r, 10, 2, 2)
 	if projection.Value() != 20 {
@@ -46,7 +46,6 @@ func TestInputReadsItsWrittenProjectionRatherThanNewAdmission(t *testing.T) {
 }
 
 func TestBufferedMouseTimestampAndGeometryInvalidation(t *testing.T) {
-	now := time.Unix(100, 0)
 	var projection scene.Snapshot[int]
 	value, hit := 1, 0
 	e := scene.NewElement(scene.ElementConfig{
@@ -58,33 +57,32 @@ func TestBufferedMouseTimestampAndGeometryInvalidation(t *testing.T) {
 			return scene.EventResult{Consumed: true}
 		},
 	})
-	r, err := scene.NewRoot(scene.RootConfig{Element: e, InputHistory: 2, Now: func() time.Time { return now }})
+	r, err := scene.NewRoot(scene.RootConfig{Element: e, InputHistory: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer r.Close()
 	draw(t, r, 5, 1, 1)
 	r.Wrote(1)
-	at := now.Add(time.Second)
-	now = now.Add(2 * time.Second)
+	at := time.Now()
 	value = 2
 	draw(t, r, 5, 1, 2)
 	r.Wrote(2)
-	r.Handle(input.Mouse{Action: input.MouseDown, At: at})
+	old := r.CaptureInput(input.Mouse{Action: input.MouseDown, At: at}, func(time.Time) (uint64, bool) { return 1, true })
+	r.HandleInput(old)
 	if hit != 1 {
 		t.Fatalf("buffer delay rewrote arrival geometry: %d", hit)
 	}
-	queued := r.CaptureInput(input.Mouse{Action: input.MouseDown})
+	queued := capture(r, input.Mouse{Action: input.MouseDown})
 	r.InvalidateGeometry()
 	hit = 0
 	r.HandleInput(queued)
 	if hit != 0 {
 		t.Fatal("resize reused an invalidated coordinate space")
 	}
-	now = now.Add(time.Second)
 	draw(t, r, 6, 2, 3)
 	r.Wrote(3)
-	r.Handle(input.Mouse{Action: input.MouseDown, At: at})
+	r.HandleInput(r.CaptureInput(input.Mouse{Action: input.MouseDown, At: at}, func(time.Time) (uint64, bool) { return 1, true }))
 	if hit != 0 {
 		t.Fatal("expired timestamp was reinterpreted against newer geometry")
 	}

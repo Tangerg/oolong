@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/oolong/extensions/markdown"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -35,12 +36,17 @@ type markdownScreen struct {
 	theme     kit.Theme
 	doc       markdown.Doc
 	renderErr error
+	keys      keymap.Map
 }
+
+const quitMarkdown keymap.Action = "quit"
 
 func newMarkdown(runtime *program.Runtime) *markdownScreen {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	screen := &markdownScreen{runtime: runtime, theme: theme}
+	screen.keys.Bind(quitMarkdown, input.Chord{Rune: 'q'})
+	screen.keys.Bind(quitMarkdown, input.Ctrl.Rune('c'))
 	blocks, err := markdown.Render(markdownSource, markdownlook.New(theme, glyphs))
 	screen.renderErr = err
 	screen.doc.SetBlocks(blocks)
@@ -59,7 +65,7 @@ func (s *markdownScreen) Draw(view grid.View) {
 		kit.Label{Text: s.renderErr.Error(), Style: s.theme.Danger}.Draw(rows[2])
 		return
 	}
-	kit.Label{Text: "q quits · Render → Blocks → Doc", Style: s.theme.Subtle}.Draw(rows[2])
+	kit.Help{Theme: s.theme, Keys: &s.keys, Show: []keymap.Action{quitMarkdown}}.Draw(rows[2])
 }
 
 func (s *markdownScreen) Handle(event input.Event) bool {
@@ -67,7 +73,7 @@ func (s *markdownScreen) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	if key.Rune != 'q' && (key.Rune != 'c' || !key.Mods.Has(input.Ctrl)) {
+	if action, bound := s.keys.ActionFor(key); !bound || action != quitMarkdown {
 		return false
 	}
 	s.runtime.Quit()

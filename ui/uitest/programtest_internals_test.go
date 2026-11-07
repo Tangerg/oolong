@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
+
+	"github.com/Tangerg/oolong/ui/core/input"
 )
 
 func TestVisibleRunsJoinAppearanceBoundaries(t *testing.T) {
@@ -65,4 +68,23 @@ func TestVisibilityWaitsForOutputInsteadOfRequestingIdleFrames(t *testing.T) {
 		<-done
 		<-done
 	})
+}
+
+func TestHostStampsInputBeforeBuffering(t *testing.T) {
+	host := New(t, Config{Width: 20, Height: 2})
+	before := time.Now()
+	if !host.Send(input.Mouse{Action: input.MouseDown}) {
+		t.Fatal("mouse admission failed")
+	}
+	after := time.Now()
+	mouse := (<-host.Events()).(input.Mouse)
+	if mouse.At.Before(before) || mouse.At.After(after) {
+		t.Fatalf("arrival was not the admission time: before=%v arrival=%v after=%v", before, mouse.At, after)
+	}
+	if !host.Send(mouse) {
+		t.Fatal("timestamped mouse admission failed")
+	}
+	if repeated := (<-host.Events()).(input.Mouse); !repeated.At.Equal(mouse.At) {
+		t.Fatal("buffer admission replaced an explicit transport timestamp")
+	}
 }

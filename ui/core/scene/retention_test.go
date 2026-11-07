@@ -3,7 +3,6 @@ package scene_test
 import (
 	"runtime"
 	"testing"
-	"time"
 	"weak"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -59,25 +58,25 @@ func TestSettledCandidatesReleaseTheirFrameContent(t *testing.T) {
 	}
 }
 
-func closedRootWithClock(t *testing.T) (*scene.Root, weak.Pointer[[1024]byte]) {
+func closedRootWithProjection(t *testing.T) (*scene.Root, weak.Pointer[[1024]byte]) {
 	t.Helper()
-	clock := new([1024]byte)
-	r, err := scene.NewRoot(scene.RootConfig{Now: func() time.Time {
-		runtime.KeepAlive(clock)
-		return time.Unix(1, 0)
-	}})
+	payload := new([1024]byte)
+	r, err := scene.NewRoot(scene.RootConfig{Element: scene.NewElement(scene.ElementConfig{Semantics: func() scene.Semantic {
+		runtime.KeepAlive(payload)
+		return scene.Semantic{}
+	}})})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.Close()
-	return r, weak.Make(clock)
+	return r, weak.Make(payload)
 }
 
-func TestClosedRootReleasesItsProjectionClock(t *testing.T) {
-	r, clock := closedRootWithClock(t)
+func TestClosedRootReleasesItsProjectionCallbacks(t *testing.T) {
+	r, payload := closedRootWithProjection(t)
 	runtime.GC()
-	if clock.Value() != nil {
-		t.Fatal("closed scene retained its projection clock's captured state")
+	if payload.Value() != nil {
+		t.Fatal("closed scene retained a projection callback's captured state")
 	}
 	r.Close()
 	runtime.KeepAlive(r)

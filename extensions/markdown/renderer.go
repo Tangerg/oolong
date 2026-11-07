@@ -15,7 +15,10 @@ import (
 type RendererConfig struct{ Look Look }
 
 // NewRenderer requires complete snapshots to keep parse semantics independent of chunk boundaries.
-// StreamDocument owns revision and finalization; each result owns its layout cache.
+// StreamDocument owns revision and finalization. Every non-nil result is a
+// *Snapshot with immutable blocks and its own bounded width memo. Parsing alone
+// leaves layout cold; callers can prepare a width off the UI owner with
+// Snapshot.PrepareWidth and obtain its ready projection with Snapshot.PreparedLayout.
 func NewRenderer(cfg RendererConfig) content.Renderer {
 	look := cloneLook(cfg.Look)
 	return func(ctx context.Context, source string) (grid.Drawable, error) {
@@ -26,7 +29,7 @@ func NewRenderer(cfg RendererConfig) content.Renderer {
 		if err != nil && blocks == nil {
 			return nil, err
 		}
-		return &documentView{blocks: blocks}, err
+		return &Snapshot{blocks: blocks}, err
 	}
 }
 

@@ -24,6 +24,8 @@ const (
 	quit keymap.Action = "quit"
 
 	sequenceTimeout = 400 * time.Millisecond
+	panelColumns    = 54
+	panelRows       = 7
 )
 
 func main() {
@@ -82,7 +84,7 @@ func (k *keys) Draw(view grid.View) {
 		Theme: k.theme, Glyphs: k.glyphs, Title: "key sequences",
 		Padding: layout.Symmetric(0, 1),
 	}
-	area := grid.Area(max((width-54)/2, 0), max((height-7)/2, 0), min(width, 54), min(height, 7))
+	area := grid.Area(max((width-panelColumns)/2, 0), max((height-panelRows)/2, 0), min(width, panelColumns), min(height, panelRows))
 	inside := box.Draw(view.Sub(area))
 	kit.Help{Theme: k.theme, Keys: k.mapKeys, Show: []keymap.Action{next, top, quit}}.Draw(inside)
 	kit.Label{Text: fmt.Sprintf("prefix timeout: %s", k.mapKeys.Timeout), Style: k.theme.Subtle}.

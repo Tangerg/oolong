@@ -40,7 +40,7 @@ jobs:
       # gorelease's next-version suggestion is not a post-publication contract.
       - name: Install gorelease
         if: github.event_name == 'workflow_dispatch'
-        run: go install golang.org/x/exp/cmd/gorelease@v0.0.0-20261007192929-f45ad48fbe92
+        run: scripts/tools.sh install gorelease
 
       - name: Validate the module and its published dependencies
         shell: bash

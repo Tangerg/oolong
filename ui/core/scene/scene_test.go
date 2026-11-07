@@ -6,6 +6,7 @@ import (
 	"image"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -33,6 +34,11 @@ func draw(t *testing.T, r *scene.Root, width, height int, sequence uint64) {
 	if sequence == 0 {
 		r.Wrote(r.Progress().WrittenSequence)
 	}
+}
+
+func capture(r *scene.Root, event input.Event) scene.CapturedInput {
+	sequence := r.Progress().WrittenSequence
+	return r.CaptureInput(event, func(time.Time) (uint64, bool) { return sequence, true })
 }
 
 func item(key string, element scene.Element) scene.Item {
@@ -179,7 +185,7 @@ func TestPointerUsesArrivalWrittenGeometryAndCurrentAttachment(t *testing.T) {
 	r := root(t, g.Element())
 	draw(t, r, 10, 2, 1)
 	r.Wrote(1)
-	click := r.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0)})
+	click := capture(r, input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0)})
 	if err := g.Move(0, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +197,7 @@ func TestPointerUsesArrivalWrittenGeometryAndCurrentAttachment(t *testing.T) {
 	if !slices.Equal(received, []string{"a", "a", "b"}) {
 		t.Fatalf("input retargeted across admission/writing: %v", received)
 	}
-	old := r.CaptureInput(input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 0)})
+	old := capture(r, input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 0)})
 	if err := g.Set(item("a", a)); err != nil {
 		t.Fatal(err)
 	}

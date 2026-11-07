@@ -390,6 +390,8 @@ type runner interface {
 	run(ctx context.Context, cmd command) (string, error)
 }
 
+const commandPipeDrainTimeout = time.Second
+
 type osRunner struct{}
 
 func (osRunner) run(ctx context.Context, command command) (string, error) {
@@ -399,7 +401,7 @@ func (osRunner) run(ctx context.Context, command command) (string, error) {
 	cmd := exec.CommandContext(ctx, command.name, command.args...)
 	// Output pipes belong to this invocation, even if a tool's descendant retains
 	// them after exit or cancellation. Incomplete collection remains an explicit error.
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = commandPipeDrainTimeout
 	cmd.Dir = command.dir
 	cmd.Env = os.Environ()
 	for name, value := range command.env {

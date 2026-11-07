@@ -3,6 +3,7 @@ package scene
 import (
 	"image"
 	"slices"
+	"time"
 
 	"github.com/Tangerg/oolong/ui/core/input"
 )
@@ -198,13 +199,16 @@ type CapturedInput struct {
 
 func (c CapturedInput) Input() input.Event { return c.input }
 
-// CaptureInput accepts immutable terminal values; invalid inputs return a zero capture.
-// It may be called by the input reader goroutine. All other root
-// operations, including HandleInput, belong to the interface owner sequence.
-func (r *Root) CaptureInput(event input.Event) CapturedInput {
+// CaptureInput associates physical input with the writer's completed prefix at
+// Mouse.At, or its reception time when At is zero. writtenAt must be a pure,
+// concurrency-safe query and return false for uncertain or expired evidence.
+// Invalid input returns a zero capture; uncertain coordinates retain no hit map.
+// Only this operation may run on an input reader instead of the UI owner.
+func (r *Root) CaptureInput(event input.Event, writtenAt func(time.Time) (uint64, bool)) CapturedInput {
 	if input.ByteSize(event) == 0 {
 		return CapturedInput{}
 	}
+	event = input.Stamp([]input.Event{event}, time.Now())[0]
 	if r == nil {
 		return CapturedInput{input: event}
 	}
@@ -213,22 +217,42 @@ func (r *Root) CaptureInput(event input.Event) CapturedInput {
 	if !pointer {
 		return captured
 	}
-	history := r.published.Load()
-	if history == nil {
+	if writtenAt == nil {
 		return captured
 	}
-	at := mouse.At
+	sequence, known := writtenAt(mouse.At)
+	if !known {
+		return captured
+	}
+	history := r.published.Load()
+	if history == nil || history.pending {
+		return captured
+	}
 	for _, snapshot := range slices.Backward(history.layouts) {
-		if at.IsZero() || !at.Before(snapshot.writtenAt) {
-			captured.layout = snapshot
-			break
+		if snapshot.sequence > sequence {
+			continue
 		}
+		if mouse.At.Before(snapshot.admittedAt) {
+			if snapshot.hasOutput {
+				return captured
+			}
+			continue
+		}
+		captured.layout = snapshot
+		break
 	}
 	return captured
 }
 
-// Handle captures the current written geometry and immediately routes input on the owner sequence.
-func (r *Root) Handle(event input.Event) bool { return r.HandleInput(r.CaptureInput(event)) }
+// Handle injects synthetic input against the owner's current written geometry.
+// Physical input must use CaptureInput with transport completion evidence; an
+// event timestamp alone cannot prove which output had completed at its arrival.
+func (r *Root) Handle(event input.Event) bool {
+	if r == nil || input.ByteSize(event) == 0 {
+		return false
+	}
+	return r.HandleInput(CapturedInput{input: event, root: r, layout: r.written})
+}
 
 // HandleInput routes an arrival snapshot while checking current attachment and interaction eligibility.
 func (r *Root) HandleInput(event CapturedInput) bool {

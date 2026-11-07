@@ -27,6 +27,8 @@ type answers struct {
 	stream bool
 }
 
+const maximumSelectedTools = 2
+
 func main() {
 	var got answers
 	form := ask(&got)
@@ -72,7 +74,7 @@ func ask(into *answers) *sessionForm {
 		Same: base.Equal[string], Label: "Which tools may it use?",
 		Options: base.Options("read", "write", "run"),
 	})
-	tools.SetLimit(2)
+	tools.SetLimit(maximumSelectedTools)
 	stream := base.NewConfirm(base.ConfirmConfig{Label: "Stream the answer?"})
 	form := &sessionForm{theme: kit.NewThemeOwner(kit.Theme{})}
 	form.view = kit.NewForm(kit.FormConfig{

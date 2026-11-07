@@ -107,6 +107,9 @@ func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error)
 		p.tasks.resourceCapacity = cfg.Resources
 	}
 	p.environment = environmentFor(p.host)
+	if err := p.environment.Color().Validate(); err != nil {
+		return nil, fmt.Errorf("program: host color: %w", err)
+	}
 	if p.frameInterval == 0 {
 		p.frameInterval = DefaultFrameInterval
 	}
@@ -117,7 +120,7 @@ func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error)
 	if err := p.buildInterface(cfg, width, height, depth); err != nil {
 		return nil, err
 	}
-	p.inputPipe = newInputPipe(sessionContext, p.root, source, events, cfg.Config)
+	p.inputPipe = newInputPipe(sessionContext, p.root, source, events, frames.WrittenAt, cfg.Config)
 	built = true
 	return p, nil
 }
@@ -160,7 +163,6 @@ func (p *program) buildInterface(cfg runConfig, width, height int, depth grid.De
 	return nil
 }
 
-// program is one running interface.
 type program struct {
 	environment Environment
 	root        *scene.Root
@@ -183,8 +185,11 @@ type program struct {
 	// different channel per call would split one watermark into unrelated streams.
 	changes <-chan struct{}
 
-	present       present.Presenter
-	frameInterval time.Duration
+	present          present.Presenter
+	frameInterval    time.Duration
+	framePreparation func(int, int) (bool, error)
+	preparingFrame   bool
+	pendingRepaint   *repaintRequest
 
 	// tasks separates finite ordinary action capacity from reserved completion
 	// slots. Neither admission path waits for work only this owner can consume.
@@ -231,7 +236,8 @@ func (p *program) run(ctx context.Context) (err error) {
 		if p.publisher != nil {
 			p.publisher.CloseAdmission(ErrStopped)
 		}
-		err = errors.Join(err, p.finish())
+		defer func() { err = errors.Join(err, p.finish()) }()
+		p.completeRepaint(ErrStopped)
 	}()
 	// Taking the record here is what makes its consumption unconditional. A component
 	// that stops the program in the same turn it was handed a failure — the ordinary
@@ -255,7 +261,11 @@ func (p *program) loop(ctx context.Context) error {
 			p.frameFailed = true
 			return err
 		}
-		if err := p.draw(); err != nil && !errors.Is(err, term.ErrQueueFull) {
+		if p.pendingRepaint != nil {
+			if err := p.attemptRepaint(); err != nil {
+				return err
+			}
+		} else if err := p.draw(); err != nil && (p.frameFailed || !errors.Is(err, term.ErrQueueFull) && !errors.Is(err, errFrameNotReady)) {
 			p.frameFailed = true
 			return err
 		}
@@ -270,11 +280,23 @@ func (p *program) loop(ctx context.Context) error {
 }
 
 func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err error) {
+	inputs := p.inputPipe.events
+	var inputEnded <-chan struct{}
+	if p.pendingRepaint != nil {
+		inputs = nil
+		inputEnded = p.inputPipe.done
+	}
 	select {
 	case <-ctx.Done():
 		return true, nil
 
-	case item, ok := <-p.inputPipe.events:
+	case <-inputEnded:
+		// EOF must end a readiness wait without discarding input already
+		// admitted behind it. Settle the barrier, then drain the normal queue.
+		p.completeRepaint(ErrStopped)
+		return false, nil
+
+	case item, ok := <-inputs:
 		if !ok {
 			return true, p.inputPipe.err()
 		}
@@ -305,20 +327,11 @@ func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err
 // loop ends on the same error: a caller waiting on the reply would otherwise learn
 // only that the program had stopped.
 func (p *program) answerRepaint(reply func(int, int, error)) error {
-	err := ErrInvocationAborted
-	defer func() {
-		var width, height int
-		if err == nil {
-			width, height = p.canvas.Size()
-		} else {
-			p.frameFailed = true
-		}
-		if reply != nil {
-			reply(width, height, err)
-		}
-	}()
-	err = p.repaint()
-	return err
+	if p.pendingRepaint != nil {
+		panic("program: repaint request already pending")
+	}
+	p.pendingRepaint = &repaintRequest{reply: reply}
+	return p.attemptRepaint()
 }
 
 // runTasks takes one scheduling turn. Work posted while this batch runs leaves
@@ -429,6 +442,7 @@ func (p *program) stop() {
 		p.root, p.canvas, p.inline, p.publisher = nil, nil, nil, nil
 		p.writer, p.changes, p.inputPipe = nil, nil, nil
 		p.ctx, p.cancel = nil, nil
+		p.framePreparation, p.pendingRepaint = nil, nil
 	}()
 	p.stopWork()
 	if p.publisher != nil {
