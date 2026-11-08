@@ -180,7 +180,7 @@ func publicationMethod(path, receiver, method string) bool {
 		case "Publisher":
 			return method == "TryPublish" || method == "Subscribe"
 		case "Dispatcher":
-			return method == "Post" || method == "Invoke"
+			return method == "Post" || method == "Invoke" || method == "Dispatch"
 		case "Session":
 			switch method {
 			case "ReportDirectory", "Hand", "Suspend", "SetTitle", "SetProgress", "Bell", "Notify":
@@ -201,7 +201,14 @@ func publicationMethod(path, receiver, method string) bool {
 	case modulePath + "/ui/core/scene":
 		return receiver == "Prepared" && method == "Commit" || receiver == "Root" && (method == "Invoke" || method == "FlushNotifications")
 	case modulePath + "/ui/core/grid":
-		return (receiver == "Screen" || receiver == "Inline") && method == "Flush" || receiver == "Output" && method == "Commit"
+		switch receiver {
+		case "Screen":
+			return method == "Flush"
+		case "Inline":
+			return method == "Flush" || method == "Finish"
+		case "Output":
+			return method == "Commit"
+		}
 	case modulePath + "/ui/core/term":
 		if receiver == "Writer" || receiver == "FrameSink" || receiver == "Terminal" {
 			switch method {

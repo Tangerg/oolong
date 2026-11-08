@@ -299,10 +299,10 @@ func TestTokenAt(t *testing.T) {
 	}
 }
 
-func TestTokenAtIsClampedToTheLine(t *testing.T) {
+func TestTokenAtRejectsOutOfRangeCursor(t *testing.T) {
 	// A cursor from somewhere that has since changed the text must not index out of it.
 	for _, cursor := range []int{-5, 100} {
-		if _, ok := base.TokenAt("@src", cursor, file); ok && cursor < 0 {
+		if _, ok := base.TokenAt("@src", cursor, file); ok {
 			t.Errorf("cursor %d found a token", cursor)
 		}
 	}

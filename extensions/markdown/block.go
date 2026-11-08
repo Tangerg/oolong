@@ -1,6 +1,8 @@
 package markdown
 
 import (
+	"context"
+
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
@@ -12,6 +14,7 @@ import (
 type Block struct {
 	lines   []text.Line
 	table   *table
+	item    *listItem
 	content grid.Drawable
 
 	prefix blockPrefix
@@ -22,19 +25,28 @@ type Block struct {
 
 // HeightForWidth excludes inter-block spacing because only the composer knows
 // whether another block precedes this one.
-func (b Block) HeightForWidth(width int) int { return b.layout(width).height }
+func (b Block) HeightForWidth(width int) int {
+	placed, _ := b.prepareLayout(context.Background(), width)
+	return placed.height
+}
 
 func (b Block) Draw(v grid.View) {
 	if v.Empty() {
 		return
 	}
 	width, _ := v.Size()
-	b.layout(width).draw(v)
+	placed, _ := b.prepareLayout(context.Background(), width)
+	placed.draw(v)
 }
 
 // Rows preserves marker, quotation-rail and divider geometry separately because
 // those cells affect selection offsets without becoming searchable content.
-func (b Block) Rows(width int) []text.Row { return b.layout(width).project() }
+func (b Block) Rows(width int) []text.Row {
+	ctx := context.Background()
+	placed, _ := b.prepareLayout(ctx, width)
+	rows, _ := placed.project(ctx)
+	return rows
+}
 
 // BlankBefore leaves spacing to the composer because only it knows whether a
 // preceding block exists; a block cannot declare itself the first visible block.
@@ -44,15 +56,16 @@ func (b Block) BlankBefore() bool { return b.blankBefore }
 // its drawing contract.
 type blockLayout struct {
 	rows                []text.Wrapped
+	item                *listItemLayout
 	child               grid.Drawable
 	rule                *text.Span
 	left, width, height int
 	prefix              blockPrefix
 }
 
-func (b Block) layout(width int) blockLayout {
+func (b Block) prepareLayout(ctx context.Context, width int) (blockLayout, error) {
 	if width <= 0 {
-		return blockLayout{}
+		return blockLayout{}, nil
 	}
 	// Even a deeply nested block needs a content column. Clip its furniture to
 	// the same inset used for drawing, wrapping and semantic row offsets.
@@ -62,13 +75,19 @@ func (b Block) layout(width int) blockLayout {
 	switch {
 	case b.rule != nil:
 		placed.rule, placed.height = b.rule, 1
+	case b.item != nil:
+		item, err := b.item.prepareLayout(ctx, room)
+		if err != nil {
+			return blockLayout{}, err
+		}
+		placed.item, placed.height = item, item.height()
 	case b.content != nil:
 		placed.child, placed.height = b.content, max(0, b.content.HeightForWidth(room))
 	default:
 		placed.rows = b.wrapped(room)
 		placed.height = len(placed.rows)
 	}
-	return placed
+	return placed, nil
 }
 
 // Nested blocks share the immutable quotation rails; list items own their markers.
@@ -90,7 +109,9 @@ func (m *prefixMark) draw(v grid.View, y int) {
 }
 
 func (p blockLayout) draw(v grid.View) {
-	if p.child != nil {
+	if p.item != nil {
+		p.item.draw(v.Sub(grid.Area(p.left, 0, p.width, p.height)))
+	} else if p.child != nil {
 		p.child.Draw(v.Sub(grid.Area(p.left, 0, p.width, p.height)))
 	}
 	visible := v.Visible()
@@ -99,27 +120,36 @@ func (p blockLayout) draw(v grid.View) {
 		p.prefix.rails.draw(inset, y)
 		if p.rule != nil {
 			drawRule(v.Sub(grid.Area(p.left, y, p.width, 1)), *p.rule)
-		} else if p.child == nil {
+		} else if p.item == nil && p.child == nil {
 			p.rows[y].Draw(v, p.left, y)
 		}
 	}
 }
 
-func (p blockLayout) project() []text.Row {
+func (p blockLayout) project(ctx context.Context) ([]text.Row, error) {
 	if p.rule != nil {
-		return []text.Row{{Offset: p.left}}
+		return []text.Row{{Offset: p.left}}, nil
 	}
-	if p.child == nil {
-		return publicRows(p.rows, p.left)
+	if p.item == nil && p.child == nil {
+		return publicRows(p.rows, p.left), nil
 	}
-	rows := make([]text.Row, p.height)
-	if projector, ok := p.child.(interface{ Rows(width int) []text.Row }); ok {
-		copy(rows, projector.Rows(p.width))
+	var rows []text.Row
+	if p.item != nil {
+		projected, err := p.item.project(ctx)
+		if err != nil {
+			return nil, err
+		}
+		rows = projected
+	} else {
+		rows = make([]text.Row, p.height)
+		if projector, ok := p.child.(interface{ Rows(width int) []text.Row }); ok {
+			copy(rows, projector.Rows(p.width))
+		}
 	}
 	for i := range rows {
 		rows[i].Offset = layout.Translate(rows[i].Offset, p.left)
 	}
-	return rows
+	return rows, nil
 }
 
 func (b Block) wrapped(room int) []text.Wrapped {

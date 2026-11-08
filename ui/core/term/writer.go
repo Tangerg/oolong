@@ -308,6 +308,7 @@ func (w *Writer) Written() uint64 { return w.completion.latest() }
 // WrittenAt proves the completed FIFO prefix at at, using the same process clock
 // as time.Now. It returns false during a write, after a failed write, before this
 // writer existed, for future timestamps, or when the required history was evicted.
+// A timestamp equal to creation or a write boundary cannot prove causal order.
 // Completion is transport evidence, not proof of physical terminal presentation.
 func (w *Writer) WrittenAt(at time.Time) (uint64, bool) {
 	return w.completion.at(at, time.Now())

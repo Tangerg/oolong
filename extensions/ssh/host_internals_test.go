@@ -77,6 +77,7 @@ func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 		if _, err := host.ReadClipboard(t.Context()); !errors.Is(err, clipboard.ErrPending) {
 			t.Fatalf("second read = %v", err)
 		}
+		time.Sleep(time.Nanosecond)
 		host.clip.Answer("c;aGk=", time.Now())
 		if err := <-result; err != nil {
 			t.Fatal(err)
@@ -111,37 +112,43 @@ func TestHostCannotAcceptClipboardCommandsAfterWriterClose(t *testing.T) {
 }
 
 func TestEventSourceConsumesRequestedClipboardAnswersWithoutInput(t *testing.T) {
-	reader := make(chanReader)
-	clip := &clipboard.Channel{}
-	ready := make(chan struct{})
-	result := make(chan string, 1)
-	go func() {
-		value, err := clip.Read(t.Context(), clipboard.System, func(string) error { close(ready); return nil })
-		if err != nil {
-			t.Error(err)
-		}
-		result <- value
-	}()
-	<-ready
-	source := newEventSource(t.Context().Done(), reader, nil, clip)
-	t.Cleanup(source.Close)
+	synctest.Test(t, func(t *testing.T) {
+		reader := make(chanReader)
+		clip := &clipboard.Channel{}
+		ready := make(chan struct{})
+		result := make(chan string, 1)
+		go func() {
+			value, err := clip.Read(t.Context(), clipboard.System, func(string) error { close(ready); return nil })
+			if err != nil {
+				t.Error(err)
+			}
+			result <- value
+		}()
+		<-ready
+		time.Sleep(time.Nanosecond)
+		source := newEventSource(t.Context().Done(), reader, nil, clip)
+		t.Cleanup(func() {
+			source.Close()
+			close(reader)
+		})
 
-	answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "from the client")
-	reader <- readResult{data: []byte(answer + "z")}
-	if value := <-result; value != "from the client" {
-		t.Fatalf("read = %q", value)
-	}
-	event := receiveEvent(t, source.Events())
-	if key, ok := event.(input.Key); !ok || !key.IsRune('z', 0) {
-		t.Fatalf("reply became input: %#v", event)
-	}
-	unasked, _ := (&clipboard.Channel{}).Copy(clipboard.System, "unasked")
-	reader <- readResult{data: []byte(unasked)}
-	if event := receiveEvent(t, source.Events()); event == nil {
-		t.Fatal("unasked clipboard answer disappeared")
-	} else if _, ok := event.(input.OSC); !ok {
-		t.Fatalf("unasked clipboard answer became %#v", event)
-	}
+		answer, _ := (&clipboard.Channel{}).Copy(clipboard.System, "from the client")
+		reader <- readResult{data: []byte(answer + "z")}
+		if value := <-result; value != "from the client" {
+			t.Fatalf("read = %q", value)
+		}
+		event := receiveEvent(t, source.Events())
+		if key, ok := event.(input.Key); !ok || !key.IsRune('z', 0) {
+			t.Fatalf("reply became input: %#v", event)
+		}
+		unasked, _ := (&clipboard.Channel{}).Copy(clipboard.System, "unasked")
+		reader <- readResult{data: []byte(unasked)}
+		if event := receiveEvent(t, source.Events()); event == nil {
+			t.Fatal("unasked clipboard answer disappeared")
+		} else if _, ok := event.(input.OSC); !ok {
+			t.Fatalf("unasked clipboard answer became %#v", event)
+		}
+	})
 }
 
 func TestHostReadCancellationRetainsWireOwnership(t *testing.T) {
@@ -159,6 +166,7 @@ func TestHostReadCancellationRetainsWireOwnership(t *testing.T) {
 		if _, err := host.ReadClipboard(t.Context()); !errors.Is(err, clipboard.ErrPending) {
 			t.Fatalf("cancelled query lost wire ownership: %v", err)
 		}
+		time.Sleep(time.Nanosecond)
 		if !host.clip.Answer("c;b2xk", time.Now()) {
 			t.Fatal("old reply was not absorbed")
 		}

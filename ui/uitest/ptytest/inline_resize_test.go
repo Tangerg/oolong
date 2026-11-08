@@ -107,8 +107,14 @@ func TestCapturedWiderRowsWrapWithoutChangingTheLiveAnchor(t *testing.T) {
 }
 
 func TestCompletedContributionsKeepIndependentRowsAtCurrentWidth(t *testing.T) {
-	for _, alreadyFlushed := range []bool{false, true} {
-		t.Run(map[bool]string{false: "one frame", true: "two frames"}[alreadyFlushed], func(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		alreadyFlushed bool
+	}{
+		{"one frame", false},
+		{"two frames", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			canvas := grid.NewInline(5, 5)
 			screen, err := ptytest.NewScreen(ptytest.Size{Cols: 5, Rows: 5})
 			if err != nil {
@@ -116,7 +122,7 @@ func TestCompletedContributionsKeepIndependentRowsAtCurrentWidth(t *testing.T) {
 			}
 			first := captureInlineRows(t, 8, inlineRow("ab"))
 			pending := []grid.Frozen{first}
-			if alreadyFlushed {
+			if test.alreadyFlushed {
 				canvas.Frame().Text(0, 0, ">", grid.Style{})
 				flushInlineToScreen(t, canvas, screen, first)
 				pending = nil

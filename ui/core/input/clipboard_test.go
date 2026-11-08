@@ -36,40 +36,47 @@ func startClipboardRead(ctx context.Context, t *testing.T, channel *clipboard.Ch
 }
 
 func TestRequestedClipboardAnswerIsConsumedAndDeliveredToItsReader(t *testing.T) {
-	channel := &clipboard.Channel{}
-	result := startClipboardRead(t.Context(), t, channel)
-	stream := input.NewStream(input.StreamConfig{Clipboard: channel})
-	events := stream.Feed([]byte("\x1b]52;c;cGFzdGVk\x1b\\x"), time.Now())
-	if len(events) != 1 {
-		t.Fatalf("solicited result leaked into input: %+v", events)
-	}
-	if key, ok := events[0].(input.Key); !ok || !key.IsRune('x', 0) {
-		t.Fatalf("following key = %#v", events[0])
-	}
-	if got := <-result; got.err != nil || got.text != "pasted" {
-		t.Fatalf("directed result = %+v", got)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		channel := &clipboard.Channel{}
+		result := startClipboardRead(t.Context(), t, channel)
+		time.Sleep(time.Nanosecond)
+		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
+		events := stream.Feed([]byte("\x1b]52;c;cGFzdGVk\x1b\\x"), time.Now())
+		if len(events) != 1 {
+			t.Fatalf("solicited result leaked into input: %+v", events)
+		}
+		if key, ok := events[0].(input.Key); !ok || !key.IsRune('x', 0) {
+			t.Fatalf("following key = %#v", events[0])
+		}
+		if got := <-result; got.err != nil || got.text != "pasted" {
+			t.Fatalf("directed result = %+v", got)
+		}
+	})
 }
 
 func TestClipboardFailuresAndEmptyAnswersCannotBecomePaste(t *testing.T) {
-	for _, payload := range []string{"", "\n", "not-base64"} {
-		channel := &clipboard.Channel{}
-		result := startClipboardRead(t.Context(), t, channel)
-		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
-		if events := stream.Feed([]byte("\x1b]52;c;"+payload+"\x1b\\"), time.Now()); len(events) != 0 {
-			t.Fatalf("solicited empty/failure leaked into input: %+v", events)
+	synctest.Test(t, func(t *testing.T) {
+		for _, payload := range []string{"", "\n", "not-base64"} {
+			channel := &clipboard.Channel{}
+			result := startClipboardRead(t.Context(), t, channel)
+			time.Sleep(time.Nanosecond)
+			stream := input.NewStream(input.StreamConfig{Clipboard: channel})
+			if events := stream.Feed([]byte("\x1b]52;c;"+payload+"\x1b\\"), time.Now()); len(events) != 0 {
+				t.Fatalf("solicited empty/failure leaked into input: %+v", events)
+			}
+			got := <-result
+			if got.text != "" || (payload == "not-base64") != errors.Is(got.err, clipboard.ErrResponse) {
+				t.Fatalf("payload %q = %+v", payload, got)
+			}
 		}
-		got := <-result
-		if got.text != "" || (payload == "not-base64") != errors.Is(got.err, clipboard.ErrResponse) {
-			t.Fatalf("payload %q = %+v", payload, got)
-		}
-	}
+	})
 }
 
 func TestExpiredClipboardReplyIsAbsorbedWithoutRevivingDelivery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		channel := &clipboard.Channel{}
 		result := startClipboardRead(t.Context(), t, channel)
+		time.Sleep(time.Nanosecond)
 		received := time.Now()
 		time.Sleep(11 * time.Second)
 		if got := <-result; !errors.Is(got.err, context.DeadlineExceeded) {
@@ -80,6 +87,7 @@ func TestExpiredClipboardReplyIsAbsorbedWithoutRevivingDelivery(t *testing.T) {
 			t.Fatalf("late decoded response became input: %+v", events)
 		}
 		result = startClipboardRead(t.Context(), t, channel)
+		time.Sleep(time.Nanosecond)
 		stream.Feed([]byte("\x1b]52;c;bmV3\x1b\\"), time.Now())
 		if got := <-result; got.err != nil || got.text != "new" {
 			t.Fatalf("new response = %+v", got)
@@ -88,16 +96,19 @@ func TestExpiredClipboardReplyIsAbsorbedWithoutRevivingDelivery(t *testing.T) {
 }
 
 func TestNativeBracketedPasteRemainsInputBesideAClipboardReply(t *testing.T) {
-	channel := &clipboard.Channel{}
-	result := startClipboardRead(t.Context(), t, channel)
-	stream := input.NewStream(input.StreamConfig{Clipboard: channel})
-	events := stream.Feed([]byte("\x1b]52;c;cXVlcnk=\x1b\\\x1b[200~native\x1b[201~"), time.Now())
-	if len(events) != 1 || events[0] != (input.Paste{Text: "native"}) {
-		t.Fatalf("native paste = %+v", events)
-	}
-	if got := <-result; got.err != nil || got.text != "query" {
-		t.Fatalf("query result = %+v", got)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		channel := &clipboard.Channel{}
+		result := startClipboardRead(t.Context(), t, channel)
+		time.Sleep(time.Nanosecond)
+		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
+		events := stream.Feed([]byte("\x1b]52;c;cXVlcnk=\x1b\\\x1b[200~native\x1b[201~"), time.Now())
+		if len(events) != 1 || events[0] != (input.Paste{Text: "native"}) {
+			t.Fatalf("native paste = %+v", events)
+		}
+		if got := <-result; got.err != nil || got.text != "query" {
+			t.Fatalf("query result = %+v", got)
+		}
+	})
 }
 
 func TestOversizedClipboardRepliesSettleAcrossDecoderBoundaries(t *testing.T) {
@@ -106,6 +117,7 @@ func TestOversizedClipboardRepliesSettleAcrossDecoderBoundaries(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				channel := &clipboard.Channel{}
 				result := startClipboardRead(t.Context(), t, channel)
+				time.Sleep(time.Nanosecond)
 				stream := input.NewStream(input.StreamConfig{Clipboard: channel})
 				payload := strings.Repeat("A", size)
 				for _, chunk := range []string{"\x1b]", "52;", "c", ";", payload[:size/2], payload[size/2:]} {
@@ -157,6 +169,7 @@ func TestUnrelatedRejectedOSCLeavesClipboardQueryPending(t *testing.T) {
 				before := time.Now().Add(-time.Nanosecond)
 				channel := &clipboard.Channel{}
 				result := startClipboardRead(t.Context(), t, channel)
+				time.Sleep(time.Nanosecond)
 				stream := input.NewStream(input.StreamConfig{Clipboard: channel})
 				at := time.Now()
 				if tc.before {
@@ -180,19 +193,22 @@ func TestUnrelatedRejectedOSCLeavesClipboardQueryPending(t *testing.T) {
 }
 
 func TestRejectedControlStringsCannotInventClipboardReplies(t *testing.T) {
-	for _, intro := range []string{"\x1bP>|", "\x1b_Gi=1,I=1;"} {
-		channel := &clipboard.Channel{}
-		result := startClipboardRead(t.Context(), t, channel)
-		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
-		if events := stream.Feed([]byte(intro+"c;"+strings.Repeat("A", 1<<20)+"\x1b\\"), time.Now()); len(events) != 0 {
-			t.Fatalf("rejected non-OSC string produced input: %+v", events)
+	synctest.Test(t, func(t *testing.T) {
+		for _, intro := range []string{"\x1bP>|", "\x1b_Gi=1,I=1;"} {
+			channel := &clipboard.Channel{}
+			result := startClipboardRead(t.Context(), t, channel)
+			time.Sleep(time.Nanosecond)
+			stream := input.NewStream(input.StreamConfig{Clipboard: channel})
+			if events := stream.Feed([]byte(intro+"c;"+strings.Repeat("A", 1<<20)+"\x1b\\"), time.Now()); len(events) != 0 {
+				t.Fatalf("rejected non-OSC string produced input: %+v", events)
+			}
+			requireClipboardPending(t, channel)
+			stream.Feed([]byte("\x1b]52;c;aGk=\x07"), time.Now())
+			if got := <-result; got.text != "hi" || got.err != nil {
+				t.Fatalf("non-OSC string settled clipboard: %+v", got)
+			}
 		}
-		requireClipboardPending(t, channel)
-		stream.Feed([]byte("\x1b]52;c;aGk=\x07"), time.Now())
-		if got := <-result; got.text != "hi" || got.err != nil {
-			t.Fatalf("non-OSC string settled clipboard: %+v", got)
-		}
-	}
+	})
 }
 
 func TestUnterminatedOversizedClipboardReplyCannotReleaseTheWireSlot(t *testing.T) {
@@ -201,6 +217,7 @@ func TestUnterminatedOversizedClipboardReplyCannotReleaseTheWireSlot(t *testing.
 			synctest.Test(t, func(t *testing.T) {
 				channel := &clipboard.Channel{}
 				result := startClipboardRead(t.Context(), t, channel)
+				time.Sleep(time.Nanosecond)
 				stream := input.NewStream(input.StreamConfig{Clipboard: channel})
 				at := time.Now()
 				stream.Feed([]byte("\x1b]52;c;"+strings.Repeat("A", 1<<20)), at)
@@ -239,6 +256,7 @@ func TestLateOversizedClipboardReplyRetiresOnlyItsRevokedQuery(t *testing.T) {
 				defer cancel()
 				channel := &clipboard.Channel{}
 				result := startClipboardRead(ctx, t, channel)
+				time.Sleep(time.Nanosecond)
 				stream := input.NewStream(input.StreamConfig{Clipboard: channel})
 				received := time.Now()
 				stream.Feed([]byte("\x1b]52;c;"+strings.Repeat("A", 1<<20)), received)
@@ -279,6 +297,7 @@ func requireClipboardPending(t *testing.T, channel *clipboard.Channel) {
 func requireNextClipboardRead(t *testing.T, channel *clipboard.Channel, stream *input.Stream) {
 	t.Helper()
 	result := startClipboardRead(t.Context(), t, channel)
+	time.Sleep(time.Nanosecond)
 	if events := stream.Feed([]byte("\x1b]52;c;bmV3\x07"), time.Now()); len(events) != 0 {
 		t.Fatalf("next reply became input: %+v", events)
 	}

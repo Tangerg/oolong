@@ -18,9 +18,12 @@ func TestWriteHistoryProvesOnlySettledIntervals(t *testing.T) {
 		known    bool
 	}{
 		{at(-1), 0, false},
-		{at(0), 0, true},
+		{at(0), 0, false},
+		{at(0).Add(time.Nanosecond), 0, true},
 		{at(1), 0, false},
+		{at(2), 0, false},
 		{at(3), 1, true},
+		{at(4), 0, false},
 		{at(5), 0, false},
 		{at(11), 0, false},
 	} {
@@ -30,6 +33,9 @@ func TestWriteHistoryProvesOnlySettledIntervals(t *testing.T) {
 		}
 	}
 	history.complete(2, at(6))
+	if sequence, known := history.at(at(6), at(10)); known || sequence != 0 {
+		t.Fatalf("equal completion timestamp proved causal order: (%d, %t)", sequence, known)
+	}
 	if sequence, known := history.at(at(7), at(10)); sequence != 2 || !known {
 		t.Fatalf("second completion = (%d, %t)", sequence, known)
 	}
@@ -43,6 +49,28 @@ func TestWriteHistoryProvesOnlySettledIntervals(t *testing.T) {
 	}
 	if history.latest() != 3 || len(history.records) != 2 {
 		t.Fatalf("history=%+v", history.records)
+	}
+}
+
+func TestWriteHistoryCannotOrderWritesAtTheSameInstant(t *testing.T) {
+	start := time.Unix(100, 0)
+	history := writeHistory{opened: start, limit: 3}
+	history.begin(1, start.Add(time.Second))
+	history.complete(1, start.Add(2*time.Second))
+	boundary := start.Add(4 * time.Second)
+	for _, sequence := range []uint64{2, 3} {
+		history.begin(sequence, boundary)
+		history.complete(sequence, boundary)
+	}
+	now := boundary.Add(time.Second)
+	if sequence, known := history.at(boundary, now); known || sequence != 0 {
+		t.Fatalf("equal boundaries selected a completed prefix: (%d, %t)", sequence, known)
+	}
+	if sequence, known := history.at(boundary.Add(-time.Nanosecond), now); !known || sequence != 1 {
+		t.Fatalf("earlier settled prefix = (%d, %t), want (1, true)", sequence, known)
+	}
+	if sequence, known := history.at(boundary.Add(time.Nanosecond), now); !known || sequence != 3 {
+		t.Fatalf("later settled prefix = (%d, %t), want (3, true)", sequence, known)
 	}
 }
 

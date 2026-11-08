@@ -18,20 +18,16 @@ import (
 // choosing, and something has to be pressed. That is the whole difference between
 // picking one and picking some.
 //
-// The zero value is empty and ready. A MultiSelect must not be copied after first use:
-// its options, chosen set, cursor and matcher are one mutable field.
-// Options with equal values are aliases of one choice. Its first option fixes
-// its place in Taken, and selecting any alias applies to all of them.
+// The zero value is empty; non-empty options require NewMultiSelect with Same.
+// A MultiSelect must not be copied after first use: its options, chosen set, cursor
+// and matcher are one mutable field. Options with the same identity are aliases of
+// one choice. Its first option supplies the value and position in Taken, and
+// selecting any alias applies to all of them.
 type MultiSelect[T any] struct {
 	noCopy noCopy
 
 	field
 	Label string
-	// Same says whether two values are the same one — see [Select.Same]. It is a pure
-	// projection callback and may run during drawing.
-	Same func(a, b T) bool
-	// Check says what is wrong with the choices, or nil.
-	Check func(v []T) error
 	// Rows caps how many options are shown at once. Zero shows them all.
 	Rows int
 	// Keys say which keystrokes move and take. Nil reads through
@@ -44,38 +40,37 @@ type MultiSelect[T any] struct {
 
 	list List[Option[T]]
 	// Each selected value is represented by its first equivalent option index.
-	taken    []int
-	limit    int
-	matcher  keymap.Matcher
-	revision uint64
+	taken        []int
+	limit        int
+	matcher      keymap.Matcher
+	sameIdentity func(T, T) bool
+	check        func([]T) error
+	revision     uint64
 }
 
 func (m *MultiSelect[T]) Prompt() string { return m.Label }
 
 // SetOptions replaces what is on offer. MultiSelect owns the slice and preserves
-// each taken choice that remains available under Same, wherever it moved.
-// Non-empty options require Same; omitting it is a programmer error and panics.
+// each taken identity that remains available, wherever it moved. The replacement
+// supplies the complete values, so a non-empty prior answer advances Revision even
+// when every identity is retained. A zero-value MultiSelect panics on non-empty
+// options; construct one with Same instead.
 // Required reads and identity comparisons finish before options or selection change.
 // An abnormal exit during preparation preserves the previous field.
 func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	requireMutable(m.element)
-	if len(options) > 0 && m.Same == nil {
-		panic("base: MultiSelect requires Same before SetOptions")
+	if len(options) > 0 && m.sameIdentity == nil {
+		panic("base: MultiSelect requires Same in its construction config")
 	}
 	before := m.Taken()
 	taken, _ := m.indices(options, before)
-	changed := readProjection(m.Element(), func() bool {
-		return !slices.EqualFunc(before, taken, func(value T, at int) bool {
-			return options[at].holds(value, m.Same)
-		})
-	})
 	m.matcher.Reset(func() {
 		m.list.replaceItems(options, m.list.selected)
 		for i := range m.list.items {
 			m.list.items[i].Label = strings.Clone(m.list.items[i].Label)
 		}
 		m.taken = taken
-		if changed {
+		if len(before) != 0 {
 			m.revision++
 		}
 		m.invalidateValidation()
@@ -129,7 +124,7 @@ func (m *MultiSelect[T]) indices(options []Option[T], values []T) ([]int, bool) 
 	complete := true
 	m.Element().ReadOnly(func() {
 		for _, value := range values {
-			if at := optionIndex(options, value, m.Same); at >= 0 {
+			if at := optionIndex(options, value, m.sameIdentity); at >= 0 {
 				indices = append(indices, at)
 			} else {
 				complete = false
@@ -152,7 +147,7 @@ func (m *MultiSelect[T]) toggle() bool {
 	if !ok {
 		return false
 	}
-	at := readProjection(m.Element(), func() int { return optionIndex(m.list.items, option.Value, m.Same) })
+	at := readProjection(m.Element(), func() int { return optionIndex(m.list.items, option.Value, m.sameIdentity) })
 	if at < 0 {
 		return false
 	}
@@ -184,7 +179,7 @@ func (m *MultiSelect[T]) DrawWith(v scene.Frame, look Look) {
 	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
 		chosen := readProjection(m.element, func() bool {
 			return slices.ContainsFunc(m.taken, func(at int) bool {
-				return m.list.items[at].holds(option.Value, m.Same)
+				return m.sameIdentity(m.list.items[at].Value, option.Value)
 			})
 		})
 		if m.Row != nil {
@@ -219,11 +214,19 @@ func (m *MultiSelect[T]) Do(action keymap.Action) bool {
 
 func (m *MultiSelect[T]) Validate() error { return m.validate(nil, m.Revision, m.checkAnswer) }
 
+// SetCheck revokes old results because validation belongs to the rule as well as
+// the answer. Reinstalling the same callback also revokes receipts; nil removes it.
+func (m *MultiSelect[T]) SetCheck(check func([]T) error) {
+	requireMutable(m.element)
+	m.check = check
+	m.InvalidateValidation()
+}
+
 func (m *MultiSelect[T]) checkAnswer() error {
-	if m.Check == nil {
+	if m.check == nil {
 		return nil
 	}
-	return m.Check(m.Taken())
+	return m.check(m.Taken())
 }
 
 func (m *MultiSelect[T]) focusChanged(has bool) {
@@ -264,5 +267,7 @@ func (m *MultiSelect[T]) keys() *keymap.Map {
 	return multiSelectKeys()
 }
 
-// Revision advances only when the canonical chosen set changes.
+// Revision identifies the canonical chosen values. Replacing their option
+// collection advances it even when the identities match; cursor movement alone
+// does not replace an answer.
 func (m *MultiSelect[T]) Revision() uint64 { return m.revision }

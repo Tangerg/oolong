@@ -172,7 +172,7 @@ func (r *renderer) listItem(n *ast.ListItem, in frame, stack *[]renderAction) {
 		marker: in.marker,
 	}
 	index := r.blockIndex(in)
-	*in.blocks = append(*in.blocks, Block{content: item, blankBefore: !in.tight})
+	*in.blocks = append(*in.blocks, Block{item: item, blankBefore: !in.tight})
 	in.blocks, in.topBlock, in.marker = &item.body.blocks, &index, nil
 	r.scheduleChildren(stack, n, in)
 }

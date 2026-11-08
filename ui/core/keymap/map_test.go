@@ -569,8 +569,14 @@ func TestResolverCancellationCannotOverwriteAReentrantSequence(t *testing.T) {
 }
 
 func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) {
-	for _, panics := range []bool{false, true} {
-		t.Run(map[bool]string{false: "completed", true: "panic"}[panics], func(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		panics bool
+	}{
+		{"completed", false},
+		{"panic", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			var matcher keymap.Matcher
 			var bindings keymap.Map
 			bindings.Bind("prefix", input.Chord{Rune: 'g'})
@@ -589,7 +595,7 @@ func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) 
 			matcher.Handle(&bindings, input.Key{Rune: 'g'}, nil, do)
 			func() {
 				defer func() {
-					if (recover() != nil) != panics {
+					if (recover() != nil) != test.panics {
 						t.Fatal("Reset changed the panic result")
 					}
 				}()
@@ -599,7 +605,7 @@ func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) 
 					}
 					changed = true
 					matcher.Handle(&bindings, input.Key{Rune: 'h'}, nil, do)
-					if panics {
+					if test.panics {
 						panic("transition failed")
 					}
 				})

@@ -63,7 +63,6 @@ const (
 	SelectLast     keymap.Action = "select-last"
 )
 
-// The actions a [Scroll] answers to.
 const (
 	ScrollUp       keymap.Action = "scroll-up"
 	ScrollDown     keymap.Action = "scroll-down"
@@ -95,13 +94,11 @@ const (
 	Collapse keymap.Action = "collapse"
 )
 
-// The actions a [Tabs] answers to.
 const (
 	NextTab keymap.Action = "next-tab"
 	PrevTab keymap.Action = "prev-tab"
 )
 
-// The actions a [Slider] answers to.
 const (
 	Decrease  keymap.Action = "decrease"
 	Increase  keymap.Action = "increase"

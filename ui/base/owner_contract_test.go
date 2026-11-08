@@ -200,8 +200,8 @@ func TestFormChecksEveryFieldAndRejectsChangesDuringValidation(t *testing.T) {
 	if _, err := form.Submit(); !errors.Is(err, invalid) || count != 1 {
 		t.Fatalf("validation=%v all-check-count=%d", err, count)
 	}
-	first.Check = func(string) error { return nil }
-	second.Check = func(string) error { first.SetText("edited after validation"); return nil }
+	first.SetCheck(func(string) error { return nil })
+	second.SetCheck(func(string) error { first.SetText("edited after validation"); return nil })
 	if _, err := form.Submit(); !errors.Is(err, base.ErrValidationSuperseded) {
 		t.Fatalf("stale validation submitted: %v", err)
 	}

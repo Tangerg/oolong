@@ -64,6 +64,47 @@ func TestZeroByteGeometryUsesItsAdmissionTime(t *testing.T) {
 	})
 }
 
+func TestEqualAdmissionTimestampsCannotSelectGeometryInEitherOrder(t *testing.T) {
+	for _, admission := range []struct {
+		name     string
+		sequence uint64
+	}{
+		{name: "output", sequence: 2},
+		{name: "zero byte", sequence: 0},
+	} {
+		for _, beforeAdmission := range []bool{false, true} {
+			order := "input after admission"
+			if beforeAdmission {
+				order = "input before admission"
+			}
+			t.Run(admission.name+"/"+order, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					r, value, hit := inputProjection(t, 0)
+					draw(t, r, 1, 1, 1)
+					r.Wrote(1)
+					time.Sleep(time.Nanosecond)
+					arrival := time.Now()
+					*value = 2
+					draw(t, r, 1, 1, admission.sequence)
+					if !beforeAdmission {
+						arrival = time.Now()
+					}
+					written := max(admission.sequence, 1)
+					r.HandleInput(mouseAt(r, arrival, written))
+					if *hit != 0 {
+						t.Fatalf("equal admission timestamp selected projection %d", *hit)
+					}
+					time.Sleep(time.Nanosecond)
+					r.HandleInput(mouseAt(r, time.Now(), written))
+					if *hit != 2 {
+						t.Fatalf("distinct later timestamp selected projection %d, want 2", *hit)
+					}
+				})
+			})
+		}
+	}
+}
+
 func TestAdmissionGapDoesNotAuthorizeThePreviousMap(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, value, hit := inputProjection(t, 0)

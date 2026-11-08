@@ -50,14 +50,14 @@ func (h *writeHistory) latest() uint64 {
 func (h *writeHistory) at(at, now time.Time) (uint64, bool) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	if at.IsZero() || at.Before(h.opened) || at.After(now) {
+	if at.IsZero() || !at.After(h.opened) || at.After(now) {
 		return 0, false
 	}
 	for _, record := range slices.Backward(h.records) {
 		if at.Before(record.started) {
 			continue
 		}
-		if record.completed.IsZero() || at.Before(record.completed) {
+		if record.completed.IsZero() || !at.After(record.completed) {
 			return 0, false
 		}
 		return record.sequence, true

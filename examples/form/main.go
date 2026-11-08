@@ -29,6 +29,8 @@ type answers struct {
 
 const maximumSelectedTools = 2
 
+const quitSession keymap.Action = "quit"
+
 func main() {
 	var got answers
 	form := ask(&got)
@@ -111,11 +113,17 @@ func dress(runtime *program.Runtime, form *sessionForm) scene.Element {
 	form.done = runtime.Quit
 	form.theme.Set(kit.Suited(runtime.Environment().Ground()))
 	form.view.Glyphs = kit.GlyphsFor(runtime.Environment().Locale())
+	var keys keymap.Map
+	keys.Bind(quitSession, input.Chord{Code: input.Esc})
+	keys.Bind(quitSession, input.Ctrl.Rune('c'))
 	return scene.NewGroup(scene.GroupConfig{
 		Overlay: true,
 		Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
 			key, ok := event.Input().(input.Key)
-			if ok && key.Down() && (key.Code == input.Esc || key.Rune == 'c' && key.Mods.Has(input.Ctrl)) {
+			if !ok {
+				return scene.EventResult{}
+			}
+			if action, bound := keys.ActionFor(key); bound && action == quitSession {
 				runtime.Quit()
 				return scene.EventResult{Consumed: true}
 			}

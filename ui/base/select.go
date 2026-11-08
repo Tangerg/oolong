@@ -12,17 +12,16 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
 
+// Option values may contain references; copying an option does not copy its domain data.
+// Keep that data immutable while installed and publish replacements with SetOptions
+// so validation and submission receipts describe the complete answer.
 type Option[T any] struct {
 	Label string
 	Value T
 }
 
-// Equal compares values by Go equality. Use Equal[T] as Same for comparable choices.
+// Equal can supply Same when Go equality defines the choice's identity.
 func Equal[T comparable](a, b T) bool { return a == b }
-
-func (o Option[T]) holds(want T, same func(a, b T) bool) bool {
-	return same(o.Value, want)
-}
 
 func Options[T ~string](values ...T) []Option[T] {
 	out := make([]Option[T], len(values))
@@ -38,21 +37,15 @@ func Options[T ~string](values ...T) []Option[T] {
 // nothing to press to confirm. A list that made somebody move to a row and then take it
 // is a list that can be left on a row nobody took.
 //
-// The zero value is empty and ready. A Select must not be copied after first use: its
-// options, local cursor and scroll are one mutable field.
+// The zero value is empty; non-empty options require NewSelect with Same.
+// A Select must not be copied after first use: its options, local cursor and scroll
+// are one mutable field.
 // Initial selects an available option; later transitions use Choose.
 type Select[T any] struct {
 	noCopy noCopy
 
 	field
 	Label string
-	// Same defines value identity, independently of Label. It is required before
-	// installing non-empty options. Use Equal[T] for comparable values, or supply
-	// domain equality for arbitrary T. It must be pure and remain stable while options
-	// are installed; changing the identity rule requires constructing a new field.
-	Same func(a, b T) bool
-	// Check says what is wrong with the choice, or nil.
-	Check func(v T) error
 	// Rows caps how many options are shown at once. Zero shows them all.
 	Rows int
 	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
@@ -62,30 +55,33 @@ type Select[T any] struct {
 	// Nil uses Look's default choice row. Like Draw, the callback must be pure.
 	Row func(grid.View, Option[T], bool, bool, Look)
 
-	list     List[Option[T]]
-	matcher  keymap.Matcher
-	revision uint64
+	list         List[Option[T]]
+	matcher      keymap.Matcher
+	sameIdentity func(T, T) bool
+	check        func(T) error
+	revision     uint64
 }
 
 func (s *Select[T]) Prompt() string { return s.Label }
 
 // SetOptions replaces what is on offer. Select owns the slice. If the selected
 // choice still exists under Same, the cursor follows it to its new position.
-// Otherwise the cursor is clamped. Non-empty options require Same; omitting it
-// is a programmer error and panics.
+// Otherwise the cursor is clamped. A zero-value Select panics on non-empty
+// options; construct one with Same instead.
+// Replacing an available answer advances Revision even when its identity is retained:
+// identity does not establish that the complete payload is unchanged.
 // Required reads and identity comparisons finish before options or selection change.
 // An abnormal exit during preparation preserves the previous field.
 func (s *Select[T]) SetOptions(options []Option[T]) {
 	requireMutable(s.element)
-	if len(options) > 0 && s.Same == nil {
-		panic("base: Select requires Same before SetOptions")
+	if len(options) > 0 && s.sameIdentity == nil {
+		panic("base: Select requires Same in its construction config")
 	}
 	previous, exists := s.Chosen()
 	at := s.list.Selected()
-	changed := exists != (len(options) != 0)
+	replacesAnswer := exists || len(options) != 0
 	if exists && len(options) != 0 {
 		found, retained := s.indexOf(options, previous.Value)
-		changed = !retained
 		if retained {
 			at = found
 		}
@@ -95,7 +91,7 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 		for i := range s.list.items {
 			s.list.items[i].Label = strings.Clone(s.list.items[i].Label)
 		}
-		if changed {
+		if replacesAnswer {
 			s.revision++
 		}
 		s.invalidateValidation()
@@ -134,12 +130,12 @@ func (s *Select[T]) DrawWith(v scene.Frame, look Look) {
 	})
 }
 
-func optionIndex[T any](options []Option[T], value T, same func(T, T) bool) int {
-	return slices.IndexFunc(options, func(option Option[T]) bool { return option.holds(value, same) })
+func optionIndex[T any](options []Option[T], value T, sameIdentity func(T, T) bool) int {
+	return slices.IndexFunc(options, func(option Option[T]) bool { return sameIdentity(option.Value, value) })
 }
 
 func (s *Select[T]) indexOf(options []Option[T], value T) (int, bool) {
-	at := readProjection(s.Element(), func() int { return optionIndex(options, value, s.Same) })
+	at := readProjection(s.Element(), func() int { return optionIndex(options, value, s.sameIdentity) })
 	return at, at >= 0
 }
 
@@ -167,12 +163,20 @@ func (s *Select[T]) Validate() error {
 	return s.validate(nil, s.Revision, s.checkAnswer)
 }
 
+// SetCheck revokes old results because validation belongs to the rule as well as
+// the answer. Reinstalling the same callback also revokes receipts; nil removes it.
+func (s *Select[T]) SetCheck(check func(T) error) {
+	requireMutable(s.element)
+	s.check = check
+	s.InvalidateValidation()
+}
+
 func (s *Select[T]) checkAnswer() error {
-	if s.Check == nil {
+	if s.check == nil {
 		return nil
 	}
 	chosen, _ := s.Chosen()
-	return s.Check(chosen.Value)
+	return s.check(chosen.Value)
 }
 
 func (s *Select[T]) focusChanged(has bool) {
@@ -198,15 +202,13 @@ func (s *Select[T]) Choose(value T) bool {
 
 func (s *Select[T]) selectAt(at int) {
 	requireMutable(s.element)
-	before, ok := s.Chosen()
-	next, found := s.list.At(at)
-	if ok && found && s.selected() != at {
-		if !readProjection(s.Element(), func() bool { return next.holds(before.Value, s.Same) }) {
-			s.revision++
-		}
+	if s.list.clampIndex(at) != s.list.selected {
+		s.revision++
 	}
 	s.list.Select(at)
 }
 
-// Revision identifies a semantic value version; view-only navigation does not change it.
+// Revision identifies the selected option's answer snapshot. A different option or
+// a replacement collection with an available answer advances it conservatively;
+// Same cannot establish equality of arbitrary payloads.
 func (s *Select[T]) Revision() uint64 { return s.revision }

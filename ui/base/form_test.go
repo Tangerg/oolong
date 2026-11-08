@@ -20,13 +20,13 @@ import (
 func bare() base.Look { return base.Look{Taken: "x", Free: "-"} }
 
 func selectWith[T comparable](options []base.Option[T]) *base.Select[T] {
-	field := &base.Select[T]{Same: base.Equal[T]}
+	field := base.NewSelect(base.SelectConfig[T]{Same: base.Equal[T]})
 	field.SetOptions(options)
 	return field
 }
 
 func multiWith[T comparable](options []base.Option[T]) *base.MultiSelect[T] {
-	field := &base.MultiSelect[T]{Same: base.Equal[T]}
+	field := base.NewMultiSelect(base.MultiSelectConfig[T]{Same: base.Equal[T]})
 	field.SetOptions(options)
 	return field
 }
@@ -226,7 +226,7 @@ func TestReplacingChoicesPreservesTheChosenValueRatherThanItsOldPosition(t *test
 
 func TestAChoiceOwnsItsOptionsAndReturnsSnapshots(t *testing.T) {
 	options := base.Options("a", "b")
-	field := &base.Select[string]{Same: base.Equal[string]}
+	field := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string]})
 	field.SetOptions(options)
 	options[0].Label = "changed input"
 	if got := field.Options()[0].Label; got != "a" {
@@ -352,7 +352,7 @@ func TestReplacingChoicesUsesExplicitValueIdentity(t *testing.T) {
 		{Label: "two", Value: payload{2}},
 	}
 
-	one := &base.Select[payload]{Same: slices.Equal[payload]}
+	one := base.NewSelect(base.SelectConfig[payload]{Same: slices.Equal[payload]})
 	one.SetOptions(options)
 	one.Do(base.SelectNext)
 	one.SetOptions([]base.Option[payload]{options[1], options[0]})
@@ -361,7 +361,7 @@ func TestReplacingChoicesUsesExplicitValueIdentity(t *testing.T) {
 		t.Fatalf("single choice after reorder = %+v, %v; want label two", chosen, ok)
 	}
 
-	many := &base.MultiSelect[payload]{Same: slices.Equal[payload]}
+	many := base.NewMultiSelect(base.MultiSelectConfig[payload]{Same: slices.Equal[payload]})
 	many.SetOptions(options)
 	many.Do(base.SelectNext)
 	many.Do(base.Toggle)
@@ -464,8 +464,8 @@ func TestAFormChecksEveryAnswerAndNotJustTheFirstOneThatFails(t *testing.T) {
 		}
 		return nil
 	}
-	first := &base.Text{Label: "One", Check: empty}
-	second := &base.Text{Label: "Two", Check: empty}
+	first := base.NewText(base.TextConfig{Label: "One", Check: empty})
+	second := base.NewText(base.TextConfig{Label: "Two", Check: empty})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{first, second}})
 	if _, err := form.Submit(); err == nil {
 		t.Fatal("an empty form said it was complete")
@@ -491,10 +491,10 @@ func TestAFieldShowsWhatWasWrongUnderItself(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	field := &base.Text{
+	field := base.NewText(base.TextConfig{
 		Label: "Name",
 		Check: func(string) error { return errors.New("required") },
-	}
+	})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	styleFields(form, bare())
 	if before := field.HeightForWidth(20); before != 2 {
@@ -608,9 +608,11 @@ func TestAChoiceOfSomethingThatIsNotAStringFindsWhatWasAlreadyChosen(t *testing.
 		t.Fatalf("cursor on %+v, want what the value is shown as", chosen)
 	}
 
-	byValue := selectWith([]base.Option[kind]{{Label: "one", Value: 0}, {Label: "two", Value: 1}})
+	byValue := base.NewSelect(base.SelectConfig[kind]{
+		Options: []base.Option[kind]{{Label: "one", Value: 0}, {Label: "two", Value: 1}},
+		Same:    func(a, b kind) bool { return a == b },
+	})
 	byValue.Choose(picked)
-	byValue.Same = func(a, b kind) bool { return a == b }
 	if chosen, _ := byValue.Chosen(); chosen.Value != 1 {
 		t.Fatalf("cursor on %+v, want the caller's rule to have found it", chosen)
 	}
@@ -639,12 +641,12 @@ func TestEveryFieldAnswersToTheNameOfWhatItDoes(t *testing.T) {
 func TestEveryFieldChecksWhatItHolds(t *testing.T) {
 	tooMany := errors.New("too many")
 	multi := multiWith(base.Options("a", "b"))
-	multi.Check = func(v []string) error {
+	multi.SetCheck(func(v []string) error {
 		if len(v) > 1 {
 			return tooMany
 		}
 		return nil
-	}
+	})
 	multi.Do(base.Toggle)
 	multi.Do(base.SelectNext)
 	multi.Do(base.Toggle)
@@ -653,7 +655,7 @@ func TestEveryFieldChecksWhatItHolds(t *testing.T) {
 	}
 
 	never := errors.New("never")
-	confirm := &base.Confirm{Check: func(bool) error { return never }}
+	confirm := base.NewConfirm(base.ConfirmConfig{Check: func(bool) error { return never }})
 	if !errors.Is(confirm.Validate(), never) {
 		t.Fatalf("the confirm says %v", confirm.Error())
 	}
@@ -827,28 +829,34 @@ func TestMultiSelectAliasesShareOneChoiceAcrossInputPaths(t *testing.T) {
 	field.Toggle()
 	before := field.Revision()
 	field.SetOptions(base.Options("b", "a"))
-	if field.Revision() != before || !slices.Equal(field.Taken(), []string{"a"}) {
-		t.Fatal("moving the representative option advanced the answer revision")
+	if field.Revision() != before+1 || !slices.Equal(field.Taken(), []string{"a"}) {
+		t.Fatal("replacing the representative option lost its answer revision or selected identity")
 	}
 }
 
-func TestSelectRevisionsFollowAnswerIdentityThroughRefreshAndNavigation(t *testing.T) {
+func TestSelectRevisionsFollowOptionSelectionAndReplacement(t *testing.T) {
 	field := selectWith([]base.Option[string]{{Label: "A", Value: "a"}, {Label: "Also A", Value: "a"}, {Label: "B", Value: "b"}})
 	version := field.Revision()
 	field.Do(base.SelectNext)
+	if field.Revision() != version+1 {
+		t.Fatal("moving to an alias lost its answer revision")
+	}
 	if err := field.Reply("A"); err != nil {
 		t.Fatal(err)
 	}
+	if field.Revision() != version+2 {
+		t.Fatal("replying with another alias lost its answer revision")
+	}
 	field.SetOptions(base.Options("b", "a"))
 	chosen, _ := field.Chosen()
-	if field.Revision() != version || chosen.Value != "a" {
-		t.Fatal("alias or collection refresh marked the answer changed")
+	if field.Revision() != version+3 || chosen.Value != "a" {
+		t.Fatal("replacing the options lost its answer revision or selected identity")
 	}
-	if !field.Choose("b") || field.Revision() != version+1 {
+	if !field.Choose("b") || field.Revision() != version+4 {
 		t.Fatal("replacing the answer lost its revision")
 	}
 	field.SetOptions(nil)
-	if field.Revision() != version+2 {
+	if field.Revision() != version+5 {
 		t.Fatal("removing the answer lost its revision")
 	}
 }
@@ -877,17 +885,19 @@ func TestMultiSelectIdentityCannotPaintFromARetainedRow(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	field := multiWith(base.Options("x", "y"))
-	field.SetTaken([]string{"x"})
 	var previous grid.View
+	field := base.NewMultiSelect(base.MultiSelectConfig[string]{
+		Options: base.Options("x", "y"),
+		Same: func(a, b string) bool {
+			if !previous.Empty() {
+				previous.Text(0, 0, "unexpected", grid.Style{})
+			}
+			return a == b
+		},
+	})
+	field.SetTaken([]string{"x"})
 	field.Row = func(v grid.View, _ base.Option[string], _, _ bool, _ base.Look) {
 		previous = v
-	}
-	field.Same = func(a, b string) bool {
-		if !previous.Empty() {
-			previous.Text(0, 0, "unexpected", grid.Style{})
-		}
-		return a == b
 	}
 	surface := grid.NewSurface(12, 2)
 	defer func() {

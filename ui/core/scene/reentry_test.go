@@ -116,8 +116,14 @@ func TestPurePhasesRejectOwnerMutationBeforeItChangesState(t *testing.T) {
 }
 
 func TestFocusTransferAndRoundTripEndOldKeyPropagation(t *testing.T) {
-	for _, roundTrip := range []bool{false, true} {
-		t.Run(map[bool]string{false: "transfer", true: "round trip"}[roundTrip], func(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		roundTrip bool
+	}{
+		{"transfer", false},
+		{"round trip", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			a, b := control(), control()
 			a.takes = false
 			parentKeys := 0
@@ -127,7 +133,7 @@ func TestFocusTransferAndRoundTripEndOldKeyPropagation(t *testing.T) {
 				if err := b.element.RequestFocus(); err != nil {
 					t.Fatal(err)
 				}
-				if roundTrip {
+				if test.roundTrip {
 					if err := a.element.RequestFocus(); err != nil {
 						t.Fatal(err)
 					}
@@ -136,7 +142,7 @@ func TestFocusTransferAndRoundTripEndOldKeyPropagation(t *testing.T) {
 			if !r.Handle(input.Key{Code: input.Tab}) || parentKeys != 0 {
 				t.Fatal("old key escaped a changed focus scope")
 			}
-			if a.element.Focused() != roundTrip {
+			if a.element.Focused() != test.roundTrip {
 				t.Fatal("old propagation overwrote the requested focus")
 			}
 		})

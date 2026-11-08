@@ -44,7 +44,7 @@ func TestFormRejectsAFailedValidationReplacedByALaterField(t *testing.T) {
 	invalid := errors.New("old problem")
 	first := base.NewText(base.TextConfig{Check: func(string) error { return invalid }})
 	second := base.NewText(base.TextConfig{Check: func(string) error {
-		first.Check = nil
+		first.SetCheck(nil)
 		return first.Validate()
 	}})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{first, second}})

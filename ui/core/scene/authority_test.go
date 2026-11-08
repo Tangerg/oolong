@@ -5,6 +5,8 @@ import (
 	"image"
 	"runtime"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -25,35 +27,38 @@ func TestModalBoundsBothPreviewAndBubble(t *testing.T) {
 func TestPointerRouteRequiresTheOriginalContentAtDelivery(t *testing.T) {
 	for _, mutate := range []string{"normal", "replace", "preview", "geometry"} {
 		t.Run(mutate, func(t *testing.T) {
-			id, rev := "a", uint64(1)
-			delivered := 0
-			leaf := scene.NewElement(scene.ElementConfig{Semantics: func() scene.Semantic { return scene.Semantic{ContentID: id, ContentRevision: rev} }, Handle: func(scene.Event) scene.EventResult { delivered++; return scene.EventResult{Consumed: true} }})
-			var r *scene.Root
-			g := scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{Preview: func(scene.Event) scene.EventResult {
-				switch mutate {
-				case "preview":
-					rev++
+			synctest.Test(t, func(t *testing.T) {
+				id, rev := "a", uint64(1)
+				delivered := 0
+				leaf := scene.NewElement(scene.ElementConfig{Semantics: func() scene.Semantic { return scene.Semantic{ContentID: id, ContentRevision: rev} }, Handle: func(scene.Event) scene.EventResult { delivered++; return scene.EventResult{Consumed: true} }})
+				var r *scene.Root
+				g := scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{Preview: func(scene.Event) scene.EventResult {
+					switch mutate {
+					case "preview":
+						rev++
+						leaf.Invalidate()
+					case "geometry":
+						r.InvalidateGeometry()
+					}
+					return scene.EventResult{}
+				}}, Items: []scene.Item{item("leaf", leaf)}})
+				r = root(t, g.Element())
+				draw(t, r, 10, 2, 0)
+				time.Sleep(time.Nanosecond)
+				click := capture(r, input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
+				if mutate == "replace" {
+					id = "b"
 					leaf.Invalidate()
-				case "geometry":
-					r.InvalidateGeometry()
 				}
-				return scene.EventResult{}
-			}}, Items: []scene.Item{item("leaf", leaf)}})
-			r = root(t, g.Element())
-			draw(t, r, 10, 2, 0)
-			click := capture(r, input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
-			if mutate == "replace" {
-				id = "b"
-				leaf.Invalidate()
-			}
-			r.HandleInput(click)
-			want := 0
-			if mutate == "normal" {
-				want = 1
-			}
-			if delivered != want {
-				t.Fatalf("delivered %d, want %d", delivered, want)
-			}
+				r.HandleInput(click)
+				want := 0
+				if mutate == "normal" {
+					want = 1
+				}
+				if delivered != want {
+					t.Fatalf("delivered %d, want %d", delivered, want)
+				}
+			})
 		})
 	}
 }

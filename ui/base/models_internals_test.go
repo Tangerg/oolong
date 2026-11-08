@@ -229,7 +229,7 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 	editor.SetText(source)
 	assertDetached("editor text", editor.Text())
 
-	selectField := Select[string]{Same: Equal[string]}
+	selectField := NewSelect(SelectConfig[string]{Same: Equal[string]})
 	selectField.SetOptions([]Option[string]{{Label: source, Value: "value"}})
 	assertDetached("option label", selectField.Options()[0].Label)
 }

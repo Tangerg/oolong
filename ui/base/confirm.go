@@ -24,12 +24,11 @@ type Confirm struct {
 	Label string
 	// Yes and No are the two answers as they are shown. Empty uses "yes" and "no".
 	Yes, No string
-	// Check says what is wrong with the answer, or nil.
-	Check func(v bool) error
 	// Keys say which keystrokes answer. Nil reads through [DefaultConfirmKeys].
 	Keys *keymap.Map
 
 	control       ConfirmControl
+	check         func(bool) error
 	unsubscribe   func()
 	closed        bool
 	feedback      requestFeedback
@@ -131,11 +130,19 @@ func (c *Confirm) Validate() error {
 	return c.validate(nil, c.Revision, c.checkAnswer)
 }
 
+// SetCheck revokes old results because validation belongs to the rule as well as
+// the answer. Reinstalling the same callback also revokes receipts; nil removes it.
+func (c *Confirm) SetCheck(check func(bool) error) {
+	requireMutable(c.element)
+	c.check = check
+	c.InvalidateValidation()
+}
+
 func (c *Confirm) checkAnswer() error {
-	if c.Check == nil {
+	if c.check == nil {
 		return nil
 	}
-	return c.Check(c.Answer())
+	return c.check(c.Answer())
 }
 
 func (c *Confirm) focusChanged(has bool) {

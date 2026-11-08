@@ -1,6 +1,7 @@
 package base
 
 import (
+	"math/bits"
 	"slices"
 	"strings"
 	"unicode"
@@ -46,20 +47,28 @@ type Token struct {
 // A token ends at the first space after it, which is the one rule general enough to
 // be worth having: anything more — a path that may contain spaces, a quote that
 // protects them — is the caller's grammar and not a terminal library's.
+// Invalid UTF-8, out-of-range cursors and partial graphemes have no token. Both
+// the query and replacement range must preserve the editor's text boundaries.
 func TokenAt(line string, cursor int, triggers ...Trigger) (Token, bool) {
-	cursor = min(max(cursor, 0), len(line))
+	if len(triggers) == 0 || cursor < 0 || cursor > len(line) || !utf8.ValidString(line) {
+		return Token{}, false
+	}
+	boundaries := indexClusterBoundaries(line)
+	if !boundaries.contains(cursor) {
+		return Token{}, false
+	}
 	best, at := Token{}, -1
 	for _, trigger := range triggers {
-		if trigger.Prefix == "" {
+		if trigger.Prefix == "" || !utf8.ValidString(trigger.Prefix) {
 			continue
 		}
-		opened, ok := trigger.openedBefore(line, cursor, at)
+		opened, ok := trigger.openedBefore(line, cursor, at, boundaries)
 		if !ok {
 			continue
 		}
 		start := opened + len(trigger.Prefix)
 		end := tokenEnd(line, start)
-		if cursor < start || cursor > end {
+		if cursor < start || cursor > end || !boundaries.contains(end) {
 			continue
 		}
 		best, at = Token{
@@ -72,13 +81,31 @@ func TokenAt(line string, cursor int, triggers ...Trigger) (Token, bool) {
 	return best, at >= 0
 }
 
-func (t Trigger) openedBefore(line string, cursor, after int) (int, bool) {
+// Rejected prefixes must not reparse every preceding grapheme. This local index
+// shares one segmentation pass and bounds scratch storage to one bit per byte offset.
+type clusterBoundaries []uint
+
+func indexClusterBoundaries(line string) clusterBoundaries {
+	boundaries := make(clusterBoundaries, len(line)/bits.UintSize+1)
+	boundaries[0] = 1
+	for at, cluster := range text.Clusters(line) {
+		end := at + len(cluster)
+		boundaries[end/bits.UintSize] |= 1 << (end % bits.UintSize)
+	}
+	return boundaries
+}
+
+func (b clusterBoundaries) contains(at int) bool {
+	return at >= 0 && at/bits.UintSize < len(b) && b[at/bits.UintSize]&(1<<(at%bits.UintSize)) != 0
+}
+
+func (t Trigger) openedBefore(line string, cursor, after int, boundaries clusterBoundaries) (int, bool) {
 	for end := cursor; end >= len(t.Prefix); {
 		candidate := strings.LastIndex(line[:end], t.Prefix)
 		if candidate < 0 || candidate < after {
 			return 0, false
 		}
-		if t.opensAt(line, candidate) {
+		if boundaries.contains(candidate) && boundaries.contains(candidate+len(t.Prefix)) && t.opensAt(line, candidate) {
 			return candidate, true
 		}
 		end = candidate + len(t.Prefix) - 1

@@ -79,7 +79,6 @@ var wheelProfiles = []struct {
 	{"cursor", Wheel{Reports: 1, Rows: 3, Trackpad: 15}},
 	{"windsurf", Wheel{Reports: 1, Rows: 3, Trackpad: 15}},
 	{"zed", Wheel{Reports: 1, Rows: 3, Trackpad: 3}},
-	// These profiles match the default report-to-row ratio.
 	{"apple_terminal", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
 	{"ghostty", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
 	{"kitty", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},

@@ -6,6 +6,7 @@ import (
 	"image"
 	"slices"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -171,40 +172,44 @@ func TestPanicAbortsEveryNestedSnapshot(t *testing.T) {
 }
 
 func TestPointerUsesArrivalWrittenGeometryAndCurrentAttachment(t *testing.T) {
-	var received []string
-	leaf := func(name string) scene.Element {
-		return scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
-			if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown {
-				received = append(received, name)
-			}
-			return scene.EventResult{Consumed: true}
-		}})
-	}
-	a, b := leaf("a"), leaf("b")
-	g := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{item("a", a), item("b", b)}})
-	r := root(t, g.Element())
-	draw(t, r, 10, 2, 1)
-	r.Wrote(1)
-	click := capture(r, input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0)})
-	if err := g.Move(0, 1); err != nil {
-		t.Fatal(err)
-	}
-	draw(t, r, 10, 2, 2)
-	r.Handle(input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 0)})
-	r.Wrote(2)
-	r.HandleInput(click)
-	r.Handle(input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 0)})
-	if !slices.Equal(received, []string{"a", "a", "b"}) {
-		t.Fatalf("input retargeted across admission/writing: %v", received)
-	}
-	old := capture(r, input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 0)})
-	if err := g.Set(item("a", a)); err != nil {
-		t.Fatal(err)
-	}
-	r.HandleInput(old)
-	if len(received) != 3 {
-		t.Fatalf("removed target received old geometry input: %v", received)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		var received []string
+		leaf := func(name string) scene.Element {
+			return scene.NewElement(scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
+				if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown {
+					received = append(received, name)
+				}
+				return scene.EventResult{Consumed: true}
+			}})
+		}
+		a, b := leaf("a"), leaf("b")
+		g := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{item("a", a), item("b", b)}})
+		r := root(t, g.Element())
+		draw(t, r, 10, 2, 1)
+		r.Wrote(1)
+		time.Sleep(time.Nanosecond)
+		click := capture(r, input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0)})
+		if err := g.Move(0, 1); err != nil {
+			t.Fatal(err)
+		}
+		draw(t, r, 10, 2, 2)
+		r.Handle(input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 0)})
+		r.Wrote(2)
+		r.HandleInput(click)
+		r.Handle(input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 0)})
+		if !slices.Equal(received, []string{"a", "a", "b"}) {
+			t.Fatalf("input retargeted across admission/writing: %v", received)
+		}
+		time.Sleep(time.Nanosecond)
+		old := capture(r, input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 0)})
+		if err := g.Set(item("a", a)); err != nil {
+			t.Fatal(err)
+		}
+		r.HandleInput(old)
+		if len(received) != 3 {
+			t.Fatalf("removed target received old geometry input: %v", received)
+		}
+	})
 }
 
 func TestCaptureKeepsForeignReleaseAndEndsOnDetach(t *testing.T) {

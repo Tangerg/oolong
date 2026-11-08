@@ -103,11 +103,13 @@ func (c *Channel) Copy(sel Selection, text string) (string, bool) {
 // earlier query still owns the wire, even if its caller timed out or cancelled.
 //
 // The first result settled under the channel lock wins. A decoded reply received
-// before admission cannot settle this read. A reply received at/after its deadline
-// settles DeadlineExceeded. Timely bytes decoded after cancellation has settled
-// cannot revive delivery. A cancellation signal racing with reply settlement does
-// not retract a reply that settles first. A settled result remains successful even
-// if the caller reads it later. Empty clipboard contents are a successful empty result.
+// before admission or at the same clock instant cannot settle this read because
+// those timestamps cannot prove that the reply followed the query.
+// A reply received at/after its deadline settles DeadlineExceeded. Timely bytes
+// decoded after cancellation has settled cannot revive delivery. A cancellation
+// signal racing with reply settlement does not retract a reply that settles first.
+// A settled result remains successful even if the caller reads it later. Empty
+// clipboard contents are a successful empty result.
 func (c *Channel) Read(ctx context.Context, sel Selection, send func(string) error) (string, error) {
 	selection, valid := normalized(sel)
 	if c == nil || send == nil {
@@ -140,7 +142,8 @@ func (c *Channel) Read(ctx context.Context, sel Selection, send func(string) err
 
 // Answer consumes a matching query reply, including invalid or empty payloads and
 // replies whose delivery has been revoked. Only consumption releases the wire slot.
-// Foreign selections and bytes received before admission remain unrelated input.
+// Foreign selections and bytes not provably received after admission remain
+// unrelated input; equality cannot establish causal order or release the wire slot.
 // at is transport receive time, not the time a queued read was decoded.
 func (c *Channel) Answer(params string, at time.Time) bool {
 	return c.answer(params, at, false)
@@ -166,7 +169,7 @@ func (c *Channel) answer(params string, at time.Time, rejected bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	q := c.pending
-	if q == nil || selection != q.selection || at.Before(q.started) {
+	if q == nil || selection != q.selection || !at.After(q.started) {
 		return false
 	}
 	c.pending = nil

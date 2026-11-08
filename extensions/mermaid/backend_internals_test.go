@@ -7,12 +7,18 @@ import (
 )
 
 func TestNPMEntryPointUsesPackageMetadata(t *testing.T) {
-	for _, local := range []bool{false, true} {
-		t.Run(map[bool]string{false: "global", true: "local"}[local], func(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		local bool
+	}{
+		{"global", false},
+		{"local", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			directory := t.TempDir()
 			bin := directory
 			root := filepath.Join(directory, "node_modules", "@mermaid-js", "mermaid-cli")
-			if local {
+			if test.local {
 				bin = filepath.Join(directory, "node_modules", ".bin")
 				if err := os.MkdirAll(bin, 0o700); err != nil {
 					t.Fatal(err)

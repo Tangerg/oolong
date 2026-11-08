@@ -155,11 +155,11 @@ func TestCompletionAndExternalFieldsCanReplaceTheirAppearance(t *testing.T) {
 	if external.look != look {
 		t.Fatal("external field could not receive form theme")
 	}
-	selected := base.Select[string]{Same: base.Equal[string], Row: func(v grid.View, o base.Option[string], _, _ bool, _ base.Look) {
+	selected := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Row: func(v grid.View, o base.Option[string], _, _ bool, _ base.Look) {
 		v.Text(0, 0, "/"+o.Value, grid.Style{})
-	}}
+	}})
 	selected.SetOptions(base.Options("one"))
-	equalRows(t, paintWidget(scenes, 8, 1, &selected), []string{"/one...."})
+	equalRows(t, paintWidget(scenes, 8, 1, selected), []string{"/one...."})
 }
 
 func TestTokenLookupSkipsInvalidRepeatedTriggers(t *testing.T) {

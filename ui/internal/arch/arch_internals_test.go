@@ -1318,9 +1318,8 @@ func TestTheRulesWouldActuallyRefuseSomething(t *testing.T) {
 			t.Fatalf("%s belongs to no ring, so importing it is unguarded", tc.to)
 		}
 		if got := !mayImport(from, to); got != tc.refused {
-			verb := map[bool]string{true: "refused", false: "allowed"}
-			t.Errorf("%s -> %s (%s -> %s) is %s, want it %s",
-				tc.from, tc.to, from, to, verb[got], verb[tc.refused])
+			t.Errorf("%s -> %s (%s -> %s): refused=%t, want %t",
+				tc.from, tc.to, from, to, got, tc.refused)
 		}
 	}
 }

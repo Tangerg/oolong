@@ -841,9 +841,14 @@ func TestTableCellsAreTruncatedToTheirColumn(t *testing.T) {
 func TestTableRowStyleBandsTheWholeRow(t *testing.T) {
 	selected := grid.Style{BG: grid.RGBColor(40, 40, 40)}
 	table := kit.Table{
-		Columns:  []kit.Column{{}},
-		Rows:     2,
-		RowStyle: func(row int) grid.Style { return map[bool]grid.Style{true: selected}[row == 1] },
+		Columns: []kit.Column{{}},
+		Rows:    2,
+		RowStyle: func(row int) grid.Style {
+			if row == 1 {
+				return selected
+			}
+			return grid.Style{}
+		},
 		Cell: func(_, _ int) kit.Cell {
 			return kit.LabelCell(kit.Label{Text: "x"})
 		},

@@ -127,7 +127,6 @@ type Pinned struct {
 	Fade float64
 }
 
-// Visible is how many of the header's rows are drawn.
 func (p Pinned) Visible() int { return max(p.Height-p.ClipTop, 0) }
 
 // At works out the header for a view of rows starting at from, and reports whether

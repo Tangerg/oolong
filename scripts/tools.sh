@@ -47,7 +47,16 @@ selected_pins() {
 
 check_binary() {
 	local name="$1" module="$2" version="$3" package="$4" binary metadata
-	binary=$(command -v "$name") || die "$name is missing; run scripts/tools.sh install $name"
+	binary=$(type -p "$name") || die "$name is missing; run scripts/tools.sh install $name"
+	[[ -n "$binary" ]] || die "$name must resolve to an executable file"
+	# MSYS can omit .exe from a command path; native Go opens the literal filename.
+	# File identity prevents substituting a different executable beside a script.
+	if [[ "$binary" -ef "$binary.exe" ]]; then
+		binary+=".exe"
+	fi
+	case "$OSTYPE" in
+	msys* | cygwin*) binary=$(cygpath -am "$binary") || die "cannot resolve the native path for $name" ;;
+	esac
 	metadata=$(go version -m "$binary") || die "$name has no readable Go build identity: $binary"
 	if ! awk -v package="$package" -v module="$module" -v version="$version" '
 		$1 == "path" && $2 == package { matched_path = 1 }

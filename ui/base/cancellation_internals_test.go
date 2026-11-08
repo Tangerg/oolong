@@ -86,7 +86,7 @@ func TestMatcherCancellationPreservesSceneFocus(t *testing.T) {
 }
 
 func TestOptionReplacementCancelsAfterRestoringSelection(t *testing.T) {
-	many := &MultiSelect[string]{Same: Equal[string]}
+	many := NewMultiSelect(MultiSelectConfig[string]{Same: Equal[string]})
 	many.SetOptions(Options("a", "b"))
 	many.Toggle()
 	var keys keymap.Map
@@ -195,8 +195,8 @@ func TestCollectionReplacementPublishesBeforeMatcherCancellation(t *testing.T) {
 	var tabs Tabs
 	var completion Completion
 	var tree Tree[string]
-	one := &Select[string]{Same: Equal[string]}
-	many := &MultiSelect[string]{Same: Equal[string]}
+	one := NewSelect(SelectConfig[string]{Same: Equal[string]})
+	many := NewMultiSelect(MultiSelectConfig[string]{Same: Equal[string]})
 	for _, test := range []struct {
 		name    string
 		set     func(string)

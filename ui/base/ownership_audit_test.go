@@ -15,15 +15,21 @@ func TestChoiceFieldsEndTheListsAcceptedGesture(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	for _, multiple := range []bool{false, true} {
+	for _, test := range []struct {
+		name     string
+		multiple bool
+	}{
+		{"select", false},
+		{"multi", true},
+	} {
 		for _, end := range []string{"outside release", "label press", "blur"} {
-			t.Run(end+"/"+map[bool]string{false: "select", true: "multi"}[multiple], func(t *testing.T) {
-				one := &base.Select[string]{Label: "Choice", Same: base.Equal[string]}
-				many := &base.MultiSelect[string]{Label: "Choice", Same: base.Equal[string]}
+			t.Run(end+"/"+test.name, func(t *testing.T) {
+				one := base.NewSelect(base.SelectConfig[string]{Label: "Choice", Same: base.Equal[string]})
+				many := base.NewMultiSelect(base.MultiSelectConfig[string]{Label: "Choice", Same: base.Equal[string]})
 				one.SetOptions(base.Options("a", "b", "c"))
 				many.SetOptions(base.Options("a", "b", "c"))
 				var field base.Field = one
-				if multiple {
+				if test.multiple {
 					field = many
 				}
 				root := scenes.Mount(field)
@@ -43,7 +49,7 @@ func TestChoiceFieldsEndTheListsAcceptedGesture(t *testing.T) {
 				if root.Handle(input.Mouse{Action: input.MouseDrag, Button: input.ButtonLeft, Pos: image.Pt(1, 3)}) && end != "blur" {
 					t.Fatal("ended gesture continued selecting")
 				}
-				if multiple {
+				if test.multiple {
 					many.Toggle()
 					if !slices.Equal(many.Taken(), []string{"a"}) {
 						t.Fatalf("orphan drag moved the cursor: %v", many.Taken())
@@ -117,8 +123,8 @@ func TestChoiceFieldsDoNotScrollThroughTheirLabels(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	for _, multiple := range []bool{false, true} {
-		one := &base.Select[string]{Label: "Choice", Same: base.Equal[string]}
-		many := &base.MultiSelect[string]{Label: "Choice", Same: base.Equal[string]}
+		one := base.NewSelect(base.SelectConfig[string]{Label: "Choice", Same: base.Equal[string]})
+		many := base.NewMultiSelect(base.MultiSelectConfig[string]{Label: "Choice", Same: base.Equal[string]})
 		one.SetOptions(base.Options("a", "b", "c"))
 		many.SetOptions(base.Options("a", "b", "c"))
 		var field base.Field = one

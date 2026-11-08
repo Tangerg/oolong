@@ -7,7 +7,7 @@ import (
 )
 
 func TestSelectLocalChoicePreservesItsPositionAfterRemoval(t *testing.T) {
-	field := &base.Select[string]{Same: base.Equal[string]}
+	field := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string]})
 	field.SetOptions(base.Options("a", "b", "c"))
 	field.Do(base.SelectLast)
 	field.SetOptions(base.Options("a", "b"))

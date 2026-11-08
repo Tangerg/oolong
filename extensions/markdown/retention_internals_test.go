@@ -120,8 +120,8 @@ func TestNestedListItemsOwnMarkersAndShareQuotationRails(t *testing.T) {
 		if len(blocks) != 1 {
 			t.Fatalf("level %d has %d blocks, want one nested item", level, len(blocks))
 		}
-		item, ok := blocks[0].content.(*listItem)
-		if !ok || item.marker == nil || item.marker.next != nil {
+		item := blocks[0].item
+		if item == nil || item.marker == nil || item.marker.next != nil {
 			t.Fatalf("level %d does not own exactly its marker", level)
 		}
 		blocks = item.body.blocks
@@ -131,7 +131,7 @@ func TestNestedListItemsOwnMarkersAndShareQuotationRails(t *testing.T) {
 	}
 	for i, block := range blocks {
 		prefix := block.prefix
-		if item, ok := block.content.(*listItem); ok {
+		if item := block.item; item != nil {
 			prefix = item.prefix
 			if item.marker == nil || item.marker.next != nil {
 				t.Fatalf("quoted item %d retained another item's marker", i)

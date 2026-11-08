@@ -109,8 +109,8 @@ func (d *Snapshot) Draw(v grid.View) {
 	d.arrange(width).Draw(v)
 }
 
-// A prepared layout pins its block placements when the document caches another
-// width. Drawing into a smaller view clips those placements instead of reflowing.
+// A prepared layout pins its complete Markdown subtree when the document caches
+// another width. A smaller view clips those placements instead of reflowing.
 func (d *documentLayout) HeightForWidth(int) int { return d.height }
 
 func (d *documentLayout) Draw(v grid.View) {
@@ -164,8 +164,8 @@ func (d *Snapshot) PrepareWidth(ctx context.Context, width int) error {
 }
 
 // PreparedLayout never starts work. False means that geometry or text rows for
-// this width are not ready. Its result retains immutable block placements even
-// after another width replaces the snapshot's memo; embedded content remains
+// this width are not ready. Its result retains the complete immutable layout tree
+// after another width replaces a source snapshot's memo; embedded content remains
 // subject to Block's passive-content contract.
 func (d *Snapshot) PreparedLayout(width int) (grid.Drawable, bool) {
 	if d == nil {
@@ -193,7 +193,10 @@ func (d *Snapshot) prepareLayout(ctx context.Context, width int) (*documentLayou
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
 		}
-		placed := block.layout(width)
+		placed, err := block.prepareLayout(ctx, width)
+		if err != nil {
+			return nil, err
+		}
 		if placed.height == 0 {
 			continue
 		}
@@ -227,7 +230,11 @@ func (d *documentLayout) prepareRows(ctx context.Context) (*rowProjection, error
 		if err := context.Cause(ctx); err != nil {
 			return nil, err
 		}
-		copy(result.values[placed.top:], placed.layout.project())
+		rows, err := placed.layout.project(ctx)
+		if err != nil {
+			return nil, err
+		}
+		copy(result.values[placed.top:], rows)
 	}
 	if err := context.Cause(ctx); err != nil {
 		return nil, err

@@ -25,13 +25,13 @@ func TestFieldValidationRevokesTheOuterPublicationOnReentry(t *testing.T) {
 			}
 			switch kind {
 			case "Text":
-				field = &base.Text{Check: func(string) error { return check() }}
+				field = base.NewText(base.TextConfig{Check: func(string) error { return check() }})
 			case "Select":
-				field = &base.Select[string]{Check: func(string) error { return check() }}
+				field = base.NewSelect(base.SelectConfig[string]{Check: func(string) error { return check() }})
 			case "MultiSelect":
-				field = &base.MultiSelect[string]{Check: func([]string) error { return check() }}
+				field = base.NewMultiSelect(base.MultiSelectConfig[string]{Check: func([]string) error { return check() }})
 			case "Confirm":
-				field = &base.Confirm{Check: func(bool) error { return check() }}
+				field = base.NewConfirm(base.ConfirmConfig{Check: func(bool) error { return check() }})
 			}
 			if err := field.Validate(); !errors.Is(err, base.ErrValidationSuperseded) {
 				t.Fatalf("superseded validation = %v", err)
@@ -52,18 +52,18 @@ func TestFieldValidationCannotPublishForAnAnswerReplacedDuringCheck(t *testing.T
 			check := func() error { change(); return stale }
 			switch kind {
 			case "Text":
-				f := &base.Text{Check: func(string) error { return check() }}
+				f := base.NewText(base.TextConfig{Check: func(string) error { return check() }})
 				field, change = f, func() { f.SetText("new") }
 			case "Select":
-				f := &base.Select[string]{Same: base.Equal[string], Check: func(string) error { return check() }}
+				f := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Check: func(string) error { return check() }})
 				f.SetOptions(base.Options("old", "new"))
 				field, change = f, func() { f.Do(base.SelectNext) }
 			case "MultiSelect":
-				f := &base.MultiSelect[string]{Same: base.Equal[string], Check: func([]string) error { return check() }}
+				f := base.NewMultiSelect(base.MultiSelectConfig[string]{Same: base.Equal[string], Check: func([]string) error { return check() }})
 				f.SetOptions(base.Options("new"))
 				field, change = f, func() { f.Toggle() }
 			case "Confirm":
-				f := &base.Confirm{Check: func(bool) error { return check() }}
+				f := base.NewConfirm(base.ConfirmConfig{Check: func(bool) error { return check() }})
 				field, change = f, func() { f.Say(true) }
 			}
 			if err := field.Validate(); !errors.Is(err, base.ErrValidationSuperseded) {
@@ -101,17 +101,17 @@ func TestSpokenReplyOwnsParsingAndValidationTogether(t *testing.T) {
 			}
 			switch kind {
 			case "Text":
-				field = &base.Text{Check: func(string) error { return check() }}
+				field = base.NewText(base.TextConfig{Check: func(string) error { return check() }})
 			case "Select":
-				f := &base.Select[string]{Same: base.Equal[string], Check: func(string) error { return check() }}
+				f := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Check: func(string) error { return check() }})
 				f.SetOptions(base.Options("yes"))
 				field = f
 			case "MultiSelect":
-				f := &base.MultiSelect[string]{Same: base.Equal[string], Check: func([]string) error { return check() }}
+				f := base.NewMultiSelect(base.MultiSelectConfig[string]{Same: base.Equal[string], Check: func([]string) error { return check() }})
 				f.SetOptions(base.Options("yes"))
 				field = f
 			case "Confirm":
-				field = &base.Confirm{Check: func(bool) error { return check() }}
+				field = base.NewConfirm(base.ConfirmConfig{Check: func(bool) error { return check() }})
 			}
 			if err := field.Reply("yes"); !errors.Is(err, base.ErrValidationSuperseded) {
 				t.Fatalf("superseded reply = %v", err)

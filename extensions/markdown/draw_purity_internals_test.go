@@ -212,7 +212,7 @@ func meaningOfDoc(doc *Doc) docMeaning {
 			rule:   rule,
 			gap:    block.blankBefore,
 		}
-		if item, ok := block.content.(*listItem); ok {
+		if item := block.item; item != nil {
 			value.marker = markText(item.marker)
 			value.rail = markText(item.prefix.rails)
 			value.indent = item.prefix.indent
@@ -255,7 +255,7 @@ func markdownDrawPurityCases() []drawPurityCase {
 	}
 	doc.SetBlocks([]Block{
 		{lines: []text.Line{plain("a heading")}},
-		{content: item, blankBefore: true},
+		{item: item, blankBefore: true},
 		{
 			lines:  []text.Line{plain("a quotation that also wraps")},
 			prefix: blockPrefix{indent: 2, rails: &prefixMark{span: text.Span{Text: "| "}}}, blankBefore: true,
@@ -292,9 +292,5 @@ func markdownDrawPurityCases() []drawPurityCase {
 				width, height int
 			}{meaningOfDoc(doc), projection.width, projection.height}
 		},
-	}, drawPurityCase{
-		name: "*listItem", width: 14, height: 6,
-		draw: item.Draw, measure: item.HeightForWidth,
-		state: func() any { return meaningOfDoc(doc) },
 	})
 }

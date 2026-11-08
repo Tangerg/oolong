@@ -14,7 +14,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
 
-// Scene errors distinguish attachment, eligibility and lifecycle failures.
 var (
 	ErrDetached = errors.New("scene: element is not attached")
 	ErrMounted  = errors.New("scene: element is already attached")

@@ -108,7 +108,7 @@ func TestFilterSemanticFillAndSelectionShareTheRankedCollection(t *testing.T) {
 }
 
 func TestMultiSelectActionsExposeChoiceIdentityAndHonorTheLimit(t *testing.T) {
-	multi := &base.MultiSelect[int]{Same: base.Equal[int]}
+	multi := base.NewMultiSelect(base.MultiSelectConfig[int]{Same: base.Equal[int]})
 	multi.SetOptions([]base.Option[int]{{Label: "one", Value: 1}, {Label: "alias", Value: 1}, {Label: "two", Value: 2}})
 	multi.SetLimit(1)
 	root := semanticOwner(t, multi.Element())

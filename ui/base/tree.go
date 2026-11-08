@@ -24,7 +24,7 @@ type Node[T any] struct {
 // click from being written a second time and getting the edges wrong.
 type Shown[T any] struct {
 	Item T
-	// Depth is how many items are above this one, from zero at the top.
+	// Ancestor depth starts at zero for roots; visible row order does not affect it.
 	Depth        int
 	Branch, Open bool
 

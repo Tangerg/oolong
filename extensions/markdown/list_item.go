@@ -1,6 +1,9 @@
 package markdown
 
 import (
+	"context"
+	"slices"
+
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
@@ -14,32 +17,46 @@ type listItem struct {
 	marker *prefixMark
 }
 
-func (item *listItem) HeightForWidth(width int) int {
-	if width <= 0 {
-		return 0
+func (item *listItem) prepareLayout(ctx context.Context, width int) (*listItemLayout, error) {
+	body, err := item.body.prepareLayout(ctx, width)
+	if err != nil {
+		return nil, err
 	}
-	return max(1, item.body.HeightForWidth(width))
+	return &listItemLayout{
+		body: body, marker: item.marker, rails: item.prefix.rails,
+		inset: min(item.prefix.indent, width-1),
+	}, nil
 }
 
-func (item *listItem) Draw(view grid.View) {
+// A retained parent must draw and project the same child geometry after another
+// preparation replaces the source item's width memo.
+type listItemLayout struct {
+	body          *documentLayout
+	marker, rails *prefixMark
+	inset         int
+}
+
+func (item *listItemLayout) height() int { return max(1, item.body.height) }
+
+func (item *listItemLayout) draw(view grid.View) {
 	if view.Empty() {
 		return
 	}
-	width, _ := view.Size()
 	item.body.Draw(view)
-	inset := view.Sub(grid.Area(0, 0, min(item.prefix.indent, width-1), 1))
-	if item.body.HeightForWidth(width) == 0 {
-		item.prefix.rails.draw(inset, 0)
+	inset := view.Sub(grid.Area(0, 0, item.inset, 1))
+	if item.body.height == 0 {
+		item.rails.draw(inset, 0)
 	}
 	item.marker.draw(inset, 0)
 }
 
-func (item *listItem) Rows(width int) []text.Row {
-	if width <= 0 {
-		return nil
+func (item *listItemLayout) project(ctx context.Context) ([]text.Row, error) {
+	rows, err := item.body.prepareRows(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if rows := item.body.Rows(width); len(rows) > 0 {
-		return rows
+	if len(rows.values) == 0 {
+		return []text.Row{{Offset: item.inset}}, nil
 	}
-	return []text.Row{{Offset: min(item.prefix.indent, width-1)}}
+	return slices.Clone(rows.values), nil
 }

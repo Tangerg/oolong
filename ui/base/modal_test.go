@@ -16,9 +16,15 @@ func TestDialogOutsideDismissPolicyAndCoordinateTranslation(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	for _, outside := range []bool{false, true} {
-		t.Run(map[bool]string{false: "retain", true: "dismiss"}[outside], func(t *testing.T) {
-			dialog, _, body, root := dialogFixture(t, scenes, outside)
+	for _, test := range []struct {
+		name           string
+		dismissOutside bool
+	}{
+		{"retain", false},
+		{"dismiss", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dialog, _, body, root := dialogFixture(t, scenes, test.dismissOutside)
 			dialog.Show()
 			root.Draw(grid.NewSurface(12, 5).View())
 			root.Handle(regionPress(3, 1))
@@ -28,7 +34,7 @@ func TestDialogOutsideDismissPolicyAndCoordinateTranslation(t *testing.T) {
 			}
 			root.Handle(regionRelease(3, 1))
 			root.Handle(regionPress(0, 0))
-			if dialog.Open() == outside {
+			if dialog.Open() == test.dismissOutside {
 				t.Fatal("outside policy was not honored")
 			}
 		})

@@ -168,9 +168,11 @@ func TestRenderEffectRuleTracksFunctionValues(t *testing.T) {
 			name: "same named pure methods",
 			source: `package sample
 				type Widget struct{}
-				func (w Widget) Draw() { print := w.Print; print(); w.Commit() }
+				func (w Widget) Draw() { print := w.Print; print(); w.Commit(); w.Finish(); w.Dispatch() }
 				func (Widget) Print() {}
-				func (Widget) Commit() {}`,
+				func (Widget) Commit() {}
+				func (Widget) Finish() {}
+				func (Widget) Dispatch() {}`,
 		},
 		{
 			name: "uninvoked closure",

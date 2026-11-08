@@ -42,7 +42,7 @@ func (w *admissionWriter) Written() uint64 {
 func (w *admissionWriter) WrittenAt(at time.Time) (uint64, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return uint64(len(w.frames)), !w.writtenAt.IsZero() && !at.Before(w.writtenAt) && !at.After(time.Now())
+	return uint64(len(w.frames)), !w.writtenAt.IsZero() && at.After(w.writtenAt) && !at.After(time.Now())
 }
 func (*admissionWriter) Err() error                { return nil }
 func (*admissionWriter) Drain(time.Duration) error { return nil }

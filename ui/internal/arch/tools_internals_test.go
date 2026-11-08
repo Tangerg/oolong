@@ -80,7 +80,10 @@ func TestPinnedToolsInstallAndCheckOneVersion(t *testing.T) {
 	if tool.name == "" {
 		t.Fatal("fixture needs a pinned command at its module root")
 	}
-	proxy, bin := t.TempDir(), t.TempDir()
+	proxy, bin := t.TempDir(), filepath.Join(t.TempDir(), "tool binaries")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	const wrongVersion = "v0.0.1"
 	for _, version := range []string{tool.version, wrongVersion} {
 		publishFixtureModule(t, proxy, tool.module, version, "package main\n\nfunc main() {}\n")

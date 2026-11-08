@@ -9,7 +9,7 @@ import (
 )
 
 func (m *MultiSelect[T]) choiceState(option Option[T]) ChoiceState[T] {
-	at := optionIndex(m.list.items, option.Value, m.Same)
+	at := optionIndex(m.list.items, option.Value, m.sameIdentity)
 	_, taken := slices.BinarySearch(m.taken, at)
 	return ChoiceState[T]{Option: option, Taken: taken}
 }

@@ -37,7 +37,6 @@ type Tree[T any] struct {
 	controller *base.Tree[T]
 }
 
-// TreeConfig selects the initial hierarchy and its appearance.
 type TreeConfig[T any] struct {
 	Scope      *ThemeScope
 	Appearance ThemeOverride

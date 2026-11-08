@@ -104,6 +104,7 @@ type FrameWriter interface {
 	// WrittenAt proves the completed prefix at a time from the input source's
 	// process clock. It returns false during a write, after a delivery failure,
 	// for future timestamps, or when its bounded history cannot prove the answer.
+	// Equality with creation or a write boundary cannot prove causal order.
 	// The input reader transfers a panic or goroutine exit from this query to the
 	// Run owner so the session's normal cleanup still unwinds.
 	WrittenAt(at time.Time) (uint64, bool)

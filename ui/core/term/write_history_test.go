@@ -1,12 +1,60 @@
 package term_test
 
 import (
+	"io"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/term"
 )
+
+func TestWrittenAtRejectsEqualCompletionTimestampsInEitherOrder(t *testing.T) {
+	for _, beforeWrite := range []bool{false, true} {
+		name := "input after write"
+		if beforeWrite {
+			name = "input before write"
+		}
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				writer := term.NewWriter(term.WriterConfig{Destination: io.Discard})
+				defer func() {
+					if err := writer.Close(); err != nil {
+						t.Error(err)
+					}
+				}()
+				if sequence, known := writer.WrittenAt(time.Now()); known || sequence != 0 {
+					t.Fatalf("creation timestamp established writer lifetime: (%d, %t)", sequence, known)
+				}
+				time.Sleep(time.Nanosecond)
+				if _, err := writer.Queue([]byte("first")); err != nil {
+					t.Fatal(err)
+				}
+				if err := writer.Drain(time.Second); err != nil {
+					t.Fatal(err)
+				}
+				time.Sleep(time.Nanosecond)
+				arrival := time.Now()
+				if _, err := writer.Queue([]byte("second")); err != nil {
+					t.Fatal(err)
+				}
+				if err := writer.Drain(time.Second); err != nil {
+					t.Fatal(err)
+				}
+				if !beforeWrite {
+					arrival = time.Now()
+				}
+				if sequence, known := writer.WrittenAt(arrival); known || sequence != 0 {
+					t.Fatalf("equal completion timestamp certified sequence (%d, %t)", sequence, known)
+				}
+				time.Sleep(time.Nanosecond)
+				if sequence, known := writer.WrittenAt(time.Now()); !known || sequence != 2 {
+					t.Fatalf("distinct later timestamp = (%d, %t), want (2, true)", sequence, known)
+				}
+			})
+		})
+	}
+}
 
 func TestWrittenAtRetainsOnlyProvableBoundedHistory(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {

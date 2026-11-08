@@ -18,8 +18,8 @@ import (
 )
 
 // ErrValidationSuperseded reports a Validate or Reply whose callback started a
-// newer validation or replaced the answer being checked. The interrupted call cannot
-// publish or report success.
+// newer validation, changed its rule, or replaced the answer being checked.
+// The interrupted call cannot publish or report success.
 var ErrValidationSuperseded = errors.New("base: validation superseded")
 
 // ErrInvalidValue reports an answer outside the field's available values.
@@ -40,15 +40,18 @@ type Field interface {
 	// Validate checks what has been entered, remembers what was wrong with it, and
 	// reports that. It is called when the field loses the keyboard and again when the
 	// form is submitted. Built-in fields return ErrValidationSuperseded if a callback
-	// starts a newer Validate or Reply or replaces the checked answer. An obsolete
-	// check cannot publish Error.
+	// starts a newer Validate or Reply, invalidates the rule, or replaces the checked
+	// answer. An obsolete check cannot publish Error.
 	Validate() error
 	// Validation returns a read-only receipt for the last completed answer check, or
 	// nil when none is current. The receipt reports false when another Validate or
-	// Reply has begun or the checked answer is no longer current. Reading it must be pure; it cannot
-	// validate again or advance the answer. Form retains it across later callbacks.
+	// Reply has begun, its rule was invalidated, or the checked answer is no longer
+	// current. Reading it must be pure; it cannot validate again or advance the
+	// answer. Form retains it across later callbacks.
 	Validation() func() bool
 	Error() error
+	// Revision identifies the complete answer snapshot. Owners may advance it
+	// conservatively when replacing opaque values whose equality cannot be proved.
 	Revision() uint64
 }
 
@@ -153,6 +156,15 @@ type fieldCheck struct {
 func (f *field) invalidateValidation() {
 	f.validation++
 	f.checked = fieldCheck{}
+}
+
+// InvalidateValidation revokes results when a check's domain dependencies change
+// without replacing the callback or answer. The dependency owner must call it
+// before publishing that change; it does not run a check or advance Revision.
+func (f *field) InvalidateValidation() {
+	requireMutable(f.element)
+	f.invalidateValidation()
+	f.element.Invalidate()
 }
 
 func (f *field) rows(label string) int {

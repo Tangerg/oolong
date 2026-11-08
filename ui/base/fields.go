@@ -17,12 +17,12 @@ type Text struct {
 	noCopy noCopy
 	field
 	Label       string
-	Check       func(string) error
 	Placeholder string
 	Keys        *keymap.Map
 	Clipboard   Clipboard
 	Gutter      RowGutter
 	CursorStyle grid.CursorStyle
+	check       func(string) error
 	editor      Editor
 }
 
@@ -83,11 +83,19 @@ func (t *Text) PasteError() error { return t.editor.PasteError() }
 
 func (t *Text) Validate() error { return t.validate(nil, t.Revision, t.checkAnswer) }
 
+// SetCheck revokes old results because validation belongs to the rule as well as
+// the answer. Reinstalling the same callback also revokes receipts; nil removes it.
+func (t *Text) SetCheck(check func(string) error) {
+	requireMutable(t.element)
+	t.check = check
+	t.InvalidateValidation()
+}
+
 func (t *Text) checkAnswer() error {
-	if t.Check == nil {
+	if t.check == nil {
 		return nil
 	}
-	return t.Check(t.Text())
+	return t.check(t.Text())
 }
 
 func (t *Text) focusChanged(has bool) {

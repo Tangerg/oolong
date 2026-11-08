@@ -3,6 +3,7 @@ package scene_test
 import (
 	"image"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -11,81 +12,88 @@ import (
 )
 
 func TestInputReadsItsWrittenProjectionRatherThanNewAdmission(t *testing.T) {
-	var projection scene.Snapshot[int]
-	firstRow := 10
-	hit := -1
-	e := scene.NewElement(scene.ElementConfig{
-		Paint: func(frame scene.Frame) { projection.Stage(frame, firstRow) },
-		Handle: func(event scene.Event) scene.EventResult {
-			mouse, ok := event.Input().(input.Mouse)
-			if !ok || mouse.Action != input.MouseDown {
-				return scene.EventResult{}
-			}
-			row, ok := event.Read(&projection)
-			if !ok {
-				t.Fatal("input lost its presentation projection")
-			}
-			hit = row + mouse.Pos.Y
-			return scene.EventResult{Consumed: true}
-		},
+	synctest.Test(t, func(t *testing.T) {
+		var projection scene.Snapshot[int]
+		firstRow := 10
+		hit := -1
+		e := scene.NewElement(scene.ElementConfig{
+			Paint: func(frame scene.Frame) { projection.Stage(frame, firstRow) },
+			Handle: func(event scene.Event) scene.EventResult {
+				mouse, ok := event.Input().(input.Mouse)
+				if !ok || mouse.Action != input.MouseDown {
+					return scene.EventResult{}
+				}
+				row, ok := event.Read(&projection)
+				if !ok {
+					t.Fatal("input lost its presentation projection")
+				}
+				hit = row + mouse.Pos.Y
+				return scene.EventResult{Consumed: true}
+			},
+		})
+		r := root(t, e)
+		draw(t, r, 10, 2, 1)
+		r.Wrote(1)
+		time.Sleep(time.Nanosecond)
+		click := capture(r, input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 1)})
+		firstRow = 20
+		draw(t, r, 10, 2, 2)
+		if projection.Value() != 20 {
+			t.Fatal("logical projection did not commit")
+		}
+		r.Wrote(2)
+		r.HandleInput(click)
+		if hit != 11 {
+			t.Fatalf("old click used a newly admitted scrolling offset: %d", hit)
+		}
 	})
-	r := root(t, e)
-	draw(t, r, 10, 2, 1)
-	r.Wrote(1)
-	click := capture(r, input.Mouse{Action: input.MouseDown, Pos: image.Pt(0, 1)})
-	firstRow = 20
-	draw(t, r, 10, 2, 2)
-	if projection.Value() != 20 {
-		t.Fatal("logical projection did not commit")
-	}
-	r.Wrote(2)
-	r.HandleInput(click)
-	if hit != 11 {
-		t.Fatalf("old click used a newly admitted scrolling offset: %d", hit)
-	}
 }
 
 func TestBufferedMouseTimestampAndGeometryInvalidation(t *testing.T) {
-	var projection scene.Snapshot[int]
-	value, hit := 1, 0
-	e := scene.NewElement(scene.ElementConfig{
-		Paint: func(frame scene.Frame) { projection.Stage(frame, value) },
-		Handle: func(event scene.Event) scene.EventResult {
-			if v, ok := event.Read(&projection); ok {
-				hit = v
-			}
-			return scene.EventResult{Consumed: true}
-		},
+	synctest.Test(t, func(t *testing.T) {
+		var projection scene.Snapshot[int]
+		value, hit := 1, 0
+		e := scene.NewElement(scene.ElementConfig{
+			Paint: func(frame scene.Frame) { projection.Stage(frame, value) },
+			Handle: func(event scene.Event) scene.EventResult {
+				if v, ok := event.Read(&projection); ok {
+					hit = v
+				}
+				return scene.EventResult{Consumed: true}
+			},
+		})
+		r, err := scene.NewRoot(scene.RootConfig{Element: e, InputHistory: 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		draw(t, r, 5, 1, 1)
+		r.Wrote(1)
+		time.Sleep(time.Nanosecond)
+		at := time.Now()
+		value = 2
+		draw(t, r, 5, 1, 2)
+		r.Wrote(2)
+		old := r.CaptureInput(input.Mouse{Action: input.MouseDown, At: at}, func(time.Time) (uint64, bool) { return 1, true })
+		r.HandleInput(old)
+		if hit != 1 {
+			t.Fatalf("buffer delay rewrote arrival geometry: %d", hit)
+		}
+		time.Sleep(time.Nanosecond)
+		queued := capture(r, input.Mouse{Action: input.MouseDown})
+		r.InvalidateGeometry()
+		hit = 0
+		r.HandleInput(queued)
+		if hit != 0 {
+			t.Fatal("resize reused an invalidated coordinate space")
+		}
+		draw(t, r, 6, 2, 3)
+		r.Wrote(3)
+		r.HandleInput(r.CaptureInput(input.Mouse{Action: input.MouseDown, At: at}, func(time.Time) (uint64, bool) { return 1, true }))
+		if hit != 0 {
+			t.Fatal("expired timestamp was reinterpreted against newer geometry")
+		}
 	})
-	r, err := scene.NewRoot(scene.RootConfig{Element: e, InputHistory: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Close()
-	draw(t, r, 5, 1, 1)
-	r.Wrote(1)
-	at := time.Now()
-	value = 2
-	draw(t, r, 5, 1, 2)
-	r.Wrote(2)
-	old := r.CaptureInput(input.Mouse{Action: input.MouseDown, At: at}, func(time.Time) (uint64, bool) { return 1, true })
-	r.HandleInput(old)
-	if hit != 1 {
-		t.Fatalf("buffer delay rewrote arrival geometry: %d", hit)
-	}
-	queued := capture(r, input.Mouse{Action: input.MouseDown})
-	r.InvalidateGeometry()
-	hit = 0
-	r.HandleInput(queued)
-	if hit != 0 {
-		t.Fatal("resize reused an invalidated coordinate space")
-	}
-	draw(t, r, 6, 2, 3)
-	r.Wrote(3)
-	r.HandleInput(r.CaptureInput(input.Mouse{Action: input.MouseDown, At: at}, func(time.Time) (uint64, bool) { return 1, true }))
-	if hit != 0 {
-		t.Fatal("expired timestamp was reinterpreted against newer geometry")
-	}
 }
 
 func TestSnapshotProducerAndBorrowLifetimeAreExplicit(t *testing.T) {

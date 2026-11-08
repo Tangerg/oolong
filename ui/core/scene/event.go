@@ -203,6 +203,7 @@ func (c CapturedInput) Input() input.Event { return c.input }
 // Mouse.At, or its reception time when At is zero. writtenAt must be a pure,
 // concurrency-safe query and return false for uncertain or expired evidence.
 // Invalid input returns a zero capture; uncertain coordinates retain no hit map.
+// Equality with layout admission cannot prove which geometry preceded the input.
 // Only this operation may run on an input reader instead of the UI owner.
 func (r *Root) CaptureInput(event input.Event, writtenAt func(time.Time) (uint64, bool)) CapturedInput {
 	if input.ByteSize(event) == 0 {
@@ -231,6 +232,9 @@ func (r *Root) CaptureInput(event input.Event, writtenAt func(time.Time) (uint64
 	for _, snapshot := range slices.Backward(history.layouts) {
 		if snapshot.sequence > sequence {
 			continue
+		}
+		if mouse.At.Equal(snapshot.admittedAt) {
+			return captured
 		}
 		if mouse.At.Before(snapshot.admittedAt) {
 			if snapshot.hasOutput {
