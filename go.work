@@ -21,4 +21,5 @@ replace (
 	github.com/Tangerg/oolong/ui v0.27.0 => ./ui
 	github.com/Tangerg/oolong/ui v0.27.1-0.20261106061924-ba34d8bad7e0 => ./ui
 	github.com/Tangerg/oolong/ui v0.27.1-0.20261109052520-3b96839c887d => ./ui
+	github.com/Tangerg/oolong/ui v0.27.1-0.20261109100616-0d277d9be255 => ./ui
 )

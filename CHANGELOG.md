@@ -40,7 +40,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### extensions/latex
 
-- `Render` panics for an invalid `Look.Align` before parsing or retaining a formula, including empty source. Alignment validity belongs to `core/layout.Align.Validate`. Publish a UI version containing that method, then update the LaTeX module's declared UI requirement and sums and regenerate `go.work` with `scripts/sync-workspace.sh` before releasing this consumer. The previously declared UI version does not supply the new API; local workspace integration is not evidence that the published dependency contract is satisfied.
+- `Render` panics for an invalid `Look.Align` before parsing or retaining a formula, including empty source. Validate external alignment with `core/layout.Align.Validate` and handle `core/layout.ErrInvalidAlign`. The declared UI requirement supplies that validation API for standalone consumers.
 
 #### extensions/markdown
 
