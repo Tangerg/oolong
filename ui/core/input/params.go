@@ -2,7 +2,6 @@ package input
 
 import (
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
@@ -85,7 +84,7 @@ func (ps params) text() (string, bool) {
 	var b strings.Builder
 	for cp := range ps.Group(2).Values() {
 		r, ok := codePoint(cp)
-		if !ok || unicode.IsControl(r) {
+		if !ok || !associatedTextRune(r) {
 			return "", false
 		}
 		b.WriteRune(r)
@@ -147,13 +146,11 @@ func primaryKey(group ansi.Parameter, mods Mods) (Key, bool) {
 	code, r, ok := extendedKeyCode(group.At(0))
 	shifted, shiftedOK := codePoint(group.At(1))
 	base, baseOK := codePoint(group.At(2))
-	if !ok || !shiftedOK || !baseOK || shifted != 0 && !mods.Has(Shift) {
+	if !ok || !shiftedOK || !baseOK {
 		return Key{}, false
 	}
-	if group.At(0) == 0 && (shifted != 0 || base != 0) {
-		return Key{}, false
-	}
-	return Key{Code: code, Rune: r, ShiftedRune: shifted, BaseRune: base, Mods: mods}, true
+	key := Key{Code: code, Rune: r, ShiftedRune: shifted, BaseRune: base, Mods: mods}
+	return key, key.validate() == nil
 }
 
 func (ps params) scalars(count int) bool {
@@ -203,7 +200,6 @@ func (ps params) legacyF3() Event {
 func (d KeyboardDialect) modifiers(bits int) (Mods, bool) {
 	const basic = Shift | Alt | Ctrl
 	const legacyMetaBit = 1 << 3
-	const shortcutMods = basic | Super | Hyper | Meta
 	const capsLockBit = 1 << 6
 	const numLockBit = 1 << 7
 	const lockBits = capsLockBit | numLockBit

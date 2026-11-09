@@ -64,7 +64,7 @@ func (c *directedClipboard) answer(t *testing.T, value string) {
 func TestEditorClipboardReplyKeepsItsOriginalRecipientAfterFocusMoves(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		transport := &directedClipboard{}
-		first, second := &base.Editor{Clipboard: transport}, &base.Editor{}
+		first, second := base.NewEditor(base.EditorConfig{Clipboard: transport}), &base.Editor{}
 		group := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{
 			{Key: "first", Element: first.Element()}, {Key: "second", Element: second.Element()},
 		}})
@@ -104,7 +104,7 @@ func TestEditorClipboardReplyKeepsItsOriginalRecipientAfterFocusMoves(t *testing
 func TestEditorClipboardReplyCannotCrossUnmountAndRemount(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		transport := &directedClipboard{}
-		editor := &base.Editor{Clipboard: transport}
+		editor := base.NewEditor(base.EditorConfig{Clipboard: transport})
 		root, err := scene.NewRoot(scene.RootConfig{Element: editor.Element()})
 		if err != nil {
 			t.Fatal(err)
@@ -131,7 +131,7 @@ func TestEditorClipboardReplyCannotCrossUnmountAndRemount(t *testing.T) {
 
 func TestStandalonePasteCannotSurviveAnInterveningSceneLifetime(t *testing.T) {
 	transport := &clip{}
-	editor := &base.Editor{Clipboard: transport}
+	editor := base.NewEditor(base.EditorConfig{Clipboard: transport})
 	var result error
 	if err := editor.Paste(t.Context(), func(err error) { result = err }); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestEditorClipboardReplyRequiresItsOriginalEditLocation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			transport := &clip{}
 			editor := base.NewEditor(base.EditorConfig{Initial: "original"})
-			editor.Clipboard = transport
+			editor.SetClipboard(transport)
 			var result error
 			if err := editor.Paste(t.Context(), func(err error) { result = err }); err != nil {
 				t.Fatal(err)
@@ -181,7 +181,7 @@ func TestEditorClipboardReplyRequiresItsOriginalEditLocation(t *testing.T) {
 func TestStandaloneEditorPasteAndEmptyClipboardHaveExplicitResults(t *testing.T) {
 	transport := &clip{}
 	editor := base.NewEditor(base.EditorConfig{Initial: "original"})
-	editor.Clipboard = transport
+	editor.SetClipboard(transport)
 	editor.SelectAll()
 	completed := 0
 	complete := func(err error) {
@@ -208,7 +208,7 @@ func TestStandaloneEditorPasteAndEmptyClipboardHaveExplicitResults(t *testing.T)
 
 func TestEditorClipboardCancellationAndFailuresAreExplicit(t *testing.T) {
 	transport := &clip{}
-	editor := &base.Editor{Clipboard: transport}
+	editor := base.NewEditor(base.EditorConfig{Clipboard: transport})
 	ctx, cancel := context.WithCancel(t.Context())
 	if err := editor.Paste(ctx, func(error) { t.Error("cancelled callback ran") }); err != nil {
 		t.Fatal(err)

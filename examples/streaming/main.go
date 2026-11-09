@@ -71,7 +71,6 @@ type chat struct {
 	source  replySource
 	theme   kit.Theme
 	glyphs  kit.Glyphs
-	keys    *keymap.Map
 
 	content     *base.Transcript
 	view        *kit.Transcript
@@ -112,7 +111,6 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) (*cha
 		source:  source,
 		theme:   theme,
 		glyphs:  glyphs,
-		keys:    keys,
 		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
 	}
 	c.preparation = docprep.New(docprep.Config{Runtime: runtime.Runtime, Scope: scope, Failed: c.setOutcome})
@@ -132,13 +130,13 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) (*cha
 		panic(err)
 	}
 	c.composer = kit.NewComposer(kit.ComposerConfig{
-		Theme:  theme,
-		Prompt: glyphs.Marker + " ",
-		Hints:  []keymap.Action{send, base.InsertNewline, cancelSource, quit},
+		Theme:       theme,
+		Prompt:      glyphs.Marker + " ",
+		Hints:       []keymap.Action{send, base.InsertNewline, cancelSource, quit},
+		Placeholder: "Ask something",
+		Keys:        keys,
+		Clipboard:   runtime.Clipboard(),
 	})
-	c.composer.Controller().Placeholder = "Ask something"
-	c.composer.Controller().Keys = keys
-	c.composer.Controller().Clipboard = runtime.Clipboard()
 	c.render = markdown.NewRenderer(markdown.RendererConfig{Look: markdownlook.New(theme, glyphs)})
 	status := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { c.status.Draw(frame.View) }})
 	body := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
@@ -197,7 +195,7 @@ func (c *chat) Handle(event input.Event) bool {
 	if c.quitKey(key) {
 		return true
 	}
-	action, _ := c.keys.ActionFor(key)
+	action, _ := c.composer.Controller().Keys().ActionFor(key)
 	switch action {
 	case send:
 		c.requestApproval()
@@ -211,7 +209,7 @@ func (c *chat) Handle(event input.Event) bool {
 }
 
 func (c *chat) quitKey(key input.Key) bool {
-	action, _ := c.keys.ActionFor(key)
+	action, _ := c.composer.Controller().Keys().ActionFor(key)
 	if action != quit {
 		return false
 	}

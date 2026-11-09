@@ -618,16 +618,15 @@ func TestReportingTheDirectoryDefaultsToThisOne(t *testing.T) {
 }
 
 func TestAnAnswerToSomethingElseIsPassedOn(t *testing.T) {
-	// A device control string that is not the version answers a question this session
-	// did not ask, and is still addressed to the program.
-	tty, _ := answered(t, "\x1bP1$r0 q\x1b\\\x1b[?62c")
+	// SGR status answers belong to the requesting application, not startup discovery.
+	tty, _ := answered(t, "\x1bP1$r0m\x1b\\\x1b[?62c")
 	for {
 		ev, ok := next(t, tty)
 		if !ok {
 			t.Fatal("the answer never arrived")
 		}
 		if dcs, isDCS := ev.(input.DCS); isDCS {
-			if dcs.Body != "1$r0 q" {
+			if dcs.Body != "1$r0m" {
 				t.Errorf("body = %q", dcs.Body)
 			}
 			return

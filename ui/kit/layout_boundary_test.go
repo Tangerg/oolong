@@ -133,8 +133,12 @@ func TestPanelRejectsChangedAlignmentBeforeMeasuringItsChild(t *testing.T) {
 		return 1
 	}})
 	panel := kit.NewPanel(kit.PanelConfig{Content: child})
-	panel.Box.FooterAlign = layout.Align(math.MaxUint8)
-	expectLayoutConfigPanic(t, layout.ErrInvalidAlign, func() { panel.HeightForWidth(12) })
+	box := panel.Box()
+	box.FooterAlign = layout.Align(math.MaxUint8)
+	expectLayoutConfigPanic(t, layout.ErrInvalidAlign, func() { panel.SetBox(box) })
+	if panel.Box().FooterAlign != layout.Start {
+		t.Fatal("invalid box was installed")
+	}
 	if calls != 0 {
 		t.Fatalf("invalid panel reached its child measurer %d times", calls)
 	}
@@ -154,19 +158,19 @@ func TestDialogRejectsChangedAnchorBeforePaintingItsBackdrop(t *testing.T) {
 	view := surface.View()
 	view.Fill(view.Bounds(), grid.Style{BG: grid.RGBColor(90, 80, 70)})
 	before := [][]grid.Cell{surface.Row(0), surface.Row(1), surface.Row(2)}
-	dialog.Where.Anchor = layout.Anchor(math.MaxUint8)
-	expectLayoutConfigPanic(t, layout.ErrInvalidAnchor, func() {
-		_, prepareErr := root.Prepare(view)
-		if prepareErr != nil {
-			t.Fatal(prepareErr)
-		}
-	})
+	where := dialog.Where()
+	where.Anchor = layout.Anchor(math.MaxUint8)
+	expectLayoutConfigPanic(t, layout.ErrInvalidAnchor, func() { dialog.SetWhere(where) })
+	if dialog.Where().Anchor == where.Anchor {
+		t.Fatal("invalid anchor was installed")
+	}
 	for y, row := range before {
 		if !slices.Equal(surface.Row(y), row) {
 			t.Fatalf("rejected dialog changed backdrop row %d", y)
 		}
 	}
-	dialog.Where.Anchor = layout.Middle
+	where.Anchor = layout.Middle
+	dialog.SetWhere(where)
 	frame, err := root.Prepare(view)
 	if err != nil {
 		t.Fatalf("rejected anchor blocked the next frame: %v", err)

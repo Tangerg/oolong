@@ -30,8 +30,9 @@ func TestCompletionHelpFollowsAReplacedKeyMap(t *testing.T) {
 	host.Type("@arch")
 	host.Shows(t, "tab accept")
 	if err := p.runtime.Dispatcher().Invoke(t.Context(), func() error {
-		p.completion.Keys = new(keymap.Map)
-		p.completion.Keys.Bind(base.Accept, input.Ctrl.Rune('l'))
+		keys := new(keymap.Map)
+		keys.Bind(base.Accept, input.Ctrl.Rune('l'))
+		p.completion.SetKeys(keys)
 		p.element.Invalidate()
 		return nil
 	}); err != nil {

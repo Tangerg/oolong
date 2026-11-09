@@ -31,7 +31,7 @@ type Slider struct {
 	label            string
 
 	// Keys maps slider actions. Nil reads through [DefaultSliderKeys].
-	Keys *keymap.Map
+	keys keyBinding
 
 	pointer Pointer
 	matcher keymap.Matcher
@@ -53,7 +53,7 @@ type SliderConfig struct {
 }
 
 func NewSlider(config SliderConfig) *Slider {
-	s := &Slider{value: newOwnedValue(config.Initial), Keys: config.Keys}
+	s := &Slider{value: newOwnedValue(config.Initial), keys: keyBinding{current: config.Keys}}
 	s.SetBounds(config.Minimum, config.Maximum)
 	if config.Step != 0 {
 		s.SetStep(config.Step)
@@ -213,7 +213,7 @@ func (s *Slider) Handle(event input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := s.matcher.Handle(s.keys(), key, keyboardReceipt(&s.element), s.Do)
+	_, handled := s.matcher.Handle(s.resolvedKeys(), key, keyboardReceipt(&s.element), s.Do)
 	return handled
 }
 
@@ -266,9 +266,15 @@ func (s *Slider) focusChanged(has bool) {
 
 func (s *Slider) Focused() bool { return s != nil && s.element.Focused() }
 
-func (s *Slider) keys() *keymap.Map {
-	if s.Keys != nil {
-		return s.Keys
+func (s *Slider) resolvedKeys() *keymap.Map {
+	if s.keys.current != nil {
+		return s.keys.current
 	}
 	return sliderKeys()
+}
+
+func (s *Slider) Keys() *keymap.Map { return s.keys.current }
+
+func (s *Slider) SetKeys(keys *keymap.Map) {
+	s.keys.set(s.Element(), &s.matcher, keys)
 }

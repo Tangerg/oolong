@@ -203,9 +203,10 @@ func TestNumberedPaneShortcutsAndHelpFollowTheTabOwner(t *testing.T) {
 	if help := visible(); !strings.Contains(help, "1 pane") || strings.Contains(help, "1–4") {
 		t.Fatalf("help retained a removed pane: %q", help)
 	}
-	d.tabs.Keys = new(keymap.Map)
-	d.tabs.Keys.Bind(base.NextTab, input.Alt.Rune('n'))
-	d.tabs.Keys.Bind(quitDashboard, input.Chord{Rune: 'x'})
+	keys := new(keymap.Map)
+	keys.Bind(base.NextTab, input.Alt.Rune('n'))
+	keys.Bind(quitDashboard, input.Chord{Rune: 'x'})
+	d.tabs.SetKeys(keys)
 	if help := visible(); !strings.Contains(help, "alt+n next tab") || !strings.Contains(help, "x quit") {
 		t.Fatalf("help retained a replaced key map: %q", help)
 	}

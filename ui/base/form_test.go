@@ -169,7 +169,7 @@ func TestAChoiceFollowsTheCursor(t *testing.T) {
 	// it is a list that can be left on a row nobody took.
 	var picked string
 	field := selectWith(base.Options("fast", "good", "cheap"))
-	field.Label = "Model"
+	field.SetLabel("Model")
 	field.Choose(picked)
 	scenes.Mount(field).Draw(grid.NewSurface(12, 4).View())
 	if chosenValue(field) != "fast" {
@@ -244,7 +244,7 @@ func TestPickingSeveralIsMovingAndThenTaking(t *testing.T) {
 	// the choice are two things.
 	var picked []string
 	field := multiWith(base.Options("a", "b", "c"))
-	field.Label = "Files"
+	field.SetLabel("Files")
 	field.SetTaken(picked)
 	field.Handle(input.Key{Code: input.Down})
 	if len(field.Taken()) != 0 {
@@ -426,7 +426,7 @@ func TestAFormWalksItsFieldsAndSubmitsWhenEverythingChecksOut(t *testing.T) {
 		},
 	})
 	modelField := selectWith(base.Options("fast", "good"))
-	modelField.Label = "Model"
+	modelField.SetLabel("Model")
 	modelField.Choose(model)
 	done := 0
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{nameField, modelField}, Submit: func(base.SubmissionID) (scene.ActionState, error) {
@@ -477,7 +477,7 @@ func TestAFormChecksEveryAnswerAndNotJustTheFirstOneThatFails(t *testing.T) {
 
 func TestAFormChecksTheAnswersTogetherOnlyOnceEachIsGood(t *testing.T) {
 	clash := errors.New("those two cannot both be so")
-	one := &base.Text{Label: "One"}
+	one := base.NewText(base.TextConfig{Label: "One"})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{one}, Check: func() error { return clash }})
 	if _, err := form.Submit(); err == nil {
 		t.Fatal("the form was submitted with a problem across its fields")
@@ -522,7 +522,7 @@ func TestAChoiceCanBePressed(t *testing.T) {
 	// than the position says — the same translation a container does for its children.
 	var picked string
 	field := selectWith(base.Options("fast", "good", "cheap"))
-	field.Label = "Model"
+	field.SetLabel("Model")
 	field.Choose(picked)
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	styleFields(form, bare())
@@ -549,7 +549,7 @@ func TestAPressAboveTheOptionsIsNotAChoice(t *testing.T) {
 	// option would answer a press nobody made.
 	var picked string
 	field := selectWith(base.Options("fast", "good"))
-	field.Label = "Model"
+	field.SetLabel("Model")
 	field.Choose(picked)
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	styleFields(form, bare())
@@ -590,7 +590,7 @@ func TestAConfirmCanBePressed(t *testing.T) {
 }
 
 func TestAFieldNobodyHasDrawnAnswersNoPress(t *testing.T) {
-	field := &base.Text{Label: "Name"}
+	field := base.NewText(base.TextConfig{Label: "Name"})
 	if field.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Fatal("a field that has never been drawn answered a press")
 	}
@@ -665,8 +665,8 @@ func TestAFormPassesTheKeyboardToTheFieldThatHasIt(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	first := &base.Text{Label: "One"}
-	second := &base.Text{Label: "Two"}
+	first := base.NewText(base.TextConfig{Label: "One"})
+	second := base.NewText(base.TextConfig{Label: "Two"})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{first, second}})
 	scenes.Mount(form).Draw(grid.NewSurface(20, 6).View())
 
@@ -817,7 +817,7 @@ func TestMultiSelectAliasesShareOneChoiceAcrossInputPaths(t *testing.T) {
 		t.Fatalf("aliases exceeded a one-value limit: taken=%v error=%v", field.Taken(), err)
 	}
 	var drawn []bool
-	field.Row = func(_ grid.View, _ base.Option[string], _, taken bool, _ base.Look) { drawn = append(drawn, taken) }
+	field.SetRow(func(_ grid.View, _ base.Option[string], _, taken bool, _ base.Look) { drawn = append(drawn, taken) })
 	scenes.Mount(field).Draw(grid.NewSurface(8, 3).View())
 	if !slices.Equal(drawn, []bool{true, false, true}) {
 		t.Fatalf("rows disagree about the selected identity: %v", drawn)
@@ -896,9 +896,9 @@ func TestMultiSelectIdentityCannotPaintFromARetainedRow(t *testing.T) {
 		},
 	})
 	field.SetTaken([]string{"x"})
-	field.Row = func(v grid.View, _ base.Option[string], _, _ bool, _ base.Look) {
+	field.SetRow(func(v grid.View, _ base.Option[string], _, _ bool, _ base.Look) {
 		previous = v
-	}
+	})
 	surface := grid.NewSurface(12, 2)
 	defer func() {
 		if got, _ := recover().(error); !errors.Is(got, scene.ErrBusy) {

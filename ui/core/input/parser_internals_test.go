@@ -65,8 +65,7 @@ func TestRunawaySequenceIsDiscarded(t *testing.T) {
 		t.Fatal("a runaway sequence is still buffered")
 	}
 
-	// The sequence is still open, though, and the parser says so: something is
-	// waiting on time rather than on more bytes. A byte that could end a control
+	// The sequence is still open and can only be settled by more bytes. A byte that could end a control
 	// sequence ends this one, because in the terminal's own stream that is what it
 	// is — the keystroke it looks like never happened.
 	if !p.Pending() {

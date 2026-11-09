@@ -55,7 +55,7 @@ func TestProbeBudgetCoversTheQueryWrite(t *testing.T) {
 			deadline: deadline,
 		}
 		done := make(chan struct{})
-		go func() { p.run(); close(done) }()
+		go func() { _, _ = p.run(); close(done) }()
 
 		time.Sleep(3 * answerGrace)
 		synctest.Wait()
@@ -83,7 +83,7 @@ func TestProbeBudgetIsOneBudgetForAskingAndAnswering(t *testing.T) {
 			deadline: deadline,
 		}
 		done := make(chan struct{})
-		go func() { p.run(); close(done) }()
+		go func() { _, _ = p.run(); close(done) }()
 
 		time.Sleep(answerGrace)
 		synctest.Wait()
@@ -112,7 +112,9 @@ func TestProbeHandsInputEndToThePump(t *testing.T) {
 			raw <- readResult{data: []byte("x\x1b"), at: at, err: cause}
 			stream := &input.Stream{}
 			pr := &probe{raw: raw, out: slowWriter{until: at}, stream: stream, deadline: at.Add(answerGrace)}
-			pr.run()
+			if _, err := pr.run(); err != nil {
+				t.Fatal(err)
+			}
 			if pr.end == nil || !errors.Is(pr.end.err, cause) {
 				t.Fatal("probe lost the final read")
 			}
@@ -146,7 +148,9 @@ func (w *noDeadlineWriter) WriteString(string) (int, error) {
 func TestProbeCannotAttemptAnUnboundedWrite(t *testing.T) {
 	out := &noDeadlineWriter{}
 	pr := &probe{out: out, deadline: time.Now().Add(answerGrace)}
-	pr.run()
+	if _, err := pr.run(); err == nil {
+		t.Fatal("probe ignored deadline failure")
+	}
 	if out.attempted {
 		t.Fatal("optional probe wrote after the transport refused its write deadline")
 	}
@@ -189,7 +193,10 @@ func TestDirectGraphicsQueryOwnsTheStartupDecision(t *testing.T) {
 				raw <- readResult{data: []byte(reply), err: io.EOF}
 			})
 			p := probe{raw: raw, out: w, stream: &input.Stream{}, deadline: time.Now().Add(time.Second)}
-			got := p.run()
+			got, err := p.run()
+			if err != nil {
+				t.Fatal(err)
+			}
 			if actual := got.graphics(tc.hint); actual != tc.want || len(p.early) != tc.early {
 				t.Fatalf("graphics = %v, early = %#v, want %v and %d events", actual, p.early, tc.want, tc.early)
 			}
@@ -209,7 +216,7 @@ func TestProbeYieldsToInputWithoutLosingPendingFraming(t *testing.T) {
 	raw <- readResult{data: []byte("A\x1b[?62c"), at: at, err: io.EOF}
 	stream := &input.Stream{}
 	pr := probe{raw: raw, out: answerWriter(func(string) {}), stream: stream, deadline: at.Add(time.Second)}
-	if got := pr.run(); got.hasAttrs || len(pr.early) != count {
+	if got, err := pr.run(); err != nil || got.hasAttrs || len(pr.early) != count {
 		t.Fatalf("probe consumed the next read after %d keys: attrs=%v early=%d", count, got.hasAttrs, len(pr.early))
 	}
 	out := make(chan input.Event, count+2)

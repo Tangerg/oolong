@@ -26,6 +26,8 @@ A key sequence captures `element.KeyboardLease()` and passes `lease.Valid` to `M
 
 If a resolver retains its callback and then panics or exits its goroutine, the matcher revokes that unfinished dispatch before unwinding. Resolver reentry can begin a newer sequence; cleanup of the abandoned dispatch cannot revoke it.
 
+The `keymap.Map` owns bindings and sequence policy. Use `SetTimeout` and `SetResolver` to change that policy, and `Timeout()` and `Resolver()` to read it. Binding and policy changes revoke the authority of pending sequences. A controller's `SetKeys` replaces its map and abandons its old sequence. Every consumer checks its scene phase before a shared mutation is admitted. After commit, all live consumers publish their scene revisions before any reentrant notification or resolver cancellation runs. A delayed notification resets only matching against an obsolete map revision, preserving a sequence already started against the new version. The map retains these subscriptions weakly, so a long-lived map does not keep abandoned controllers alive.
+
 ## Admitted frames and pointer input
 
 A custom compositor calls `Root.Wrote(sequence)` when its writer advances. If several admissions are waiting, the watermark selects the newest covered layout; later admissions remain pending. A single acknowledgement does not assign fictional times to skipped frames. `RootConfig.MaxPendingFrames` bounds this queue independently of timestamp history (default eight). When `Prepare` returns `scene.ErrBusy` at capacity, wait for an acknowledgement before preparing again. Resizing or invalidating geometry clears the old coordinate authority, including semantic bounds.

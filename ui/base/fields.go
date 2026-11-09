@@ -2,6 +2,7 @@ package base
 
 import (
 	"context"
+	"strings"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -16,20 +17,15 @@ import (
 type Text struct {
 	noCopy noCopy
 	field
-	Label       string
-	Placeholder string
-	Keys        *keymap.Map
-	Clipboard   Clipboard
-	Gutter      RowGutter
-	CursorStyle grid.CursorStyle
-	check       func(string) error
-	editor      Editor
+	label  string
+	check  func(string) error
+	editor Editor
 }
 
 func (t *Text) Text() string { return t.editor.Text() }
 
 // SetText replaces the owned answer and records one document edit. It panics during presentation or observation.
-func (t *Text) SetText(value string) { t.configureEditor(); t.editor.SetText(value) }
+func (t *Text) SetText(value string) { t.editor.SetSingleLine(true); t.editor.SetText(value) }
 
 // Cursor returns the caret's byte offset in the answer.
 func (t *Text) Cursor() int { _, byteOffset := t.editor.Cursor(); return byteOffset }
@@ -46,34 +42,35 @@ func (t *Text) SetMask(mask string) { t.editor.SetMask(mask) }
 // Mask returns the presentation glyph, or an empty string for visible text.
 func (t *Text) Mask() string { return t.editor.Mask() }
 
-func (t *Text) Prompt() string { return t.Label }
+func (t *Text) Prompt() string { return t.label }
 
-func (t *Text) HeightForWidth(int) int { return layout.Sum(1, t.rows(t.Label)) }
+func (t *Text) HeightForWidth(int) int { return layout.Sum(1, t.rows(t.label)) }
 
 func (t *Text) Draw(v scene.Frame) { t.DrawWith(v, Look{}) }
 
 func (t *Text) DrawWith(v scene.Frame, look Look) {
 	view := t.editor.lineView()
-	view.placeholder, view.gutter, view.cursorStyle = t.Placeholder, t.Gutter, t.CursorStyle
-	view.draw(t.frame(v, t.Label, look), look, &t.editor.presentation)
+	view.draw(t.frame(v, t.label, look), look, &t.editor.presentation)
 }
 
 // Handle applies local edit input. Mounted applications route events through Element so focus, capture and written-frame geometry remain scene-owned.
 func (t *Text) Handle(event input.Event) bool {
-	t.configureEditor()
+	t.editor.SetSingleLine(true)
 	if mouse, ok := event.(input.Mouse); ok {
 		event = t.local(mouse)
 	}
 	return t.editor.Handle(event)
 }
 
-// Do executes one named editing action against the same editor owner.
-func (t *Text) Do(action keymap.Action) bool { t.configureEditor(); return t.editor.Do(action) }
+func (t *Text) Do(action keymap.Action) bool {
+	t.editor.SetSingleLine(true)
+	return t.editor.Do(action)
+}
 
 // Paste uses the field's single-line edit owner and the same directed completion
 // contract as Editor.Paste, including attachment and cancellation checks.
 func (t *Text) Paste(ctx context.Context, complete func(error)) error {
-	t.configureEditor()
+	t.editor.SetSingleLine(true)
 	return t.editor.Paste(ctx, complete)
 }
 
@@ -99,24 +96,64 @@ func (t *Text) checkAnswer() error {
 }
 
 func (t *Text) focusChanged(has bool) {
-	t.focus(has, t.editor.focusChanged, t.configureEditor, t.Validate)
-}
-
-func (t *Text) configureEditor() {
-	requireMutable(t.element)
-	t.editor.SetSingleLine(true)
-	t.editor.Placeholder, t.editor.Keys = t.Placeholder, t.Keys
-	t.editor.Clipboard, t.editor.Gutter, t.editor.CursorStyle = t.Clipboard, t.Gutter, t.CursorStyle
+	t.focus(has, t.editor.focusChanged, t.Validate)
 }
 
 func (t *Text) Ask() string {
-	if t.Placeholder == "" {
-		return t.Label
+	if t.editor.placeholder == "" {
+		return t.label
 	}
-	return t.Label + " (" + t.Placeholder + ")"
+	return t.label + " (" + t.editor.placeholder + ")"
 }
 
 // Reply sets and validates a spoken answer through the same document owner.
 func (t *Text) Reply(said string) error {
 	return t.validate(func() error { t.SetText(said); return nil }, t.Revision, t.checkAnswer)
+}
+
+func (t *Text) Label() string { return t.label }
+
+func (t *Text) SetLabel(value string) {
+	element := t.Element()
+	requireMutable(element)
+	if t.label == value {
+		return
+	}
+	t.label = strings.Clone(value)
+	element.Invalidate()
+}
+
+func (t *Text) Placeholder() string { return t.editor.Placeholder() }
+
+func (t *Text) SetPlaceholder(value string) {
+	t.Element()
+	t.editor.SetPlaceholder(value)
+}
+
+func (t *Text) Keys() *keymap.Map { return t.editor.Keys() }
+
+func (t *Text) SetKeys(value *keymap.Map) {
+	t.Element()
+	t.editor.SetKeys(value)
+}
+
+func (t *Text) Clipboard() Clipboard { return t.editor.Clipboard() }
+
+func (t *Text) SetClipboard(value Clipboard) {
+	t.Element()
+	t.editor.SetClipboard(value)
+}
+
+func (t *Text) Gutter() RowGutter { return t.editor.Gutter() }
+
+func (t *Text) SetGutter(value RowGutter) {
+	t.Element()
+	t.editor.SetGutter(value)
+}
+
+func (t *Text) CursorStyle() grid.CursorStyle { return t.editor.CursorStyle() }
+
+func (t *Text) SetCursorStyle(value grid.CursorStyle) {
+	t.Element()
+	t.editor.SetCursorStyle(value)
 }

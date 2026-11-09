@@ -337,7 +337,7 @@ func TestListCallsRowRendererOnlyForUnclippedRows(t *testing.T) {
 	var list base.List[int]
 	list.SetItems(make([]int, 100))
 	var painted []int
-	list.Row = func(_ grid.View, index, _ int, _ bool) { painted = append(painted, index) }
+	list.SetRow(func(_ grid.View, index, _ int, _ bool) { painted = append(painted, index) })
 	scenes.Mount(&list).Draw(grid.NewSurface(4, 2).View().Sub(image.Rect(0, -50, 4, 50)))
 	if len(painted) != 2 || painted[0] != 50 || painted[1] != 51 {
 		t.Fatalf("painted %v, want just rows 50 and 51", painted)

@@ -230,10 +230,10 @@ func meaningOfEditor(editor *Editor) editorMeaning {
 		desiredColumn: editor.desiredColumn, rowEnd: editor.rowEnd, rowEndSet: editor.rowEndSet,
 		elements: editor.Elements(), elementIDs: editor.document().elementIDs,
 		matcherKeys: editor.matcher.Keys(), focused: editor.element.Focused(),
-		look: editor.Look, placeholder: editor.Placeholder,
-		keys: editor.Keys, clipboard: editor.Clipboard,
-		maxRows: editor.MaxRows, singleLine: editor.SingleLine(),
-		mask: editor.Mask(), gutter: editor.Gutter, cursor: editor.CursorStyle,
+		look: editor.Look(), placeholder: editor.Placeholder(),
+		keys: editor.Keys(), clipboard: editor.Clipboard(),
+		maxRows: editor.MaxRows(), singleLine: editor.SingleLine(),
+		mask: editor.Mask(), gutter: editor.Gutter(), cursor: editor.CursorStyle(),
 		undo: cloneEditSnapshots(editor.document().history.undo), redo: cloneEditSnapshots(editor.document().history.redo),
 		kills: cloneEditorKills(editor.kills.entries), typing: editor.document().history.typist.Value() == editor,
 		continuation: editor.continuation, yank: editor.yank,
@@ -305,11 +305,11 @@ func headlessDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 			revision uint64
 		}{confirm.Answer(), confirm.Revision()}
 	}))
-	completion := &Completion{MaxRows: 2}
+	completion := NewCompletion(CompletionConfig{MaxRows: 2})
 	completion.Offer(Token{Start: 1, End: 3, Query: "tw"}, []Candidate{{Text: "two"}, {Text: "twelve"}})
 	completion.Do(SelectNext)
 	cases = append(cases, widgetPurityCase(scenes, "*Completion", completion, func() any { current, _ := completion.Current(); return current }))
-	list := &List[string]{Row: func(v grid.View, _ int, item string, _ bool) { v.Text(0, 0, item, grid.Style{}) }}
+	list := NewList(ListConfig[string]{Row: func(v grid.View, _ int, item string, _ bool) { v.Text(0, 0, item, grid.Style{}) }})
 	list.SetItems([]string{"one", "two", "three"})
 	list.Select(1)
 	cases = append(cases, widgetPurityCase(scenes, "*List", list, func() any {
@@ -319,7 +319,7 @@ func headlessDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 			following bool
 		}{list.Selected(), list.scroll.current, list.scroll.following}
 	}))
-	table := &Table[string]{Row: list.Row}
+	table := NewTable(TableConfig[string]{Row: list.Row()})
 	table.SetSortColumns(func(int) func(string, string) int { return strings.Compare })
 	table.SetItems([]string{"two", "one"})
 	table.SortBy(0)

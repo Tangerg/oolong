@@ -15,10 +15,11 @@ import (
 
 func deferredKeys(first, second keymap.Action) (*keymap.Map, *func()) {
 	var resolve func()
-	keys := &keymap.Map{Resolve: func(_ time.Duration, callback func()) func() {
+	keys := &keymap.Map{}
+	keys.SetResolver(func(_ time.Duration, callback func()) func() {
 		resolve = callback
 		return func() {}
-	}}
+	})
 	x := input.Chord{Rune: 'x'}
 	keys.Bind(first, x)
 	keys.Bind(second, x, x)
@@ -227,7 +228,7 @@ func TestDelegatedCompletionKeepsOnlyItsOriginalKeyboardLifetime(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			keys, resolve := deferredKeys(base.Accept, base.Dismiss)
 			calls := 0
-			completion := &base.Completion{Keys: keys, Accept: func(base.Candidate, base.Token) { calls++ }}
+			completion := base.NewCompletion(base.CompletionConfig{Keys: keys, Accept: func(base.Candidate, base.Token) { calls++ }})
 			completion.Offer(base.Token{}, []base.Candidate{{Text: "candidate"}})
 			editor := base.NewText(base.TextConfig{})
 			other := scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }})

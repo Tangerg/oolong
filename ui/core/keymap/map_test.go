@@ -196,7 +196,8 @@ func TestASequenceIsFinishedByItsLastChord(t *testing.T) {
 func TestASequenceLeftTooLongIsOver(t *testing.T) {
 	// The pause is the whole difference between a sequence and two keystrokes that
 	// happen to be adjacent, and only the arrival time can tell them apart.
-	m := &keymap.Map{Timeout: 100 * time.Millisecond}
+	m := &keymap.Map{}
+	m.SetTimeout(100 * time.Millisecond)
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	m.Bind("quit", input.Chord{Rune: 'q'})
 	var matcher keymap.Matcher
@@ -220,13 +221,14 @@ func TestASequenceLeftTooLongIsOver(t *testing.T) {
 }
 
 func TestASequenceAtItsTimeoutStillCompletes(t *testing.T) {
-	m := &keymap.Map{Timeout: 100 * time.Millisecond}
+	m := &keymap.Map{}
+	m.SetTimeout(100 * time.Millisecond)
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	var matcher keymap.Matcher
 	now := time.Unix(1700000000, 0)
 
 	match(&matcher, m, at(input.Chord{Rune: 'g'}, now))
-	action, mine := match(&matcher, m, at(input.Chord{Rune: 'g'}, now.Add(m.Timeout)))
+	action, mine := match(&matcher, m, at(input.Chord{Rune: 'g'}, now.Add(m.Timeout())))
 	if !mine || action != "go-to-top" {
 		t.Fatalf("chord at timeout = %q (mine=%v), want the sequence completed", action, mine)
 	}
@@ -249,7 +251,8 @@ func TestASequenceFromTheFutureDoesNotJoinThePresent(t *testing.T) {
 func TestAKeystrokeNothingTimedNeverGoesStale(t *testing.T) {
 	// A caller feeding synthetic events has no clock in them, and a
 	// sequence that could never be completed would be worse than one with no deadline.
-	m := &keymap.Map{Timeout: time.Nanosecond}
+	m := &keymap.Map{}
+	m.SetTimeout(time.Nanosecond)
 	m.Bind("go-to-top", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	var matcher keymap.Matcher
 
@@ -289,16 +292,15 @@ func TestAPrefixBindingNeverShadowsALongerSequence(t *testing.T) {
 func TestAResolverMakesAnExactPrefixReachable(t *testing.T) {
 	var resolve func()
 	var cancelled bool
-	m := &keymap.Map{
-		Timeout: 75 * time.Millisecond,
-		Resolve: func(wait time.Duration, fn func()) func() {
-			if wait != 75*time.Millisecond {
-				t.Fatalf("resolver wait = %v", wait)
-			}
-			resolve = fn
-			return func() { cancelled = true }
-		},
-	}
+	m := &keymap.Map{}
+	m.SetTimeout(75 * time.Millisecond)
+	m.SetResolver(func(wait time.Duration, fn func()) func() {
+		if wait != 75*time.Millisecond {
+			t.Fatalf("resolver wait = %v", wait)
+		}
+		resolve = fn
+		return func() { cancelled = true }
+	})
 	m.Bind("short", input.Chord{Rune: 'g'})
 	m.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 
@@ -324,10 +326,11 @@ func TestAResolverMakesAnExactPrefixReachable(t *testing.T) {
 func TestAContinuationCancelsTheExactResolver(t *testing.T) {
 	var cancelled int
 	var late func()
-	m := &keymap.Map{Resolve: func(_ time.Duration, resolve func()) func() {
+	m := &keymap.Map{}
+	m.SetResolver(func(_ time.Duration, resolve func()) func() {
 		late = resolve
 		return func() { cancelled++ }
-	}}
+	})
 	m.Bind("short", input.Chord{Rune: 'g'})
 	m.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 
@@ -513,10 +516,11 @@ func TestPendingSequenceCannotCrossBindingLifetimes(t *testing.T) {
 	for _, mode := range []string{"unbind", "rebind", "replace map", "disable map"} {
 		t.Run(mode, func(t *testing.T) {
 			var resolve func()
-			bindings := &keymap.Map{Resolve: func(_ time.Duration, fn func()) func() {
+			bindings := &keymap.Map{}
+			bindings.SetResolver(func(_ time.Duration, fn func()) func() {
 				resolve = fn
 				return func() {}
-			}}
+			})
 			g := input.Chord{Code: input.Character, Rune: 'g'}
 			bindings.Bind("short", g)
 			bindings.Bind("long", g, g)
@@ -552,9 +556,9 @@ func TestResolverCancellationCannotOverwriteAReentrantSequence(t *testing.T) {
 	bindings.Bind("next", input.Chord{Rune: 'h'}, input.Chord{Rune: 'h'})
 	var actions []keymap.Action
 	do := func(action keymap.Action) bool { actions = append(actions, action); return true }
-	bindings.Resolve = func(time.Duration, func()) func() {
+	bindings.SetResolver(func(time.Duration, func()) func() {
 		return func() { matcher.Handle(&bindings, input.Key{Rune: 'h'}, nil, do) }
-	}
+	})
 	matcher.Handle(&bindings, input.Key{Rune: 'g'}, nil, do)
 	if _, handled := matcher.Handle(&bindings, input.Key{Rune: 'g'}, nil, do); !handled {
 		t.Fatal("superseded key escaped")
@@ -583,14 +587,14 @@ func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) 
 			bindings.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 			bindings.Bind("next", input.Chord{Rune: 'h'}, input.Chord{Rune: 'h'})
 			changed, canceled := false, 0
-			bindings.Resolve = func(time.Duration, func()) func() {
+			bindings.SetResolver(func(time.Duration, func()) func() {
 				return func() {
 					canceled++
 					if !changed || matcher.Keys().String() != "h" {
 						t.Fatal("cancellation observed unfinished state or erased new matching")
 					}
 				}
-			}
+			})
 			do := func(keymap.Action) bool { return true }
 			matcher.Handle(&bindings, input.Key{Rune: 'g'}, nil, do)
 			func() {

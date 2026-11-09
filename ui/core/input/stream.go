@@ -117,7 +117,7 @@ func (s *Stream) Expire(at time.Time) []Event {
 func (s *Stream) Flush(at time.Time) []Event {
 	events := s.Expire(at)
 	s.disarm()
-	return append(events, s.settle(s.decoder().drain(true))...)
+	return append(events, s.settle(s.decoder().drain(inputEnded))...)
 }
 
 // DueAt is when a waiting ambiguous sequence must be settled, if one is waiting.

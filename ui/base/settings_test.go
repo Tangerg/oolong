@@ -18,10 +18,10 @@ func TestSettingsRoutesNavigationAndValueActionsSeparately(t *testing.T) {
 	var index int
 	var item string
 	var action keymap.Action
-	settings.Change = func(at int, current string, do keymap.Action) scene.ActionResult[bool] {
+	settings.SetChange(func(at int, current string, do keymap.Action) scene.ActionResult[bool] {
 		index, item, action = at, current, do
 		return scene.ActionResult[bool]{State: scene.Applied, Value: true}
-	}
+	})
 
 	if !settings.Handle(input.Key{Code: input.Down}) || settings.List().Selected() != 1 {
 		t.Fatalf("down selected %d, want row 1", settings.List().Selected())

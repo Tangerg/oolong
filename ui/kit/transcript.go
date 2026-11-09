@@ -27,7 +27,7 @@ type Transcript struct {
 	noCopy     noCopy
 	controller *base.Transcript
 	appearance appearance
-	Glyphs     Glyphs
+	glyphs     Glyphs
 }
 
 // NewTranscript creates one controller and fills its paint slot before it can be attached.
@@ -41,7 +41,7 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	if err != nil {
 		return nil, err
 	}
-	t := &Transcript{controller: controller, appearance: look, Glyphs: cfg.Glyphs}
+	t := &Transcript{controller: controller, appearance: look, glyphs: cfg.Glyphs.clone()}
 	t.appearance.bind(controller.Element())
 	if err := controller.Element().SetPaint(t.Draw); err != nil {
 		return nil, err
@@ -90,7 +90,7 @@ func (t *Transcript) drawHeader(window base.TranscriptView, view grid.View) {
 	view.Fade(visible, 1-window.Pinned.Fade)
 	headerRows := window.Pinned.Visible()
 	if window.Pinned.Rows > headerRows {
-		drawRule(view, headerRows, t.Glyphs.Rule, palette.Divider)
+		drawRule(view, headerRows, t.glyphs.Rule, palette.Divider)
 	}
 }
 
@@ -138,4 +138,17 @@ func restyle(view grid.View, x, y int, style grid.Style) {
 	if style != (grid.Style{}) {
 		view.MergeStyle(x, y, style)
 	}
+}
+
+func (t *Transcript) Glyphs() Glyphs { return t.glyphs.clone() }
+
+// SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (t *Transcript) SetGlyphs(value Glyphs) {
+	element := t.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	t.glyphs = value.clone()
+	element.Invalidate()
 }

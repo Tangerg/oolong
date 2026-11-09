@@ -150,6 +150,7 @@ type Transcript struct {
 	search          transcriptSearch
 	noCopy          noCopy
 	cfg             TranscriptConfig
+	keys            keyBinding
 	initialized     bool
 	closed          bool
 	entries         fifo.Queue[*TranscriptItem]
@@ -184,7 +185,8 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	if cfg.KeepCompleted >= maxItems || cfg.KeepCompleted > 0 && cfg.Retention != PublishCompleted {
 		return nil, errors.New("base: recent completion retention requires publication and space for new content")
 	}
-	t := &Transcript{cfg: cfg}
+	t := &Transcript{cfg: cfg, keys: keyBinding{current: cfg.Keys}}
+	t.cfg.Keys = nil
 	t.initialize()
 	return t, nil
 }
@@ -222,6 +224,7 @@ func (t *Transcript) initialize() {
 	t.scroll.element = t.element
 	t.selection.element = t.element
 	t.sticky.element = t.element
+	t.keys.attach(t.element, &t.scroll.matcher)
 	if t.cfg.Publisher != nil {
 		t.stopPublication = t.cfg.Publisher.Subscribe(func() { t.publish() })
 	}
@@ -237,10 +240,21 @@ func (t *Transcript) assertMutable() {
 	}
 }
 
-func (t *Transcript) changed() {
-	if t.revision == math.MaxUint64 {
-		panic("base: transcript revisions exhausted")
+func (t *Transcript) requireRevisions(counts ...int) {
+	remaining := math.MaxUint64 - t.revision
+	for _, count := range counts {
+		if count < 0 {
+			panic("base: transcript revisions exhausted")
+		}
+		required := uint64(count)
+		if required > remaining {
+			panic("base: transcript revisions exhausted")
+		}
+		remaining -= required
 	}
+}
+
+func (t *Transcript) changed() {
 	t.revision++
 	t.search = transcriptSearch{}
 	t.element.Invalidate()
@@ -295,6 +309,9 @@ func (t *Transcript) add(body Block, document *content.StreamDocument) (*Transcr
 		return nil, errors.New("base: transcript identities exhausted")
 	}
 	item := &TranscriptItem{id: t.next, body: body, document: document}
+	// Admission may immediately retire the completed prefix. Reserve every
+	// possible publication before installing a reference or transferring content.
+	t.requireRevisions(1, t.publicationCount(item))
 	if document != nil {
 		item.observed = document.Current().PreparedRevision
 		item.cancel = document.Subscribe(func(change content.DocumentChange) { t.accept(item, change) })
@@ -308,6 +325,8 @@ func (t *Transcript) add(body Block, document *content.StreamDocument) (*Transcr
 
 // Add takes immutable passive content that is already final. Mutable sources use
 // AddDocument so revision and completion cannot be maintained by a second caller.
+// It panics before admission if adding and retiring the completed prefix could
+// exhaust content revisions; revision identities must never wrap.
 func (t *Transcript) Add(body Block) (*TranscriptItem, error) {
 	if grid.IsNilDrawable(body) {
 		return nil, errors.New("base: transcript content is nil")
@@ -316,6 +335,9 @@ func (t *Transcript) Add(body Block) (*TranscriptItem, error) {
 }
 
 // AddDocument subscribes once to source revisions, final preparation and automatic retention transitions.
+// It panics before admission if the addition and possible retirements could exhaust
+// revisions. Later source notifications refuse transcript changes on exhaustion;
+// they cannot undo changes already committed by the source document.
 func (t *Transcript) AddDocument(document *content.StreamDocument) (*TranscriptItem, error) {
 	if document == nil {
 		return nil, errors.New("base: transcript document is nil")
@@ -325,6 +347,7 @@ func (t *Transcript) AddDocument(document *content.StreamDocument) (*TranscriptI
 
 func (t *Transcript) accept(item *TranscriptItem, change content.DocumentChange) {
 	t.assertMutable()
+	t.requireRevisions(1, t.publicationCount(nil))
 	if item.observed != change.PreparedRevision {
 		t.selection.contentChanged(item.id, uint64(change.PreparedRevision))
 		item.observed = change.PreparedRevision
@@ -333,21 +356,36 @@ func (t *Transcript) accept(item *TranscriptItem, change content.DocumentChange)
 	t.publish()
 }
 
-func (t *Transcript) publish() {
+func (t *Transcript) publicationCount(extra *TranscriptItem) int {
 	if t.closed || t.cfg.Retention != PublishCompleted || t.cfg.Publisher == nil {
-		return
+		return 0
 	}
-	t.assertMutable()
 	completed := 0
 	for item := range t.entries.Values() {
-		change := item.content()
-		complete := change.State == content.Final || t.cfg.PublishPartial && (change.State == content.Partial || change.State == content.Failed)
-		if !complete {
+		if !t.publishable(item) {
 			break
 		}
 		completed++
 	}
-	for range max(completed-t.cfg.KeepCompleted, 0) {
+	if extra != nil && completed == t.entries.Len() && t.publishable(extra) {
+		completed++
+	}
+	return max(completed-t.cfg.KeepCompleted, 0)
+}
+
+func (t *Transcript) publishable(item *TranscriptItem) bool {
+	change := item.content()
+	return change.State == content.Final || t.cfg.PublishPartial && (change.State == content.Partial || change.State == content.Failed)
+}
+
+func (t *Transcript) publish() {
+	count := t.publicationCount(nil)
+	if count == 0 {
+		return
+	}
+	t.assertMutable()
+	t.requireRevisions(count)
+	for range count {
 		item := t.entries.At(0)
 		_, rows, _ := t.geometry.Value().Extent(item.id)
 		if rows > math.MaxInt-t.start {
@@ -377,6 +415,7 @@ func (t *Transcript) publish() {
 
 // Close disconnects subscriptions and releases retained references; it does not cancel accepted publications.
 // It panics if called during content capture, scene presentation or an uncommitted scene frame.
+// Revision exhaustion also panics before any retained reference is released.
 func (t *Transcript) Close() {
 	if t.closed {
 		return
@@ -385,6 +424,7 @@ func (t *Transcript) Close() {
 	if err := t.element.CheckMutation(); err != nil {
 		panic(err)
 	}
+	t.requireRevisions(1)
 	t.closed = true
 	if t.stopPublication != nil {
 		defer t.stopPublication()
@@ -709,7 +749,7 @@ func (t *Transcript) Handle(event input.Event) bool {
 
 func (t *Transcript) handleInput(event input.Event, presented transcriptPresentation, valid bool) bool {
 	t.assertMutable()
-	if t.scroll.Handle(event, t.cfg.Keys) {
+	if t.scroll.Handle(event, t.keys.current) {
 		return true
 	}
 	mouse, ok := event.(input.Mouse)

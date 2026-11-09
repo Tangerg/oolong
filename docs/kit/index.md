@@ -18,6 +18,8 @@ Construct interactive components with their explicit `Config` values. `Controlle
 
 Keep live skins by pointer after construction. Their installed controller callbacks retain that appearance owner; copying the struct would separate its editable fields from the object actually measured and painted. These types state that they must not be copied, a contract checked by `go vet`. Construct another skin from its Config when an independent component is needed; passive content and immutable theme snapshots retain their ordinary value semantics.
 
+Change retained appearance through owner commands: for example, `panel.SetBox(next)`, `dialog.SetWhere(next)`, `composer.SetPrompt(next)` and `composer.SetHints(next)`. Their getters return observations; changing a returned `Box` or hint slice cannot change the component. Setters enforce the same scene phase as behavior changes and invalidate presentation. Passive values such as `Box`, `Label` and `Image` keep ordinary value construction; install a changed value through its retaining owner's setter.
+
 A custom skin can fill a base element's paint and measure slots before attachment. Slot changes while mounted are refused. Theme and glyph inputs affect appearance; they cannot decide which field is focused, which value is committed or which action is available.
 
 Resolve glyph capability once for the host, then pass `glyphs.Ellipsis` to `ButtonConfig.Ellipsis`, `Paragraph.Ellipsis` and `Label.Ellipsis` where a truncation marker is wanted. An empty marker truncates silently. Measurement and drawing use the same marker; changing a paragraph's marker also changes its layout-cache identity.

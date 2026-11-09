@@ -7,8 +7,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"codeberg.org/go-latex/latex/mtex/symbols"
-
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
@@ -72,9 +70,17 @@ type formulaParser struct {
 	look   Look
 }
 
-type formulaStyle struct {
-	cell       grid.Style
-	textSpaces bool
+type formulaMode uint8
+
+const (
+	mathMode formulaMode = iota
+	textMode
+	operatorMode
+)
+
+type formulaContext struct {
+	cell grid.Style
+	mode formulaMode
 }
 
 func render(source string, look Look) (box, error) {
@@ -82,14 +88,14 @@ func render(source string, look Look) (box, error) {
 		return box{}, &formulaError{message: "source is not valid UTF-8"}
 	}
 	parser := formulaParser{source: source, look: look}
-	result, err := parser.sequence(0, formulaStyle{cell: look.Text})
+	result, err := parser.sequence(0, formulaContext{cell: look.Text})
 	if err != nil {
 		return box{}, &formulaError{message: err.Error()}
 	}
 	return result, nil
 }
 
-func (p *formulaParser) sequence(closing byte, style formulaStyle) (box, error) {
+func (p *formulaParser) sequence(closing byte, context formulaContext) (box, error) {
 	if p.depth >= maxFormulaDepth {
 		return box{}, fmt.Errorf("formula nesting exceeds %d groups", maxFormulaDepth)
 	}
@@ -97,7 +103,7 @@ func (p *formulaParser) sequence(closing byte, style formulaStyle) (box, error) 
 	defer func() { p.depth-- }()
 	var parts []box
 	for {
-		p.skipTrivia(style.textSpaces)
+		p.skipTrivia(context.mode)
 		if p.at == len(p.source) {
 			if closing != 0 {
 				return box{}, errors.New("source has an unclosed group")
@@ -108,19 +114,21 @@ func (p *formulaParser) sequence(closing byte, style formulaStyle) (box, error) 
 			p.at++
 			return horizontal(parts...), nil
 		}
-		base, err := p.atom(style, false)
+		base, err := p.atom(context, false)
 		if err != nil {
 			return box{}, err
 		}
-		base, err = p.scripts(base, style)
-		if err != nil {
-			return box{}, err
+		if context.mode != textMode {
+			base, err = p.scripts(base, context)
+			if err != nil {
+				return box{}, err
+			}
 		}
 		parts = append(parts, base)
 	}
 }
 
-func (p *formulaParser) atom(style formulaStyle, single bool) (box, error) {
+func (p *formulaParser) atom(context formulaContext, single bool) (box, error) {
 	if p.at == len(p.source) {
 		return box{}, errors.New("missing formula atom")
 	}
@@ -128,27 +136,30 @@ func (p *formulaParser) atom(style formulaStyle, single bool) (box, error) {
 	p.at += size
 	switch classifyFormulaRune(value) {
 	case formulaGroupOpen:
-		return p.sequence('}', style)
+		return p.sequence('}', context)
 	case formulaGroupClose:
 		return box{}, errors.New("source has an unmatched closing brace")
 	case formulaControl:
-		return p.control(style)
+		return p.control(context)
 	case formulaScript:
+		if context.mode == textMode {
+			return box{}, errors.New("scripts require a mathematical argument")
+		}
 		return box{}, errors.New("script has no base or atom")
 	case formulaMathDelimiter:
 		return box{}, errors.New("source must not contain math delimiters")
 	case formulaUnsupported, formulaComment:
 		return box{}, fmt.Errorf("unsupported formula character %q", value)
 	case formulaSpace:
-		return atom(" ", style.cell), nil
+		return atom(" ", context.cell), nil
 	case formulaControlCharacter:
 		return box{}, fmt.Errorf("source contains control character %U", value)
 	default:
-		return p.literal(size, style, single), nil
+		return p.literal(size, context, single), nil
 	}
 }
 
-func (p *formulaParser) literal(size int, style formulaStyle, single bool) box {
+func (p *formulaParser) literal(size int, context formulaContext, single bool) box {
 	start := p.at - size
 	end := len(p.source)
 	if single {
@@ -164,23 +175,16 @@ func (p *formulaParser) literal(size int, style formulaStyle, single bool) box {
 	var shown strings.Builder
 	shown.Grow(p.at - start)
 	for _, cluster := range text.Clusters(p.source[start:p.at]) {
-		spaced := symbols.IsSpaced(cluster)
-		if spaced {
-			shown.WriteByte(' ')
-		}
-		shown.WriteString(p.plainSymbol(cluster))
-		if spaced {
-			shown.WriteByte(' ')
-		}
+		shown.WriteString(context.mode.symbol(cluster, cluster, p.look.Glyphs.Plain))
 	}
-	return atom(shown.String(), style.cell)
+	return atom(shown.String(), context.cell)
 }
 
 func isFormulaSpace(value rune) bool {
 	return value == ' ' || value == '\t' || value == '\r' || value == '\n'
 }
 
-func (p *formulaParser) skipTrivia(keepSpaces bool) {
+func (p *formulaParser) skipTrivia(mode formulaMode) {
 	for p.at < len(p.source) {
 		value := p.source[p.at]
 		kind := classifyFormulaRune(rune(value))
@@ -190,21 +194,21 @@ func (p *formulaParser) skipTrivia(keepSpaces bool) {
 				p.at = len(p.source)
 				return
 			}
-			p.at += lineEnd
+			p.at += lineEnd + 1
 			continue
 		}
-		if keepSpaces || kind != formulaSpace {
+		if mode == textMode || kind != formulaSpace {
 			return
 		}
 		p.at++
 	}
 }
 
-func (p *formulaParser) scripts(base box, style formulaStyle) (box, error) {
+func (p *formulaParser) scripts(base box, context formulaContext) (box, error) {
 	var upper, lower box
 	hasUpper, hasLower := false, false
 	for {
-		p.skipTrivia(style.textSpaces)
+		p.skipTrivia(context.mode)
 		if p.at == len(p.source) {
 			break
 		}
@@ -214,7 +218,7 @@ func (p *formulaParser) scripts(base box, style formulaStyle) (box, error) {
 				return box{}, errors.New("base has two superscripts")
 			}
 			hasUpper = true
-			value, err := p.scriptAtom(style)
+			value, err := p.scriptAtom(context)
 			if err != nil {
 				return box{}, err
 			}
@@ -224,7 +228,7 @@ func (p *formulaParser) scripts(base box, style formulaStyle) (box, error) {
 				return box{}, errors.New("base has two subscripts")
 			}
 			hasLower = true
-			value, err := p.scriptAtom(style)
+			value, err := p.scriptAtom(context)
 			if err != nil {
 				return box{}, err
 			}
@@ -236,26 +240,26 @@ func (p *formulaParser) scripts(base box, style formulaStyle) (box, error) {
 	return scripted(base, upper, lower), nil
 }
 
-func (p *formulaParser) scriptAtom(style formulaStyle) (box, error) {
+func (p *formulaParser) scriptAtom(context formulaContext) (box, error) {
 	p.at++
-	p.skipTrivia(false)
-	return p.atom(style, true)
+	p.skipTrivia(mathMode)
+	return p.atom(context, true)
 }
 
-func (p *formulaParser) argument(style formulaStyle) (box, error) {
-	p.skipTrivia(false)
+func (p *formulaParser) argument(context formulaContext) (box, error) {
+	p.skipTrivia(mathMode)
 	if p.at == len(p.source) || p.source[p.at] != '{' {
 		return box{}, errors.New("control sequence needs a braced argument")
 	}
 	p.at++
-	return p.sequence('}', style)
+	return p.sequence('}', context)
 }
 
-func (p *formulaParser) pair(style formulaStyle) (box, box, error) {
-	first, err := p.argument(style)
+func (p *formulaParser) pair(context formulaContext) (box, box, error) {
+	first, err := p.argument(context)
 	if err != nil {
 		return box{}, box{}, err
 	}
-	second, err := p.argument(style)
+	second, err := p.argument(context)
 	return first, second, err
 }

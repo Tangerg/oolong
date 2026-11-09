@@ -191,9 +191,11 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 
 func nonPaintingString(piece ansi.Piece) bool {
 	switch piece.Final {
-	case '_':
+	case byte(ansi.DCS):
+		return piece.Raw == ansi.QueryCursorStyle
+	case byte(ansi.APC):
 		return kittyQuery(piece.Body)
-	case ']':
+	case byte(ansi.OSC):
 		command, _, _ := strings.Cut(piece.Body, ";")
 		switch command {
 		case "0", "1", "2", "7", "8", "9", "10", "11", "52":

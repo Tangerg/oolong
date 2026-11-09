@@ -801,7 +801,7 @@ func TestCursorStyleIsPartOfTheFrameDiff(t *testing.T) {
 func TestTheTerminalDefaultCursorIgnoresBlink(t *testing.T) {
 	s := grid.NewScreen(2, 1)
 	view := s.Frame()
-	view.PlaceCursor(0, 0, grid.CursorStyle{Shape: grid.CursorDefault, Blink: true})
+	view.PlaceCursor(0, 0, grid.CursorStyle{Shape: grid.CursorReset, Blink: true})
 	if got := s.Cursor().Style; got != (grid.CursorStyle{}) {
 		t.Fatalf("cursor style = %+v, want the zero default", got)
 	}

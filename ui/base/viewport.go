@@ -20,14 +20,14 @@ type ViewportConfig struct {
 // Viewport must not be copied after first use; its collaborators share one live identity.
 type Viewport struct {
 	noCopy noCopy
-	Keys   *keymap.Map
+	keys   keyBinding
 	scroll Scroll
 	group  *scene.Group
 }
 
 // NewViewport composes a child and scroll intent. It panics if the child already belongs to another scene relation.
 func NewViewport(config ViewportConfig) *Viewport {
-	p := &Viewport{Keys: config.Keys}
+	p := &Viewport{keys: keyBinding{current: config.Keys}}
 	p.SetContent(config.Content)
 	return p
 }
@@ -50,7 +50,7 @@ func (p *Viewport) ensure() {
 			p.scroll.Stage(frame, p.Content().Measure(layout.Down, w), h)
 		},
 		Handle: func(event scene.Event) scene.EventResult {
-			return scene.EventResult{Consumed: !p.Content().IsZero() && p.scroll.Handle(event.Input(), p.Keys)}
+			return scene.EventResult{Consumed: !p.Content().IsZero() && p.scroll.Handle(event.Input(), p.keys.current)}
 		},
 	}, Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
 		if len(items) == 0 {
@@ -65,6 +65,7 @@ func (p *Viewport) ensure() {
 func (p *Viewport) Element() scene.Element {
 	p.ensure()
 	p.scroll.element = p.group.Element()
+	p.keys.attach(p.group.Element(), &p.scroll.matcher)
 	return p.group.Element()
 }
 
@@ -98,4 +99,10 @@ func (p *Viewport) HeightForWidth(width int) int { return p.Content().Measure(la
 
 func (p *Viewport) Do(action keymap.Action) bool {
 	return p.scroll.Do(action)
+}
+
+func (p *Viewport) Keys() *keymap.Map { return p.keys.current }
+
+func (p *Viewport) SetKeys(keys *keymap.Map) {
+	p.keys.set(p.Element(), &p.scroll.matcher, keys)
 }

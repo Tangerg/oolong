@@ -40,7 +40,7 @@ func (f StringFamily) Step(current, next byte, hasNext bool) (int, StringResult)
 	switch {
 	case current == Bell && f == OSC:
 		return 1, StringTerminated
-	case (current == cancel || current == substitute) && f == DCS:
+	case current == cancel || current == substitute:
 		return 1, StringCanceled
 	case current != Escape:
 		return 1, StringContent

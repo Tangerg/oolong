@@ -21,14 +21,18 @@ type TextConfig struct {
 	CursorStyle grid.CursorStyle
 }
 
-// NewText constructs one single-line text owner from initial configuration.
+// NewText panics for an unknown cursor shape; one-line policy belongs to its edit session.
 func NewText(config TextConfig) *Text {
-	t := &Text{
-		Label: strings.Clone(config.Label), check: config.Check, Placeholder: strings.Clone(config.Placeholder), Keys: config.Keys,
-		Clipboard: config.Clipboard, Gutter: config.Gutter, CursorStyle: config.CursorStyle,
+	t := &Text{label: strings.Clone(config.Label), check: config.Check}
+	t.editor.placeholder = strings.Clone(config.Placeholder)
+	t.editor.keys.current = config.Keys
+	t.editor.clipboard, t.editor.gutter = config.Clipboard, config.Gutter
+	if err := config.CursorStyle.Shape.Validate(); err != nil {
+		panic(err)
 	}
+	t.editor.cursorStyle = config.CursorStyle
 	t.key = strings.Clone(config.Key)
-	t.configureEditor()
+	t.editor.SetSingleLine(true)
 	t.editor.SetText(config.Initial)
 	t.editor.ForgetHistory()
 	return t
@@ -50,9 +54,13 @@ type SelectConfig[T any] struct {
 	Row   func(grid.View, Option[T], bool, bool, Look)
 }
 
-// NewSelect owns the option collection and its selected index. An unavailable Initial leaves the first available option selected.
+// NewSelect panics for negative Rows or non-empty Options without Same.
+// An unavailable Initial leaves the first available option selected.
 func NewSelect[T any](config SelectConfig[T]) *Select[T] {
-	s := &Select[T]{Label: strings.Clone(config.Label), sameIdentity: config.Same, check: config.Check, Rows: config.Rows, Keys: config.Keys, Row: config.Row}
+	if config.Rows < 0 {
+		panic("base: select rows cannot be negative")
+	}
+	s := &Select[T]{label: strings.Clone(config.Label), sameIdentity: config.Same, check: config.Check, rowLimit: config.Rows, keys: keyBinding{current: config.Keys}, rowPainter: config.Row}
 	s.key = strings.Clone(config.Key)
 	s.SetOptions(config.Options)
 	s.Choose(config.Initial)
@@ -73,9 +81,13 @@ type MultiSelectConfig[T any] struct {
 	Row   func(grid.View, Option[T], bool, bool, Look)
 }
 
-// NewMultiSelect constructs one canonical chosen-set owner; returned slices are detached observations.
+// NewMultiSelect panics for negative Rows or non-empty Options without Same.
+// Its chosen set is canonical; returned slices are detached observations.
 func NewMultiSelect[T any](config MultiSelectConfig[T]) *MultiSelect[T] {
-	m := &MultiSelect[T]{Label: strings.Clone(config.Label), sameIdentity: config.Same, check: config.Check, Rows: config.Rows, Keys: config.Keys, Row: config.Row}
+	if config.Rows < 0 {
+		panic("base: multi-select rows cannot be negative")
+	}
+	m := &MultiSelect[T]{label: strings.Clone(config.Label), sameIdentity: config.Same, check: config.Check, rowLimit: config.Rows, keys: keyBinding{current: config.Keys}, rowPainter: config.Row}
 	m.key = strings.Clone(config.Key)
 	m.SetOptions(config.Options)
 	m.SetTaken(config.Initial)
@@ -100,7 +112,7 @@ func NewConfirm(config ConfirmConfig) *Confirm {
 	if config.Control != nil && config.Initial {
 		panic("base: Confirm Initial and Control are mutually exclusive")
 	}
-	c := &Confirm{answer: newOwnedValue(config.Initial), Label: strings.Clone(config.Label), Yes: strings.Clone(config.Yes), No: strings.Clone(config.No), check: config.Check, Keys: config.Keys, control: config.Control}
+	c := &Confirm{answer: newOwnedValue(config.Initial), label: strings.Clone(config.Label), yes: strings.Clone(config.Yes), no: strings.Clone(config.No), check: config.Check, keys: keyBinding{current: config.Keys}, control: config.Control}
 	c.key = strings.Clone(config.Key)
 	if c.control != nil {
 		ref := weak.Make(c)

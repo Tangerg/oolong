@@ -16,6 +16,10 @@ Base 提供更换外观后仍可复用的行为：编辑、选择、列表、表
 
 字段控制器拥有值；表单输出与语义值是投影。验证和提交使用类型化操作并返回显式结果，不通过回调读取另一份可写副本。`EditSession` 拥有文本与修订映射；编辑器组合文档并拥有视图交互。
 
+初始设置放入组件的 `Config`。后续通过 `SetLabel`、`SetRows`、`SetLook`、`SetKeys` 等命令修改控制器，并通过对应的 `Label()`、`Rows()`、`Look()`、`Keys()` 读取。命令检查场景的变更阶段，并使对应元素失效，因此标签、几何与代理观察不会绕过模型修订而改变。呈现期间或帧候选尚未结算时，修改会在设置改变前被拒绝。复合控制器将共享设置交给已有所有者：Text 使用内部 Editor 的编辑设置，Table 使用内部 List 的行绘制、循环导航与绑定。
+
+使用 `NewCompletion(CompletionConfig)`、`NewList(ListConfig[T])`、`NewSettings(SettingsConfig[T])`、`NewSticky(StickyConfig)` 提供初始设置，替代带字段的控制器字面量；零值控制器仍可使用。`Completion.CurrentToken()` 在只读借用中查询配置的 token 来源，返回 token 及其是否可用；`SetCurrentToken` 替换该来源。
+
 `Group` 和 `Overlay` 始终是 scene 机制。对话框焦点策略、标签激活和列表选择复用这些机制，不另建挂载或路由树。更换外观保留行为部件的元素身份与动作绑定。
 
 ## 类型化集合与控制器动作
@@ -57,7 +61,7 @@ Form 即使同时收到错误，也保留回调报告的 `Applied` 或 `Started`
 
 按键序列通过 `Matcher.Handle` 的生命周期谓词捕获 `scene.KeyboardLease`。键盘路由内的接收者在焦点移动于其后代之间时保留凭证；显式转交给路由外接收者的输入（例如补全弹层）借用当前输入起点的生命周期。没有焦点时，活动模态层或 root 内容提供这个起点。离开作用域、卸载或关闭 root 会永久撤销旧凭证，包括已排队的 resolver；焦点回来不会恢复旧输入。未挂载控件可以接收新的本地输入，直到下次挂载。独立 matcher 可传 nil，由直接调用方管理生命周期。
 
-`Settings.Change` 返回 `scene.ActionResult[bool]`：`Value` 表示是否接受输入，`State` 由领域所有者报告实际结果。到达值边界但仍接受按键时返回 `Value: true, State: scene.Unchanged`。Settings 不复制领域值，也不根据输入是否被消费猜测值是否改变。
+`SettingsConfig.Change` 回调返回 `scene.ActionResult[bool]`：`Value` 表示是否接受输入，`State` 由领域所有者报告实际结果。到达值边界但仍接受按键时返回 `Value: true, State: scene.Unchanged`。通过 `Settings.SetChange` 替换回调。Settings 不复制领域值，也不根据输入是否被消费猜测值是否改变。
 
 ## 编辑器的插入位置
 

@@ -31,9 +31,7 @@ type DialogConfig struct {
 type Dialog struct {
 	noCopy     noCopy
 	appearance appearance
-	// Where remains mutable after construction. Invalid anchors panic during frame
-	// preparation before the backdrop is painted.
-	Where      layout.Placement
+	where      layout.Placement
 	controller *base.Dialog
 	panel      *Panel
 }
@@ -47,16 +45,16 @@ func NewDialog(config DialogConfig) *Dialog {
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	d := &Dialog{appearance: look, Where: config.Where}
+	d := &Dialog{appearance: look, where: config.Where}
 	d.panel = NewPanel(PanelConfig{Box: Box{Glyphs: config.Glyphs, Border: config.Border, Padding: layout.Symmetric(0, 1)}, Content: config.Body})
 	d.controller = base.NewDialog(base.DialogConfig{
 		Initial: config.Initial, Title: config.Title, Description: config.Description, Content: d.panel.Element(), Keys: config.Keys, DismissOutside: config.DismissOutside, Dismissed: config.Dismissed,
-		Place:    func(space image.Point) image.Rectangle { return d.Where.In(space) },
+		Place:    func(space image.Point) image.Rectangle { return d.where.In(space) },
 		Backdrop: func(frame scene.Frame) { d.appearance.palette().Scrim.Over(frame.View) },
 	})
 	// The title is semantic state in the controller. Painting reads it directly.
 	if err := d.panel.Element().SetPaint(func(frame scene.Frame) {
-		box := d.panel.Box
+		box := d.panel.Box()
 		box.Theme = d.appearance.palette()
 		box.Title = d.controller.Title()
 		box.paint(frame.View)
@@ -77,4 +75,23 @@ func (d *Dialog) Element() scene.Element {
 		return scene.Element{}
 	}
 	return d.controller.Element()
+}
+
+func (d *Dialog) Where() layout.Placement { return d.where }
+
+// SetWhere panics for invalid Anchor or with scene.ErrBusy outside
+// owner mutation, before the retained presentation can change.
+func (d *Dialog) SetWhere(value layout.Placement) {
+	element := d.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if err := value.Anchor.Validate(); err != nil {
+		panic(err)
+	}
+	if d.where == value {
+		return
+	}
+	d.where = value
+	element.Invalidate()
 }

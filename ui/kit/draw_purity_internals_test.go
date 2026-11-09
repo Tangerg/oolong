@@ -207,10 +207,10 @@ func meaningOfEditor(editor *base.Editor) editorMeaning {
 	line, column := editor.Cursor()
 	return editorMeaning{
 		text: editor.Text(), line: line, column: column,
-		selection: editor.Selected(), look: editor.Look,
-		placeholder: editor.Placeholder, keys: editor.Keys, clipboard: editor.Clipboard,
-		maxRows: editor.MaxRows, singleLine: editor.SingleLine(), mask: editor.Mask(),
-		gutter: editor.Gutter, cursor: editor.CursorStyle,
+		selection: editor.Selected(), look: editor.Look(),
+		placeholder: editor.Placeholder(), keys: editor.Keys(), clipboard: editor.Clipboard(),
+		maxRows: editor.MaxRows(), singleLine: editor.SingleLine(), mask: editor.Mask(),
+		gutter: editor.Gutter(), cursor: editor.CursorStyle(),
 	}
 }
 
@@ -337,7 +337,9 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	panelBody.Insert("body")
 
 	panel := NewPanel(PanelConfig{Box: Box{Theme: Theme{}, Glyphs: Unicode()}, Content: panelBody.Element()})
-	panel.Box.Title = "panel"
+	panelBox := panel.Box()
+	panelBox.Title = "panel"
+	panel.SetBox(panelBox)
 	cases = append(cases, widgetPurityCase(scenes, "*Panel", panel, func() any {
 		return meaningOfEditor(panelBody)
 	}))
@@ -426,7 +428,7 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	})
 
 	composer := NewComposer(ComposerConfig{Prompt: "> ", MaxRows: 3})
-	composer.Controller().Placeholder = "say something"
+	composer.Controller().SetPlaceholder("say something")
 	composer.Controller().SetText("hello")
 	composer.Controller().MoveLeft()
 	scenes.Focus(composer, true)

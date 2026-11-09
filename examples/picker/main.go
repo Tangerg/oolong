@@ -12,6 +12,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/fuzzy"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -47,19 +48,31 @@ type picker struct {
 	element scene.Element
 }
 
+const (
+	pickResult keymap.Action = "pick"
+	quitPicker keymap.Action = "quit"
+)
+
 func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
+	keys := base.DefaultEditorKeys()
+	keys.Bind(pickResult, input.Chord{Code: input.Enter})
+	keys.Bind(quitPicker, input.Chord{Code: input.Esc})
+	keys.Bind(base.SelectPrev, input.Chord{Code: input.Up})
+	keys.Bind(base.SelectNext, input.Chord{Code: input.Down})
+	keys.Bind(base.SelectPageUp, input.Chord{Code: input.PageUp})
+	keys.Bind(base.SelectPageDown, input.Chord{Code: input.PageDown})
 
 	p := &picker{runtime: runtime, theme: theme, chosen: chosen}
 	p.query = kit.NewComposer(kit.ComposerConfig{
-		Theme:  theme,
-		Prompt: glyphs.Marker + " ",
+		Theme:       theme,
+		Prompt:      glyphs.Marker + " ",
+		Placeholder: "type to narrow",
+		Keys:        keys,
 	})
-	p.query.Controller().Placeholder = "type to narrow"
-	p.list = &base.Filter[string]{
-		Row: p.row,
-	}
+	p.list = new(base.Filter[string])
+	p.list.SetRow(p.row)
 	// What an item reads as travels with the items: an item is whatever the caller
 	// says it is, so this is the one thing the filter cannot work out for itself.
 	p.list.SetItems(items, func(s string) string { return s })
@@ -100,27 +113,19 @@ func (p *picker) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	for chord := range key.ShortcutChords() {
-		switch chord.Code {
-		case input.Enter:
-			p.pick()
-			return true
-		case input.Esc:
-			p.runtime.Quit()
-			return true
-		case input.Up:
-			return p.list.Do(base.SelectPrev)
-		case input.Down:
-			return p.list.Do(base.SelectNext)
-		case input.PageUp:
-			return p.list.Do(base.SelectPageUp)
-		case input.PageDown:
-			return p.list.Do(base.SelectPageDown)
-		default:
-			continue
-		}
+	action, _ := p.query.Controller().Keys().ActionFor(key)
+	switch action {
+	case pickResult:
+		p.pick()
+		return true
+	case quitPicker:
+		p.runtime.Quit()
+		return true
+	case base.SelectPrev, base.SelectNext, base.SelectPageUp, base.SelectPageDown:
+		return p.list.Do(action)
+	default:
+		return false
 	}
-	return false
 }
 
 func (p *picker) pick() {

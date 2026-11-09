@@ -20,6 +20,8 @@ import (
 // a panic that moves into caller-reachable code fails this test until it is either
 // documented on the exported API or explained here.
 var internalAssertions = map[string]string{
+	"ui/core/keymap:Map.checkSubscribers":                     "SubscriptionConfig.Check documents consumer refusal before binding or policy mutation; the original refusal is propagated unchanged",
+	"ui/core/keymap:Map.requireIdle":                          "Map and SubscriptionConfig prohibit reentrant mutation or subscription during consumer checks and publication; the phase guard runs before any binding, policy or subscriber change",
 	"extensions/markdown:blockNestingContext.SetOpenedBlocks": "Goldmark has no error return here; parse catches this private budget termination and public renderers return ErrBlockNestingLimit",
 	"extensions/markdown:parse":                               "only unexpected panic values are rethrown; the private block nesting termination becomes an explicit parse error",
 	"ui/core/anim:requireFinite":                              "Transition.To, Timeline.SetFrames and Value, and Spring.To, Set and Tick document non-finite input or unrepresentable motion refusal",
@@ -36,7 +38,6 @@ var internalAssertions = map[string]string{
 	"ui/core/grid:publication.requireIdle":       "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
 	"ui/core/grid:viewScope.requireWritable":     "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
 	"ui/core/grid:CursorStyle.normalized":        "View.PlaceCursor documents invalid CursorShape refusal and normalizes before changing the frame cursor",
-	"ui/core/grid:CursorStyle.sequence":          "View.PlaceCursor validates the only accepted cursor shape before either Screen or Inline can encode it",
 
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.
@@ -47,7 +48,6 @@ var internalAssertions = map[string]string{
 	"ui/base:requireStickyOrder":                   "Sticky.SetBlocks and Add document strict nonzero identity ordering and validate the entire batch before mutation",
 	"ui/base:Selection.setRange":                   "Selection.Begin and Set document invalid Affinity refusal; both endpoints are checked before anchors or gesture state change",
 	"ui/kit:Box.paint":                             "Box.Draw and Panel.Element document invalid title or footer alignment refusal before cells change",
-	"ui/kit:Panel.measure":                         "Panel.HeightForWidth and Element document invalid box alignment refusal before child measurement",
 	"ui/base:subscriptions.add":                    "public Subscribe operations reject nil callbacks before entering the subscription owner",
 	"ui/kit:Composer.ensure":                       "Composer.Element and Controller document that the compound element must be assembled before its editor is independently attached",
 	"ui/core/content:StreamDocument.assertMutable": "StreamDocument documents construction and prohibits reentrant source mutation from its synchronous change notification",
@@ -74,7 +74,7 @@ var internalAssertions = map[string]string{
 	"ui/base:EditSession.commit":          "EditSession.requireRevision checks identity space before any edit reaches the internal commit",
 	"ui/base:EditSession.setPolicy":       "Editor.SetMask documents refusal before changing an invalid mask policy",
 	"ui/base:EditSession.insertElement":   "Editor.InsertElement documents identity exhaustion before mutation",
-	"ui/base:Transcript.changed":          "Transcript documents refusal to wrap its content revision and revive an old selection",
+	"ui/base:Transcript.requireRevisions": "Transcript documents refusal to wrap its content revision and revive an old selection",
 	"ui/base:Transcript.publish":          "Transcript documents refusal of unrepresentable retired row coordinates",
 	"ui/core/scene:next":                  "scene identity and revision counters never wrap because wrapping could revive stale handles or snapshots",
 	"ui/core/term:Writer.enqueue":         "Queue and QueueControl document sequence exhaustion; accepted frame identities may never wrap",

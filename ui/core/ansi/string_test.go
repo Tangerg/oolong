@@ -33,22 +33,24 @@ func TestOnlyOSCEndsAtBell(t *testing.T) {
 	}
 }
 
-func TestDCSCancellationRestoresTextWithoutCompletingAReply(t *testing.T) {
-	for _, cancel := range []byte{0x18, 0x1a} {
-		for _, size := range []int{8, 1 << 17} {
-			t.Run(fmt.Sprintf("%x/%d", cancel, size), func(t *testing.T) {
-				prefix := "\x1bP>|" + strings.Repeat("x", size)
-				suffix := string(cancel) + "visible"
-				if got := plainPieces(t, prefix+suffix); got != "visible" {
-					t.Fatalf("Next after cancellation = %q", got)
-				}
-				for _, chunks := range [][]string{{prefix + suffix}, {prefix, string(cancel), "visible"}} {
-					got, err := scannedText(chunks)
-					if got != "visible" || (size > 1<<16) != errors.Is(err, ansi.ErrSequenceTooLong) {
-						t.Fatalf("Scanner after cancellation = %q, %v", got, err)
+func TestStringCancellationRestoresTextWithoutCompletingAReply(t *testing.T) {
+	for _, family := range []byte{']', 'P', '_', '^', 'X'} {
+		for _, cancel := range []byte{0x18, 0x1a} {
+			for _, size := range []int{8, 1 << 17} {
+				t.Run(fmt.Sprintf("%c/%x/%d", family, cancel, size), func(t *testing.T) {
+					prefix := "\x1b" + string(family) + strings.Repeat("x", size)
+					suffix := string(cancel) + "visible"
+					if got := plainPieces(t, prefix+suffix); got != "visible" {
+						t.Fatalf("Next after cancellation = %q", got)
 					}
-				}
-			})
+					for _, chunks := range [][]string{{prefix + suffix}, {prefix, string(cancel), "visible"}} {
+						got, err := scannedText(chunks)
+						if got != "visible" || (size > 1<<16) != errors.Is(err, ansi.ErrSequenceTooLong) {
+							t.Fatalf("Scanner after cancellation = %q, %v", got, err)
+						}
+					}
+				})
+			}
 		}
 	}
 }

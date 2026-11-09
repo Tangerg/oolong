@@ -10,11 +10,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 #### ui
 
+- Replace the writable component fields listed below with methods: read `Field()` and update through `SetField(value)`, or supply the existing configuration field during construction. Mutations validate before retention, obey the scene mutation gate, invalidate presentation and semantic observations, and notify subscribers. Keys borrowed from a shared map participate in the same gate and notification lifetime. Mutable glyph and hint slices are copied at admission and observation, so a returned configuration cannot bypass its owner.
+- `base.Completion.CurrentToken` is now a domain query returning `(Token, bool)`; install its provider with `SetCurrentToken`. `base.NewCompletion`, `base.NewList`, `base.NewFilter`, `base.NewSettings`, `base.NewSticky` and `base.NewTable` accept explicit configuration values. A zero-value owner remains useful. Negative row limits, gaps, label widths and indentation fail at configuration admission; zero retains its documented meaning.
+- Remove writable `core/keymap.Map.Timeout` and `core/keymap.Map.Resolve`. Use `Timeout`/`SetTimeout` and `Resolver`/`SetResolver`. A policy change advances the same map revision as binding changes. `Subscribe` returns a consumer-owned handle; close it on rebinding or release. Checks run before commit, every consumer publishes its projection before notifications, and a rejected check leaves the shared map unchanged. Mutation or subscription during checks panics with `ErrChecking`, and during publication with `ErrPublishing`; notification callbacks may reenter. `Matcher.ResetStale` revokes only matching against an obsolete map revision, preserving a new sequence started during another consumer's notification.
+- Rename `core/grid.CursorDefault` to `core/grid.CursorReset`. The zero style explicitly requests DECSCUSR reset, whose meaning is terminal-specific; it does not promise the user's preferred or pre-session shape. Local startup probing records a valid DECRQSS cursor-style reply and uses that same restoration target for close and handover. `core/term.Config.RestoreCursor` supplies the target when probing is disabled or unsupported, including remote transports. Invalid restoration shapes are rejected before acquiring a local or SSH terminal.
+- Synthetic and transport input share `core/input.Validate`. Invalid event shapes, enum values, modifiers, scalar values or text are rejected at scene/program admission; an invalid key transition cannot execute an action. Handle `core/input.ErrInvalidEvent` or the program's `ErrInvalidInput` result at the corresponding boundary. Legal synthetic negative pointer coordinates, zero-value keys and unrecognized nonnegative keyboard feature bits remain representable.
+
+This is a coordinated development change. Publish the updated `ui` module before updating the declared UI requirements in `examples` and `extensions/ssh`. Their existing published UI revisions do not provide the new owner methods or `RestoreCursor`; workspace integration and the repository's disposable local-module checks exercise the complete candidate before that release.
+
+| Component owner | Fields replaced by owner methods |
+| --- | --- |
+| `base.Completion` | `base.Completion.Accept`, `base.Completion.Look`, `base.Completion.CurrentToken`, `base.Completion.Renderer`, `base.Completion.MaxRows`, `base.Completion.Keys` |
+| `base.Confirm` | `base.Confirm.Label`, `base.Confirm.Yes`, `base.Confirm.No`, `base.Confirm.Keys` |
+| `base.Editor` | `base.Editor.Gutter`, `base.Editor.CursorStyle`, `base.Editor.Placeholder`, `base.Editor.Look`, `base.Editor.Keys`, `base.Editor.Clipboard`, `base.Editor.MaxRows` |
+| `base.Filter` | `base.Filter.Row`, `base.Filter.Keys` |
+| `base.Form` | `base.Form.Keys`, `base.Form.Gap` |
+| `base.List` | `base.List.Row`, `base.List.Keys`, `base.List.Wrap` |
+| `base.MultiSelect` | `base.MultiSelect.Rows`, `base.MultiSelect.Keys`, `base.MultiSelect.Row`, `base.MultiSelect.Label` |
+| `base.Select` | `base.Select.Label`, `base.Select.Rows`, `base.Select.Keys`, `base.Select.Row` |
+| `base.Settings` | `base.Settings.Change`, `base.Settings.EditKeys` |
+| `base.Slider` | `base.Slider.Keys` |
+| `base.Sticky` | `base.Sticky.MinHeight`, `base.Sticky.Gap` |
+| `base.Table` | `base.Table.Row`, `base.Table.Keys`, `base.Table.Wrap` |
+| `base.Tabs` | `base.Tabs.Keys`, `base.Tabs.NoWrap` |
+| `base.Text` | `base.Text.Keys`, `base.Text.Clipboard`, `base.Text.Gutter`, `base.Text.CursorStyle`, `base.Text.Label`, `base.Text.Placeholder` |
+| `base.Tree` | `base.Tree.Row`, `base.Tree.Keys` |
+| `base.Viewport` | `base.Viewport.Keys` |
+| `kit.Composer` | `kit.Composer.Hints`, `kit.Composer.Prompt` |
+| `kit.Dialog` | `kit.Dialog.Where` |
+| `kit.Form` | `kit.Form.Glyphs` |
+| `kit.Panel` | `kit.Panel.Box` |
+| `kit.Settings` | `kit.Settings.Glyphs`, `kit.Settings.Label`, `kit.Settings.Value`, `kit.Settings.ValueWidth` |
+| `kit.Slider` | `kit.Slider.Glyphs`, `kit.Slider.Format` |
+| `kit.Transcript` | `kit.Transcript.Glyphs` |
+| `kit.Tree` | `kit.Tree.Indent`, `kit.Tree.Text`, `kit.Tree.Glyphs` |
+
 - `core/input.NewParser` and `core/input.NewStream` panic for an unknown keyboard dialect; `NewStream` also rejects negative Escape grace. Zero grace still selects `DefaultEscapeTimeout`. Validate external settings with `KeyboardDialect.Validate` or `StreamConfig.Validate` and handle `ErrInvalidKeyboardDialect` or `ErrInvalidEscapeGrace` before construction.
 - `core/term.Terminal.SetProgress` and `core/program.Session.SetProgress` return `core/term.ErrInvalidProgressState` for unknown states, before changing accepted progress or calling a custom `ProgressHost`. Use `ProgressState.Validate` at external configuration boundaries. Legal percentage clamping and explicit `ProgressNone` clearing remain unchanged.
 - Unknown `core/layout.Axis`, `Align` and `Anchor` values now panic at layout, measurement and component admission boundaries. Their `Validate` methods return the corresponding `ErrInvalidAxis`, `ErrInvalidAlign` or `ErrInvalidAnchor`. A complete flow slot set, box title/footer or table column set is checked before measurement callbacks or painting; invalid values no longer imply down, start or bottom-right placement.
 - `core/diff.Kind.String` and `Script.Same`, `String` and `Hunks` panic for an unknown line kind. Check externally assembled values with `Kind.Validate` or `Script.Validate` and handle `ErrInvalidKind`. `kit.NewDiff` and `Diff.SetHunks` validate every candidate hunk before retaining it; a rejected replacement preserves the previous hunks and layout.
-- `core/grid.View.PlaceCursor` panics for an unknown `CursorShape`, including on clipped and offscreen views, before changing the frame cursor. `CursorShape.Validate` reports `ErrInvalidCursorShape`. Explicit `CursorDefault` still ignores blink; unknown shapes no longer select that default.
+- `core/grid.View.PlaceCursor` panics for an unknown `CursorShape`, including on clipped and offscreen views, before changing the frame cursor. `CursorShape.Validate` reports `ErrInvalidCursorShape`. Explicit `CursorReset` still ignores blink; unknown shapes no longer select that default.
 - `core/text.Layout` position and range operations panic for an unknown `Affinity`, even on nil or empty layouts. `base.Selection` rejects such endpoints before changing anchors or gesture state, and `TranscriptLayout.Caret` rejects them before checking projection freshness. Use `Affinity.Validate` and handle `ErrInvalidAffinity`; line, byte and grapheme clamping for legal affinities remains unchanged.
 - Remove `kit.Ask`. Construct one `kit.Prompter` with `kit.NewPrompter(kit.PrompterConfig{Input: in, Output: out})` and reuse its `Ask` method for successive forms on that input. The session owns read-ahead; fields still own answers and validation. `MaxAnswerBytes` is an explicit transport budget excluding the line ending, with zero meaning unlimited. An overlong answer is drained before `kit.ErrAnswerTooLong`, so the next call starts at the next answer. Input and output are borrowed, and calls must be serial.
 - `core/clipboard.(*Channel).Answer` and `core/clipboard.(*Channel).Reject` now require `(params, started, completed)` and `(prefix, started, completed)`. Record both observations at the transport boundary: the first byte must follow query admission, and the final byte must meet the response deadline. Use `core/input.Stream` to retain these origins across arbitrary read boundaries; substituting decode time would authorize an old reply for a new query.
@@ -34,12 +69,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - `kit.Border.Top`, `kit.Border.Bottom`, `kit.Border.Left`, `kit.Border.Right`, `kit.Border.TopLeft`, `kit.Border.TopRight`, `kit.Border.BottomLeft` and `kit.Border.BottomRight` now use `kit.CellGlyph`. Validate custom marks with `kit.NewCellGlyph` before constructing the border. Empty marks remain valid; wide, combining-only and multi-grapheme marks cannot occupy a one-cell edge.
 - `kit.Glyphs.Horizontal`, `kit.Glyphs.Vertical`, `kit.Glyphs.TopLeft`, `kit.Glyphs.TopRight`, `kit.Glyphs.BottomLeft`, `kit.Glyphs.BottomRight`, `kit.Glyphs.RoundTopLeft`, `kit.Glyphs.RoundTopRight`, `kit.Glyphs.RoundBottomLeft` and `kit.Glyphs.RoundBottomRight` now use `kit.CellGlyph`. Use `CellGlyph.String` when projecting a mark into text. Customize `kit.Glyphs.Rule` for repeated divider patterns in Tabs, Transcript and Markdown looks; it accepts multi-column patterns independently of border geometry. Unicode and ASCII sets initialize both policies explicitly.
 - `automation.NewDriver` now returns `(*Driver, error)`. Handle `automation.ErrInvalid` when the session, its scene or its automation owner is absent, including typed nil values. Invalid construction no longer returns a driver that fails only at its first observation.
-- Remove `kit.Composer.MaxRows` field access and keyed literals. Use `kit.ComposerConfig.MaxRows` at construction and `composer.Controller().MaxRows` for later changes. The retained Editor is the sole owner of the limit; setting its limit to zero after initialization now removes the cap instead of competing with a second Composer limit.
+- Remove `kit.Composer.MaxRows` field access and keyed literals. Use `kit.ComposerConfig.MaxRows` at construction and `composer.Controller().SetMaxRows(value)` for later changes. The retained Editor is the sole owner of the limit; setting its limit to zero after initialization now removes the cap instead of competing with a second Composer limit.
 - `base.(*Transcript).SetMatches` returns `base.ErrInvalidMatches` for unordered or out-of-range rows, empty row spans, negative cell ranges and overflowing cell endpoints. Handle the admission error: the owner validates the complete candidate before publishing it. Rejected results leave the previous search state unchanged; overlapping matches and zero-width spans remain valid.
 - `base.(*Sticky).SetBlocks` and `Add` panic before mutation when block identities are zero, duplicated or out of order. An appended batch must follow the current last identity. Supply strictly increasing identities; the owner does not sort or silently accept invalid input.
 
 #### extensions/latex
 
+- Text commands now preserve literal punctuation and whitespace in a distinct text context; operators retain math scripts and math spacing. `\texttt` still parses command/group syntax, and unescaped `_` or `^` in text is rejected instead of becoming a math script. Use escaped text characters such as `\_`. A `%` comment consumes its line ending, so `\texttt{left%comment\nright}` renders `leftright`; this deliberately replaces the former subset rule that inserted a space.
 - `Render` panics for an invalid `Look.Align` before parsing or retaining a formula, including empty source. Validate external alignment with `core/layout.Align.Validate` and handle `core/layout.ErrInvalidAlign`. The declared UI requirement supplies that validation API for standalone consumers.
 
 #### extensions/markdown
@@ -49,6 +85,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Changed
 
+- Live component configuration has one owner. Text delegates editor policy to its retained Editor, Table and Filter delegate list policy to their retained List, and agent/streaming examples resolve commands and help from their current Editor keymap. Picker commands match full semantic key actions, including modifiers and alternate key identities.
+- ANSI cursor controls and Kitty graphics field/action vocabulary are encoded by their protocol owners. EOF, Escape expiry and newly available input are separate parser transitions.
 - Control-string boundaries belong to `core/ansi.StringFamily.Step`. Complete, incremental, retained and oversized parsing share its family-specific termination and cancellation rules. Retention pressure does not give a recognized protocol payload keyboard authority.
 - `base.TranscriptPublisher.Subscribe` explicitly inherits `core/publication.Publisher.Subscribe`'s deferred owner-turn notification contract. Notifications run after the consumer has transferred capture responsibility and settled the receipt, while synchronous notification from admission or settlement is invalid. The standard publisher already follows this contract.
 - Choice field revisions identify the complete answer snapshot independently of identity matching. Selecting a different single-choice option or replacing options that supply an answer advances the revision conservatively, even when identities match. Multi-choice cursor movement and an unchanged canonical chosen set do not create answer changes. Validation and submission receipts cannot certify a replacement payload through identity equality alone.
@@ -70,6 +108,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ### Fixed
 
+- Validation attempts revoke and publish old receipts before calling external validators. Panic, goroutine exit, a rejected reply and reentrant no-op feedback cannot leave a form presenting a revoked error or result. A rejected cancellation does not advance the feedback authority of the active request.
+- Shared keymap mutations check every mounted borrower before committing, then notify all borrowers even when a callback panics or exits. A notification from an old subscription cannot reset a matcher installed by a reentrant replacement, and delayed delivery cannot erase a sequence already started against the committed map. Every consumer publishes its scene revision before resolver cancellation can observe or prepare another scene.
+- CAN/SUB cancels every supported control-string family, including oversized rejected strings. Rejected CSI input remains quarantined until its real boundary or EOF; Escape expiry cannot promote its remaining payload into keys.
+- Terminal startup reports query-write, short-write and deadline failures. Failed startup joins all workers, restores raw mode and rejects subsequent frame admission. Missing capability replies remain an ordinary unsupported/unknown result.
+- Transcript revision exhaustion is checked before changing retained state, leaving the previous snapshot intact on refusal.
 - Editor clipboard regression fixtures use controlled virtual receipt times, and queued pointer fixtures use acknowledged presentation capture. They no longer depend on host clock resolution, while physical input still requires strictly later arrival evidence. The stale-list-hit regression asserts that capture succeeded before replacing the collection, so an empty capture cannot make the test pass.
 - Dialog placement is resolved before painting its backdrop. An invalid replacement anchor cannot tint a candidate surface before rejection, and the resolved rectangle is reused for staging.
 - Bounded input and a repaint awaiting preparation cannot deadlock each other. The reader alone owns byte credits and reports current pressure through an owner-requested handshake; already returned credits cannot leave a stale refusal. Physical events, synthetic pointer captures and repaint requests retain one FIFO.

@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
-// ErrInvalidInput rejects host input without an immutable terminal event value.
+// ErrInvalidInput rejects host input that fails [input.Validate].
 var ErrInvalidInput = errors.New("program: input source returned an invalid event")
 
 // ErrInputTooLarge ends input instead of retaining a single unbounded event.

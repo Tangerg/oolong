@@ -130,7 +130,7 @@ func (d *dashboard) Element() scene.Element { return d.element }
 
 func (d *dashboard) Handle(ev input.Event) bool {
 	if key, ok := ev.(input.Key); ok && key.Down() {
-		if action, ok := d.tabs.Keys.ActionFor(key); ok && action == quitDashboard {
+		if action, ok := d.tabs.Keys().ActionFor(key); ok && action == quitDashboard {
 			d.runtime.Quit()
 			return true
 		}
@@ -173,7 +173,7 @@ func (d *dashboard) drawHelp(frame scene.Frame) {
 		prefix = fmt.Sprintf("%c–%c pane  ", first, last)
 	}
 	x := frame.Text(0, 0, prefix, d.theme.Subtle)
-	kit.Help{Theme: d.theme, Keys: d.tabs.Keys, Show: []keymap.Action{base.PrevTab, base.NextTab, quitDashboard}}.
+	kit.Help{Theme: d.theme, Keys: d.tabs.Keys(), Show: []keymap.Action{base.PrevTab, base.NextTab, quitDashboard}}.
 		Draw(frame.View.Sub(grid.Area(x, 0, width-x, height)))
 }
 
@@ -424,7 +424,7 @@ func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
 			Minimum: 1, Maximum: maximumUnitsPerTick, Label: "rate",
 		}, Theme: theme, Glyphs: glyphs,
 	})
-	activity.rate.Format = func(value int) string { return fmt.Sprintf("%d tasks/tick", value) }
+	activity.rate.SetFormat(func(value int) string { return fmt.Sprintf("%d tasks/tick", value) })
 	activity.spinner = kit.Spinner{
 		Theme: theme, Glyphs: glyphs, Label: "watching",
 	}

@@ -77,7 +77,7 @@ func TestDialogResolverCannotCloseANewerOpening(t *testing.T) {
 	var keys keymap.Map
 	keys.Bind("prefix", input.Chord{Rune: 'g'})
 	keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	keys.Resolve = func(time.Duration, func()) func() { return func() { dialog.Dismiss(); dialog.Show() } }
+	keys.SetResolver(func(time.Duration, func()) func() { return func() { dialog.Dismiss(); dialog.Show() } })
 	closes := 0
 	dialog = base.NewDialog(base.DialogConfig{Initial: true, Keys: &keys, Content: scene.NewElement(scene.ElementConfig{}), Dismissed: func() { closes++ }})
 	r := scenes.Mount(dialog)
@@ -137,7 +137,7 @@ func (r measuringCompletion) Width(candidate base.Candidate) int {
 
 func TestCompletionCannotDismissItselfWhileComputingItsWidth(t *testing.T) {
 	var c base.Completion
-	c.Renderer = measuringCompletion{measure: func() { c.Dismiss() }}
+	c.SetRenderer(measuringCompletion{measure: func() { c.Dismiss() }})
 	c.Offer(base.Token{}, []base.Candidate{{Text: "abc"}})
 	var failure error
 	func() { defer func() { failure, _ = recover().(error) }(); c.Width() }()

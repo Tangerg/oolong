@@ -54,7 +54,7 @@ type prompt struct {
 	glyphs  kit.Glyphs
 
 	composer   *kit.Composer
-	completion base.Completion
+	completion *base.Completion
 	history    *base.History[draft]
 	output     kit.Paragraph
 	status     string
@@ -90,11 +90,10 @@ func newPrompt(runtime *program.Runtime) *prompt {
 	p.composer = kit.NewComposer(kit.ComposerConfig{
 		Theme: theme, Prompt: glyphs.Marker + " ", Keys: keys,
 		Hints: []keymap.Action{submitPrompt, previousPrompt, nextPrompt, quitPrompt}, MaxRows: 1,
+		Placeholder: "Type @ to reference something", Clipboard: runtime.Clipboard(),
 	})
-	p.composer.Controller().Placeholder = "Type @ to reference something"
 	p.composer.Controller().SetSingleLine(true)
-	p.composer.Controller().Clipboard = runtime.Clipboard()
-	p.completion = base.Completion{
+	p.completion = base.NewCompletion(base.CompletionConfig{
 		Look: theme.Look(glyphs), MaxRows: 5, Keys: base.DefaultCompletionKeys(),
 		CurrentToken: func() (base.Token, bool) {
 			return p.composer.Controller().TokenAtCursor(base.Trigger{Prefix: "@"})
@@ -103,7 +102,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 			p.composer.Controller().Replace(token.Start, token.End, candidate.Text)
 			p.completion.Dismiss()
 		},
-	}
+	})
 	p.output.SetText([]text.Line{
 		text.Of("A prompt can carry text and application-owned elements without becoming a new widget kind.", theme.Text),
 	})
@@ -119,7 +118,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 		},
 	})
 	completionHelp := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		kit.Help{Theme: p.theme, Keys: p.completion.Keys, Show: []keymap.Action{base.Accept}}.Draw(frame.View)
+		kit.Help{Theme: p.theme, Keys: p.completion.Keys(), Show: []keymap.Action{base.Accept}}.Draw(frame.View)
 	}})
 	completionBody := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 		{Element: p.completion.Element(), Size: layout.Measured(0, 0)},
@@ -134,7 +133,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 			if !p.completion.Open() {
 				return []image.Rectangle{{}}
 			}
-			width := max(0, min(max(p.completion.Width()+panel.Box.Overhead().X, minimumReferencePopupColumns), space.X-2))
+			width := max(0, min(max(p.completion.Width()+panel.Box().Overhead().X, minimumReferencePopupColumns), space.X-2))
 			height := min(panel.HeightForWidth(width), space.Y)
 			y := max(space.Y-p.composer.HeightForWidth(space.X)-height, 0)
 			return []image.Rectangle{grid.Area(1, y, width, height)}
@@ -164,7 +163,7 @@ func (p *prompt) Draw(frame scene.Frame) {
 func (p *prompt) Handle(event input.Event) bool {
 	var action keymap.Action
 	if key, ok := event.(input.Key); ok {
-		action, _ = p.composer.Controller().Keys.ActionFor(key)
+		action, _ = p.composer.Controller().Keys().ActionFor(key)
 	}
 	if action == quitPrompt {
 		p.runtime.Quit()

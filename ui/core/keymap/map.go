@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"weak"
 
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/internal/retention"
@@ -97,6 +98,19 @@ func (m *Matcher) Reset(change func()) (current bool) {
 	return true
 }
 
+// ResetStale cancels matching only when its map has changed. A delayed map
+// notification cannot erase a sequence already started at the current version.
+// Change runs in either case, with the same cancellation ordering as Reset.
+func (m *Matcher) ResetStale(change func()) {
+	if m != nil && m.bindings != nil && m.version != m.bindings.version {
+		m.Reset(change)
+		return
+	}
+	if change != nil {
+		change()
+	}
+}
+
 func (m *Matcher) abandon() func() {
 	cancel := m.cancel
 	m.keys, m.at, m.exact, m.do, m.current, m.cancel = nil, time.Time{}, "", nil, nil, nil
@@ -119,22 +133,20 @@ func (b Binding) String() string { return b.Keys.String() + " " + b.Action.Strin
 //
 // The zero value is an empty map. A Map must not be copied after first use: a copy
 // would share the binding store and lookup tree while rebuilding only one of them.
+// Binding and policy changes require every consumer's Check to succeed before
+// commit; a refusal panics with that error. All consumers Publish the committed
+// state before any Changed notification runs. Mutating or subscribing during
+// checks panics with ErrChecking; during publication it panics with ErrPublishing.
 type Map struct {
 	noCopy noCopy
 
-	// Timeout controls how long a partially typed sequence remains current. Zero
-	// and negative values use [DefaultTimeout].
-	Timeout time.Duration
-	// Resolve decides when an exact binding that is also a prefix should run. Nil
-	// waits for another key: a continuation takes the longer binding, while a key
-	// that cannot continue it settles the exact binding first. Assign the event
-	// owner's one-shot scheduler to make the exact binding run after Timeout even
-	// when no further input arrives.
-	Resolve Resolver
-
-	bound   []Binding
-	root    *trieNode
-	version *byte
+	sequenceTimeout time.Duration
+	resolver        Resolver
+	bound           []Binding
+	root            *trieNode
+	version         *byte
+	subscribers     []weak.Pointer[Subscription]
+	phase           mapPhase
 }
 
 // noCopy makes the ownership contract above visible to go vet. Its methods are
@@ -150,6 +162,7 @@ func (m *Map) Bind(action Action, keys ...input.Chord) {
 	if m == nil || action == "" || len(keys) == 0 {
 		return
 	}
+	subscribers := m.checkSubscribers()
 	sequence := input.Keys(slices.Clone(keys))
 	m.bound = slices.DeleteFunc(m.bound, func(binding Binding) bool {
 		return slices.Equal(binding.Keys, sequence)
@@ -158,21 +171,24 @@ func (m *Map) Bind(action Action, keys ...input.Chord) {
 		Keys: sequence, Action: Action(strings.Clone(action.String())),
 	})
 	m.rebuild()
+	m.notifySubscribers(subscribers)
 }
 
 func (m *Map) Unbind(keys ...input.Chord) bool {
 	if m == nil {
 		return false
 	}
-	before := len(m.bound)
-	m.bound = slices.DeleteFunc(m.bound, func(binding Binding) bool {
+	index := slices.IndexFunc(m.bound, func(binding Binding) bool {
 		return slices.Equal(binding.Keys, input.Keys(keys))
 	})
-	if len(m.bound) == before {
+	if index < 0 {
 		return false
 	}
+	subscribers := m.checkSubscribers()
+	m.bound = slices.Delete(m.bound, index, index+1)
 	m.trim()
 	m.rebuild()
+	m.notifySubscribers(subscribers)
 	return true
 }
 
@@ -317,7 +333,7 @@ func (m *Matcher) prepare(bindings *Map, at time.Time, current func() bool) bool
 		m.Clear()
 		return false
 	}
-	return !m.expired(bindings.timeout(), at) || !m.resolveExact()
+	return !m.expired(bindings.Timeout(), at) || !m.resolveExact()
 }
 
 func lifetimeCurrent(current func() bool) bool { return current == nil || current() }
@@ -340,7 +356,7 @@ func (m *Matcher) expired(timeout time.Duration, now time.Time) bool {
 // settle it. The ticket makes a late callback from a cancelled resolver inert.
 func (m *Matcher) deferExact(bindings *Map, action Action, do func(Action) bool) {
 	m.exact, m.do = action, do
-	if bindings.Resolve == nil {
+	if bindings.resolver == nil {
 		return
 	}
 	ticket := m.ticket
@@ -352,7 +368,7 @@ func (m *Matcher) deferExact(bindings *Map, action Action, do func(Action) bool)
 			m.Clear()
 		}
 	}()
-	cancel := bindings.Resolve(bindings.timeout(), func() { m.resolve(ticket) })
+	cancel := bindings.resolver(bindings.Timeout(), func() { m.resolve(ticket) })
 	returned = true
 	if m.ticket == ticket && len(m.keys) > 0 {
 		m.cancel = cancel
@@ -442,9 +458,43 @@ func (m *Map) rebuild() {
 	m.version = new(byte)
 }
 
-func (m *Map) timeout() time.Duration {
-	if m.Timeout > 0 {
-		return m.Timeout
+func (m *Map) Timeout() time.Duration {
+	if m != nil && m.sequenceTimeout > 0 {
+		return m.sequenceTimeout
 	}
 	return DefaultTimeout
+}
+
+// SetTimeout invalidates pending sequences with the old timing policy. Nonpositive
+// durations select DefaultTimeout, including for the zero Map.
+func (m *Map) SetTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	if m == nil || m.Timeout() == timeout {
+		return
+	}
+	subscribers := m.checkSubscribers()
+	m.sequenceTimeout = timeout
+	m.version = new(byte)
+	m.notifySubscribers(subscribers)
+}
+
+func (m *Map) Resolver() Resolver {
+	if m == nil {
+		return nil
+	}
+	return m.resolver
+}
+
+// SetResolver replaces exact-prefix scheduling and revokes old pending sequences.
+// Nil waits for a further key to settle an exact prefix.
+func (m *Map) SetResolver(resolver Resolver) {
+	if m == nil || m.resolver == nil && resolver == nil {
+		return
+	}
+	subscribers := m.checkSubscribers()
+	m.resolver = resolver
+	m.version = new(byte)
+	m.notifySubscribers(subscribers)
 }

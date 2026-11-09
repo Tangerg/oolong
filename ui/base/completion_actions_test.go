@@ -59,7 +59,7 @@ func TestCompletionActionsExposeBoundedDetachedCandidates(t *testing.T) {
 
 func TestCompletionActionsRejectSupersededOffers(t *testing.T) {
 	accepted := false
-	completion := &base.Completion{Accept: func(base.Candidate, base.Token) { accepted = true }}
+	completion := base.NewCompletion(base.CompletionConfig{Accept: func(base.Candidate, base.Token) { accepted = true }})
 	completion.Offer(base.Token{Query: "a"}, []base.Candidate{{Text: "alpha"}, {Text: "apple"}})
 	root := semanticOwner(t, completion.Element())
 	revision := semanticRevision(t, root, completion.Element())
@@ -90,10 +90,10 @@ func TestCompletionActionsRejectSupersededOffers(t *testing.T) {
 func TestCompletionActivationAcceptsTheAddressedCandidate(t *testing.T) {
 	var accepted base.Candidate
 	var offered base.Token
-	completion := &base.Completion{Accept: func(candidate base.Candidate, token base.Token) {
+	completion := base.NewCompletion(base.CompletionConfig{Accept: func(candidate base.Candidate, token base.Token) {
 		candidate.Matched[0] = 9
 		accepted, offered = candidate, token
-	}}
+	}})
 	token := base.Token{Query: "a"}
 	completion.Offer(token, []base.Candidate{{Text: "alpha", Matched: []int{0}}, {Text: "apple", Matched: []int{0}}})
 	root := semanticOwner(t, completion.Element())

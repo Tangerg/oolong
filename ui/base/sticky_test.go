@@ -15,7 +15,7 @@ func pinnable(t *testing.T, pairs int) (*base.Transcript, *base.Sticky) {
 	const prompt, answer = 2, 10
 	var tr base.Transcript
 	stageTranscript(&tr, 40)
-	s := &base.Sticky{Gap: 1}
+	s := base.NewSticky(base.StickyConfig{Gap: 1})
 	for i := range pairs {
 		id := transcriptAdd(t, &tr, &block{name: fmt.Sprintf("prompt%d", i), lines: prompt})
 		s.Add(id.ID())
@@ -42,7 +42,7 @@ func TestPinnedFootprintSaturatesInsteadOfTurningNegative(t *testing.T) {
 	var transcript base.Transcript
 	stageTranscript(&transcript, 40)
 	id := transcriptAdd(t, &transcript, &block{lines: maxInt})
-	sticky := base.Sticky{Gap: maxInt}
+	sticky := base.NewSticky(base.StickyConfig{Gap: maxInt})
 	sticky.Add(id.ID())
 	pinned, ok := sticky.At(transcriptLayout(&transcript), 1, 1)
 	if !ok || pinned.Rows != maxInt {
@@ -116,7 +116,7 @@ func TestTheHeaderGoesWhenItIsFullyPushed(t *testing.T) {
 func TestATallPromptCollapses(t *testing.T) {
 	tr := &base.Transcript{}
 	stageTranscript(tr, 40)
-	s := &base.Sticky{MinHeight: 2, Gap: 1}
+	s := base.NewSticky(base.StickyConfig{MinHeight: 2, Gap: 1})
 	s.SetBlocks([]base.BlockID{1})
 	transcriptAdd(t, tr, &block{name: "tall", lines: 6})
 	transcriptAdd(t, tr, &block{name: "answer", lines: 30})

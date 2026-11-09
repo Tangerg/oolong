@@ -18,6 +18,8 @@ Kit 提供主题、字形选择、被动内容块和常用复合控件。它组�
 
 构造后始终通过指针持有 live 皮肤。已安装的控制器回调保留该外观所有者；复制结构体会让副本的可编辑字段与真正被测量、绘制的对象分离。这些类型声明不可复制契约，由 `go vet` 检查。需要独立组件时，使用 Config 重新构造；被动内容和不可变主题快照仍保留普通值语义。
 
+通过所有者命令修改保留的外观，例如 `panel.SetBox(next)`、`dialog.SetWhere(next)`、`composer.SetPrompt(next)`、`composer.SetHints(next)`。Getter 返回观察值；修改返回的 `Box` 或 hints 切片不会改变组件。Setter 与行为变更使用相同场景阶段约束，并发布呈现失效。`Box`、`Label`、`Image` 等被动值仍使用普通值构造；由保留它的所有者通过 setter 接受更新。
+
 自定义皮肤可以在挂载前填入 base 元素的绘制与测量槽。挂载期间修改这些槽会被拒绝。Theme 和 glyph 输入只改变外观，不能决定字段焦点、已提交值或动作可用性。
 
 宿主字形能力只解析一次。需要截断标记时，将 `glyphs.Ellipsis` 传给 `ButtonConfig.Ellipsis`、`Paragraph.Ellipsis` 和 `Label.Ellipsis`。空标记表示静默截断。测量与绘制使用同一个标记；更改 Paragraph 的标记也会改变其布局缓存身份。

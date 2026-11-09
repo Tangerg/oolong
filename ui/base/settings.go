@@ -23,14 +23,23 @@ type Settings[T any] struct {
 	list List[T]
 	// Value reports input acceptance; State reports the domain owner's outcome.
 	// Acceptance alone cannot tell semantic callers whether a value changed.
-	Change func(index int, item T, action keymap.Action) scene.ActionResult[bool]
+	changeValue func(index int, item T, action keymap.Action) scene.ActionResult[bool]
 	// EditKeys binds value actions. Nil reads through [DefaultSettingsKeys]. List.Keys
 	// independently controls navigation, so rebinding a value never replaces how the
 	// list is browsed.
-	EditKeys *keymap.Map
+	editBindings keyBinding
 
 	matcher      keymap.Matcher
 	editRevision uint64
+}
+
+type SettingsConfig[T any] struct {
+	Change   func(int, T, keymap.Action) scene.ActionResult[bool]
+	EditKeys *keymap.Map
+}
+
+func NewSettings[T any](config SettingsConfig[T]) *Settings[T] {
+	return &Settings[T]{changeValue: config.Change, editBindings: keyBinding{current: config.EditKeys}}
 }
 
 func (s *Settings[T]) focusChanged(has bool) {
@@ -69,7 +78,6 @@ func (s *Settings[T]) Handle(event input.Event) bool {
 	return handled
 }
 
-// Do navigates the list or applies a value action to its selected item.
 func (s *Settings[T]) Do(action keymap.Action) bool {
 	requireMutable(s.list.element)
 	if s.list.Do(action) {
@@ -79,8 +87,8 @@ func (s *Settings[T]) Do(action keymap.Action) bool {
 }
 
 func (s *Settings[T]) change(index int, action keymap.Action) scene.ActionResult[bool] {
-	if item, ok := s.list.At(index); ok && s.Change != nil {
-		result := s.Change(index, item, action)
+	if item, ok := s.list.At(index); ok && s.changeValue != nil {
+		result := s.changeValue(index, item, action)
 		if result.State != scene.Unchanged {
 			s.list.element.Invalidate()
 		}
@@ -104,7 +112,7 @@ func (s *Settings[T]) valueAction(id scene.ActionID, label string, action keymap
 			if availability := s.list.indexAvailability(address); availability.Disabled {
 				return availability
 			}
-			if s.Change == nil {
+			if s.changeValue == nil {
 				return scene.Availability{Disabled: true, Reason: "setting is read-only"}
 			}
 			return scene.Availability{}
@@ -116,8 +124,8 @@ func (s *Settings[T]) valueAction(id scene.ActionID, label string, action keymap
 }
 
 func (s *Settings[T]) editKeys() *keymap.Map {
-	if s.EditKeys != nil {
-		return s.EditKeys
+	if s.editBindings.current != nil {
+		return s.editBindings.current
 	}
 	return settingsKeys()
 }
@@ -126,4 +134,23 @@ func (s *Settings[T]) editKeys() *keymap.Map {
 func (s *Settings[T]) List() *List[T] {
 	s.Element()
 	return &s.list
+}
+
+func (s *Settings[T]) Change() func(int, T, keymap.Action) scene.ActionResult[bool] {
+	return s.changeValue
+}
+
+func (s *Settings[T]) SetChange(value func(int, T, keymap.Action) scene.ActionResult[bool]) {
+	element := s.Element()
+	requireMutable(element)
+	s.matcher.Reset(func() {
+		s.changeValue = value
+		element.Invalidate()
+	})
+}
+
+func (s *Settings[T]) EditKeys() *keymap.Map { return s.editBindings.current }
+
+func (s *Settings[T]) SetEditKeys(keys *keymap.Map) {
+	s.editBindings.set(s.Element(), &s.matcher, keys)
 }

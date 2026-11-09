@@ -219,6 +219,9 @@ func (f *field) validate(prepare func() error, revision func() uint64, check fun
 	requireMutable(f.element)
 	f.validation++
 	turn := f.validation
+	// Revocation is observable even when a callback aborts or another request
+	// makes the rest of this validation obsolete.
+	f.element.Invalidate()
 	var err error
 	if prepare != nil {
 		err = prepare()
@@ -245,7 +248,7 @@ func (f *field) validate(prepare func() error, revision func() uint64, check fun
 	return checked.err
 }
 
-func (f *field) focus(has bool, forward func(bool), reconcile func(), validate func() error) {
+func (f *field) focus(has bool, forward func(bool), validate func() error) {
 	turn, leaving := f.keyboard.Receive(has)
 	if forward != nil {
 		forward(has)
@@ -253,10 +256,7 @@ func (f *field) focus(has bool, forward func(bool), reconcile func(), validate f
 	if f.keyboard.Superseded(turn) {
 		return
 	}
-	if reconcile != nil {
-		reconcile()
-	}
-	if leaving && !f.keyboard.Superseded(turn) {
+	if leaving {
 		_ = validate()
 	}
 }
@@ -334,8 +334,8 @@ type Form struct {
 	noCopy         noCopy
 	key, title     string
 	fields         []Field
-	Keys           *keymap.Map
-	Gap            int
+	keys           keyBinding
+	gap            int
 	check          func() error
 	submit         func(SubmissionID) (scene.ActionState, error)
 	cancel         func(SubmissionID) error
@@ -349,14 +349,22 @@ type Form struct {
 	matcher        keymap.Matcher
 }
 
-// NewForm constructs one form owner. It panics for nil or duplicate fields, or fields already owned by an incompatible scene relation.
+// NewForm panics for negative Gap, nil or duplicate fields, or fields already
+// owned by an incompatible scene relation.
 func NewForm(config FormConfig) *Form {
-	f := &Form{key: strings.Clone(config.Key), title: strings.Clone(config.Title), Keys: config.Keys, Gap: config.Gap, check: config.Check, submit: config.Submit, cancel: config.Cancel, paintField: config.PaintField}
+	if config.Gap < 0 {
+		panic("base: form gap cannot be negative")
+	}
+	f := &Form{key: strings.Clone(config.Key), title: strings.Clone(config.Title), keys: keyBinding{current: config.Keys}, gap: config.Gap, check: config.Check, submit: config.Submit, cancel: config.Cancel, paintField: config.PaintField}
 	f.Set(config.Fields...)
 	return f
 }
 
-func (f *Form) Element() scene.Element { f.ensure(); return f.group.Element() }
+func (f *Form) Element() scene.Element {
+	f.ensure()
+	f.keys.attach(f.group.Element(), &f.matcher)
+	return f.group.Element()
+}
 
 func (f *Form) ensure() {
 	if f.group != nil {
@@ -638,7 +646,7 @@ func (f *Form) fieldLayout(items []scene.Item) (layout.Flow, []layout.Slot, int)
 	if f.Error() != nil {
 		extra = 1
 	}
-	return layout.Flow{Axis: layout.Down, Gap: f.Gap}, slots, extra
+	return layout.Flow{Axis: layout.Down, Gap: f.gap}, slots, extra
 }
 
 func (f *Form) handleEvent(event scene.Event) scene.EventResult {
@@ -647,7 +655,7 @@ func (f *Form) handleEvent(event scene.Event) scene.EventResult {
 		return scene.EventResult{}
 	}
 	keyboard := f.Element().KeyboardLease()
-	_, handled := f.matcher.Handle(f.keys(), key, keyboard.Valid, func(action keymap.Action) bool {
+	_, handled := f.matcher.Handle(f.resolvedKeys(), key, keyboard.Valid, func(action keymap.Action) bool {
 		switch action {
 		case FocusNext:
 			return keyboard.FocusNext(false)
@@ -662,6 +670,7 @@ func (f *Form) handleEvent(event scene.Event) scene.EventResult {
 
 // Do executes a named submit or cancel request through the same attempt owner.
 func (f *Form) Do(action keymap.Action) bool {
+	requireMutable(f.Element())
 	switch action {
 	case Submit:
 		_, _ = f.Submit()
@@ -681,9 +690,9 @@ func (f *Form) Do(action keymap.Action) bool {
 	return true
 }
 
-func (f *Form) keys() *keymap.Map {
-	if f.Keys != nil {
-		return f.Keys
+func (f *Form) resolvedKeys() *keymap.Map {
+	if f.keys.current != nil {
+		return f.keys.current
 	}
 	return formKeys()
 }
@@ -772,4 +781,26 @@ func (f *Form) SetTitle(title string) {
 	requireMutable(f.Element())
 	f.title = strings.Clone(title)
 	f.Element().Invalidate()
+}
+
+func (f *Form) Gap() int { return f.gap }
+
+// SetGap panics for a negative gap before changing layout or publishing a revision.
+func (f *Form) SetGap(value int) {
+	element := f.Element()
+	requireMutable(element)
+	if value < 0 {
+		panic("base: Gap cannot be negative")
+	}
+	if f.gap == value {
+		return
+	}
+	f.gap = value
+	element.Invalidate()
+}
+
+func (f *Form) Keys() *keymap.Map { return f.keys.current }
+
+func (f *Form) SetKeys(keys *keymap.Map) {
+	f.keys.set(f.Element(), &f.matcher, keys)
 }

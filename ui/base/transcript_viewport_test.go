@@ -69,7 +69,7 @@ func TestStickyReadingAnchorSurvivesReflowInViewportCoordinates(t *testing.T) {
 	header := transcriptAdd(t, model, transcriptBody("a"))
 	transcriptAdd(t, model, transcriptBody("abcdefghij\nklmnopqrst\nuvwxyz0123\n456789abcd\nefghijklmn\nopqrstuvwx"))
 	model.Sticky().Add(header.ID())
-	model.Sticky().Gap = 1
+	model.Sticky().SetGap(1)
 	model.Scroll().ToTop()
 	root := transcriptScene(t, model)
 	transcriptCommit(t, root, 10, 4, 1)
@@ -111,7 +111,7 @@ func TestStickyReadingAnchorTracksReflowedHeaderGeometry(t *testing.T) {
 				model.Sticky().Add(next.ID())
 			}
 			transcriptAdd(t, model, transcriptBody("ghijkl\nmnopqr\nstuvwx\nyz0123\n456789\nABCDEF\nGHIJKL\nMNOPQR"))
-			model.Sticky().Gap = 1
+			model.Sticky().SetGap(1)
 			model.Scroll().ToTop()
 			var bodyFrom, bodyTop int
 			if err := model.Element().SetPaint(func(frame scene.Frame) {
@@ -170,7 +170,8 @@ func TestTranscriptRevealKeepsMatchesBelowStickyFurniture(t *testing.T) {
 					model.Sticky().Add(next.ID())
 					transcriptAdd(t, model, transcriptBody(tc.tail))
 				}
-				model.Sticky().Gap, model.Sticky().MinHeight = tc.gap, tc.collapse
+				model.Sticky().SetGap(tc.gap)
+				model.Sticky().SetMinHeight(tc.collapse)
 				var bodyFrom, bodyTop int
 				if err := model.Element().SetPaint(func(frame scene.Frame) {
 					window := model.StageWindow(frame)
@@ -222,7 +223,7 @@ func TestTranscriptRevealUsesTheCandidateWidthForStickyGeometry(t *testing.T) {
 	header := transcriptAdd(t, model, transcriptBody("abcdefghijkl"))
 	transcriptAdd(t, model, transcriptBody("0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11"))
 	model.Sticky().Add(header.ID())
-	model.Sticky().Gap = 1
+	model.Sticky().SetGap(1)
 	var bodyFrom, bodyTop int
 	if err := model.Element().SetPaint(func(frame scene.Frame) {
 		window := model.StageWindow(frame)

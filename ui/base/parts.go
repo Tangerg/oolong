@@ -24,12 +24,13 @@ func (t *Text) Element() scene.Element {
 			Key: t.key, Measure: rowsMeasure(t.HeightForWidth), Paint: t.Draw,
 			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, t.Handle, &t.geometry, &t.editor.geometry) }, Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleTextBox, Name: t.Label, Value: t.editor.semanticValue(), Sensitive: t.Mask() != "", ContentRevision: t.Revision(), State: t.semanticState()}
+				return scene.Semantic{Role: scene.RoleTextBox, Name: t.label, Value: t.editor.semanticValue(), Sensitive: t.Mask() != "", ContentRevision: t.Revision(), State: t.semanticState()}
 			}, Actions: []scene.ActionBinding{t.editor.fillAction()},
 		})
 	}
 	t.editor.element = t.element
 	t.editor.scroll.element = t.element
+	t.editor.keys.attach(t.element, &t.editor.matcher)
 	return t.element
 }
 
@@ -56,10 +57,11 @@ func (c *Confirm) Element() scene.Element {
 				if snapshot.Value {
 					state |= scene.StateChecked
 				}
-				return scene.Semantic{Role: scene.RoleCheckBox, Name: c.Label, Value: strconv.FormatBool(snapshot.Value), State: state}
+				return scene.Semantic{Role: scene.RoleCheckBox, Name: c.label, Value: strconv.FormatBool(snapshot.Value), State: state}
 			}, Actions: []scene.ActionBinding{set.Binding()},
 		})
 	}
+	c.keys.attach(c.element, &c.matcher)
 	return c.element
 }
 
@@ -85,12 +87,13 @@ func (s *Select[T]) Element() scene.Element {
 			}, Focusable: func() bool { return true }, FocusChanged: s.focusChanged,
 			Semantics: func() scene.Semantic {
 				choice, _ := s.Chosen()
-				return scene.Semantic{Role: scene.RoleList, Name: s.Label, Value: choice.Label, ContentRevision: s.list.contentRevision, State: s.semanticState()}
+				return scene.Semantic{Role: scene.RoleList, Name: s.label, Value: choice.Label, ContentRevision: s.list.contentRevision, State: s.semanticState()}
 			}, Actions: []scene.ActionBinding{selectValue.Binding(), collectionReadAction(&s.list, unchangedItem[Option[T]])},
 		})
 	}
 	s.list.element = s.element
 	s.list.scroll.element = s.element
+	s.keys.attach(s.element, &s.matcher)
 	return s.element
 }
 
@@ -102,12 +105,13 @@ func (m *MultiSelect[T]) Element() scene.Element {
 				return partEvent(e, m.Handle, &m.geometry, &m.list.geometry, &m.list.pointer.geometry)
 			}, Focusable: func() bool { return true }, FocusChanged: m.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleList, Name: m.Label, Value: m.takenLabels(), ContentRevision: m.list.contentRevision, State: m.semanticState()}
+				return scene.Semantic{Role: scene.RoleList, Name: m.label, Value: m.takenLabels(), ContentRevision: m.list.contentRevision, State: m.semanticState()}
 			}, Actions: append(collectionActions(&m.list, m.choiceState), m.setTakenAction()),
 		})
 	}
 	m.list.element = m.element
 	m.list.scroll.element = m.element
+	m.keys.attach(m.element, &m.matcher)
 	return m.element
 }
 
@@ -117,11 +121,12 @@ func (e *Editor) Element() scene.Element {
 			Measure: rowsMeasure(e.HeightForWidth), Paint: e.Draw,
 			Handle: func(event scene.Event) scene.EventResult { return partEvent(event, e.Handle, &e.geometry) }, Focusable: func() bool { return true }, FocusChanged: e.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleTextBox, Name: e.Placeholder, Value: e.semanticValue(), Sensitive: e.Mask() != "", ContentRevision: e.Revision()}
+				return scene.Semantic{Role: scene.RoleTextBox, Name: e.placeholder, Value: e.semanticValue(), Sensitive: e.Mask() != "", ContentRevision: e.Revision()}
 			}, Actions: []scene.ActionBinding{e.fillAction()},
 		})
 	}
 	e.scroll.element = e.element
+	e.keys.attach(e.element, &e.matcher)
 	return e.element
 }
 
@@ -162,6 +167,7 @@ func (l *List[T]) Element() scene.Element {
 		})
 	}
 	l.scroll.element = l.element
+	l.keys.attach(l.element, &l.matcher)
 	return l.element
 }
 
@@ -179,6 +185,7 @@ func (t *Tree[T]) Element() scene.Element {
 		})
 	}
 	t.list.element, t.list.scroll.element = t.element, t.element
+	t.keys.attach(t.element, &t.matcher)
 	return t.element
 }
 
@@ -196,6 +203,7 @@ func (f *Filter[T]) Element() scene.Element {
 	}
 	f.list.element = f.element
 	f.list.scroll.element = f.element
+	f.list.keys.attach(f.element, &f.list.matcher)
 	return f.element
 }
 
@@ -213,6 +221,7 @@ func (t *Table[T]) Element() scene.Element {
 		})
 	}
 	t.rows.element, t.rows.scroll.element = t.element, t.element
+	t.rows.keys.attach(t.element, &t.rows.matcher)
 	return t.element
 }
 
@@ -229,6 +238,8 @@ func (s *Settings[T]) Element() scene.Element {
 		})
 	}
 	s.list.scroll.element = s.list.element
+	s.list.keys.attach(s.list.element, &s.list.matcher)
+	s.editBindings.attach(s.list.element, &s.matcher)
 	return s.list.element
 }
 
@@ -259,6 +270,7 @@ func (s *Slider) Element() scene.Element {
 			}, Actions: []scene.ActionBinding{set.Binding()},
 		})
 	}
+	s.keys.attach(s.element, &s.matcher)
 	return s.element
 }
 
@@ -267,7 +279,7 @@ func (s *Slider) Element() scene.Element {
 func (c *Completion) Element() scene.Element {
 	if c.element.IsZero() {
 		accept := scene.NewAction(scene.ActionConfig[CollectionIndex, Candidate]{ID: scene.ActionActivate, Label: "Accept completion", Availability: func(address CollectionIndex) scene.Availability {
-			if !c.Open() || c.Accept == nil {
+			if !c.Open() || c.accept == nil {
 				return scene.Availability{Disabled: true, Reason: "completion is not accepting"}
 			}
 			return c.list.indexAvailability(address)
@@ -289,5 +301,6 @@ func (c *Completion) Element() scene.Element {
 		}, Actions: append([]scene.ActionBinding{accept.Binding(), dismiss.Binding()}, collectionActions(&c.list, Candidate.snapshot)...)})
 	}
 	c.list.element, c.list.scroll.element = c.element, c.element
+	c.keys.attach(c.element, &c.matcher)
 	return c.element
 }

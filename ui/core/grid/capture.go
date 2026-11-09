@@ -108,8 +108,11 @@ func (p *captureStorage) retainedCost(value string) int64 {
 }
 
 func (s *Surface) freeze(limit int64) (Frozen, error) {
-	out := Frozen{rows: make([][]Cell, s.h), width: s.w}
-	out.bytes = int64(s.h) * int64(unsafe.Sizeof([]Cell{}))
+	out := Frozen{
+		rows:  make([][]Cell, s.h),
+		width: s.w,
+		bytes: int64(s.h) * int64(unsafe.Sizeof([]Cell{})),
+	}
 	for y := range s.h {
 		row := trimBlankTail(s.row(y))
 		cost := int64(len(row)) * int64(unsafe.Sizeof(Cell{}))

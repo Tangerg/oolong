@@ -17,16 +17,16 @@ func TestCompletionCancellationCannotAcceptASupersededOffer(t *testing.T) {
 	var keys keymap.Map
 	keys.Bind(Accept, input.Chord{Rune: 'g'})
 	keys.Bind(SelectNext, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	keys.Resolve = func(time.Duration, func()) func() {
+	keys.SetResolver(func(time.Duration, func()) func() {
 		return func() {
 			completion.Offer(Token{Query: "new query"}, []Candidate{{Text: "new candidate"}})
 		}
-	}
-	completion.Keys = &keys
+	})
+	completion.SetKeys(&keys)
 	var accepted []string
-	completion.Accept = func(candidate Candidate, token Token) {
+	completion.SetAccept(func(candidate Candidate, token Token) {
 		accepted = append(accepted, candidate.Text+":"+token.Query)
-	}
+	})
 	completion.Offer(Token{Query: "old query"}, []Candidate{{Text: "old candidate"}})
 	if !completion.Handle(input.Key{Rune: 'g'}) {
 		t.Fatal("ambiguous prefix was not handled")
@@ -66,13 +66,13 @@ func TestMatcherCancellationPreservesSceneFocus(t *testing.T) {
 			var keys keymap.Map
 			keys.Bind("prefix", input.Chord{Rune: 'g'})
 			keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-			keys.Resolve = func(time.Duration, func()) func() {
+			keys.SetResolver(func(time.Duration, func()) func() {
 				return func() {
 					if err := test.element.RequestFocus(); err != nil {
 						t.Error(err)
 					}
 				}
-			}
+			})
 			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 			if err := other.RequestFocus(); err != nil {
 				t.Fatal(err)
@@ -93,9 +93,9 @@ func TestOptionReplacementCancelsAfterRestoringSelection(t *testing.T) {
 	keys.Bind("prefix", input.Chord{Rune: 'g'})
 	keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	var observed []string
-	keys.Resolve = func(time.Duration, func()) func() {
+	keys.SetResolver(func(time.Duration, func()) func() {
 		return func() { observed = many.Taken() }
-	}
+	})
 	many.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 	many.SetOptions(Options("b", "a"))
 	if !slices.Equal(observed, []string{"a"}) || !slices.Equal(many.Taken(), observed) {
@@ -109,9 +109,9 @@ func TestCompletionDismissCancellationMayReopen(t *testing.T) {
 	var keys keymap.Map
 	keys.Bind("prefix", input.Chord{Rune: 'g'})
 	keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	keys.Resolve = func(time.Duration, func()) func() {
+	keys.SetResolver(func(time.Duration, func()) func() {
 		return func() { completion.Offer(Token{Query: "new"}, []Candidate{{Text: "new"}}) }
-	}
+	})
 	completion.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 	if completion.Dismiss() {
 		t.Fatal("superseded dismissal retained acceptance ownership")
@@ -161,7 +161,7 @@ func TestDerivedCollectionsCancelAfterTheirCompleteTransition(t *testing.T) {
 			var keys keymap.Map
 			keys.Bind("prefix", input.Chord{Rune: 'g'})
 			keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-			keys.Resolve = func(time.Duration, func()) func() { return test.cancel }
+			keys.SetResolver(func(time.Duration, func()) func() { return test.cancel })
 			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 			test.change()
 			if !test.verify() {
@@ -178,10 +178,10 @@ func TestSettingsContextCancellationCannotContinueANewerSequence(t *testing.T) {
 	keys.Bind("prefix", input.Chord{Rune: 'g'})
 	keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	keys.Bind("other", input.Chord{Rune: 'h'}, input.Chord{Rune: 'h'})
-	settings.EditKeys = &keys
-	keys.Resolve = func(time.Duration, func()) func() {
+	settings.SetEditKeys(&keys)
+	keys.SetResolver(func(time.Duration, func()) func() {
 		return func() { settings.Handle(input.Key{Rune: 'h'}) }
-	}
+	})
 	settings.Handle(input.Key{Rune: 'g'})
 	settings.List().Select(1)
 	settings.Handle(input.Key{Rune: 'x'})
@@ -215,7 +215,7 @@ func TestCollectionReplacementPublishesBeforeMatcherCancellation(t *testing.T) {
 			var keys keymap.Map
 			keys.Bind("prefix", input.Chord{Rune: 'g'})
 			keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-			keys.Resolve = func(time.Duration, func()) func() { return func() { test.set("newest") } }
+			keys.SetResolver(func(time.Duration, func()) func() { return func() { test.set("newest") } })
 			test.matcher.Handle(&keys, input.Key{Rune: 'g'}, nil, func(keymap.Action) bool { return true })
 			test.set("outer")
 			if test.current() != "newest" {
@@ -233,12 +233,12 @@ func TestSemanticActivationReportsOnlyAnAcceptedCompletion(t *testing.T) {
 	var keys keymap.Map
 	keys.Bind(Accept, input.Chord{Rune: 'g'})
 	keys.Bind(SelectNext, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
-	keys.Resolve = func(time.Duration, func()) func() {
+	keys.SetResolver(func(time.Duration, func()) func() {
 		return func() { completion.Offer(Token{}, []Candidate{{Text: "new"}}) }
-	}
-	completion.Keys = &keys
+	})
+	completion.SetKeys(&keys)
 	called := 0
-	completion.Accept = func(Candidate, Token) { called++ }
+	completion.SetAccept(func(Candidate, Token) { called++ })
 	completion.Offer(Token{}, []Candidate{{Text: "old"}})
 	r := scenes.Mount(completion.Element())
 	completion.Handle(input.Key{Rune: 'g'})

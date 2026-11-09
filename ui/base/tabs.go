@@ -46,8 +46,8 @@ type Tabs struct {
 	noCopy              noCopy
 	parts               []*tabPart
 	selected            int
-	Keys                *keymap.Map
-	NoWrap              bool
+	keys                keyBinding
+	noWrap              bool
 	gap                 int
 	stripRows           func() int
 	paintTab            func(scene.Frame, Tab, bool)
@@ -57,7 +57,10 @@ type Tabs struct {
 
 // NewTabs constructs one selection owner. It panics for duplicate nonempty keys or an invalid initially selected content relation.
 func NewTabs(config TabsConfig) *Tabs {
-	t := &Tabs{selected: config.Initial, Keys: config.Keys, NoWrap: config.NoWrap, gap: config.Gap, stripRows: config.StripRows, paintTab: config.PaintTab}
+	if config.Gap < 0 {
+		panic("base: tab gap cannot be negative")
+	}
+	t := &Tabs{selected: config.Initial, keys: keyBinding{current: config.Keys}, noWrap: config.NoWrap, gap: config.Gap, stripRows: config.StripRows, paintTab: config.PaintTab}
 	t.Set(config.Items...)
 	return t
 }
@@ -97,7 +100,11 @@ func (t *Tabs) stripHeight() int {
 	return max(1, readProjection(t.Element(), t.stripRows))
 }
 
-func (t *Tabs) Element() scene.Element { t.ensure(); return t.group.Element() }
+func (t *Tabs) Element() scene.Element {
+	t.ensure()
+	t.keys.attach(t.group.Element(), &t.matcher)
+	return t.group.Element()
+}
 
 // Strip is the owned trigger group; it shares the same selection state as Panel.
 func (t *Tabs) Strip() scene.Element { t.ensure(); return t.strip.Element() }
@@ -221,11 +228,10 @@ func (t *Tabs) Move(delta int) bool {
 		return false
 	}
 	before := t.Selected()
-	t.Select(moveIndex(before, delta, len(t.parts), !t.NoWrap))
+	t.Select(moveIndex(before, delta, len(t.parts), !t.noWrap))
 	return before != t.Selected()
 }
 
-// Do applies one named tab-navigation action through Select.
 func (t *Tabs) Do(action keymap.Action) bool {
 	switch action {
 	case NextTab:
@@ -244,7 +250,7 @@ func (t *Tabs) handleEvent(event scene.Event) scene.EventResult {
 		return scene.EventResult{}
 	}
 	keyboard := t.Element().KeyboardLease()
-	_, handled := t.matcher.Handle(t.keys(), key, keyboard.Valid, func(action keymap.Action) bool {
+	_, handled := t.matcher.Handle(t.resolvedKeys(), key, keyboard.Valid, func(action keymap.Action) bool {
 		if action == FocusNext {
 			return keyboard.FocusNext(false)
 		}
@@ -264,9 +270,9 @@ func (t *Tabs) HeightForWidth(width int) int {
 	return rows
 }
 
-func (t *Tabs) keys() *keymap.Map {
-	if t.Keys != nil {
-		return t.Keys
+func (t *Tabs) resolvedKeys() *keymap.Map {
+	if t.keys.current != nil {
+		return t.keys.current
 	}
 	return tabsKeys()
 }
@@ -372,4 +378,22 @@ func (t *Tabs) selectionFor(items []Tab) int {
 		}
 	}
 	return selected
+}
+
+func (t *Tabs) NoWrap() bool { return t.noWrap }
+
+func (t *Tabs) SetNoWrap(value bool) {
+	element := t.Element()
+	requireMutable(element)
+	if t.noWrap == value {
+		return
+	}
+	t.noWrap = value
+	element.Invalidate()
+}
+
+func (t *Tabs) Keys() *keymap.Map { return t.keys.current }
+
+func (t *Tabs) SetKeys(keys *keymap.Map) {
+	t.keys.set(t.Element(), &t.matcher, keys)
 }

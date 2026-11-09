@@ -122,13 +122,13 @@ func TestATreeDrawsTheRowsThatFit(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	tree := base.NewTree(files()...)
-	tree.Row = func(v grid.View, _ int, row base.Shown[string], selected bool) {
+	tree.SetRow(func(v grid.View, _ int, row base.Shown[string], selected bool) {
 		mark := " "
 		if selected {
 			mark = ">"
 		}
 		v.Text(0, 0, mark+strings.Repeat(" ", row.Depth)+row.Item, grid.Style{})
-	}
+	})
 	tree.Open(0)
 	rows := paintWidget(scenes, 10, 3, tree)
 	equalRows(t, rows, []string{">core.....", "  grid....", "  term...."})

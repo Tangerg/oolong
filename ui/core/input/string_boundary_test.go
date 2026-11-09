@@ -24,17 +24,28 @@ func TestDCSBodyCannotBecomeKeysAtBell(t *testing.T) {
 	}
 }
 
-func TestCanceledDCSDoesNotSwallowFollowingKeys(t *testing.T) {
-	for _, cancel := range []byte{0x18, 0x1a} {
-		for _, size := range []int{8, 1 << 20} {
-			t.Run(fmt.Sprintf("%x/%d", cancel, size), func(t *testing.T) {
-				var parser input.Parser
-				parser.Feed([]byte("\x1bP>|" + strings.Repeat("x", size)))
-				events := parser.Feed([]byte{cancel, 'z'})
-				if !slices.Equal(events, []input.Event{input.Key{Rune: 'z'}}) || parser.Pending() {
-					t.Fatalf("DCS cancellation = %+v, pending=%v", events, parser.Pending())
+func TestCanceledStringsDoNotSwallowFollowingKeys(t *testing.T) {
+	for _, prefix := range []string{"\x1b]52;c;", "\x1bP>|", "\x1b_Gi=1;"} {
+		for _, cancel := range []byte{0x18, 0x1a} {
+			for _, size := range []int{8, 1 << 20} {
+				for _, split := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%x/%x/%d/split_%t", prefix, cancel, size, split), func(t *testing.T) {
+						var parser input.Parser
+						body := prefix + strings.Repeat("x", size)
+						var events []input.Event
+						if split {
+							events = parser.Feed([]byte(body))
+							events = append(events, parser.Feed([]byte{cancel})...)
+							events = append(events, parser.Feed([]byte{'z'})...)
+						} else {
+							events = parser.Feed([]byte(body + string(cancel) + "z"))
+						}
+						if !slices.Equal(events, []input.Event{input.Key{Rune: 'z'}}) || parser.Pending() {
+							t.Fatalf("cancellation = %+v, pending=%v", events, parser.Pending())
+						}
+					})
 				}
-			})
+			}
 		}
 	}
 }

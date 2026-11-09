@@ -29,13 +29,13 @@ type Button struct {
 	action   *scene.Action[struct{}, struct{}]
 	pointer  Pointer
 	feedback requestFeedback
-	keys     *keymap.Map
+	keys     keyBinding
 	matcher  keymap.Matcher
 }
 
 // NewButton constructs one action owner. Nil Activate creates a disabled button with an explanatory availability reason.
 func NewButton(config ButtonConfig) *Button {
-	b := &Button{label: strings.Clone(config.Label), keys: config.Keys}
+	b := &Button{label: strings.Clone(config.Label), keys: keyBinding{current: config.Keys}}
 	b.action = scene.NewAction(scene.ActionConfig[struct{}, struct{}]{
 		ID: scene.ActionActivate, Label: "Activate",
 		Availability: func(struct{}) scene.Availability {
@@ -88,7 +88,7 @@ func (b *Button) handleEvent(event scene.Event) scene.EventResult {
 	if !ok {
 		return scene.EventResult{}
 	}
-	bindings := b.keys
+	bindings := b.keys.current
 	if bindings == nil {
 		bindings = activationKeys()
 	}
@@ -100,6 +100,7 @@ func (b *Button) Element() scene.Element {
 	if b == nil {
 		return scene.Element{}
 	}
+	b.keys.attach(b.element, &b.matcher)
 	return b.element
 }
 

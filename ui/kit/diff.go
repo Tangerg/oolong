@@ -50,7 +50,7 @@ type DiffConfig struct {
 func NewDiff(config DiffConfig) *Diff {
 	d := &Diff{
 		theme:   config.Theme,
-		glyphs:  config.Glyphs,
+		glyphs:  config.Glyphs.clone(),
 		numbers: config.Numbers,
 	}
 	d.SetHunks(config.Hunks)
@@ -92,12 +92,11 @@ func (d *Diff) SetTheme(theme Theme) {
 	d.invalidate()
 }
 
-// SetGlyphs changes the characters used between hunks and beside continuation rows.
 func (d *Diff) SetGlyphs(glyphs Glyphs) {
 	if d == nil {
 		return
 	}
-	d.glyphs = glyphs
+	d.glyphs = glyphs.clone()
 	d.invalidate()
 }
 

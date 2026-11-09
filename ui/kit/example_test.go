@@ -47,13 +47,13 @@ func ExampleComposer() {
 	keys := base.DefaultEditorKeys()
 	keys.Bind("send", input.Chord{Code: input.Enter})
 
-	c := kit.Composer{
+	c := kit.NewComposer(kit.ComposerConfig{
 		Prompt: "› ",
 		Hints:  []keymap.Action{"send"},
-	}
-	c.Controller().Placeholder = "Ask something"
-	c.Controller().Keys = keys
-	showWidget(scenes, 28, c.HeightForWidth(28), &c)
+	})
+	c.Controller().SetPlaceholder("Ask something")
+	c.Controller().SetKeys(keys)
+	showWidget(scenes, 28, c.HeightForWidth(28), c)
 
 	// Output:
 	// |› Ask something             |
@@ -65,7 +65,7 @@ func ExampleComposer_typing() {
 	defer scenes.Close()
 
 	var c kit.Composer
-	c.Prompt = "› "
+	c.SetPrompt("› ")
 	for _, r := range "hello" {
 		scenes.Mount(&c).Handle(input.Key{Code: input.Character, Rune: r})
 	}

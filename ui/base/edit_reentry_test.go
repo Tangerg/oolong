@@ -22,7 +22,7 @@ func TestCutCannotDeleteASelectionChangedDuringCopy(t *testing.T) {
 			e.SetText("first second")
 			e.SelectAll()
 			copied := ""
-			e.Clipboard = callbackClipboard{copy: func(text string) bool {
+			e.SetClipboard(callbackClipboard{copy: func(text string) bool {
 				copied = text
 				if change == "content" {
 					e.SetText("replacement")
@@ -31,7 +31,7 @@ func TestCutCannotDeleteASelectionChangedDuringCopy(t *testing.T) {
 					e.SetCursor(0, len("first"))
 				}
 				return true
-			}}
+			}})
 			if e.Cut() {
 				t.Fatal("cut deleted a selection that was not copied")
 			}

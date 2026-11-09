@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Tangerg/oolong/ui/core/ansi"
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
@@ -28,9 +29,6 @@ const (
 
 	pasteOn  = "\x1b[?2004h"
 	pasteOff = "\x1b[?2004l"
-
-	cursorDefault = "\x1b[0 q"
-	cursorShow    = "\x1b[?25h"
 )
 
 // KeyboardCompatible is the portable keyboard enhancement set. It makes modified
@@ -53,6 +51,7 @@ type Modes struct {
 	focus           bool
 	keyboard        input.KeyboardFeatures
 	observeKeyboard bool
+	restoreCursor   string
 }
 
 // Modes includes keyboard observation in acquisition for both local and remote
@@ -70,6 +69,7 @@ func (c Config) Modes(lookup func(string) (string, bool)) Modes {
 		focus:           c.Features.Focus,
 		keyboard:        keyboard,
 		observeKeyboard: keyboard != 0 || c.Features.Probe,
+		restoreCursor:   c.RestoreCursor.Sequence(),
 	}
 }
 
@@ -152,8 +152,8 @@ func (m Modes) Enter() string {
 }
 
 // Leave is what to write to give the terminal back: every mode that was turned on,
-// turned off in the opposite order, and then the cursor restored and shown, because
-// a frame may have changed its shape or hidden it.
+// turned off in the opposite order, followed by the chosen cursor restoration
+// target and visibility. The zero target is a protocol reset, not a saved shape.
 func (m Modes) Leave() string {
 	seq := m.sequence()
 	var b strings.Builder
@@ -162,7 +162,11 @@ func (m Modes) Leave() string {
 			b.WriteString(mode.off)
 		}
 	}
-	b.WriteString(cursorDefault)
-	b.WriteString(cursorShow)
+	restore := m.restoreCursor
+	if restore == "" {
+		restore = ansi.CursorReset.Sequence()
+	}
+	b.WriteString(restore)
+	b.WriteString(ansi.ShowCursor)
 	return b.String()
 }

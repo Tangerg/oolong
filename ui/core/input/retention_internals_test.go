@@ -12,7 +12,7 @@ func TestParserReleasesTheConsumedReadBufferBehindAPendingTail(t *testing.T) {
 	parser.buffer(append(bytes.Repeat([]byte{'x'}, 4096), esc), time.Time{})
 	sourceStart := uintptr(unsafe.Pointer(unsafe.SliceData(parser.buf))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	sourceEnd := sourceStart + uintptr(len(parser.buf))
-	parser.drain(false)
+	parser.drain(inputAvailable)
 	if len(parser.buf) != 1 || parser.buf[0] != esc {
 		t.Fatalf("pending bytes = %q, want one escape", parser.buf)
 	}

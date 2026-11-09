@@ -1,11 +1,13 @@
 package term
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/ansi"
 	"github.com/Tangerg/oolong/ui/core/deadline"
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -89,31 +91,37 @@ type answers struct {
 	// the same as which were asked for.
 	keyboard    input.KeyboardFeatures
 	hasKeyboard bool
+	cursor      ansi.CursorStyle
+	hasCursor   bool
 }
 
-// Capability discovery is optional: write failure, silence, and partial replies
-// retain the session's unprobed defaults instead of preventing startup.
-func (p *probe) run() answers {
-	var got answers
+// Missing replies leave capabilities unknown. A transport failure cannot safely
+// become an unprobed session: a query prefix may still frame subsequent output.
+func (p *probe) run() (got answers, err error) {
 	// One budget for the whole exchange, held over the transport as well as the wait.
-	if err := p.out.SetWriteDeadline(p.deadline); err != nil {
-		return got
+	if deadlineErr := p.out.SetWriteDeadline(p.deadline); deadlineErr != nil {
+		return got, deadlineErr
 	}
-	defer func() { _ = p.out.SetWriteDeadline(time.Time{}) }()
+	defer func() { err = errors.Join(err, p.out.SetWriteDeadline(time.Time{})) }()
 	// Query correlation shares the nonwrapping graphics sequence; a=q avoids
 	// retaining or replacing an image while testing the direct PNG path.
 	id, err := nextGraphicsRequestNumber()
 	if err != nil {
-		return got
+		return got, err
 	}
 	p.graphicsQueryID = id
 	var query strings.Builder
-	if err := graphics.QueryPNG(&query, p.graphicsQueryID); err != nil {
-		return got
+	if queryErr := graphics.QueryPNG(&query, p.graphicsQueryID); queryErr != nil {
+		return got, queryErr
 	}
-	if _, err := p.out.WriteString(colorQuery(backgroundCommand) + colorQuery(foregroundCommand) + queryVersion +
-		queryDeviceVersion + query.String() + queryAttributes); err != nil {
-		return got
+	sequence := colorQuery(backgroundCommand) + colorQuery(foregroundCommand) + queryVersion +
+		queryDeviceVersion + ansi.QueryCursorStyle + query.String() + queryAttributes
+	written, err := p.out.WriteString(sequence)
+	if err != nil {
+		return got, err
+	}
+	if written != len(sequence) {
+		return got, io.ErrShortWrite
 	}
 
 	// The wait ends when the attributes arrive, because they were sent last. What is
@@ -131,20 +139,20 @@ func (p *probe) run() answers {
 		select {
 		case result := <-p.raw:
 			if !p.read(result, &got) {
-				return got
+				return got, nil
 			}
 		case <-due.Channel():
 			if !p.drainRaw(&got) {
-				return got
+				return got, nil
 			}
 			for _, ev := range p.stream.Expire(time.Now()) {
 				p.take(ev, &got)
 			}
 		case <-timer.C:
-			return got
+			return got, nil
 		}
 	}
-	return got
+	return got, nil
 }
 
 func (p *probe) read(result readResult, got *answers) bool {
@@ -193,6 +201,12 @@ func (p *probe) take(ev input.Event, got *answers) {
 		// to the program rather than to the terminal, so it is passed on.
 		p.early = append(p.early, ev)
 	case input.DCS:
+		if style, ok := ansi.ParseCursorStyleReply(ev.Body); ok {
+			if !got.hasCursor {
+				got.cursor, got.hasCursor = style, true
+			}
+			return
+		}
 		if name, found := strings.CutPrefix(ev.Body, ">|"); found {
 			got.name, got.hasName = name, true
 			return

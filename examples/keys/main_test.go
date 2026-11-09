@@ -35,7 +35,8 @@ func TestExactAndLongerSequencesBothWork(t *testing.T) {
 }
 
 func TestHelpReadsTheCurrentBindingsAndTimeout(t *testing.T) {
-	bindings := &keymap.Map{Timeout: 750 * time.Millisecond}
+	bindings := new(keymap.Map)
+	bindings.SetTimeout(750 * time.Millisecond)
 	bindings.Bind(next, input.Chord{Rune: 'j'})
 	bindings.Bind(top, input.Chord{Rune: 'j'}, input.Chord{Rune: 'j'})
 	bindings.Bind(quit, input.Chord{Rune: 'x'})

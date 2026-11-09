@@ -43,7 +43,7 @@ func TestPromptActionsUseTheCurrentEditorKeyMap(t *testing.T) {
 	keys.Bind(previousPrompt, input.Ctrl.Rune('p'))
 	keys.Bind(nextPrompt, input.Ctrl.Rune('n'))
 	keys.Bind(quitPrompt, input.Ctrl.Rune('q'))
-	editor.Keys = keys
+	editor.SetKeys(keys)
 	for _, obsolete := range []input.Key{
 		{Code: input.Enter},
 		{Code: input.Up},
@@ -76,7 +76,7 @@ func TestCompletionPrecedesPromptNavigationBindings(t *testing.T) {
 	p := newPrompt(nil)
 	p.history.Add(draft{text: "earlier"})
 	editor := p.composer.Controller()
-	editor.Keys.Bind(previousPrompt, input.Chord{Code: input.Tab})
+	editor.Keys().Bind(previousPrompt, input.Chord{Code: input.Tab})
 	editor.SetText("@rea")
 	if !p.completion.Open() {
 		t.Fatal("reference completion did not open")
@@ -103,7 +103,7 @@ func TestReboundPromptHintsAndActionsAgreeInTheScene(t *testing.T) {
 			keys.Bind(previousPrompt, input.Ctrl.Rune('p'))
 			keys.Bind(nextPrompt, input.Ctrl.Rune('n'))
 			keys.Bind(quitPrompt, input.Ctrl.Rune('q'))
-			p.composer.Controller().Keys = keys
+			p.composer.Controller().SetKeys(keys)
 			return p.Element(), nil
 		}})
 		if err == nil {

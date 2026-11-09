@@ -117,7 +117,7 @@ func Transmit(w io.Writer, id uint32, png []byte) (Image, error) {
 	if id == 0 {
 		return Image{}, errImageIdentity
 	}
-	size, err := transmit(w, fmt.Sprintf("i=%d,q=%d", id, kittySuppressReplies), png)
+	size, err := transmit(w, fmt.Sprintf(imageIDField+"=%d,"+quietField+"=%d", id, kittySuppressReplies), png)
 	if err != nil {
 		return Image{}, err
 	}
@@ -130,7 +130,7 @@ func Upload(w io.Writer, number uint32, png []byte) (image.Point, error) {
 	if number == 0 {
 		return image.Point{}, errImageIdentity
 	}
-	return transmit(w, fmt.Sprintf("I=%d", number), png)
+	return transmit(w, fmt.Sprintf(imageNumberField+"=%d", number), png)
 }
 
 func transmit(w io.Writer, identity string, png []byte) (image.Point, error) {
@@ -148,9 +148,9 @@ func transmit(w io.Writer, identity string, png []byte) (image.Point, error) {
 		chunk := base64.StdEncoding.EncodeToString(png[offset:end])
 		var sequence string
 		if offset == 0 {
-			sequence = fmt.Sprintf("\x1b_Ga=t,f=%d,%s,m=%d;%s\x1b\\", kittyPNG, identity, more, chunk)
+			sequence = fmt.Sprintf(transmitFormat, kittyPNG, identity, more, chunk)
 		} else {
-			sequence = fmt.Sprintf("\x1b_Gm=%d;%s\x1b\\", more, chunk)
+			sequence = fmt.Sprintf(continueFormat, more, chunk)
 		}
 		if err := writeString(w, sequence); err != nil {
 			return image.Point{}, err
@@ -216,9 +216,9 @@ func (p ImagePlacement) Paint(w io.Writer, size image.Point, layer int) error {
 		if !validKittyPoint(bounds.Min) || !validKittyPoint(bounds.Size()) {
 			return fmt.Errorf("graphics: source rectangle %v exceeds Kitty coordinate range: %w", bounds, errors.ErrUnsupported)
 		}
-		crop = fmt.Sprintf(",x=%d,y=%d,w=%d,h=%d", bounds.Min.X, bounds.Min.Y, bounds.Dx(), bounds.Dy())
+		crop = fmt.Sprintf(cropFormat, bounds.Min.X, bounds.Min.Y, bounds.Dx(), bounds.Dy())
 	}
-	return writeString(w, fmt.Sprintf("\x1b_Ga=p,i=%d,p=%d%s,c=%d,r=%d,z=%d,C=%d,q=%d;\x1b\\", p.Image.ID, p.ID, crop, size.X, size.Y, layer, kittyPreserveCursor, kittySuppressReplies))
+	return writeString(w, fmt.Sprintf(placeFormat, p.Image.ID, p.ID, crop, size.X, size.Y, layer, kittyPreserveCursor, kittySuppressReplies))
 }
 
 func validKittyPoint(point image.Point) bool {
@@ -233,7 +233,7 @@ func (p ImagePlacement) Erase(w io.Writer) error {
 	if p.ID == 0 {
 		return errPlacementIdentity
 	}
-	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=%d,q=%d;\x1b\\", p.Image.ID, p.ID, kittySuppressReplies))
+	return writeString(w, fmt.Sprintf(eraseFormat, p.Image.ID, p.ID, kittySuppressReplies))
 }
 
 // Release destroys transmitted data and all placements. The handle must not be
@@ -242,7 +242,7 @@ func (i Image) Release(w io.Writer) error {
 	if i.ID == 0 {
 		return errImageIdentity
 	}
-	return writeString(w, fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=%d;\x1b\\", i.ID, kittySuppressReplies))
+	return writeString(w, fmt.Sprintf(releaseFormat, i.ID, kittySuppressReplies))
 }
 
 // Inline is limited to Printed output because iTerm2 supplies no reusable

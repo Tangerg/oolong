@@ -26,11 +26,11 @@ type List[T any] struct {
 	itemsID *byte
 	// Indices distinguish equal items for row appearance. Callbacks run during drawing
 	// and must be observationally pure.
-	Row func(v grid.View, at int, item T, selected bool)
+	rowPainter func(v grid.View, at int, item T, selected bool)
 	// Nil uses [DefaultListKeys].
-	Keys *keymap.Map
+	keys keyBinding
 	// Wrap enables movement across the ends; the default stops at each end.
-	Wrap bool
+	wrap bool
 
 	revision        uint64
 	contentRevision uint64
@@ -41,6 +41,19 @@ type List[T any] struct {
 	presentation scene.Snapshot[listPresentation]
 	pointer      Pointer
 	matcher      keymap.Matcher
+}
+
+type ListConfig[T any] struct {
+	Items []T
+	Row   func(grid.View, int, T, bool)
+	Keys  *keymap.Map
+	Wrap  bool
+}
+
+func NewList[T any](config ListConfig[T]) *List[T] {
+	l := &List[T]{rowPainter: config.Row, keys: keyBinding{current: config.Keys}, wrap: config.Wrap}
+	l.SetItems(config.Items)
+	return l
 }
 
 // Selected is the index under the cursor, or -1 for an empty list.
@@ -78,7 +91,7 @@ func (l *List[T]) Move(n int) {
 	if len(l.items) == 0 {
 		return
 	}
-	l.Select(moveIndex(l.selected, n, len(l.items), l.Wrap))
+	l.Select(moveIndex(l.selected, n, len(l.items), l.wrap))
 }
 
 // SetItems copies the replacement collection and clamps selection by index. Pointer
@@ -153,7 +166,7 @@ func (l *List[T]) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := l.matcher.Handle(l.keys(), key, keyboardReceipt(&l.element), l.Do)
+	_, handled := l.matcher.Handle(l.resolvedKeys(), key, keyboardReceipt(&l.element), l.Do)
 	return handled
 }
 
@@ -200,7 +213,7 @@ func (l *List[T]) target(action keymap.Action, from int) (int, bool) {
 	if len(l.items) == 0 {
 		return 0, true
 	}
-	return moveIndex(from, delta, len(l.items), l.Wrap), true
+	return moveIndex(from, delta, len(l.items), l.wrap), true
 }
 
 func (l *List[T]) mouse(ev input.Mouse, choose func(int)) bool {
@@ -241,9 +254,9 @@ func (l *List[T]) mouse(ev input.Mouse, choose func(int)) bool {
 	return true
 }
 
-func (l *List[T]) keys() *keymap.Map {
-	if l.Keys != nil {
-		return l.Keys
+func (l *List[T]) resolvedKeys() *keymap.Map {
+	if l.keys.current != nil {
+		return l.keys.current
 	}
 	return listKeys()
 }
@@ -263,7 +276,7 @@ func (l *List[T]) Focused() bool { return l.element.Focused() }
 func (l *List[T]) Scroll() *Scroll { return &l.scroll }
 
 func (l *List[T]) Draw(v scene.Frame) {
-	l.DrawRows(v, l.Row)
+	l.DrawRows(v, l.rowPainter)
 }
 
 // DrawRows paints visible items with a frame-local renderer while List retains
@@ -324,4 +337,31 @@ func (l *List[T]) Subscribe(callback func()) func() {
 
 func (l *List[T]) notifyChange() {
 	l.changes.publish(struct{}{}, l.element.Invalidate)
+}
+
+func (l *List[T]) Row() func(grid.View, int, T, bool) { return l.rowPainter }
+
+func (l *List[T]) SetRow(value func(grid.View, int, T, bool)) {
+	element := l.Element()
+	requireMutable(element)
+	l.rowPainter = value
+	element.Invalidate()
+}
+
+func (l *List[T]) Wrap() bool { return l.wrap }
+
+func (l *List[T]) SetWrap(value bool) {
+	element := l.Element()
+	requireMutable(element)
+	if l.wrap == value {
+		return
+	}
+	l.wrap = value
+	element.Invalidate()
+}
+
+func (l *List[T]) Keys() *keymap.Map { return l.keys.current }
+
+func (l *List[T]) SetKeys(keys *keymap.Map) {
+	l.keys.set(l.Element(), &l.matcher, keys)
 }

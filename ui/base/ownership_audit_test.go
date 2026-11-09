@@ -67,8 +67,8 @@ func TestClippedFieldsRejectInvisiblePresses(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	for name, field := range map[string]base.Field{
-		"text":    &base.Text{Label: "Label"},
-		"confirm": &base.Confirm{Label: "Label"},
+		"text":    base.NewText(base.TextConfig{Label: "Label"}),
+		"confirm": base.NewConfirm(base.ConfirmConfig{Label: "Label"}),
 		"select":  selectWith(base.Options("a", "b")),
 		"multi":   multiWith(base.Options("a", "b")),
 	} {

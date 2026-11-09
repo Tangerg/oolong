@@ -140,7 +140,7 @@ func TestTranscriptPinnedHeaderSharesContentAndSelectionCoordinates(t *testing.T
 	skin, root := transcriptSkin(t, kit.TranscriptConfig{Theme: theme}, []string{"question"}, []string{"one", "two", "three", "four", "five"})
 	model := skin.Controller()
 	model.Sticky().Add(model.FirstBlock())
-	model.Sticky().Gap = 1
+	model.Sticky().SetGap(1)
 	model.Scroll().ToTop()
 	transcriptPaint(t, root, 20, 4, 1)
 	a, _ := model.Layout().Hit(base.Point{Row: 0, Col: 0})
@@ -166,7 +166,7 @@ func TestTranscriptPinnedHeaderRepeatsItsRulePattern(t *testing.T) {
 		[]string{"header"}, []string{"one", "two", "three", "four", "five"})
 	model := skin.Controller()
 	model.Sticky().Add(model.FirstBlock())
-	model.Sticky().Gap = 1
+	model.Sticky().SetGap(1)
 	model.Scroll().ToTop()
 	transcriptPaint(t, root, 6, 4, 1)
 	model.Scroll().By(1)

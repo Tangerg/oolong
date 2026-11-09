@@ -27,16 +27,16 @@ type MultiSelect[T any] struct {
 	noCopy noCopy
 
 	field
-	Label string
+	label string
 	// Rows caps how many options are shown at once. Zero shows them all.
-	Rows int
+	rowLimit int
 	// Keys say which keystrokes move and take. Nil reads through
 	// [DefaultMultiSelectKeys].
-	Keys *keymap.Map
+	keys keyBinding
 
 	// Row optionally draws a one-row choice with its cursor and taken states.
 	// Nil uses Look's default choice row. Like Draw, the callback must be pure.
-	Row func(grid.View, Option[T], bool, bool, Look)
+	rowPainter func(grid.View, Option[T], bool, bool, Look)
 
 	list List[Option[T]]
 	// Each selected value is represented by its first equivalent option index.
@@ -48,7 +48,7 @@ type MultiSelect[T any] struct {
 	revision     uint64
 }
 
-func (m *MultiSelect[T]) Prompt() string { return m.Label }
+func (m *MultiSelect[T]) Prompt() string { return m.label }
 
 // SetOptions replaces what is on offer. MultiSelect owns the slice and preserves
 // each taken identity that remains available, wherever it moved. The replacement
@@ -165,10 +165,10 @@ func (m *MultiSelect[T]) toggle() bool {
 
 func (m *MultiSelect[T]) HeightForWidth(int) int {
 	rows := len(m.list.items)
-	if m.Rows > 0 {
-		rows = min(rows, m.Rows)
+	if m.rowLimit > 0 {
+		rows = min(rows, m.rowLimit)
 	}
-	return layout.Sum(max(rows, 1), m.rows(m.Label))
+	return layout.Sum(max(rows, 1), m.rows(m.label))
 }
 
 func (m *MultiSelect[T]) Draw(v scene.Frame) {
@@ -176,14 +176,14 @@ func (m *MultiSelect[T]) Draw(v scene.Frame) {
 }
 
 func (m *MultiSelect[T]) DrawWith(v scene.Frame, look Look) {
-	m.list.DrawRows(m.frame(v, m.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
+	m.list.DrawRows(m.frame(v, m.label, look), func(v grid.View, _ int, option Option[T], under bool) {
 		chosen := readProjection(m.element, func() bool {
 			return slices.ContainsFunc(m.taken, func(at int) bool {
 				return m.sameIdentity(m.list.items[at].Value, option.Value)
 			})
 		})
-		if m.Row != nil {
-			m.Row(v, option, under, chosen, look)
+		if m.rowPainter != nil {
+			m.rowPainter(v, option, under, chosen, look)
 		} else {
 			look.choice(v, option.Label, under, chosen)
 		}
@@ -193,7 +193,7 @@ func (m *MultiSelect[T]) DrawWith(v scene.Frame, look Look) {
 func (m *MultiSelect[T]) Handle(ev input.Event) bool {
 	requireMutable(m.element)
 	if key, ok := ev.(input.Key); ok {
-		_, handled := m.matcher.Handle(m.keys(), key, keyboardReceipt(&m.element), m.Do)
+		_, handled := m.matcher.Handle(m.resolvedKeys(), key, keyboardReceipt(&m.element), m.Do)
 		return handled
 	}
 	mouse, ok := ev.(input.Mouse)
@@ -231,7 +231,7 @@ func (m *MultiSelect[T]) checkAnswer() error {
 
 func (m *MultiSelect[T]) focusChanged(has bool) {
 	change := func() {
-		m.focus(has, m.list.focusChanged, nil, m.Validate)
+		m.focus(has, m.list.focusChanged, m.Validate)
 	}
 	if has {
 		change()
@@ -260,9 +260,9 @@ func (m *MultiSelect[T]) store(taken []int) {
 	m.element.Invalidate()
 }
 
-func (m *MultiSelect[T]) keys() *keymap.Map {
-	if m.Keys != nil {
-		return m.Keys
+func (m *MultiSelect[T]) resolvedKeys() *keymap.Map {
+	if m.keys.current != nil {
+		return m.keys.current
 	}
 	return multiSelectKeys()
 }
@@ -271,3 +271,46 @@ func (m *MultiSelect[T]) keys() *keymap.Map {
 // collection advances it even when the identities match; cursor movement alone
 // does not replace an answer.
 func (m *MultiSelect[T]) Revision() uint64 { return m.revision }
+
+func (m *MultiSelect[T]) Label() string { return m.label }
+
+func (m *MultiSelect[T]) SetLabel(value string) {
+	element := m.Element()
+	requireMutable(element)
+	if m.label == value {
+		return
+	}
+	m.label = strings.Clone(value)
+	element.Invalidate()
+}
+
+func (m *MultiSelect[T]) Rows() int { return m.rowLimit }
+
+// SetRows panics for a negative limit. Zero permits all options to contribute to height.
+func (m *MultiSelect[T]) SetRows(value int) {
+	element := m.Element()
+	requireMutable(element)
+	if value < 0 {
+		panic("base: Rows cannot be negative")
+	}
+	if m.rowLimit == value {
+		return
+	}
+	m.rowLimit = value
+	element.Invalidate()
+}
+
+func (m *MultiSelect[T]) Row() func(grid.View, Option[T], bool, bool, Look) { return m.rowPainter }
+
+func (m *MultiSelect[T]) SetRow(value func(grid.View, Option[T], bool, bool, Look)) {
+	element := m.Element()
+	requireMutable(element)
+	m.rowPainter = value
+	element.Invalidate()
+}
+
+func (m *MultiSelect[T]) Keys() *keymap.Map { return m.keys.current }
+
+func (m *MultiSelect[T]) SetKeys(keys *keymap.Map) {
+	m.keys.set(m.Element(), &m.matcher, keys)
+}

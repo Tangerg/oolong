@@ -29,7 +29,7 @@ func TestFormComposesOneControllerWithThemeAndHelp(t *testing.T) {
 			t.Fatalf("missing %q in %q", want, drawn)
 		}
 	}
-	if owner.Keys != nil {
+	if owner.Keys() != nil {
 		t.Fatal("drawing hints materialized default behavior configuration")
 	}
 }
@@ -42,7 +42,7 @@ func TestFormAppearanceDoesNotMutateFieldsConfiguration(t *testing.T) {
 	form := kit.NewForm(kit.FormConfig{Theme: kit.Dark(), Glyphs: kit.Unicode(), Fields: []base.Field{field}})
 	revision := field.Revision()
 	_ = paintWidget(scenes, 20, form.HeightForWidth(20), form)
-	if field.Text() != "answer" || field.Placeholder != "original" || field.Revision() != revision || field.Keys != nil {
+	if field.Text() != "answer" || field.Placeholder() != "original" || field.Revision() != revision || field.Keys() != nil {
 		t.Fatal("appearance changed owner configuration")
 	}
 }

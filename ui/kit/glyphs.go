@@ -1,6 +1,10 @@
 package kit
 
-import "github.com/Tangerg/oolong/ui/core/text"
+import (
+	"slices"
+
+	"github.com/Tangerg/oolong/ui/core/text"
+)
 
 // Glyphs are the characters a look draws its furniture with.
 //
@@ -147,3 +151,12 @@ func (b Border) drawn() bool { return b != Border{} }
 // from the glyphs this machine happens to be able to draw, and would be the wrong
 // answer everywhere else — see [GlyphsFor]. A border comes from the set a widget was
 // given, which is why a widget that draws one takes a set.
+
+// Mounted appearances own their configuration; caller slices must not bypass
+// scene mutation checks through either construction inputs or returned snapshots.
+func (g Glyphs) clone() Glyphs {
+	g.BarSteps = slices.Clone(g.BarSteps)
+	g.Sparkline = slices.Clone(g.Sparkline)
+	g.Spinner = slices.Clone(g.Spinner)
+	return g
+}

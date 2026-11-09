@@ -12,7 +12,7 @@ import (
 var ErrReplyUnavailable = errors.New("base: reply unavailable")
 
 func (s *Select[T]) Ask() string {
-	return s.Label + choices(s.list.items)
+	return s.label + choices(s.list.items)
 }
 
 // Reply takes a number or one of the labels.
@@ -28,7 +28,7 @@ func (s *Select[T]) Reply(said string) error {
 }
 
 func (m *MultiSelect[T]) Ask() string {
-	return m.Label + choices(m.list.items) + " — several, separated by commas"
+	return m.label + choices(m.list.items) + " — several, separated by commas"
 }
 
 // Reply takes numbers or labels, separated by commas. Nothing at all takes nothing,

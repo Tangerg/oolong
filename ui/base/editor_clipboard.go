@@ -36,7 +36,7 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 	if err := ctx.Err(); err != nil {
 		return context.Cause(ctx)
 	}
-	if e.Clipboard == nil {
+	if e.clipboard == nil {
 		return errors.ErrUnsupported
 	}
 	element := e.element
@@ -47,7 +47,7 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 		attachment: element.Attachment(), session: e.document(), revision: e.Revision(),
 		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor, selecting: e.selecting,
 	}
-	return e.Clipboard.Read(ctx, func(value string, err error) {
+	return e.clipboard.Read(ctx, func(value string, err error) {
 		if ctx.Err() != nil {
 			return
 		}

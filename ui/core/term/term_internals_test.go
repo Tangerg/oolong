@@ -19,6 +19,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/ansi"
 	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/graphics"
 
@@ -291,10 +292,10 @@ func TestAModeNotAskedForIsNeverTouched(t *testing.T) {
 func TestLeavingAlwaysShowsTheCursor(t *testing.T) {
 	// A frame may have hidden it or changed its shape. Either state leaking into the
 	// shell afterwards makes the terminal look broken.
-	if !strings.Contains(Modes{}.Leave(), cursorDefault) {
-		t.Error("leaving does not restore the cursor's default shape")
+	if !strings.Contains(Modes{}.Leave(), ansi.CursorReset.Sequence()) {
+		t.Error("leaving does not apply the configured protocol reset")
 	}
-	if !strings.HasSuffix(Modes{}.Leave(), cursorShow) {
+	if !strings.HasSuffix(Modes{}.Leave(), ansi.ShowCursor) {
 		t.Error("leaving does not end by showing the cursor")
 	}
 }

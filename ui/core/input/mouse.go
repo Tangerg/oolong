@@ -51,9 +51,9 @@ type mouseReport struct {
 
 // Recognized mouse payload is never Escape-ambiguous. At EOF discard an
 // incomplete report instead of interpreting its fields as keys.
-func (p *Parser) advanceX10Mouse(final bool) (Event, bool) {
+func (p *Parser) advanceX10Mouse(trigger parseTrigger) (Event, bool) {
 	if len(p.buf) < mouseReportFields {
-		if !final {
+		if trigger != inputEnded {
 			return nil, false
 		}
 		p.take(len(p.buf))

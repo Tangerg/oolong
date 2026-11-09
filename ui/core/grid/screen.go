@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"image"
 	"io"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
 type CursorShape uint8
 
 const (
-	// CursorDefault asks the terminal for its configured default shape. Blink is
-	// ignored. It is the zero value and the shape restored when a session ends.
-	CursorDefault CursorShape = iota
+	// CursorReset requests the terminal-specific DECSCUSR reset. Blink is ignored.
+	// This is a blinking block on xterm, not the user's configured or entry shape.
+	CursorReset CursorShape = iota
 	CursorBlock
 	CursorUnderline
 	CursorBar
@@ -28,31 +30,33 @@ func (s CursorShape) Validate() error {
 }
 
 // CursorStyle is how the terminal's own cursor is drawn. The zero value uses the
-// terminal's default. Blink applies to Block, Underline and Bar.
+// protocol reset. Blink applies to Block, Underline and Bar.
 type CursorStyle struct {
 	Shape CursorShape
 	Blink bool
 }
 
-func (s CursorStyle) sequence() string {
+// Sequence panics for an invalid Shape rather than encoding it as a protocol
+// reset with unrelated terminal-specific meaning.
+func (s CursorStyle) Sequence() string {
 	switch s.Shape {
-	case CursorDefault:
-		return defaultCursor
+	case CursorReset:
+		return ansi.CursorReset.Sequence()
 	case CursorBlock:
 		if s.Blink {
-			return blinkingBlockCursor
+			return ansi.CursorBlinkingBlock.Sequence()
 		}
-		return steadyBlockCursor
+		return ansi.CursorSteadyBlock.Sequence()
 	case CursorUnderline:
 		if s.Blink {
-			return blinkingUnderlineCursor
+			return ansi.CursorBlinkingUnderline.Sequence()
 		}
-		return steadyUnderlineCursor
+		return ansi.CursorSteadyUnderline.Sequence()
 	case CursorBar:
 		if s.Blink {
-			return blinkingBarCursor
+			return ansi.CursorBlinkingBar.Sequence()
 		}
-		return steadyBarCursor
+		return ansi.CursorSteadyBar.Sequence()
 	}
 	panic(ErrInvalidCursorShape)
 }
@@ -61,7 +65,7 @@ func (s CursorStyle) normalized() CursorStyle {
 	if err := s.Shape.Validate(); err != nil {
 		panic(err)
 	}
-	if s.Shape == CursorDefault {
+	if s.Shape == CursorReset {
 		s.Blink = false
 	}
 	return s
@@ -326,24 +330,24 @@ func (c *cursorState) emit(p *painter, next Cursor, cellsChanged bool) {
 	if next.Visible {
 		style := next.Style
 		if !c.styleKnown || style != c.style {
-			p.out = append(p.out, style.sequence()...)
+			p.out = append(p.out, style.Sequence()...)
 		}
 	}
 	if !c.known {
 		if next.Visible {
 			p.moveTo(next.Pos.X, next.Pos.Y)
-			p.out = append(p.out, showCursor...)
+			p.out = append(p.out, ansi.ShowCursor...)
 			return
 		}
-		p.out = append(p.out, hideCursor...)
+		p.out = append(p.out, ansi.HideCursor...)
 		return
 	}
 	switch {
 	case next.Visible && !c.visible:
 		p.moveTo(next.Pos.X, next.Pos.Y)
-		p.out = append(p.out, showCursor...)
+		p.out = append(p.out, ansi.ShowCursor...)
 	case !next.Visible && c.visible:
-		p.out = append(p.out, hideCursor...)
+		p.out = append(p.out, ansi.HideCursor...)
 	case next.Visible && (next.Pos != c.pos || cellsChanged):
 		// Writing cells left the terminal's cursor wherever the last glyph
 		// landed, so an unmoved cursor still has to be re-anchored.
@@ -351,15 +355,3 @@ func (c *cursorState) emit(p *painter, next Cursor, cellsChanged bool) {
 		p.moveTo(next.Pos.X, next.Pos.Y)
 	}
 }
-
-const (
-	showCursor              = "\x1b[?25h"
-	hideCursor              = "\x1b[?25l"
-	defaultCursor           = "\x1b[0 q"
-	blinkingBlockCursor     = "\x1b[1 q"
-	steadyBlockCursor       = "\x1b[2 q"
-	blinkingUnderlineCursor = "\x1b[3 q"
-	steadyUnderlineCursor   = "\x1b[4 q"
-	blinkingBarCursor       = "\x1b[5 q"
-	steadyBarCursor         = "\x1b[6 q"
-)

@@ -67,10 +67,10 @@ type Tree[T any] struct {
 	// Row draws one row. at is where it sits among the rows on screen and selected
 	// says whether it is the one under the cursor. It runs during drawing and must be
 	// an observationally pure projection; state changes belong in event handlers.
-	Row func(v grid.View, at int, row Shown[T], selected bool)
+	rowPainter func(v grid.View, at int, row Shown[T], selected bool)
 	// Keys say which keystrokes produce which of the actions the tree answers to —
 	// see [Tree.Do]. Nil reads through [DefaultTreeKeys].
-	Keys *keymap.Map
+	keys keyBinding
 
 	list List[Shown[T]]
 	open map[uint64]bool
@@ -235,7 +235,7 @@ func (t *Tree[T]) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := t.matcher.Handle(t.keys(), key, keyboardReceipt(&t.element), t.Do)
+	_, handled := t.matcher.Handle(t.resolvedKeys(), key, keyboardReceipt(&t.element), t.Do)
 	return handled
 }
 
@@ -310,7 +310,7 @@ func (t *Tree[T]) HeightForWidth(int) int { return t.list.Len() }
 func (t *Tree[T]) Scroll() *Scroll { return t.list.Scroll() }
 
 func (t *Tree[T]) Draw(v scene.Frame) {
-	t.DrawRows(v, t.Row)
+	t.DrawRows(v, t.rowPainter)
 }
 
 // DrawRows paints the rows that fit with draw.
@@ -467,12 +467,27 @@ func exportNodes[T any](nodes []treeNode[T]) []Node[T] {
 	return exported
 }
 
-func (t *Tree[T]) keys() *keymap.Map {
-	if t.Keys != nil {
-		return t.Keys
+func (t *Tree[T]) resolvedKeys() *keymap.Map {
+	if t.keys.current != nil {
+		return t.keys.current
 	}
 	return treeKeys()
 }
 
 // Subscribe observes the same completed visible collection and selection owned by List.
 func (t *Tree[T]) Subscribe(callback func()) func() { return t.list.Subscribe(callback) }
+
+func (t *Tree[T]) Row() func(grid.View, int, Shown[T], bool) { return t.rowPainter }
+
+func (t *Tree[T]) SetRow(value func(grid.View, int, Shown[T], bool)) {
+	element := t.Element()
+	requireMutable(element)
+	t.rowPainter = value
+	element.Invalidate()
+}
+
+func (t *Tree[T]) Keys() *keymap.Map { return t.keys.current }
+
+func (t *Tree[T]) SetKeys(keys *keymap.Map) {
+	t.keys.set(t.Element(), &t.matcher, keys)
+}

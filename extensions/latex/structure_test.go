@@ -241,7 +241,7 @@ func TestATextArgumentKeepsTheSpacesItWasWritten(t *testing.T) {
 		{`\textbf{hello world}`, "hello world"},
 		{`\textit{hello world}`, "hello world"},
 		{`\texttt{hello world}`, "hello world"},
-		{`\operatorname{lim sup}`, "lim sup"},
+		{`\operatorname{lim\ sup}`, "lim sup"},
 		{`\textbf{a \textit{b c}}`, "a b c"},
 		{`\textbf{one  two}`, "one  two"},
 	} {

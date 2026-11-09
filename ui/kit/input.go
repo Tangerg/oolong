@@ -37,7 +37,7 @@ func NewInput(config InputConfig) *Input {
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	input := &Input{controller: base.NewText(base.TextConfig{Key: config.Key, Label: config.Label, Initial: config.Initial, Placeholder: config.Placeholder, Check: config.Validate, Keys: config.Keys, Clipboard: config.Clipboard}), appearance: look, glyphs: config.Glyphs}
+	input := &Input{controller: base.NewText(base.TextConfig{Key: config.Key, Label: config.Label, Initial: config.Initial, Placeholder: config.Placeholder, Check: config.Validate, Keys: config.Keys, Clipboard: config.Clipboard}), appearance: look, glyphs: config.Glyphs.clone()}
 	if err := input.controller.Element().SetPaint(input.Draw); err != nil {
 		panic(err)
 	}

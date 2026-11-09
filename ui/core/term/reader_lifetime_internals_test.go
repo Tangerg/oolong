@@ -60,7 +60,9 @@ func TestCloseJoinsInputBeforeRestoringTheTerminal(t *testing.T) {
 	// Hold the real input claim before starting the reader. Shutdown must wait
 	// for that owner; a wake request alone cannot transfer its descriptor or modes.
 	tty.handed.mu.Lock()
-	tty.start(Config{})
+	if err := tty.start(Config{}); err != nil {
+		t.Fatal(err)
+	}
 	closed := make(chan error, 1)
 	go func() { closed <- tty.Close() }()
 	<-tty.stop

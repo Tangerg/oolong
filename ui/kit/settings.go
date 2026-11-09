@@ -18,14 +18,14 @@ import (
 type Settings[T any] struct {
 	noCopy     noCopy
 	appearance appearance
-	Glyphs     Glyphs
+	glyphs     Glyphs
 	// Label and Value are the two columns shown for an item. Nil returns an empty
 	// column. Both run during measurement and drawing and must be observationally
 	// pure; Change is the event-side mutation boundary.
-	Label func(T) string
-	Value func(T) string
+	label func(T) string
+	value func(T) string
 	// ValueWidth caps the fitted value column. Zero leaves it uncapped.
-	ValueWidth int
+	valueWidth int
 
 	controller *base.Settings[T]
 }
@@ -56,21 +56,23 @@ type SettingsConfig[T any] struct {
 	ValueWidth int
 }
 
-// NewSettings builds a settings list around one application-owned item slice.
-// It panics when Theme and Scope both declare palette sources, or when its base configuration is invalid.
+// NewSettings panics for negative ValueWidth or competing Theme and Scope
+// palette sources. Its controller owns an item-slice snapshot; item payloads
+// retain their domain ownership.
 func NewSettings[T any](config SettingsConfig[T]) *Settings[T] {
 	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	controller := &base.Settings[T]{Change: config.Change, EditKeys: config.EditKeys}
-	controller.List().Keys = config.Keys
-	controller.List().Wrap = config.Wrap
+	controller := base.NewSettings(base.SettingsConfig[T]{Change: config.Change, EditKeys: config.EditKeys})
+	controller.List().SetKeys(config.Keys)
+	controller.List().SetWrap(config.Wrap)
 	controller.List().SetItems(config.Items)
 	settings := &Settings[T]{
-		appearance: look, Glyphs: config.Glyphs, controller: controller, Label: config.Label,
-		Value: config.Value, ValueWidth: config.ValueWidth,
+		appearance: look, glyphs: config.Glyphs.clone(), controller: controller, label: config.Label,
+		value: config.Value,
 	}
+	settings.SetValueWidth(config.ValueWidth)
 	if err := settings.controller.Element().SetPaint(settings.Draw); err != nil {
 		panic(err)
 	}
@@ -114,7 +116,7 @@ func (s *Settings[T]) table() Table {
 		Theme: s.appearance.palette(),
 		Columns: []Column{
 			{Size: layout.Flex(1).AtLeast(1)},
-			{Align: layout.End, Size: layout.Measured(0, s.ValueWidth)},
+			{Align: layout.End, Size: layout.Measured(0, s.valueWidth)},
 		},
 		Rows: s.controller.List().Len(),
 		Cell: func(row, column int) Cell {
@@ -123,11 +125,11 @@ func (s *Settings[T]) table() Table {
 				return Cell{}
 			}
 			if column == 0 {
-				return LabelCell(Label{Text: project(s.Label, item), Ellipsis: s.Glyphs.Ellipsis})
+				return LabelCell(Label{Text: project(s.label, item), Ellipsis: s.glyphs.Ellipsis})
 			}
 			return LabelCell(Label{
-				Text: project(s.Value, item), Style: s.appearance.palette().Accent,
-				Align: layout.End, Ellipsis: s.Glyphs.Ellipsis,
+				Text: project(s.value, item), Style: s.appearance.palette().Accent,
+				Align: layout.End, Ellipsis: s.glyphs.Ellipsis,
 			})
 		},
 	}
@@ -145,4 +147,68 @@ func (s *Settings[T]) Element() scene.Element {
 		return scene.Element{}
 	}
 	return s.controller.Element()
+}
+
+func (s *Settings[T]) Glyphs() Glyphs { return s.glyphs.clone() }
+
+// SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (s *Settings[T]) SetGlyphs(value Glyphs) {
+	element := s.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	s.glyphs = value.clone()
+	element.Invalidate()
+}
+
+func (s *Settings[T]) Label() func(T) string { return s.label }
+
+// SetLabel panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (s *Settings[T]) SetLabel(value func(T) string) {
+	element := s.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if s.label == nil && value == nil {
+		return
+	}
+	s.label = value
+	element.Invalidate()
+}
+
+func (s *Settings[T]) Value() func(T) string { return s.value }
+
+// SetValue panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (s *Settings[T]) SetValue(value func(T) string) {
+	element := s.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if s.value == nil && value == nil {
+		return
+	}
+	s.value = value
+	element.Invalidate()
+}
+
+func (s *Settings[T]) ValueWidth() int { return s.valueWidth }
+
+// SetValueWidth panics for a negative width or with scene.ErrBusy outside
+// owner mutation, before the retained presentation can change.
+func (s *Settings[T]) SetValueWidth(value int) {
+	element := s.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if value < 0 {
+		panic("kit: ValueWidth must be non-negative")
+	}
+	if s.valueWidth == value {
+		return
+	}
+	s.valueWidth = value
+	element.Invalidate()
 }

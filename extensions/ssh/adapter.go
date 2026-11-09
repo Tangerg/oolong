@@ -137,6 +137,9 @@ func (t *Terminal) Open(cfg term.Config) (*Host, error) {
 }
 
 func (t *terminalBinding) open(cfg term.Config) (*Host, error) {
+	if err := cfg.RestoreCursor.Shape.Validate(); err != nil {
+		return nil, err
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.unavailable {

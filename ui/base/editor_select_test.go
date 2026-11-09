@@ -71,7 +71,7 @@ func TestEditorHonorsExplicitShiftBinding(t *testing.T) {
 	keys := base.DefaultEditorKeys()
 	keys.Bind(base.DeleteForward, input.Shift.With(input.Left))
 	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
-	editor.Keys = keys
+	editor.SetKeys(keys)
 	editor.SetCursor(0, 2)
 	if !editor.Handle(shift(input.Left)) || editor.Text() != "abd" {
 		t.Fatalf("explicit shifted deletion produced %q, want abd", editor.Text())
@@ -82,7 +82,7 @@ func TestEditorShiftPrefixReachesMatcher(t *testing.T) {
 	keys := base.DefaultEditorKeys()
 	keys.Bind(base.SelectAll, input.Shift.With(input.Left), input.Ctrl.Rune('a'))
 	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
-	editor.Keys = keys
+	editor.SetKeys(keys)
 	editor.SetCursor(0, 2)
 	editor.Handle(shift(input.Left))
 	if _, offset := editor.Cursor(); offset != 2 || editor.Selected() != "" {
@@ -99,7 +99,7 @@ func TestEditorSelectionExtensionBelongsToTheAction(t *testing.T) {
 	keys.Unbind(input.Shift.With(input.Left))
 	keys.Bind(base.ExtendLeft, input.Ctrl.Rune('b'))
 	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
-	editor.Keys = keys
+	editor.SetKeys(keys)
 	editor.SetCursor(0, 2)
 	if editor.Handle(shift(input.Left)) {
 		t.Fatal("unbound shifted movement was consumed")
@@ -271,7 +271,7 @@ func TestDeletingWithASelectionTakesTheSelection(t *testing.T) {
 func TestEditorCopiesToTheClipboard(t *testing.T) {
 	c := &clip{}
 	e := editorWith("hello world")
-	e.Clipboard = c
+	e.SetClipboard(c)
 	for range 5 {
 		e.Handle(shift(input.Right))
 	}
@@ -288,7 +288,7 @@ func TestEditorCopiesToTheClipboard(t *testing.T) {
 func TestEditorCutsToTheClipboard(t *testing.T) {
 	c := &clip{}
 	e := editorWith("hello world")
-	e.Clipboard = c
+	e.SetClipboard(c)
 	for range 5 {
 		e.Handle(shift(input.Right))
 	}
@@ -308,7 +308,7 @@ func TestEditorCutsToTheClipboard(t *testing.T) {
 func TestCutKeepsTheTextWhenTheClipboardRefusesIt(t *testing.T) {
 	c := &clip{refuse: true}
 	e := editorWith("hello world")
-	e.Clipboard = c
+	e.SetClipboard(c)
 	for range 5 {
 		e.Handle(shift(input.Right))
 	}
@@ -323,7 +323,7 @@ func TestCutKeepsTheTextWhenTheClipboardRefusesIt(t *testing.T) {
 func TestEditorAsksTheClipboardForAPaste(t *testing.T) {
 	c := &clip{}
 	e := editorWith("")
-	e.Clipboard = c
+	e.SetClipboard(c)
 	e.Handle(input.Key{Code: input.Character, Rune: 'v', Mods: input.Alt})
 	if c.asked != 1 {
 		t.Fatalf("the clipboard was asked %d times, want 1", c.asked)
@@ -378,7 +378,7 @@ func TestMaskedEditorCannotExportTheSelectionFromAnyView(t *testing.T) {
 	owner := base.NewEditor(base.EditorConfig{Session: session})
 	view := base.NewEditor(base.EditorConfig{Session: session})
 	clipboard := &clip{held: "unchanged"}
-	view.Clipboard = clipboard
+	view.SetClipboard(clipboard)
 	owner.SetMask("*")
 	view.SelectAll()
 	if view.Copy() || view.Cut() || clipboard.held != "unchanged" || view.Text() != "secret" {
@@ -393,7 +393,7 @@ func TestMaskedEditorCannotExportTheSelectionFromAnyView(t *testing.T) {
 func TestCopyDuringObservationNeverInvokesClipboard(t *testing.T) {
 	editor := base.NewEditor(base.EditorConfig{Initial: "private"})
 	clipboard := &clip{}
-	editor.Clipboard = clipboard
+	editor.SetClipboard(clipboard)
 	editor.SelectAll()
 	defer func() {
 		if err, _ := recover().(error); !errors.Is(err, scene.ErrBusy) || clipboard.held != "" {

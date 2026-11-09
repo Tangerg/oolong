@@ -171,3 +171,8 @@ func (b Box) label(v grid.View, y, w int, label string, style grid.Style, align 
 	x := borderLabelInset + align.Offset(room, width)
 	v.Text(x, y, label, style)
 }
+
+func (b Box) clone() Box {
+	b.Glyphs = b.Glyphs.clone()
+	return b
+}

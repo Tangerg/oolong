@@ -21,11 +21,11 @@ type Confirm struct {
 	noCopy noCopy
 
 	field
-	Label string
+	label string
 	// Yes and No are the two answers as they are shown. Empty uses "yes" and "no".
-	Yes, No string
+	yes, no string
 	// Keys say which keystrokes answer. Nil reads through [DefaultConfirmKeys].
-	Keys *keymap.Map
+	keys keyBinding
 
 	control       ConfirmControl
 	check         func(bool) error
@@ -40,7 +40,7 @@ type Confirm struct {
 	split scene.Snapshot[int]
 }
 
-func (c *Confirm) Prompt() string { return c.Label }
+func (c *Confirm) Prompt() string { return c.label }
 
 func (c *Confirm) Answer() bool {
 	return c.Snapshot().Value
@@ -56,7 +56,7 @@ func (c *Confirm) requestAnswer(before ConfirmSnapshot, yes bool) (scene.ActionR
 	return c.request(context.Background(), ConfirmRequest{ExpectedRevision: before.Revision, Value: yes}, true)
 }
 
-func (c *Confirm) HeightForWidth(int) int { return layout.Sum(1, c.rows(c.Label)) }
+func (c *Confirm) HeightForWidth(int) int { return layout.Sum(1, c.rows(c.label)) }
 
 func (c *Confirm) Draw(v scene.Frame) {
 	c.DrawWith(v, Look{})
@@ -67,7 +67,7 @@ func (c *Confirm) Draw(v scene.Frame) {
 func (c *Confirm) DrawWith(v scene.Frame, look Look) {
 	requireProjection(c.element, v)
 	answer := c.Answer()
-	row := c.frame(v, c.Label, look)
+	row := c.frame(v, c.label, look)
 	w, h := row.Size()
 	if w <= 0 || h <= 0 {
 		c.split.Stage(v, 0)
@@ -107,7 +107,7 @@ func (c *Confirm) Handle(ev input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := c.matcher.Handle(c.keys(), key, keyboardReceipt(&c.element), c.Do)
+	_, handled := c.matcher.Handle(c.resolvedKeys(), key, keyboardReceipt(&c.element), c.Do)
 	return handled
 }
 
@@ -147,7 +147,7 @@ func (c *Confirm) checkAnswer() error {
 
 func (c *Confirm) focusChanged(has bool) {
 	change := func() {
-		c.focus(has, nil, nil, c.Validate)
+		c.focus(has, nil, c.Validate)
 	}
 	if has {
 		change()
@@ -158,26 +158,26 @@ func (c *Confirm) focusChanged(has bool) {
 
 func (c *Confirm) word(yes bool) string {
 	switch {
-	case yes && c.Yes != "":
-		return c.Yes
+	case yes && c.yes != "":
+		return c.yes
 	case yes:
 		return "yes"
-	case c.No != "":
-		return c.No
+	case c.no != "":
+		return c.no
 	default:
 		return "no"
 	}
 }
 
-func (c *Confirm) keys() *keymap.Map {
-	if c.Keys != nil {
-		return c.Keys
+func (c *Confirm) resolvedKeys() *keymap.Map {
+	if c.keys.current != nil {
+		return c.keys.current
 	}
 	return confirmKeys()
 }
 
 func (c *Confirm) Ask() string {
-	return c.Label + " (" + c.word(true) + "/" + c.word(false) + ")"
+	return c.label + " (" + c.word(true) + "/" + c.word(false) + ")"
 }
 
 // Reply takes either answer, or as much of one as is unambiguous — nobody types
@@ -206,3 +206,45 @@ func (c *Confirm) Reply(said string) error {
 
 // Revision identifies a semantic value version; view-only navigation does not change it.
 func (c *Confirm) Revision() uint64 { return c.Snapshot().Revision }
+
+func (c *Confirm) Label() string { return c.label }
+
+func (c *Confirm) SetLabel(value string) {
+	element := c.Element()
+	requireMutable(element)
+	if c.label == value {
+		return
+	}
+	c.label = strings.Clone(value)
+	element.Invalidate()
+}
+
+func (c *Confirm) Yes() string { return c.yes }
+
+func (c *Confirm) SetYes(value string) {
+	element := c.Element()
+	requireMutable(element)
+	if c.yes == value {
+		return
+	}
+	c.yes = strings.Clone(value)
+	element.Invalidate()
+}
+
+func (c *Confirm) No() string { return c.no }
+
+func (c *Confirm) SetNo(value string) {
+	element := c.Element()
+	requireMutable(element)
+	if c.no == value {
+		return
+	}
+	c.no = strings.Clone(value)
+	element.Invalidate()
+}
+
+func (c *Confirm) Keys() *keymap.Map { return c.keys.current }
+
+func (c *Confirm) SetKeys(keys *keymap.Map) {
+	c.keys.set(c.Element(), &c.matcher, keys)
+}

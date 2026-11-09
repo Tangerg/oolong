@@ -14,6 +14,8 @@ contentType: How-to
 
 程序化修改使用控制器的类型化操作。例如，`base.NewButton(ButtonConfig)` 通过其元素暴露唯一激活动作，表单暴露值与提交操作。不要为了让动作可发现，在皮肤里再创建第二个语义动作。
 
+应用给编辑器增加快捷键时，通过 `controller.SetKeys(bindings)` 安装绑定，并在每次应用动作或帮助投影中读取 `controller.Keys()`。父对象不要保留另一份可替换的映射。替换编辑器映射时，发送、取消、退出与对应提示必须一起改变。配置为 nil 的映射不提供应用绑定；组件仍可提供自身的默认编辑动作。使用 `ActionFor` 匹配完整的 `input.Key`，包含修饰键和按下、重复、释放状态，不能只对 `Key.Code` 分支。
+
 ## 回执归签发它的所有者
 
 表单调用 `Submit(id)` 时传入不透明的 `base.SubmissionID`。同步成功返回 `scene.Applied`，已接受的异步任务返回 `scene.Started`。回调返回后，在所有者回合通过 `form.Settle(id, outcome)` 交付结果。其他表单、已被取代的提交以及仍在执行提交回调的请求都不能使用该回执结算。
@@ -85,6 +87,8 @@ Oolong 发送 Kitty 图片编号 `I`，并接收终端分配的物理图片 ID `
 `term.KeyboardCompatible` 请求无歧义按键和备用键码。数字小键盘可单独绑定，例如 `kp-enter` 优先于普通回车绑定。通过 `runtime.Environment().Keyboard()` 可读取终端回复的标志。用 `keymap.Map` 注册快捷键，在按下或重复时调用 `ActionFor` 或 `Matcher.Handle`。当前布局的显式绑定优先。例如切换到西里尔字母布局后，同一物理键仍可通过基础布局命中 `Ctrl+A`。编辑器使用终端提供的 `Key.Text` 输入实际文字。需要松开事件时添加 `input.KeyboardReportEvents`，需要关联文本时添加 `input.KeyboardReportText`。后者会按规范同时开启全键转义编码。[键盘示例](https://github.com/Tangerg/oolong/tree/main/examples/keys) · [Kitty 键盘规范](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
 
 默认的 `input.XTermKeyboard` 方言接受 XTerm 精确的修饰 F3 序列，包括 Shift、Alt 和 Ctrl。有效的键盘标志回复确认 `input.KittyKeyboard` 协议家族，即使增强标志为零也一样；此时 `CSI ... R` 按光标报告处理。方言同时拥有共享功能键序列的修饰位解释：XTerm Meta 与 Kitty Super 使用同一位。`CSI u` 始终遵循其明确的 Kitty 语法。只要请求键盘增强或启动探测，终端接管阶段就发送一次异步键盘查询；SSH 与交接后的重新接管也使用同一机制。`Terminal.Keyboard()` 仍返回启动探测的功能快照，解码器观察到的协议家族不会改写这份快照。自定义解析器可以设置初始的 `input.ParserConfig.Keyboard` 或 `input.StreamConfig.Keyboard`。光标查询所有者必须使用 DEC 私有 CPR（`CSI ?6n`）：无私有标志的第 1 行光标回复，与传统修饰 F3 的字节完全相同。[XTerm 控制序列](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
+
+`grid.CursorReset` 和零值 `grid.CursorStyle` 请求终端特定的 DECSCUSR 重置。在 xterm 中它表示闪烁方块，不能据此恢复用户配置或进入程序时的样式。打开宿主时可用 `term.Config.RestoreCursor` 显式选择恢复目标。启动探测也查询当前光标样式；有效的 DECRQSS 回复成为交接和关闭时的恢复目标，未取得回复时使用配置目标。`ssh.Terminal.Open` 使用同一显式目标，不增加阻塞式启动探测。无效光标形状在终端取得前被拒绝，因此纠正配置后仍可使用 SSH 终端仅有的一次打开资格。[XTerm 光标控制](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
 
 剪贴板默认使用原生 OSC 52，在 tmux 内也一样。`TMUX` 和 `TERM` 不能证明 DCS 透传已启用。只有会话明确配置了透传时，才设置 `term.Features{Clipboard: clipboard.Config{TmuxPassthrough: true}}`；SSH 适配器将同一配置用于已接受的远端终端。应用经 tmux 原生复制需要它的 `set-clipboard on` 路径；透传则受独立的 `allow-passthrough` 策略控制。[tmux 剪贴板](https://github.com/tmux/tmux/wiki/Clipboard) · [tmux 透传](https://github.com/tmux/tmux/wiki/FAQ)
 

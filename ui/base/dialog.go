@@ -35,7 +35,7 @@ type Dialog struct {
 	backdrop       func(scene.Frame)
 	dismissOutside bool
 	dismissed      func()
-	keys           *keymap.Map
+	keys           keyBinding
 	matcher        keymap.Matcher
 	group          *scene.Group
 	presentation   scene.Snapshot[image.Rectangle]
@@ -46,7 +46,7 @@ func NewDialog(config DialogConfig) *Dialog {
 	if config.Content.IsZero() {
 		panic("base: dialog requires content")
 	}
-	d := &Dialog{title: strings.Clone(config.Title), detail: strings.Clone(config.Description), parked: config.Content, place: config.Place, backdrop: config.Backdrop, dismissOutside: config.DismissOutside, dismissed: config.Dismissed, keys: config.Keys}
+	d := &Dialog{title: strings.Clone(config.Title), detail: strings.Clone(config.Description), parked: config.Content, place: config.Place, backdrop: config.Backdrop, dismissOutside: config.DismissOutside, dismissed: config.Dismissed, keys: keyBinding{current: config.Keys}}
 	d.ensure()
 	if config.Initial {
 		d.Show()
@@ -101,7 +101,11 @@ func (d *Dialog) placement(space image.Point) image.Rectangle {
 	return image.Rectangle{Max: space}
 }
 
-func (d *Dialog) Element() scene.Element { d.ensure(); return d.group.Element() }
+func (d *Dialog) Element() scene.Element {
+	d.ensure()
+	d.keys.attach(d.group.Element(), &d.matcher)
+	return d.group.Element()
+}
 
 // Open reports the current open policy. A nil dialog is closed.
 func (d *Dialog) Open() bool {
@@ -229,7 +233,7 @@ func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
 	if !ok || !key.Down() {
 		return scene.EventResult{}
 	}
-	keys := d.keys
+	keys := d.keys.current
 	if keys == nil {
 		keys = dialogKeys()
 	}

@@ -233,8 +233,10 @@ func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
 
 	child := &panelChild{}
 	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
-	panel.Box.Padding = layout.Uniform(1)
-	panel.Box.Title = "pane"
+	box := panel.Box()
+	box.Padding = layout.Uniform(1)
+	box.Title = "pane"
+	panel.SetBox(box)
 
 	rows := paintWidget(scenes, 12, 5, panel)
 	if !strings.Contains(rows[0], "pane") || !strings.Contains(rows[2], "inside") {
@@ -254,7 +256,9 @@ func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
 
 	child := &panelChild{}
 	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
-	panel.Box.Padding = layout.Uniform(1)
+	box := panel.Box()
+	box.Padding = layout.Uniform(1)
+	panel.SetBox(box)
 	root := scenes.Mount(panel)
 	root.Draw(grid.NewSurface(12, 6).View())
 
@@ -1361,7 +1365,7 @@ func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
 	called := 0
 	dressed := kit.NewTree(kit.TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root"}}, Text: func(item string) string { return item }})
 	controller := dressed.Controller()
-	controller.Row = func(grid.View, int, base.Shown[string], bool) { called++ }
+	controller.SetRow(func(grid.View, int, base.Shown[string], bool) { called++ })
 	draw := dressed.Draw
 	if err := controller.Element().SetPaint(func(frame scene.Frame) { draw(frame) }); err != nil {
 		t.Fatal(err)

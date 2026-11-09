@@ -61,6 +61,11 @@ type Config struct {
 	// AltScreen draws on a screen of its own, leaving the user's scrollback as it
 	// was. Without it, frames are drawn in place among whatever else is on screen.
 	AltScreen bool
+	// RestoreCursor is the restoration target when discovery cannot report the
+	// entry style. The zero value requests a terminal-specific protocol reset; it
+	// cannot promise to restore a user preference. A successful probe uses the
+	// actual entry style instead. Remote transports use this explicit target.
+	RestoreCursor grid.CursorStyle
 }
 
 // Terminal binds raw mode, requested modes, readers, writer, and restoration
@@ -143,6 +148,9 @@ func OpenOn(
 	cfg Config,
 	lookup func(string) (string, bool),
 ) (*Terminal, error) {
+	if err := cfg.RestoreCursor.Shape.Validate(); err != nil {
+		return nil, err
+	}
 	if in == nil {
 		return nil, errors.New("term: input file is required")
 	}
@@ -170,7 +178,9 @@ func OpenOn(
 	if err := t.takeOver(); err != nil {
 		return nil, err
 	}
-	t.start(cfg)
+	if err := t.start(cfg); err != nil {
+		return nil, err
+	}
 	return t, nil
 }
 
@@ -270,10 +280,9 @@ func (t *Terminal) takeOver() error {
 	return nil
 }
 
-// start activates the input side after acquisition can no longer fail. Goroutines
-// are deliberately last: no partially opened Terminal is returned, and no rollback
-// path has to coordinate workers that escaped into the session.
-func (t *Terminal) start(cfg Config) {
+// Every started worker belongs to Close, including when discovery fails. This
+// keeps startup rollback on the same join-and-restore path as normal shutdown.
+func (t *Terminal) start(cfg Config) error {
 	// Subscribed before the size is measured, and for that reason: a change between
 	// the measurement and the subscription is one nothing would ever hear about.
 	// See [resizeSource].
@@ -300,6 +309,7 @@ func (t *Terminal) start(cfg Config) {
 	stream := input.NewStream(input.StreamConfig{Clipboard: t.clipboard})
 	var early []input.Event
 	var end *readResult
+	var probeErr error
 	if cfg.Features.Probe {
 		// One budget covers asking and being answered; the probe holds the transport
 		// to the same instant.
@@ -307,7 +317,10 @@ func (t *Terminal) start(cfg Config) {
 			raw: raw, out: t.output, stream: stream,
 			deadline: time.Now().Add(answerGrace),
 		}
-		t.said = pr.run()
+		t.said, probeErr = pr.run()
+		if t.said.hasCursor {
+			t.modes.restoreCursor = t.said.cursor.Sequence()
+		}
 		early = pr.early
 		end = pr.end
 	}
@@ -326,6 +339,10 @@ func (t *Terminal) start(cfg Config) {
 		t.cancelUploads(t.inputErr)
 		close(t.events)
 	}()
+	if probeErr != nil {
+		return errors.Join(fmt.Errorf("term: probe terminal: %w", probeErr), t.Close())
+	}
+	return nil
 }
 
 // abortOpen rolls back every resource acquired before a Terminal became usable.

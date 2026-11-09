@@ -32,7 +32,9 @@ func TestASelectionCanBeSeen(t *testing.T) {
 
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("hello world")
-	e.Look.Selection = mark
+	eLook := e.Look()
+	eLook.Selection = mark
+	e.SetLook(eLook)
 	for range 5 {
 		e.Handle(shift(input.Right))
 	}
@@ -57,7 +59,9 @@ func TestNoSelectionMarksNothing(t *testing.T) {
 
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("hello world")
-	e.Look.Selection = mark
+	eLook := e.Look()
+	eLook.Selection = mark
+	e.SetLook(eLook)
 
 	s := grid.NewSurface(20, 2)
 	scenes.Mount(e).Draw(s.View())
@@ -167,7 +171,9 @@ func TestTheSelectionAndTheCursorAgree(t *testing.T) {
 
 	mark := grid.Style{Attr: grid.Reverse}
 	e := editorWith("the quick brown fox jumps over")
-	e.Look.Selection = mark
+	eLook := e.Look()
+	eLook.Selection = mark
+	e.SetLook(eLook)
 	e.SetCursor(0, 0)
 	for range 25 {
 		e.Handle(shift(input.Right))

@@ -26,7 +26,7 @@ func TestAppearanceCallbacksCannotRewriteMatchOffsetsAfterTheyReturn(t *testing.
 	t.Cleanup(scenes.Close)
 
 	r := new(borrowedCandidate)
-	c := &base.Completion{Renderer: r}
+	c := base.NewCompletion(base.CompletionConfig{Renderer: r})
 	c.Offer(base.Token{}, []base.Candidate{{Text: "abc", Matched: []int{1}}})
 	root := scenes.Mount(c.Element())
 	for _, project := range []func(){func() { c.Width() }, func() { root.Draw(grid.NewSurface(8, 1).View()) }} {
@@ -39,7 +39,7 @@ func TestAppearanceCallbacksCannotRewriteMatchOffsetsAfterTheyReturn(t *testing.
 
 	f := &base.Filter[string]{}
 	var saved []int
-	f.Row = func(_ grid.View, _ int, _ string, match fuzzy.Match, _ bool) { saved = match.At }
+	f.SetRow(func(_ grid.View, _ int, _ string, match fuzzy.Match, _ bool) { saved = match.At })
 	f.SetItems([]string{"ab"}, func(s string) string { return s })
 	f.SetPattern("b")
 	filterRoot := scenes.Mount(f.Element())

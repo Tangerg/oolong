@@ -19,11 +19,6 @@ type Table[T any] struct {
 	element scene.Element
 	noCopy  noCopy
 
-	// Row callbacks must be observationally pure; see [List.Row].
-	Row  func(v grid.View, at int, item T, selected bool)
-	Keys *keymap.Map
-	Wrap bool
-
 	rows List[T]
 
 	sortColumns func(column int) func(a, b T) int
@@ -34,6 +29,20 @@ type Table[T any] struct {
 type SortOrder struct {
 	Column     int
 	Descending bool
+}
+
+type TableConfig[T any] struct {
+	Items []T
+	Row   func(grid.View, int, T, bool)
+	Keys  *keymap.Map
+	Wrap  bool
+}
+
+func NewTable[T any](config TableConfig[T]) *Table[T] {
+	t := &Table[T]{}
+	t.rows.rowPainter, t.rows.keys.current, t.rows.wrap = config.Row, config.Keys, config.Wrap
+	t.SetItems(config.Items)
+	return t
 }
 
 const (
@@ -141,47 +150,39 @@ func (t *Table[T]) SetItems(items []T) {
 	})
 }
 
-func (t *Table[T]) Items() []T { return t.list().Items() }
+func (t *Table[T]) Items() []T { return t.rows.Items() }
 
-func (t *Table[T]) Len() int { return t.list().Len() }
+func (t *Table[T]) Len() int { return t.rows.Len() }
 
-func (t *Table[T]) At(index int) (T, bool) { return t.list().At(index) }
+func (t *Table[T]) At(index int) (T, bool) { return t.rows.At(index) }
 
 // Selected is the index of the row under the cursor, or -1.
-func (t *Table[T]) Selected() int { return t.list().Selected() }
+func (t *Table[T]) Selected() int { return t.rows.Selected() }
 
-func (t *Table[T]) Current() (T, bool) { return t.list().Current() }
+func (t *Table[T]) Current() (T, bool) { return t.rows.Current() }
 
-func (t *Table[T]) Select(i int) { t.list().Select(i) }
+func (t *Table[T]) Select(i int) { t.rows.Select(i) }
 
-func (t *Table[T]) Move(n int) { t.configureRows(); t.rows.Move(n) }
+func (t *Table[T]) Move(n int) { t.rows.Move(n) }
 
-func (t *Table[T]) Scroll() *Scroll { return t.list().Scroll() }
+func (t *Table[T]) Scroll() *Scroll { return t.rows.Scroll() }
 
-func (t *Table[T]) focusChanged(has bool) { t.list().focusChanged(has) }
+func (t *Table[T]) focusChanged(has bool) { t.rows.focusChanged(has) }
 
-func (t *Table[T]) Focused() bool { return t.list().Focused() }
+func (t *Table[T]) Focused() bool { return t.rows.Focused() }
 
-// Handle answers the keys, the wheel and a press that move the cursor.
-func (t *Table[T]) Handle(ev input.Event) bool { t.configureRows(); return t.rows.Handle(ev) }
+func (t *Table[T]) Handle(ev input.Event) bool { return t.rows.Handle(ev) }
 
-func (t *Table[T]) Do(action keymap.Action) bool { t.configureRows(); return t.rows.Do(action) }
+func (t *Table[T]) Do(action keymap.Action) bool { return t.rows.Do(action) }
 
-func (t *Table[T]) HeightForWidth(width int) int { return t.list().HeightForWidth(width) }
+func (t *Table[T]) HeightForWidth(width int) int { return t.rows.HeightForWidth(width) }
 
-func (t *Table[T]) Draw(v scene.Frame) { t.rows.DrawRows(v, t.Row) }
+func (t *Table[T]) Draw(v scene.Frame) { t.rows.Draw(v) }
 
 // DrawRows paints the rows that fit with a caller's own row painter — see
 // [List.DrawRows].
 func (t *Table[T]) DrawRows(v scene.Frame, draw func(grid.View, int, T, bool)) {
-	t.list().DrawRows(v, draw)
-}
-
-func (t *Table[T]) list() *List[T] { return &t.rows }
-
-func (t *Table[T]) configureRows() {
-	requireMutable(t.element)
-	t.rows.Keys, t.rows.Wrap = t.Keys, t.Wrap
+	t.rows.DrawRows(v, draw)
 }
 
 func (t *Table[T]) replaceRows(items []T, selected int) {
@@ -258,4 +259,25 @@ func (t *Table[T]) clearSortAction() scene.ActionBinding {
 			return scene.ActionResult[struct{}]{State: state}, nil
 		},
 	}).Binding()
+}
+
+func (t *Table[T]) Row() func(grid.View, int, T, bool) { return t.rows.Row() }
+
+func (t *Table[T]) SetRow(value func(grid.View, int, T, bool)) {
+	t.Element()
+	t.rows.SetRow(value)
+}
+
+func (t *Table[T]) Keys() *keymap.Map { return t.rows.Keys() }
+
+func (t *Table[T]) SetKeys(value *keymap.Map) {
+	t.Element()
+	t.rows.SetKeys(value)
+}
+
+func (t *Table[T]) Wrap() bool { return t.rows.Wrap() }
+
+func (t *Table[T]) SetWrap(value bool) {
+	t.Element()
+	t.rows.SetWrap(value)
 }

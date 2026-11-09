@@ -21,11 +21,12 @@ func TestInterruptedResolverRevokesItsUnfinishedSequence(t *testing.T) {
 		t.Run(interruption.name, func(t *testing.T) {
 			var matcher keymap.Matcher
 			var resolve func()
-			bindings := &keymap.Map{Resolve: func(_ time.Duration, callback func()) func() {
+			bindings := &keymap.Map{}
+			bindings.SetResolver(func(_ time.Duration, callback func()) func() {
 				resolve = callback
 				interruption.run()
 				return nil
-			}}
+			})
 			x := input.Chord{Rune: 'x'}
 			bindings.Bind("short", x)
 			bindings.Bind("long", x, x)
@@ -70,12 +71,12 @@ func TestInterruptedResolverPreservesANewerInputSequence(t *testing.T) {
 	var actions []keymap.Action
 	dispatch := func(action keymap.Action) bool { actions = append(actions, action); return true }
 	var resolve func()
-	bindings.Resolve = func(_ time.Duration, callback func()) func() {
+	bindings.SetResolver(func(_ time.Duration, callback func()) func() {
 		resolve = callback
 		matcher.Clear()
 		matcher.Handle(&bindings, input.Key{Rune: 'y'}, nil, dispatch)
 		panic("scheduler failed after reentry")
-	}
+	})
 	func() {
 		defer func() {
 			if failure := recover(); failure != "scheduler failed after reentry" {

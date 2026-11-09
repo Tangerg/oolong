@@ -61,7 +61,6 @@ type agent struct {
 	backend agentBackend
 	theme   kit.Theme
 	glyphs  kit.Glyphs
-	keys    *keymap.Map
 
 	conversation *conversation
 	workflow     workflow
@@ -69,7 +68,7 @@ type agent struct {
 	outcome      sessionOutcome
 	composer     *kit.Composer
 	commands     base.Commands[commandAction]
-	completion   base.Completion
+	completion   *base.Completion
 	body         *scene.Group
 	element      scene.Element
 	scope        *program.Scope
@@ -105,7 +104,6 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, err
 		backend:      backend,
 		theme:        theme,
 		glyphs:       glyphs,
-		keys:         keys,
 		planningMode: planningCareful,
 		status:       kit.Status{Theme: theme, Glyphs: glyphs},
 	}
@@ -121,17 +119,17 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, err
 	}
 	a.workflow = newWorkflow(theme, glyphs)
 	a.composer = kit.NewComposer(kit.ComposerConfig{
-		Theme:   theme,
-		Prompt:  glyphs.Marker + " ",
-		Hints:   []keymap.Action{sendPrompt, cancelSource, quitAgent},
-		MaxRows: 5,
+		Theme:       theme,
+		Prompt:      glyphs.Marker + " ",
+		Hints:       []keymap.Action{sendPrompt, cancelSource, quitAgent},
+		MaxRows:     5,
+		Placeholder: "Ask the mock agent to change something",
+		Keys:        keys,
+		Clipboard:   runtime.Clipboard(),
 	})
-	a.composer.Controller().Placeholder = "Ask the mock agent to change something"
-	a.composer.Controller().Keys = keys
-	a.composer.Controller().Clipboard = runtime.Clipboard()
 	completionKeys := base.DefaultCompletionKeys()
 	completionKeys.Bind(base.Accept, input.Chord{Code: input.Enter})
-	a.completion = base.Completion{
+	a.completion = base.NewCompletion(base.CompletionConfig{
 		Look: theme.Look(glyphs), Keys: completionKeys,
 		CurrentToken: func() (base.Token, bool) {
 			editor := a.composer.Controller()
@@ -144,7 +142,7 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, err
 			a.composer.Controller().Replace(token.Start, token.End, candidate.Text)
 			a.completion.Dismiss()
 		},
-	}
+	})
 	a.registerCommands()
 
 	workflow := scene.NewElement(scene.ElementConfig{
@@ -165,7 +163,7 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, err
 	}})
 	a.buildReview()
 	completionHelp := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		kit.Help{Theme: theme, Keys: a.completion.Keys, Show: []keymap.Action{base.Accept}}.Draw(frame.View)
+		kit.Help{Theme: theme, Keys: a.completion.Keys(), Show: []keymap.Action{base.Accept}}.Draw(frame.View)
 	}})
 	completionBody := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 		{Element: a.completion.Element(), Size: layout.Measured(0, 0)},
@@ -181,7 +179,7 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, err
 			if !a.completion.Open() || a.reviewDialog.Controller().Open() {
 				return []image.Rectangle{{}}
 			}
-			width := max(0, min(max(a.completion.Width()+panel.Box.Overhead().X, commandPopupMinWidth), space.X-2))
+			width := max(0, min(max(a.completion.Width()+panel.Box().Overhead().X, commandPopupMinWidth), space.X-2))
 			height := min(panel.HeightForWidth(width), space.Y)
 			y := max(space.Y-a.composer.HeightForWidth(space.X)-height, 0)
 			return []image.Rectangle{grid.Area(1, y, width, height)}
@@ -216,7 +214,7 @@ func (a *agent) Handle(event input.Event) bool {
 	if a.completion.Handle(event) {
 		return true
 	}
-	if action, _ := a.keys.ActionFor(key); action == sendPrompt {
+	if action, _ := a.composer.Controller().Keys().ActionFor(key); action == sendPrompt {
 		a.submit()
 		return true
 	}
@@ -226,7 +224,7 @@ func (a *agent) Handle(event input.Event) bool {
 // The root and the review pane opt into the same session commands. Other
 // root shortcuts must not run behind an open review.
 func (a *agent) sessionKey(key input.Key) bool {
-	action, _ := a.keys.ActionFor(key)
+	action, _ := a.composer.Controller().Keys().ActionFor(key)
 	switch action {
 	case quitAgent:
 		a.runtime.Quit()

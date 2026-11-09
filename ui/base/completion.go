@@ -185,27 +185,27 @@ type Completion struct {
 	element scene.Element
 	noCopy  noCopy
 
-	Look Look
+	look Look
 	// CurrentToken ties an offer to a live editing position. Cursor movement alone
 	// can invalidate it without an edit-session notification. The query must be pure.
-	CurrentToken func() (Token, bool)
+	currentToken func() (Token, bool)
 	// Renderer owns the one-row layout and its intrinsic width. Nil uses
 	// DefaultCompletionRenderer. Callbacks must be observationally pure.
-	Renderer CompletionRenderer
+	renderer CompletionRenderer
 	// MaxRows caps how tall the list gets, so a thousand files do not become a
 	// thousand rows. Zero uses [DefaultCompletionRows].
-	MaxRows int
+	maxRows int
 	// Keys say which keystrokes produce which of the actions a completion answers to —
 	// its own two, and the list movement inside it. Nil reads through
 	// [DefaultCompletionKeys].
-	Keys *keymap.Map
+	keys keyBinding
 	// Accept is called when the user takes a candidate, with the token it replaces.
 	// The completion has closed itself by then, so this is free to change the text the
 	// token came from.
 	//
 	// Without it there is nothing accepting could do, and the keystroke is left for
 	// whatever else might want it rather than swallowed.
-	Accept func(c Candidate, t Token)
+	accept func(c Candidate, t Token)
 
 	list    List[Candidate]
 	token   Token
@@ -215,6 +215,26 @@ type Completion struct {
 // DefaultCompletionRows is how many candidates are shown at once when nothing says
 // otherwise: enough to choose from, few enough to leave the text visible behind it.
 const DefaultCompletionRows = 8
+
+type CompletionConfig struct {
+	Look         Look
+	CurrentToken func() (Token, bool)
+	Renderer     CompletionRenderer
+	MaxRows      int
+	Keys         *keymap.Map
+	Accept       func(Candidate, Token)
+}
+
+// NewCompletion panics for negative MaxRows; zero selects DefaultCompletionRows.
+func NewCompletion(config CompletionConfig) *Completion {
+	if config.MaxRows < 0 {
+		panic("base: completion MaxRows cannot be negative")
+	}
+	return &Completion{
+		look: config.Look, currentToken: config.CurrentToken, renderer: config.Renderer,
+		maxRows: config.MaxRows, keys: keyBinding{current: config.Keys}, accept: config.Accept,
+	}
+}
 
 // Offer opens the completion on a token, or closes it when there is nothing to offer.
 //
@@ -258,11 +278,11 @@ func (c *Completion) Open() bool {
 }
 
 func (c *Completion) valid(offered Token) bool {
-	if c.CurrentToken == nil {
+	if c.currentToken == nil {
 		return true
 	}
 	return readProjection(c.Element(), func() bool {
-		token, ok := c.CurrentToken()
+		token, ok := c.currentToken()
 		return ok && token == offered
 	})
 }
@@ -319,7 +339,7 @@ func (c *Completion) Handle(ev input.Event) bool {
 		// pointer is.
 		return c.list.Handle(ev)
 	}
-	_, handled := c.matcher.Handle(c.keys(), key, keyboardReceipt(&c.element), c.Do)
+	_, handled := c.matcher.Handle(c.resolvedKeys(), key, keyboardReceipt(&c.element), c.Do)
 	return handled
 }
 
@@ -349,7 +369,7 @@ func (c *Completion) Do(action keymap.Action) bool {
 // candidate. The semantic caller needs that outcome separately.
 func (c *Completion) acceptIndex(index int) (scene.ActionResult[Candidate], bool) {
 	candidate, ok := c.list.At(index)
-	accept, token := c.Accept, c.token
+	accept, token := c.accept, c.token
 	if !ok || accept == nil {
 		return scene.ActionResult[Candidate]{}, false
 	}
@@ -377,7 +397,7 @@ func (c *Completion) Width() int {
 		return 0
 	}
 	widest := 0
-	renderer := c.renderer()
+	renderer := c.resolvedRenderer()
 	c.Element().ReadOnly(func() {
 		for _, candidate := range c.list.items {
 			widest = max(widest, renderer.Width(c.forRenderer(candidate)))
@@ -405,15 +425,15 @@ func (DefaultCompletionRenderer) Width(candidate Candidate) int {
 }
 
 func (c *Completion) forRenderer(candidate Candidate) Candidate {
-	if c.Renderer != nil {
+	if c.renderer != nil {
 		return candidate.snapshot()
 	}
 	return candidate
 }
 
-func (c *Completion) renderer() CompletionRenderer {
-	if c.Renderer != nil {
-		return c.Renderer
+func (c *Completion) resolvedRenderer() CompletionRenderer {
+	if c.renderer != nil {
+		return c.renderer
 	}
 	return DefaultCompletionRenderer{}
 }
@@ -425,9 +445,9 @@ func (c *Completion) Draw(v scene.Frame) {
 		return
 	}
 	width, height := v.Size()
-	renderer := c.renderer()
+	renderer := c.resolvedRenderer()
 	c.list.DrawRows(v.Sub(grid.Area(0, 0, width, min(height, c.rows()))), func(view grid.View, _ int, candidate Candidate, selected bool) {
-		renderer.DrawRow(view, c.forRenderer(candidate), selected, c.Look)
+		renderer.DrawRow(view, c.forRenderer(candidate), selected, c.look)
 	})
 }
 
@@ -454,15 +474,88 @@ func (DefaultCompletionRenderer) DrawRow(v grid.View, candidate Candidate, selec
 }
 
 func (c *Completion) rows() int {
-	if c.MaxRows > 0 {
-		return c.MaxRows
+	if c.maxRows > 0 {
+		return c.maxRows
 	}
 	return DefaultCompletionRows
 }
 
-func (c *Completion) keys() *keymap.Map {
-	if c.Keys != nil {
-		return c.Keys
+func (c *Completion) resolvedKeys() *keymap.Map {
+	if c.keys.current != nil {
+		return c.keys.current
 	}
 	return completionKeys()
+}
+
+func (c *Completion) Look() Look { return c.look }
+
+func (c *Completion) SetLook(value Look) {
+	element := c.Element()
+	requireMutable(element)
+	if c.look == value {
+		return
+	}
+	c.look = value
+	element.Invalidate()
+}
+
+func (c *Completion) CurrentToken() (Token, bool) {
+	if c.currentToken == nil {
+		return Token{}, false
+	}
+	var token Token
+	var current bool
+	c.Element().ReadOnly(func() { token, current = c.currentToken() })
+	return token, current
+}
+
+func (c *Completion) SetCurrentToken(value func() (Token, bool)) {
+	element := c.Element()
+	requireMutable(element)
+	c.matcher.Reset(func() {
+		c.currentToken = value
+		element.Invalidate()
+	})
+}
+
+func (c *Completion) Renderer() CompletionRenderer { return c.renderer }
+
+func (c *Completion) SetRenderer(value CompletionRenderer) {
+	element := c.Element()
+	requireMutable(element)
+	c.renderer = value
+	element.Invalidate()
+}
+
+func (c *Completion) MaxRows() int { return c.maxRows }
+
+// SetMaxRows panics for a negative limit. Zero selects DefaultCompletionRows.
+func (c *Completion) SetMaxRows(value int) {
+	element := c.Element()
+	requireMutable(element)
+	if value < 0 {
+		panic("base: MaxRows cannot be negative")
+	}
+	if c.maxRows == value {
+		return
+	}
+	c.maxRows = value
+	element.Invalidate()
+}
+
+func (c *Completion) Accept() func(Candidate, Token) { return c.accept }
+
+func (c *Completion) SetAccept(value func(Candidate, Token)) {
+	element := c.Element()
+	requireMutable(element)
+	c.matcher.Reset(func() {
+		c.accept = value
+		element.Invalidate()
+	})
+}
+
+func (c *Completion) Keys() *keymap.Map { return c.keys.current }
+
+func (c *Completion) SetKeys(keys *keymap.Map) {
+	c.keys.set(c.Element(), &c.matcher, keys)
 }

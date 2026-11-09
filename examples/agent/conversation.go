@@ -77,7 +77,8 @@ func (c *conversation) resetView() {
 	}
 	c.view, c.content = view, view.Controller()
 	c.content.Scroll().Wheel(c.wheel)
-	c.content.Sticky().MinHeight, c.content.Sticky().Gap = 1, 1
+	c.content.Sticky().SetMinHeight(1)
+	c.content.Sticky().SetGap(1)
 	if err := c.view.Element().SetFocusable(func() bool { return false }); err != nil {
 		panic(err)
 	}

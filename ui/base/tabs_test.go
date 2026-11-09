@@ -46,7 +46,7 @@ func TestTabMovementKeepsItsDirectionAtIntegerLimits(t *testing.T) {
 	if !tabs.Move(math.MinInt) || tabs.Selected() != 0 {
 		t.Fatal("backward overflow changed direction")
 	}
-	tabs.NoWrap = false
+	tabs.SetNoWrap(false)
 	tabs.Move(-1)
 	if tabs.Selected() != 2 {
 		t.Fatal("tab wrap did not reach end")

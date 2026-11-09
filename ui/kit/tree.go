@@ -28,11 +28,11 @@ type Tree[T any] struct {
 	// Text is what a row says. A tree given none draws nothing but its marks, which
 	// is what an item that cannot be read as text comes to. Text runs during drawing
 	// and must be an observationally pure projection.
-	Text       func(item T) string
+	text       func(item T) string
 	appearance appearance
-	Glyphs     Glyphs
+	glyphs     Glyphs
 	// Indent is how many columns a level is worth. Zero uses two.
-	Indent int
+	indent int
 
 	controller *base.Tree[T]
 }
@@ -51,14 +51,15 @@ type TreeConfig[T any] struct {
 	Indent int
 }
 
-// NewTree composes one base tree with its default appearance.
-// It panics when Theme and Scope both declare palette sources, or when its base configuration is invalid.
+// NewTree panics for negative Indent, cyclic node collections, or competing
+// Theme and Scope palette sources.
 func NewTree[T any](config TreeConfig[T]) *Tree[T] {
 	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	tree := &Tree[T]{appearance: look, Glyphs: config.Glyphs, Text: config.Text, Indent: config.Indent, controller: base.NewTree(config.Nodes...)}
+	tree := &Tree[T]{appearance: look, glyphs: config.Glyphs.clone(), text: config.Text, controller: base.NewTree(config.Nodes...)}
+	tree.SetIndent(config.Indent)
 	if err := tree.controller.Element().SetPaint(tree.Draw); err != nil {
 		panic(err)
 	}
@@ -100,7 +101,7 @@ func (t *Tree[T]) row(v grid.View, _ int, row base.Shown[T], selected bool) {
 
 	// The default belongs to the zero value, not to every width below it: a caller
 	// who asked for one column meant one.
-	indent := t.Indent
+	indent := t.indent
 	if indent <= 0 {
 		indent = treeIndent
 	}
@@ -115,10 +116,10 @@ func (t *Tree[T]) row(v grid.View, _ int, row base.Shown[T], selected bool) {
 	if mark := t.mark(row); mark != "" {
 		x = layout.Sum(x, v.Text(x, 0, mark, t.appearance.palette().Subtle.Merge(style)), 1)
 	}
-	if t.Text == nil || x >= width {
+	if t.text == nil || x >= width {
 		return
 	}
-	v.Text(x, 0, text.Truncate(t.Text(row.Item), width-x, t.Glyphs.Ellipsis), style)
+	v.Text(x, 0, text.Truncate(t.text(row.Item), width-x, t.glyphs.Ellipsis), style)
 }
 
 // mark is what goes before a row: which way a branch is turned, or a space as wide
@@ -126,11 +127,11 @@ func (t *Tree[T]) row(v grid.View, _ int, row base.Shown[T], selected bool) {
 func (t *Tree[T]) mark(row base.Shown[T]) string {
 	switch {
 	case !row.Branch:
-		return strings.Repeat(" ", max(text.Width(t.Glyphs.Collapsed), 0))
+		return strings.Repeat(" ", max(text.Width(t.glyphs.Collapsed), 0))
 	case row.Open:
-		return t.Glyphs.Expanded
+		return t.glyphs.Expanded
 	default:
-		return t.Glyphs.Collapsed
+		return t.glyphs.Collapsed
 	}
 }
 
@@ -139,4 +140,52 @@ func (t *Tree[T]) Element() scene.Element {
 		return scene.Element{}
 	}
 	return t.controller.Element()
+}
+
+func (t *Tree[T]) Text() func(item T) string { return t.text }
+
+// SetText panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (t *Tree[T]) SetText(value func(item T) string) {
+	element := t.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if t.text == nil && value == nil {
+		return
+	}
+	t.text = value
+	element.Invalidate()
+}
+
+func (t *Tree[T]) Glyphs() Glyphs { return t.glyphs.clone() }
+
+// SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (t *Tree[T]) SetGlyphs(value Glyphs) {
+	element := t.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	t.glyphs = value.clone()
+	element.Invalidate()
+}
+
+func (t *Tree[T]) Indent() int { return t.indent }
+
+// SetIndent panics for negative indentation or with scene.ErrBusy outside
+// owner mutation, before the retained presentation can change.
+func (t *Tree[T]) SetIndent(value int) {
+	element := t.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if value < 0 {
+		panic("kit: Indent must be non-negative")
+	}
+	if t.indent == value {
+		return
+	}
+	t.indent = value
+	element.Invalidate()
 }

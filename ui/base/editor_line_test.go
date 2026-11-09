@@ -21,14 +21,15 @@ func TestAFieldGivingUpFocusCancelsItsPartialBinding(t *testing.T) {
 
 	var resolve func()
 	cancelled := false
-	keys := &keymap.Map{Resolve: func(_ time.Duration, fn func()) func() {
+	keys := &keymap.Map{}
+	keys.SetResolver(func(_ time.Duration, fn func()) func() {
 		resolve = fn
 		return func() { cancelled = true }
-	}}
+	})
 	keys.Bind(base.MoveLeft, input.Chord{Rune: 'g'})
 	keys.Bind(base.MoveRight, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	e := &base.Editor{}
-	e.Keys = keys
+	e.SetKeys(keys)
 	e.SetText("ab")
 
 	if !e.Handle(input.Key{Rune: 'g'}) || resolve == nil {
@@ -142,12 +143,12 @@ func TestAnEditorPublishesItsCursorStyleWithItsFrame(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	e := &base.Editor{}
-	e.CursorStyle = grid.CursorStyle{Shape: grid.CursorBar, Blink: true}
+	e.SetCursorStyle(grid.CursorStyle{Shape: grid.CursorBar, Blink: true})
 
 	screen := grid.NewScreen(8, 1)
 	scenes.Mount(e).Draw(screen.Frame())
-	if got := screen.Cursor().Style; got != e.CursorStyle {
-		t.Fatalf("cursor style = %+v, want %+v", got, e.CursorStyle)
+	if got := screen.Cursor().Style; got != e.CursorStyle() {
+		t.Fatalf("cursor style = %+v, want %+v", got, e.CursorStyle())
 	}
 }
 
@@ -285,7 +286,7 @@ func TestControlledTextUsesOneProjectionBeforeAndAfterInitialization(t *testing.
 
 	value := "a\r\nb\x7f"
 	field := base.NewText(base.TextConfig{Initial: value})
-	field.Gutter = numberedGutter{}
+	field.SetGutter(numberedGutter{})
 	field.SetMask("*")
 
 	before := paintWidget(scenes, 8, 1, field)

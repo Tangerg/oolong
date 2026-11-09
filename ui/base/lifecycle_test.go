@@ -201,21 +201,22 @@ func TestSliderSettlesInvalidatedGestures(t *testing.T) {
 func TestDeferredSettingActionCannotEditAnotherRow(t *testing.T) {
 	for _, change := range []string{"replace", "select", "select and return"} {
 		var resolve func()
-		keys := &keymap.Map{Resolve: func(_ time.Duration, fn func()) func() {
+		keys := &keymap.Map{}
+		keys.SetResolver(func(_ time.Duration, fn func()) func() {
 			resolve = fn
 			return func() {}
-		}}
+		})
 		g := input.Chord{Code: input.Character, Rune: 'g'}
 		keys.Bind(base.Increase, g)
 		keys.Bind(base.Decrease, g, g)
 		changes := 0
-		settings := &base.Settings[string]{
+		settings := base.NewSettings(base.SettingsConfig[string]{
 			EditKeys: keys,
 			Change: func(int, string, keymap.Action) scene.ActionResult[bool] {
 				changes++
 				return scene.ActionResult[bool]{State: scene.Applied, Value: true}
 			},
-		}
+		})
 		settings.List().SetItems([]string{"one", "two"})
 		settings.Handle(input.Key{Code: input.Character, Rune: 'g'})
 		switch change {
@@ -256,15 +257,16 @@ func TestListBoundaryNavigationRevealsAnUnmovedCursor(t *testing.T) {
 
 func TestNewCompletionOfferCancelsPendingAcceptance(t *testing.T) {
 	var resolve func()
-	keys := &keymap.Map{Resolve: func(_ time.Duration, fn func()) func() {
+	keys := &keymap.Map{}
+	keys.SetResolver(func(_ time.Duration, fn func()) func() {
 		resolve = fn
 		return func() {}
-	}}
+	})
 	g := input.Chord{Code: input.Character, Rune: 'g'}
 	keys.Bind(base.Accept, g)
 	keys.Bind(base.SelectNext, g, g)
 	accepted := false
-	completion := &base.Completion{Keys: keys, Accept: func(base.Candidate, base.Token) { accepted = true }}
+	completion := base.NewCompletion(base.CompletionConfig{Keys: keys, Accept: func(base.Candidate, base.Token) { accepted = true }})
 	completion.Offer(base.Token{Query: "old"}, []base.Candidate{{Text: "old candidate"}})
 	completion.Handle(input.Key{Code: input.Character, Rune: 'g'})
 	completion.Offer(base.Token{Query: "new"}, []base.Candidate{{Text: "new candidate"}})

@@ -8,14 +8,6 @@ import (
 	"strings"
 )
 
-const (
-	graphicsCommand  = 'G'
-	imageIDField     = "i"
-	imageNumberField = "I"
-	placementField   = "p"
-	wireIntegerBits  = 32
-)
-
 const replyAccepted = "OK"
 
 const queryPixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC"
@@ -130,5 +122,5 @@ func QueryPNG(w io.Writer, id uint32) error {
 	if id == 0 {
 		return errImageIdentity
 	}
-	return writeString(w, fmt.Sprintf("\x1b_%c%s=%d,a=q,t=d,f=%d;%s\x1b\\", graphicsCommand, imageIDField, id, kittyPNG, queryPixelPNG))
+	return writeString(w, fmt.Sprintf(queryFormat, id, kittyPNG, queryPixelPNG))
 }

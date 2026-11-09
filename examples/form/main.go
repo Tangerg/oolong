@@ -116,7 +116,7 @@ func askInWords(form *sessionForm, in io.Reader, out io.Writer) error {
 func dress(runtime *program.Runtime, form *sessionForm) scene.Element {
 	form.done = runtime.Quit
 	form.theme.Set(kit.Suited(runtime.Environment().Ground()))
-	form.view.Glyphs = kit.GlyphsFor(runtime.Environment().Locale())
+	form.view.SetGlyphs(kit.GlyphsFor(runtime.Environment().Locale()))
 	var keys keymap.Map
 	keys.Bind(quitSession, input.Chord{Code: input.Esc})
 	keys.Bind(quitSession, input.Ctrl.Rune('c'))

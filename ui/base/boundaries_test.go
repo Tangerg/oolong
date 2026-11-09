@@ -43,11 +43,11 @@ func TestListNavigationDoesNotOverrideLaterManualScroll(t *testing.T) {
 	}
 	list.Select(25)
 	fail := true
-	list.Row = func(grid.View, int, int, bool) {
+	list.SetRow(func(grid.View, int, int, bool) {
 		if fail {
 			panic("aborted frame")
 		}
-	}
+	})
 	func() {
 		defer func() {
 			if recover() == nil {
@@ -135,12 +135,12 @@ func TestCompletionAndExternalFieldsCanReplaceTheirAppearance(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	completion := base.Completion{Renderer: alternateCompletion{}}
+	completion := base.NewCompletion(base.CompletionConfig{Renderer: alternateCompletion{}})
 	completion.Offer(base.Token{}, []base.Candidate{{Text: "one", Matched: []int{0}}, {Text: "two"}})
 	if completion.Width() != 9 {
 		t.Fatal("custom row width ignored")
 	}
-	equalRows(t, paintWidget(scenes, 9, 1, &completion), []string{"+one....."})
+	equalRows(t, paintWidget(scenes, 9, 1, completion), []string{"+one....."})
 	candidate, _ := completion.Current()
 	candidate.Matched[0] = 2
 	again, _ := completion.Current()
@@ -185,7 +185,7 @@ func TestFieldsCommitAmbiguousActionsAtTheirOwnerBoundary(t *testing.T) {
 				var resolve func()
 				keys := &keymap.Map{}
 				if delayed {
-					keys.Resolve = func(_ time.Duration, fn func()) func() { resolve = fn; return func() {} }
+					keys.SetResolver(func(_ time.Duration, fn func()) func() { resolve = fn; return func() {} })
 				}
 				g := input.Chord{Rune: 'g'}
 				var field interface {

@@ -26,6 +26,8 @@ UI 所有者通过 `Runtime.NewScope` 创建 `Scope`。`ScopeConfig.Attachment` 
 
 如果 resolver 保存回调后发生 panic 或退出 goroutine，matcher 会在展开调用栈前撤销未完成的派发。resolver 重入可以开始更新的序列；废弃派发的清理不能撤销新序列。
 
+`keymap.Map` 拥有绑定和序列策略。通过 `SetTimeout`、`SetResolver` 修改策略，通过 `Timeout()`、`Resolver()` 读取。绑定或策略改变后，旧的待处理序列失去执行权限。控制器的 `SetKeys` 替换绑定映射并放弃旧序列。接纳共享变更前，每个消费者都会检查自己的场景阶段。提交后，所有存活消费者先发布场景修订，再执行可重入通知或 resolver 取消回调。延迟到达的通知只撤销基于旧映射修订的匹配，不会清除已经按新版本开始的序列。映射弱引用这些订阅，因此长期存活的映射不会保留已被放弃的控制器。
+
 ## 已接纳的帧与指针输入
 
 自定义合成器在写端水位推进时调用 `Root.Wrote(sequence)`。若有多次接纳等待确认，水位选中它实际覆盖的最新布局，之后的接纳继续等待；一个确认不会为中间帧编造显示时间。`RootConfig.MaxPendingFrames` 独立限制待确认的布局数量，默认八个。容量满时 `Prepare` 返回 `scene.ErrBusy`；等确认后再准备下一帧。窗口大小变化或几何失效后，旧坐标和语义节点的旧边界不再有效。

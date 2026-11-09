@@ -140,7 +140,7 @@ func TestATableIsConfiguredBeforeItIsAsked(t *testing.T) {
 	table := new(base.Table[int])
 	table.SetItems([]int{1, 2})
 	table.Select(1)
-	table.Wrap = true
+	table.SetWrap(true)
 
 	table.Move(1)
 	if got := table.Selected(); got != 0 {

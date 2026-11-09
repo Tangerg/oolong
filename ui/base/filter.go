@@ -45,9 +45,7 @@ type Filter[T any] struct {
 	// screen, match says which characters of its text answered the pattern, and
 	// selected says whether it is the one under the cursor. It runs during drawing
 	// and must be an observationally pure projection.
-	Row func(v grid.View, at int, item T, match fuzzy.Match, selected bool)
-	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
-	Keys *keymap.Map
+	rowPainter func(v grid.View, at int, item T, match fuzzy.Match, selected bool)
 
 	pattern string
 
@@ -57,6 +55,17 @@ type Filter[T any] struct {
 type hit[T any] struct {
 	item  T
 	match fuzzy.Match
+}
+
+type FilterConfig[T any] struct {
+	Row  func(grid.View, int, T, fuzzy.Match, bool)
+	Keys *keymap.Map
+}
+
+func NewFilter[T any](config FilterConfig[T]) *Filter[T] {
+	f := &Filter[T]{rowPainter: config.Row}
+	f.list.keys.current = config.Keys
+	return f
 }
 
 func (f *Filter[T]) Pattern() string { return f.pattern }
@@ -150,7 +159,6 @@ func (f *Filter[T]) Scroll() *Scroll { return f.list.Scroll() }
 // typed somewhere this does not own.
 func (f *Filter[T]) Handle(ev input.Event) bool {
 	requireMutable(f.element)
-	f.list.Keys = f.Keys
 	return f.list.Handle(ev)
 }
 
@@ -169,9 +177,9 @@ func (f *Filter[T]) Draw(v scene.Frame) {
 }
 
 func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
-	if f.Row != nil {
+	if f.rowPainter != nil {
 		got.match.At = slices.Clone(got.match.At)
-		f.Row(v, at, got.item, got.match, selected)
+		f.rowPainter(v, at, got.item, got.match, selected)
 	}
 }
 
@@ -201,4 +209,20 @@ func (f *Filter[T]) matches(items []T, project func(T) string, pattern string) [
 		hits = append(hits, hit[T]{item: items[r.Index], match: r.Match})
 	}
 	return hits
+}
+
+func (f *Filter[T]) Row() func(grid.View, int, T, fuzzy.Match, bool) { return f.rowPainter }
+
+func (f *Filter[T]) SetRow(value func(grid.View, int, T, fuzzy.Match, bool)) {
+	element := f.Element()
+	requireMutable(element)
+	f.rowPainter = value
+	element.Invalidate()
+}
+
+func (f *Filter[T]) Keys() *keymap.Map { return f.list.Keys() }
+
+func (f *Filter[T]) SetKeys(keys *keymap.Map) {
+	f.Element()
+	f.list.SetKeys(keys)
 }

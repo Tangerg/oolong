@@ -16,6 +16,10 @@ Base supplies behavior that remains useful with a different appearance: editing,
 
 A field controller owns its value. Form output and semantic values are projections. Validation and submission are typed operations with explicit results, rather than a callback that reads another writable copy. `EditSession` owns text and revision maps; editors own view-level interaction while composing the document.
 
+Initial settings belong in the component's `Config`. Change a live controller through its setters, such as `SetLabel`, `SetRows`, `SetLook` and `SetKeys`; read the corresponding `Label()`, `Rows()`, `Look()` and `Keys()` methods. These commands check the scene's mutation phase and invalidate the affected element, so labels, geometry and automation observations cannot change behind an unchanged model revision. Presentation and pending-frame borrows refuse these mutations before the setting changes. Composite controllers delegate shared settings to their existing owner: Text uses its Editor's editing settings, and Table uses its List's row painter, navigation wrapping and bindings.
+
+Use `NewCompletion(CompletionConfig)`, `NewList(ListConfig[T])`, `NewSettings(SettingsConfig[T])` and `NewSticky(StickyConfig)` for initial settings instead of nonempty controller literals. Zero controllers remain usable. `Completion.CurrentToken()` queries the configured token source under a read-only borrow and returns the token and its availability; `SetCurrentToken` replaces that source.
+
 `Group` and `Overlay` remain scene mechanisms. Dialog focus policy, tab activation and list selection reuse those mechanisms without creating another attachment or routing tree. Replacing appearance preserves the behavior part's element identity and action binding.
 
 ## Typed collection and controller actions
@@ -57,7 +61,7 @@ Form preserves the callback's `Applied` or `Started` result and submission ID al
 
 Key sequences capture a `scene.KeyboardLease` through `Matcher.Handle`'s lifetime predicate. A receiver on the keyboard route keeps its lease while focus moves among its descendants. Explicitly forwarding input to another receiver, such as a completion popup, borrows the current origin's lifetime. With no focus, the active modal or root content supplies that origin. Leaving the scope, detaching or closing the root permanently revokes the old lease, including already queued resolvers; returning focus never revives it. Unmounted controls can accept fresh local input until their next attachment. Standalone matchers may pass nil when their caller owns lifetime directly.
 
-`Settings.Change` returns `scene.ActionResult[bool]`: `Value` says whether input was accepted, and `State` reports the domain owner's actual outcome. An accepted action at a value boundary returns `Value: true, State: scene.Unchanged`. Settings neither duplicates the value nor infers mutation from input consumption.
+The `SettingsConfig.Change` callback returns `scene.ActionResult[bool]`: `Value` says whether input was accepted, and `State` reports the domain owner's actual outcome. An accepted action at a value boundary returns `Value: true, State: scene.Unchanged`. Replace the callback through `Settings.SetChange`. Settings neither duplicates the value nor infers mutation from input consumption.
 
 ## Editor insertion positions
 

@@ -58,7 +58,7 @@ func TestEveryEditorContentOperationAdvancesRevisionOnce(t *testing.T) {
 		{"selection delete", func(e *base.Editor) { e.SetText("text"); e.SelectAll() }, func(e *base.Editor) { e.DeleteSelection() }},
 		{"paste event", nil, func(e *base.Editor) { e.Handle(input.Paste{Text: "text"}) }},
 		{"cut", func(e *base.Editor) {
-			e.Clipboard = &clip{}
+			e.SetClipboard(&clip{})
 			e.SetText("text")
 			e.SelectAll()
 		}, func(e *base.Editor) { e.Cut() }},
@@ -143,8 +143,8 @@ func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
 		{"movement", func(e *base.Editor) { e.MoveRight() }},
 		{"selection", func(e *base.Editor) { e.SelectAll() }},
 		{"focus", func(e *base.Editor) { scenes.Focus(e, false) }},
-		{"copy", func(e *base.Editor) { e.Clipboard = &clip{}; e.Copy() }},
-		{"paste request", func(e *base.Editor) { e.Clipboard = &clip{}; _ = e.Paste(context.Background(), func(error) {}) }},
+		{"copy", func(e *base.Editor) { e.SetClipboard(&clip{}); e.Copy() }},
+		{"paste request", func(e *base.Editor) { e.SetClipboard(&clip{}); _ = e.Paste(context.Background(), func(error) {}) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			editor := &base.Editor{}
@@ -163,7 +163,7 @@ func TestEditorRevisionIgnoresInteractionAndPresentationState(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	clipboard := &clip{}
-	editor := &base.Editor{Clipboard: clipboard}
+	editor := base.NewEditor(base.EditorConfig{Clipboard: clipboard})
 	editor.SetText("first\nsecond\nthird")
 	before := editor.Revision()
 

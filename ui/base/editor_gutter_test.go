@@ -38,7 +38,7 @@ func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	editor := &base.Editor{}
-	editor.Gutter = numberedGutter{}
+	editor.SetGutter(numberedGutter{})
 	editor.SetText("alpha beta\nx")
 
 	if got := editor.HeightForWidth(7); got != 4 {
@@ -75,7 +75,7 @@ func TestMaskedEditorDoesNotDiscloseItsValueToAGutter(t *testing.T) {
 
 	gutter := &recordingGutter{}
 	editor := &base.Editor{}
-	editor.Gutter = gutter
+	editor.SetGutter(gutter)
 	editor.SetMask("•")
 	editor.SetText("secret")
 	paintWidget(scenes, 10, 1, editor)
@@ -92,7 +92,7 @@ func (measuringGutter) Draw(grid.View, []text.Row) {}
 
 func TestStandaloneEditorMeasurementCannotEditItsDocument(t *testing.T) {
 	e := base.NewEditor(base.EditorConfig{Initial: "unchanged"})
-	e.Gutter = measuringGutter{check: func() { e.SetText("replaced") }}
+	e.SetGutter(measuringGutter{check: func() { e.SetText("replaced") }})
 	var failure error
 	func() { defer func() { failure, _ = recover().(error) }(); e.HeightForWidth(10) }()
 	if !errors.Is(failure, scene.ErrBusy) || e.Text() != "unchanged" {
@@ -110,7 +110,7 @@ func TestGutterMeasurementCannotReplaceThePaintedLayout(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	e := base.NewEditor(base.EditorConfig{Initial: "abcdef"})
-	e.Gutter = queryingGutter{e}
+	e.SetGutter(queryingGutter{e})
 	e.SetCursor(0, 0)
 	equalRows(t, paintWidget(scenes, 4, 2, e), []string{".abc", ".def"})
 }
@@ -120,7 +120,7 @@ func TestZeroEditorGutterReceivesItsEmptyLogicalLine(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	gutter := new(recordingGutter)
-	e := &base.Editor{Gutter: gutter}
+	e := base.NewEditor(base.EditorConfig{Gutter: gutter})
 	paintWidget(scenes, 8, 1, e)
 	if len(gutter.rows) != 1 || gutter.rows[0].Line != 1 || gutter.rows[0].Text != "" {
 		t.Fatalf("empty editor gutter rows=%v", gutter.rows)

@@ -80,7 +80,7 @@ func TestOmittedCellGlyphDoesNotDisableOtherMarks(t *testing.T) {
 		Format:   func(int) string { return "" },
 	})
 	equalRows(t, paintWidget(scenes, 5, 1, slider), []string{"--.--"})
-	slider.Glyphs = kit.Glyphs{SliderThumb: newCellGlyph(t, "#")}
+	slider.SetGlyphs(kit.Glyphs{SliderThumb: newCellGlyph(t, "#")})
 	equalRows(t, paintWidget(scenes, 5, 1, slider), []string{"..#.."})
 	scrollbar := kit.Scrollbar{Glyphs: kit.Glyphs{ScrollTrack: newCellGlyph(t, "-")}, Total: 6, Window: 2}
 	equalRows(t, paint(1, 3, scrollbar.Draw), []string{".", "-", "-"})

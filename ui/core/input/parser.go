@@ -109,7 +109,6 @@ type Parser struct {
 	keyboard KeyboardDialect
 
 	buf       []byte
-	expiring  bool
 	controlAt int
 	frame     frameKind
 	paste     []byte
@@ -136,7 +135,7 @@ func (p *Parser) Feed(b []byte) []Event {
 
 func (p *Parser) feed(b []byte, at time.Time) []receivedEvent {
 	p.buffer(b, at)
-	return p.drain(false)
+	return p.drain(inputAvailable)
 }
 
 // Flush resolves pending input at the end of the byte stream.
@@ -148,7 +147,7 @@ func (p *Parser) feed(b []byte, at time.Time) []receivedEvent {
 // ambiguous, and cutting it short would corrupt the text.
 // Incomplete control strings and X10 reports are discarded because their payloads
 // cannot become keys, and EOF cannot authorize a protocol reply.
-func (p *Parser) Flush() []Event { return eventsOnly(p.drain(true)) }
+func (p *Parser) Flush() []Event { return eventsOnly(p.drain(inputEnded)) }
 
 // Pending reports whether the parser is waiting for more input. It does not
 // indicate a timeout: partial UTF-8 and paste data must continue waiting. Arm an
@@ -165,10 +164,7 @@ func (p *Parser) Pending() bool {
 // Ambiguous reports whether an Escape timeout can resolve pending input.
 // Incomplete UTF-8 and recognized paste, mouse or string payloads must wait for more bytes.
 func (p *Parser) Ambiguous() bool {
-	if p.dropping == droppingParams {
-		return true
-	}
-	return p.frame == noFrame && len(p.buf) > 0 && p.buf[0] == esc
+	return p.dropping == droppingNothing && p.frame == noFrame && len(p.buf) > 0 && p.buf[0] == esc
 }
 
 // Expire resolves Escape ambiguity without declaring the byte stream finished.
@@ -180,12 +176,18 @@ func (p *Parser) expire() []receivedEvent {
 	if !p.Ambiguous() {
 		return nil
 	}
-	p.expiring = true
-	defer func() { p.expiring = false }()
-	return p.drain(true)
+	return p.drain(escapeExpired)
 }
 
-func (p *Parser) drain(final bool) (events []receivedEvent) {
+type parseTrigger uint8
+
+const (
+	inputAvailable parseTrigger = iota
+	escapeExpired
+	inputEnded
+)
+
+func (p *Parser) drain(trigger parseTrigger) (events []receivedEvent) {
 	initial := len(p.buf)
 	observations := len(p.arrivals)
 	defer func() {
@@ -200,7 +202,7 @@ func (p *Parser) drain(final bool) (events []receivedEvent) {
 		}
 	}()
 	for {
-		event, advanced := p.advance(final)
+		event, advanced := p.advance(trigger)
 		if !advanced {
 			return events
 		}
@@ -215,38 +217,38 @@ func (p *Parser) drain(final bool) (events []receivedEvent) {
 
 // advance makes one state transition. Its boolean distinguishes waiting from
 // consuming bytes that deliberately produce no event.
-func (p *Parser) advance(final bool) (Event, bool) {
+func (p *Parser) advance(trigger parseTrigger) (Event, bool) {
 	if p.dropping == droppingParams {
-		return p.advanceControlDiscard(final)
+		return p.advanceControlDiscard(trigger)
 	}
 	switch p.frame {
 	case pasteFrame:
 		return p.advancePaste()
 	case x10MouseFrame:
-		return p.advanceX10Mouse(final)
+		return p.advanceX10Mouse(trigger)
 	case oscFrame, dcsFrame, apcFrame:
-		return p.advanceString(final)
+		return p.advanceString(trigger)
 	default:
-		return p.advanceInput(final)
+		return p.advanceInput(trigger)
 	}
 }
 
-func (p *Parser) advanceControlDiscard(final bool) (Event, bool) {
+func (p *Parser) advanceControlDiscard(trigger parseTrigger) (Event, bool) {
 	if p.skipParams() {
 		return nil, true
 	}
-	if final {
+	if trigger == inputEnded {
 		p.dropping = droppingNothing
 		return nil, true
 	}
 	return nil, false
 }
 
-func (p *Parser) advanceString(final bool) (Event, bool) {
+func (p *Parser) advanceString(trigger parseTrigger) (Event, bool) {
 	if event, advanced := p.readString(); advanced {
 		return event, true
 	}
-	if !final {
+	if trigger != inputEnded {
 		return nil, false
 	}
 	p.take(len(p.buf))
@@ -267,16 +269,16 @@ func (p *Parser) advancePaste() (Event, bool) {
 	return Paste{Text: strings.ToValidUTF8(text, "\uFFFD")}, true
 }
 
-func (p *Parser) advanceInput(final bool) (Event, bool) {
+func (p *Parser) advanceInput(trigger parseTrigger) (Event, bool) {
 	if len(p.buf) == 0 {
 		return nil, false
 	}
-	n, event, done := p.decode(p.buf, final)
+	n, event, done := p.decode(p.buf, trigger)
 	if done {
 		p.take(n)
 		return event, true
 	}
-	if !final || (p.expiring && p.buf[0] != esc) {
+	if trigger == inputAvailable || trigger == escapeExpired && p.buf[0] != esc {
 		return nil, false
 	}
 	if p.buf[0] == esc {
@@ -376,11 +378,10 @@ func (p *Parser) closePaste() string {
 
 // decode consumes nothing when more bytes may change the result. A nil event
 // with consumed bytes means recognized input that deliberately produces no event.
-// final closes Escape ambiguity because no continuation can arrive.
-func (p *Parser) decode(b []byte, final bool) (n int, ev Event, done bool) {
+func (p *Parser) decode(b []byte, trigger parseTrigger) (n int, ev Event, done bool) {
 	switch c := b[0]; {
 	case c == esc:
-		return p.decodeEscape(b, final)
+		return p.decodeEscape(b, trigger)
 	case c == '\r':
 		return 1, Key{Code: Enter}, true
 	case c == '\t':
@@ -428,12 +429,12 @@ func c0Rune(c byte) rune {
 // Once the Escape wait expires, an unfinished introducer can be read as an
 // Alt chord: ESC [ names Alt+[ as well as a CSI prefix. A lone Escape is settled
 // before this path.
-func (p *Parser) decodeEscape(b []byte, final bool) (n int, ev Event, done bool) {
+func (p *Parser) decodeEscape(b []byte, trigger parseTrigger) (n int, ev Event, done bool) {
 	if len(b) == 1 {
 		return 0, nil, false
 	}
 	n, ev, done = p.decodeIntroduced(b)
-	if !done && final {
+	if !done && trigger != inputAvailable {
 		return decodeAlt(b)
 	}
 	return n, ev, done
@@ -461,7 +462,7 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 	case second == esc:
 		return 1, Key{Code: Esc}, true
 	case second < 0x20, second == deleteByte:
-		consumed, event, ready := p.decode(b[1:], false)
+		consumed, event, ready := p.decode(b[1:], inputAvailable)
 		if key, ok := event.(Key); ok {
 			key.Mods |= Alt
 			event = key

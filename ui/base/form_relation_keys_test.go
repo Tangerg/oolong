@@ -105,7 +105,7 @@ func TestFormFieldPublicationPrecedesReentrantResolverCancellation(t *testing.T)
 	latest := base.NewConfirm(base.ConfirmConfig{Label: "newer"})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{first}, Keys: keys})
 	cancellations := 0
-	keys.Resolve = func(_ time.Duration, _ func()) func() {
+	keys.SetResolver(func(_ time.Duration, _ func()) func() {
 		return func() {
 			cancellations++
 			fields := form.Fields()
@@ -114,7 +114,7 @@ func TestFormFieldPublicationPrecedesReentrantResolverCancellation(t *testing.T)
 			}
 			form.Set(first, latest)
 		}
-	}
+	})
 	fixture := scenes.Mount(form)
 	t.Cleanup(fixture.Root.Close)
 	focusElement(t, first.Element())

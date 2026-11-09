@@ -20,7 +20,7 @@ const (
 	symbolDPI         = 72
 )
 
-func (p *formulaParser) namedMacro(name string, style grid.Style) (box, error) {
+func (p *formulaParser) namedMacro(name string, context formulaContext) (box, error) {
 	// Repertoire chooses spelling only after support has been established; otherwise
 	// the ASCII path would silently accept unknown commands as their bare names.
 	symbol, err := symbolsForTerminal.resolve(name)
@@ -35,20 +35,35 @@ func (p *formulaParser) namedMacro(name string, style grid.Style) (box, error) {
 	case p.look.Glyphs.Plain:
 		symbol = asciiSymbol(name)
 	}
-	if symbols.IsSpaced(name) {
-		symbol = " " + symbol + " "
-	}
-	return atom(symbol, style), nil
+	return atom(context.mode.symbol(name, symbol, p.look.Glyphs.Plain), context.cell), nil
 }
 
-func (p *formulaParser) plainSymbol(value string) string {
-	if p.look.Glyphs.Plain {
+func (mode formulaMode) symbol(name, value string, plain bool) string {
+	if mode.textSymbol(name) {
 		return value
 	}
-	if value == "-" {
-		return "−"
+	if name == "-" && !plain {
+		value = "−"
+	}
+	if symbols.IsSpaced(name) {
+		return " " + value + " "
 	}
 	return value
+}
+
+func (mode formulaMode) textSymbol(name string) bool {
+	if mode == textMode {
+		return true
+	}
+	if mode == operatorMode {
+		// Operator names keep mathematical structure while these punctuation marks
+		// have their text meaning, as in amsopn's newmcodes.
+		switch name {
+		case "*", "-", "/", ":", "'", ".":
+			return true
+		}
+	}
+	return false
 }
 
 type symbolResult struct {

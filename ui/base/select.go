@@ -45,15 +45,15 @@ type Select[T any] struct {
 	noCopy noCopy
 
 	field
-	Label string
+	label string
 	// Rows caps how many options are shown at once. Zero shows them all.
-	Rows int
+	rowLimit int
 	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
-	Keys *keymap.Map
+	keys keyBinding
 
 	// Row optionally draws a one-row choice with its cursor and taken states.
 	// Nil uses Look's default choice row. Like Draw, the callback must be pure.
-	Row func(grid.View, Option[T], bool, bool, Look)
+	rowPainter func(grid.View, Option[T], bool, bool, Look)
 
 	list         List[Option[T]]
 	matcher      keymap.Matcher
@@ -62,7 +62,7 @@ type Select[T any] struct {
 	revision     uint64
 }
 
-func (s *Select[T]) Prompt() string { return s.Label }
+func (s *Select[T]) Prompt() string { return s.label }
 
 // SetOptions replaces what is on offer. Select owns the slice. If the selected
 // choice still exists under Same, the cursor follows it to its new position.
@@ -110,10 +110,10 @@ func (s *Select[T]) selected() int { return s.list.Selected() }
 
 func (s *Select[T]) HeightForWidth(int) int {
 	rows := len(s.list.items)
-	if s.Rows > 0 {
-		rows = min(rows, s.Rows)
+	if s.rowLimit > 0 {
+		rows = min(rows, s.rowLimit)
 	}
-	return layout.Sum(max(rows, 1), s.rows(s.Label))
+	return layout.Sum(max(rows, 1), s.rows(s.label))
 }
 
 func (s *Select[T]) Draw(v scene.Frame) {
@@ -121,9 +121,9 @@ func (s *Select[T]) Draw(v scene.Frame) {
 }
 
 func (s *Select[T]) DrawWith(v scene.Frame, look Look) {
-	s.list.DrawRows(s.frame(v, s.Label, look), func(v grid.View, _ int, option Option[T], under bool) {
-		if s.Row != nil {
-			s.Row(v, option, under, under, look)
+	s.list.DrawRows(s.frame(v, s.label, look), func(v grid.View, _ int, option Option[T], under bool) {
+		if s.rowPainter != nil {
+			s.rowPainter(v, option, under, under, look)
 		} else {
 			look.choice(v, option.Label, under, under)
 		}
@@ -142,7 +142,7 @@ func (s *Select[T]) indexOf(options []Option[T], value T) (int, bool) {
 func (s *Select[T]) Handle(ev input.Event) bool {
 	requireMutable(s.element)
 	if key, ok := ev.(input.Key); ok {
-		keys := s.Keys
+		keys := s.keys.current
 		if keys == nil {
 			keys = listKeys()
 		}
@@ -181,7 +181,7 @@ func (s *Select[T]) checkAnswer() error {
 
 func (s *Select[T]) focusChanged(has bool) {
 	change := func() {
-		s.focus(has, s.list.focusChanged, nil, s.Validate)
+		s.focus(has, s.list.focusChanged, s.Validate)
 	}
 	if has {
 		change()
@@ -212,3 +212,46 @@ func (s *Select[T]) selectAt(at int) {
 // a replacement collection with an available answer advances it conservatively;
 // Same cannot establish equality of arbitrary payloads.
 func (s *Select[T]) Revision() uint64 { return s.revision }
+
+func (s *Select[T]) Label() string { return s.label }
+
+func (s *Select[T]) SetLabel(value string) {
+	element := s.Element()
+	requireMutable(element)
+	if s.label == value {
+		return
+	}
+	s.label = strings.Clone(value)
+	element.Invalidate()
+}
+
+func (s *Select[T]) Rows() int { return s.rowLimit }
+
+// SetRows panics for a negative limit. Zero permits all options to contribute to height.
+func (s *Select[T]) SetRows(value int) {
+	element := s.Element()
+	requireMutable(element)
+	if value < 0 {
+		panic("base: Rows cannot be negative")
+	}
+	if s.rowLimit == value {
+		return
+	}
+	s.rowLimit = value
+	element.Invalidate()
+}
+
+func (s *Select[T]) Row() func(grid.View, Option[T], bool, bool, Look) { return s.rowPainter }
+
+func (s *Select[T]) SetRow(value func(grid.View, Option[T], bool, bool, Look)) {
+	element := s.Element()
+	requireMutable(element)
+	s.rowPainter = value
+	element.Invalidate()
+}
+
+func (s *Select[T]) Keys() *keymap.Map { return s.keys.current }
+
+func (s *Select[T]) SetKeys(keys *keymap.Map) {
+	s.keys.set(s.Element(), &s.matcher, keys)
+}

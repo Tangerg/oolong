@@ -11,10 +11,11 @@ import (
 func TestQueuedResolutionChecksItsInputLifetime(t *testing.T) {
 	var matcher keymap.Matcher
 	var resolve func()
-	bindings := &keymap.Map{Resolve: func(_ time.Duration, callback func()) func() {
+	bindings := &keymap.Map{}
+	bindings.SetResolver(func(_ time.Duration, callback func()) func() {
 		resolve = callback
 		return func() {}
-	}}
+	})
 	x := input.Chord{Rune: 'x'}
 	bindings.Bind("short", x)
 	bindings.Bind("long", x, x)
@@ -50,10 +51,11 @@ func TestResolverCancellationCannotReauthorizeDispatch(t *testing.T) {
 	var matcher keymap.Matcher
 	var resolve func()
 	current := true
-	bindings := &keymap.Map{Resolve: func(_ time.Duration, callback func()) func() {
+	bindings := &keymap.Map{}
+	bindings.SetResolver(func(_ time.Duration, callback func()) func() {
 		resolve = callback
 		return func() { current = false }
-	}}
+	})
 	x := input.Chord{Rune: 'x'}
 	bindings.Bind("short", x)
 	bindings.Bind("long", x, x)
@@ -65,5 +67,47 @@ func TestResolverCancellationCannotReauthorizeDispatch(t *testing.T) {
 	resolve()
 	if calls != 0 {
 		t.Fatal("dispatch ignored lifetime revocation from resolver cancellation")
+	}
+}
+
+func TestResetStaleOnlyCancelsAnObsoleteMapSequence(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		stale bool
+	}{
+		{name: "current"},
+		{name: "obsolete", stale: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var matcher keymap.Matcher
+			var bindings keymap.Map
+			x := input.Chord{Rune: 'x'}
+			bindings.Bind("short", x)
+			bindings.Bind("long", x, x)
+			var resolve func()
+			published, cancelled := false, false
+			bindings.SetResolver(func(_ time.Duration, callback func()) func() {
+				resolve = callback
+				return func() {
+					if !published {
+						t.Error("resolver cancellation preceded publication")
+					}
+					cancelled = true
+				}
+			})
+			calls := 0
+			matcher.Handle(&bindings, input.Key{Rune: 'x'}, nil, func(keymap.Action) bool { calls++; return true })
+			if test.stale {
+				bindings.Bind("another", input.Chord{Rune: 'y'})
+			}
+			matcher.ResetStale(func() { published = true })
+			if !published || cancelled != test.stale {
+				t.Fatalf("publication=%v cancellation=%v, stale=%v", published, cancelled, test.stale)
+			}
+			resolve()
+			if test.stale && calls != 0 || !test.stale && calls != 1 {
+				t.Fatalf("resolved %d actions, stale=%v", calls, test.stale)
+			}
+		})
 	}
 }

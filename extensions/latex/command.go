@@ -7,7 +7,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
 
-func (p *formulaParser) control(style formulaStyle) (box, error) {
+func (p *formulaParser) control(context formulaContext) (box, error) {
 	if p.at == len(p.source) {
 		return box{}, errors.New("source ends with an incomplete control sequence")
 	}
@@ -15,7 +15,7 @@ func (p *formulaParser) control(style formulaStyle) (box, error) {
 	value, width := utf8.DecodeRuneInString(p.source[p.at:])
 	if isFormulaSpace(value) {
 		p.at += width
-		return atom(" ", style.cell), nil
+		return atom(" ", context.cell), nil
 	}
 	if value == '(' || value == ')' || value == '[' || value == ']' {
 		return box{}, errors.New("source must not contain math delimiters")
@@ -27,100 +27,106 @@ func (p *formulaParser) control(style formulaStyle) (box, error) {
 		p.at += width
 	}
 	name := p.source[start:p.at]
-	if appearance, textSpaces, ok := controlAppearance(name); ok {
-		return p.argument(formulaStyle{cell: style.cell.Merge(appearance), textSpaces: textSpaces})
+	if inner, ok := argumentContext(name); ok {
+		inner.cell = context.cell.Merge(inner.cell)
+		if inner.mode == mathMode && context.mode == operatorMode {
+			inner.mode = operatorMode
+		}
+		return p.argument(inner)
 	}
-	return p.command(name, style)
+	return p.command(name, context)
 }
 
 func controlLetter(value byte) bool {
 	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
 }
 
-func (p *formulaParser) command(name string, style formulaStyle) (box, error) {
+func (p *formulaParser) command(name string, context formulaContext) (box, error) {
 	switch name {
 	case `\frac`, `\dfrac`, `\tfrac`:
-		return p.fraction(style)
+		return p.fraction(context)
 	case `\binom`:
-		return p.binomial(style)
+		return p.binomial(context)
 	case `\stackrel`:
-		return p.stackedRelation(style)
+		return p.stackedRelation(context)
 	case `\sqrt`:
-		return p.squareRoot(style)
+		return p.squareRoot(context)
 	case `\overline`:
-		content, err := p.argument(style)
+		content, err := p.argument(context)
 		return overlined(content, p.look.Glyphs, p.look.Rule), err
 	case `\,`, `\:`, `\;`:
-		return atom(" ", style.cell), nil
+		return atom(" ", context.cell), nil
 	case `\quad`:
-		return atom("  ", style.cell), nil
+		return atom("  ", context.cell), nil
 	case `\qquad`:
-		return atom("    ", style.cell), nil
+		return atom("    ", context.cell), nil
 	case `\!`:
 		return box{}, nil
 	default:
-		return p.namedMacro(name, style.cell)
+		return p.namedMacro(name, context)
 	}
 }
 
-func (p *formulaParser) fraction(style formulaStyle) (box, error) {
-	numerator, denominator, err := p.pair(style)
+func (p *formulaParser) fraction(context formulaContext) (box, error) {
+	numerator, denominator, err := p.pair(context)
 	if err != nil {
 		return box{}, err
 	}
 	return stack(numerator, denominator, true, p.look.Glyphs, p.look.Rule), nil
 }
 
-func (p *formulaParser) binomial(style formulaStyle) (box, error) {
-	top, bottom, err := p.pair(style)
+func (p *formulaParser) binomial(context formulaContext) (box, error) {
+	top, bottom, err := p.pair(context)
 	if err != nil {
 		return box{}, err
 	}
-	return delimited(stack(top, bottom, false, p.look.Glyphs, p.look.Rule), p.look.Glyphs.Left, p.look.Glyphs.Right, style.cell), nil
+	return delimited(stack(top, bottom, false, p.look.Glyphs, p.look.Rule), p.look.Glyphs.Left, p.look.Glyphs.Right, context.cell), nil
 }
 
-func (p *formulaParser) stackedRelation(style formulaStyle) (box, error) {
-	annotation, base, err := p.pair(style)
+func (p *formulaParser) stackedRelation(context formulaContext) (box, error) {
+	annotation, base, err := p.pair(context)
 	if err != nil {
 		return box{}, err
 	}
 	return annotated(base, annotation), nil
 }
 
-func (p *formulaParser) squareRoot(style formulaStyle) (box, error) {
-	p.skipTrivia(false)
+func (p *formulaParser) squareRoot(context formulaContext) (box, error) {
+	p.skipTrivia(mathMode)
 	var index box
 	if p.at < len(p.source) && p.source[p.at] == '[' {
 		p.at++
 		var err error
-		index, err = p.sequence(']', style)
+		index, err = p.sequence(']', context)
 		if err != nil {
 			return box{}, err
 		}
 	}
-	content, err := p.argument(style)
+	content, err := p.argument(context)
 	if err != nil {
 		return box{}, err
 	}
-	return indexed(radical(content, p.look.Glyphs, style.cell, p.look.Rule), index), nil
+	return indexed(radical(content, p.look.Glyphs, context.cell, p.look.Rule), index), nil
 }
 
-func controlAppearance(name string) (grid.Style, bool, bool) {
+func argumentContext(name string) (formulaContext, bool) {
 	switch name {
 	case `\textbf`:
-		return grid.Style{Attr: grid.Bold}, true, true
+		return formulaContext{cell: grid.Style{Attr: grid.Bold}, mode: textMode}, true
 	case `\textit`:
-		return grid.Style{Attr: grid.Italic}, true, true
+		return formulaContext{cell: grid.Style{Attr: grid.Italic}, mode: textMode}, true
 	case `\texttt`, `\textsf`, `\textcal`, `\textdefault`, `\textbb`, `\textfrak`,
-		`\textscr`, `\textregular`, `\operatorname`:
-		return grid.Style{}, true, true
+		`\textscr`, `\textregular`:
+		return formulaContext{mode: textMode}, true
+	case `\operatorname`:
+		return formulaContext{mode: operatorMode}, true
 	case `\mathbf`:
-		return grid.Style{Attr: grid.Bold}, false, true
+		return formulaContext{cell: grid.Style{Attr: grid.Bold}, mode: mathMode}, true
 	case `\mathit`:
-		return grid.Style{Attr: grid.Italic}, false, true
+		return formulaContext{cell: grid.Style{Attr: grid.Italic}, mode: mathMode}, true
 	case `\mathtt`, `\mathsf`, `\mathcal`, `\mathdefault`, `\mathbb`, `\mathfrak`, `\mathscr`, `\mathregular`:
-		return grid.Style{}, false, true
+		return formulaContext{mode: mathMode}, true
 	default:
-		return grid.Style{}, false, false
+		return formulaContext{}, false
 	}
 }

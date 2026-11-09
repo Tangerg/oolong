@@ -24,6 +24,7 @@ const eventOverhead = 1
 
 // ByteSize charges one queue unit plus variable payload bytes for a normalized
 // terminal event. Zero rejects a non-event or a mutable/noncanonical representation.
+// Admission must also call [Validate]; a byte charge does not establish semantics.
 func ByteSize(event Event) int {
 	switch e := event.(type) {
 	case Key:
@@ -81,6 +82,8 @@ const (
 	Hyper
 	Meta
 )
+
+const shortcutMods = Shift | Alt | Ctrl | Super | Hyper | Meta
 
 func (m Mods) Has(want Mods) bool { return m&want == want }
 
@@ -266,7 +269,7 @@ func (k Key) IsRune(r rune, mods Mods) bool {
 // Down reports whether the key is going down — pressed or auto-repeating.
 // Most handlers want this rather than Press alone, or holding a key stops working
 // on terminals that report repeats.
-func (k Key) Down() bool { return k.Transition != Release }
+func (k Key) Down() bool { return k.Transition == Press || k.Transition == Repeat }
 
 func (k Key) String() string { return k.Chord().String() }
 

@@ -316,8 +316,13 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 
 func (r *Root) paint(item Item, view grid.View, tx *transaction, origin image.Point, into *layoutSnapshot) {
 	n := item.Element.node
-	placed := geometry{target: n.target(), area: view.Bounds().Add(origin), clip: view.Visible().Add(origin), hit: r.enabled(n) && (n.config.Handle != nil || n.config.Preview != nil)}
-	placed.content = r.contentVersion(n)
+	placed := geometry{
+		target:  n.target(),
+		area:    view.Bounds().Add(origin),
+		clip:    view.Visible().Add(origin),
+		hit:     r.enabled(n) && (n.config.Handle != nil || n.config.Preview != nil),
+		content: r.contentVersion(n),
+	}
 	into.byNode[placed.target.node] = len(into.geometry)
 	into.geometry = append(into.geometry, placed)
 	paint := item.Paint

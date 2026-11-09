@@ -62,9 +62,9 @@ func TestComposerDrawsItsPromptAndPlaceholder(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	c := kit.Composer{Prompt: "› "}
-	c.Controller().Placeholder = "ask"
-	rows := paintWidget(scenes, 12, 1, &c)
+	c := kit.NewComposer(kit.ComposerConfig{Prompt: "› "})
+	c.Controller().SetPlaceholder("ask")
+	rows := paintWidget(scenes, 12, 1, c)
 	if !strings.HasPrefix(rows[0], "› ") {
 		t.Fatalf("row = %q, want the prompt marker first", rows[0])
 	}
@@ -77,10 +77,10 @@ func TestComposerPlaceholderGivesWayToText(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	c := kit.Composer{Prompt: "› "}
-	c.Controller().Placeholder = "ask"
-	typeInto(scenes, &c, "hi")
-	rows := paintWidget(scenes, 12, 1, &c)
+	c := kit.NewComposer(kit.ComposerConfig{Prompt: "› "})
+	c.Controller().SetPlaceholder("ask")
+	typeInto(scenes, c, "hi")
+	rows := paintWidget(scenes, 12, 1, c)
 	if strings.Contains(rows[0], "ask") {
 		t.Fatalf("row = %q, want the placeholder gone once there is text", rows[0])
 	}
@@ -90,11 +90,12 @@ func TestComposerPlaceholderGivesWayToText(t *testing.T) {
 }
 
 func TestComposerMeasuresTheFieldAndItsHints(t *testing.T) {
-	c := kit.Composer{Prompt: "› "}
+	c := kit.NewComposer(kit.ComposerConfig{Prompt: "› "})
 	if got := c.HeightForWidth(20); got != 1 {
 		t.Fatalf("an empty composer with no hints = %d rows, want 1", got)
 	}
-	c.Controller().Keys, c.Hints = sendKeys(), []keymap.Action{"send"}
+	c.Controller().SetKeys(sendKeys())
+	c.SetHints([]keymap.Action{"send"})
 	if got := c.HeightForWidth(20); got != 2 {
 		t.Fatalf("with a hint row = %d rows, want the field and the hints", got)
 	}
@@ -102,8 +103,8 @@ func TestComposerMeasuresTheFieldAndItsHints(t *testing.T) {
 
 func TestComposerHintsNobodyCanPressTakeNoRow(t *testing.T) {
 	// A hint row with nothing in it is a blank line the user cannot account for.
-	c := kit.Composer{Hints: []keymap.Action{"unbound"}}
-	c.Controller().Keys = sendKeys()
+	c := kit.NewComposer(kit.ComposerConfig{Hints: []keymap.Action{"unbound"}})
+	c.Controller().SetKeys(sendKeys())
 	if got := c.HeightForWidth(20); got != 1 {
 		t.Fatalf("= %d rows, want no room given to hints nobody is shown", got)
 	}
@@ -129,11 +130,11 @@ func TestComposerGrowsWithItsTextUpToItsCap(t *testing.T) {
 
 func TestComposerEditorOwnsTheRowLimit(t *testing.T) {
 	c := kit.NewComposer(kit.ComposerConfig{MaxRows: 2, Initial: "one\ntwo\nthree\nfour\nfive\nsix"})
-	if got := c.Controller().MaxRows; got != 2 {
+	if got := c.Controller().MaxRows(); got != 2 {
 		t.Fatalf("editor row limit = %d, want the configured limit", got)
 	}
 	for _, limit := range []int{2, 4, 0} {
-		c.Controller().MaxRows = limit
+		c.Controller().SetMaxRows(limit)
 		want := limit
 		if want == 0 {
 			want = 6
@@ -147,10 +148,10 @@ func TestComposerEditorOwnsTheRowLimit(t *testing.T) {
 func TestZeroComposerSeedsTheDefaultRowLimitOnce(t *testing.T) {
 	var c kit.Composer
 	c.HeightForWidth(20)
-	if got := c.Controller().MaxRows; got != kit.DefaultComposerRows {
+	if got := c.Controller().MaxRows(); got != kit.DefaultComposerRows {
 		t.Fatalf("default editor row limit = %d, want %d", got, kit.DefaultComposerRows)
 	}
-	c.Controller().MaxRows = 0
+	c.Controller().SetMaxRows(0)
 	c.Controller().SetText(strings.Repeat("line\n", kit.DefaultComposerRows))
 	if got := c.HeightForWidth(20); got != kit.DefaultComposerRows+1 {
 		t.Fatalf("explicit unlimited editor height = %d, want %d", got, kit.DefaultComposerRows+1)
@@ -161,12 +162,12 @@ func TestComposerDrawsTheHintsUnderTheField(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	c := kit.Composer{
+	c := kit.NewComposer(kit.ComposerConfig{
 		Prompt: "› ",
 		Hints:  []keymap.Action{"send"},
-	}
-	c.Controller().Keys = sendKeys()
-	rows := paintWidget(scenes, 20, 2, &c)
+	})
+	c.Controller().SetKeys(sendKeys())
+	rows := paintWidget(scenes, 20, 2, c)
 	if !strings.Contains(rows[1], "send") {
 		t.Fatalf("second row = %q, want the hints under the field", rows[1])
 	}
@@ -176,18 +177,18 @@ func TestComposerUsesOneDefaultMapForEditingAndHints(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	c := kit.Composer{Hints: []keymap.Action{base.Yank}}
+	c := kit.NewComposer(kit.ComposerConfig{Hints: []keymap.Action{base.Yank}})
 	c.Controller().SetText("restored")
 	c.Controller().MoveLineStart()
 	c.Controller().KillToEnd()
 
-	if !scenes.Mount(&c).Handle(input.Key{Code: input.Character, Rune: 'y', Mods: input.Ctrl}) {
+	if !scenes.Mount(c).Handle(input.Key{Code: input.Character, Rune: 'y', Mods: input.Ctrl}) {
 		t.Fatal("the default editor binding was not active through Composer.Handle")
 	}
 	if got := c.Controller().Text(); got != "restored" {
 		t.Fatalf("text = %q, want the default yank binding to restore it", got)
 	}
-	rows := paintWidget(scenes, 24, c.HeightForWidth(24), &c)
+	rows := paintWidget(scenes, 24, c.HeightForWidth(24), c)
 	if !strings.Contains(rows[len(rows)-1], "y yank") {
 		t.Fatalf("hint row = %q, want the binding used by the editor", rows[len(rows)-1])
 	}

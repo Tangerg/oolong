@@ -14,7 +14,8 @@ import (
 
 // EventSource is one ordered input stream and its terminal result.
 //
-// Events supplies immutable input values, not pointers or wrappers. It closes after the last event. Once it has closed, Err reports why the
+// Events supplies immutable values satisfying [input.Validate]. It closes after
+// the last event. Once it has closed, Err reports why the
 // stream ended: nil means a clean end of input, while a non-nil error is the
 // transport failure that ended it. Err must not report end-of-file as a failure.
 // Timed reports use time.Now's process clock, shared with FrameWriter.WrittenAt.

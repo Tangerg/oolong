@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"image"
 	"io"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
 const eraseLine = "\x1b[K"
@@ -249,8 +251,8 @@ func (i *Inline) PrepareFinish() (output *Output, err error) {
 		}
 		payload = append(payload, osc8Close...)
 		payload = append(payload, sgrReset...)
-		payload = append(payload, defaultCursor...)
-		payload = append(payload, showCursor...)
+		payload = append(payload, ansi.CursorReset.Sequence()...)
+		payload = append(payload, ansi.ShowCursor...)
 	}
 	output = newOutput(payload, func(commit bool) {
 		if commit {
@@ -501,13 +503,13 @@ func (i *Inline) placeCursor(at image.Point) image.Point {
 
 	if !i.placed.Visible {
 		if !i.known || i.shown {
-			i.buf = append(i.buf, hideCursor...)
+			i.buf = append(i.buf, ansi.HideCursor...)
 		}
 		return at
 	}
 	style := i.placed.Style
 	if !i.cursorStyleKnown || style != i.cursorStyle {
-		i.buf = append(i.buf, style.sequence()...)
+		i.buf = append(i.buf, style.Sequence()...)
 		i.cursorStyleKnown = true
 		i.cursorStyle = style
 	}
@@ -520,7 +522,7 @@ func (i *Inline) placeCursor(at image.Point) image.Point {
 		i.csi(i.placed.Pos.X, 'C')
 	}
 	if !i.known || !i.shown {
-		i.buf = append(i.buf, showCursor...)
+		i.buf = append(i.buf, ansi.ShowCursor...)
 	}
 	return i.placed.Pos
 }

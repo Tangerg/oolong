@@ -90,11 +90,12 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 		Text: func(e entry) string { return e.name },
 	})
 	b.tree = b.dressed.Controller()
-	b.tree.Keys = base.DefaultTreeKeys()
+	keys := base.DefaultTreeKeys()
 	for _, binding := range base.DefaultFocusKeys().Bindings() {
-		b.tree.Keys.Bind(binding.Action, binding.Keys...)
+		keys.Bind(binding.Action, binding.Keys...)
 	}
-	b.tree.Keys.Bind(quitBrowser, input.Chord{Rune: 'q'})
+	keys.Bind(quitBrowser, input.Chord{Rune: 'q'})
+	b.tree.SetKeys(keys)
 	previewElement := scene.NewElement(scene.ElementConfig{
 		Key:   "file-preview",
 		Paint: func(frame scene.Frame) { b.preview.Draw(frame.View) },
@@ -117,14 +118,14 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 		if b.tree.Element().FocusedWithin() {
 			actions = []keymap.Action{base.FocusNext, base.Expand, base.Collapse, quitBrowser}
 		}
-		kit.Help{Theme: b.theme, Keys: b.tree.Keys, Show: actions}.Draw(frame.View)
+		kit.Help{Theme: b.theme, Keys: b.tree.Keys(), Show: actions}.Draw(frame.View)
 	}})
 	unsubscribe := b.tree.Subscribe(b.show)
 	b.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
 		Key: "files",
 		Preview: func(event scene.Event) scene.EventResult {
 			if key, ok := event.Input().(input.Key); ok {
-				if action, bound := b.tree.Keys.ActionFor(key); bound && (action == base.FocusNext || action == base.FocusPrev) {
+				if action, bound := b.tree.Keys().ActionFor(key); bound && (action == base.FocusNext || action == base.FocusPrev) {
 					return scene.EventResult{Consumed: event.FocusNext(action == base.FocusPrev)}
 				}
 			}
@@ -192,7 +193,7 @@ func (b *browser) show() {
 
 func (b *browser) Handle(ev input.Event) bool {
 	if key, ok := ev.(input.Key); ok {
-		if action, bound := b.tree.Keys.ActionFor(key); bound && action == quitBrowser {
+		if action, bound := b.tree.Keys().ActionFor(key); bound && action == quitBrowser {
 			b.runtime.Quit()
 			return true
 		}

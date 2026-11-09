@@ -78,11 +78,11 @@ func TestARowIsToldWhichCharactersAnsweredThePattern(t *testing.T) {
 	// what makes one usable.
 	var seen fuzzy.Match
 	f := filtered()
-	f.Row = func(_ grid.View, at int, _ string, match fuzzy.Match, _ bool) {
+	f.SetRow(func(_ grid.View, at int, _ string, match fuzzy.Match, _ bool) {
 		if at == 0 {
 			seen = match
 		}
-	}
+	})
 	f.SetPattern("pty")
 	paintWidget(scenes, 30, 3, f)
 	if len(seen.At) != 3 {

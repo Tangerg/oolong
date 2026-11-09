@@ -36,25 +36,26 @@ type ComposerConfig struct {
 type Composer struct {
 	noCopy     noCopy
 	appearance appearance
-	Prompt     string
-	Hints      []keymap.Action
+	prompt     string
+	hints      []keymap.Action
 	editor     base.Editor
 	group      *scene.Group
 }
 
-// NewComposer constructs an editor and its scene composition. It panics if Theme and Scope both declare palette sources.
+// NewComposer panics for negative MaxRows or competing Theme and Scope palette
+// sources. Zero MaxRows selects DefaultComposerRows at construction.
 func NewComposer(config ComposerConfig) *Composer {
 	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	c := &Composer{appearance: look, Prompt: config.Prompt, Hints: slices.Clone(config.Hints)}
+	c := &Composer{appearance: look, prompt: config.Prompt, hints: slices.Clone(config.Hints)}
 	c.editor.SetText(config.Initial)
 	c.editor.ForgetHistory()
-	c.editor.MaxRows = config.MaxRows
-	c.editor.Placeholder = config.Placeholder
-	c.editor.Keys = config.Keys
-	c.editor.Clipboard = config.Clipboard
+	c.editor.SetMaxRows(config.MaxRows)
+	c.editor.SetPlaceholder(config.Placeholder)
+	c.editor.SetKeys(config.Keys)
+	c.editor.SetClipboard(config.Clipboard)
 	c.ensure()
 	return c
 }
@@ -68,8 +69,8 @@ func (c *Composer) ensure() {
 	if c.group != nil {
 		return
 	}
-	if c.editor.MaxRows <= 0 {
-		c.editor.MaxRows = DefaultComposerRows
+	if c.editor.MaxRows() <= 0 {
+		c.editor.SetMaxRows(DefaultComposerRows)
 	}
 	if err := c.editor.Element().SetPaint(func(frame scene.Frame) { c.editor.DrawWith(frame, c.appearance.palette().Look(Glyphs{})) }); err != nil {
 		panic(err)
@@ -83,8 +84,8 @@ func (c *Composer) ensure() {
 			return 0
 		}, Paint: func(frame scene.Frame) {
 			width, height := frame.Size()
-			if c.Prompt != "" {
-				frame.Text(0, 0, c.Prompt, c.appearance.palette().Accent)
+			if c.prompt != "" {
+				frame.Text(0, 0, c.prompt, c.appearance.palette().Accent)
 			}
 			help := c.help()
 			rows := help.HeightForWidth(width)
@@ -106,16 +107,48 @@ func (c *Composer) HeightForWidth(width int) int {
 	rows := c.editor.HeightForWidth(layout.Remaining(width, c.markerWidth()))
 	return layout.Sum(rows, c.help().HeightForWidth(width))
 }
-func (c *Composer) markerWidth() int { return text.Width(c.Prompt) }
+func (c *Composer) markerWidth() int { return text.Width(c.prompt) }
 func (c *Composer) help() Help {
-	return Help{Theme: c.appearance.palette(), Keys: c.keys(), Show: c.Hints}
+	return Help{Theme: c.appearance.palette(), Keys: c.keys(), Show: c.hints}
 }
 
 var composerKeys = sync.OnceValue(base.DefaultEditorKeys)
 
 func (c *Composer) keys() *keymap.Map {
-	if c.editor.Keys != nil {
-		return c.editor.Keys
+	if c.editor.Keys() != nil {
+		return c.editor.Keys()
 	}
 	return composerKeys()
+}
+
+func (c *Composer) Prompt() string { return c.prompt }
+
+// SetPrompt panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (c *Composer) SetPrompt(value string) {
+	element := c.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if c.prompt == value {
+		return
+	}
+	c.prompt = value
+	element.Invalidate()
+}
+
+func (c *Composer) Hints() []keymap.Action { return slices.Clone(c.hints) }
+
+// SetHints panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (c *Composer) SetHints(value []keymap.Action) {
+	element := c.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if slices.Equal(c.hints, value) {
+		return
+	}
+	c.hints = slices.Clone(value)
+	element.Invalidate()
 }

@@ -26,14 +26,14 @@ func TestDuplicateSpokenChoicesAreRefused(t *testing.T) {
 }
 
 func TestAnAmbiguousSpokenConfirmationIsRefused(t *testing.T) {
-	field := &base.Confirm{Yes: "enable", No: "enter"}
+	field := base.NewConfirm(base.ConfirmConfig{Yes: "enable", No: "enter"})
 	if err := field.Reply("en"); err == nil {
 		t.Fatal("a prefix shared by both answers was guessed")
 	}
 }
 
 func TestExactConfirmationCanBeAPrefixOfTheOtherAnswer(t *testing.T) {
-	field := &base.Confirm{Yes: "on", No: "once"}
+	field := base.NewConfirm(base.ConfirmConfig{Yes: "on", No: "once"})
 	if err := field.Reply("ON"); err != nil || !field.Answer() {
 		t.Fatalf("exact answer was not accepted: %v", err)
 	}

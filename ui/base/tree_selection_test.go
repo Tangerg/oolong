@@ -62,7 +62,7 @@ func TestTreeBranchChangesCancelDeferredNavigation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			keys, resolve := deferredKeys(base.SelectNext, base.SelectLast)
 			tree := base.NewTree(files()...)
-			tree.Keys = keys
+			tree.SetKeys(keys)
 			if !test.open {
 				tree.Open(0)
 			}

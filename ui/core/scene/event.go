@@ -206,7 +206,7 @@ func (c CapturedInput) Input() input.Event { return c.input }
 // Equality with layout admission cannot prove which geometry preceded the input.
 // This operation and CapturePresentedInput may run outside the UI owner.
 func (r *Root) CaptureInput(event input.Event, writtenAt func(time.Time) (uint64, bool)) CapturedInput {
-	if input.ByteSize(event) == 0 {
+	if input.Validate(event) != nil {
 		return CapturedInput{}
 	}
 	event = input.Stamp([]input.Event{event}, time.Now())[0]
@@ -236,7 +236,7 @@ func (r *Root) CaptureInput(event input.Event, writtenAt func(time.Time) (uint64
 // unsettled geometry returns a zero capture. Mouse.At remains gesture timing.
 // The immutable geometry query is safe outside the UI owner.
 func (r *Root) CapturePresentedInput(mouse input.Mouse, sequence uint64) CapturedInput {
-	if r == nil || input.ByteSize(mouse) == 0 {
+	if r == nil || input.Validate(mouse) != nil {
 		return CapturedInput{}
 	}
 	layout := r.published.Load().layoutAt(sequence, nil)
@@ -268,7 +268,7 @@ func (g *inputGeometry) layoutAt(sequence uint64, arrived *time.Time) *layoutSna
 // Physical input must use CaptureInput with transport completion evidence; an
 // event timestamp alone cannot prove which output had completed at its arrival.
 func (r *Root) Handle(event input.Event) bool {
-	if r == nil || input.ByteSize(event) == 0 {
+	if r == nil || input.Validate(event) != nil {
 		return false
 	}
 	return r.HandleInput(CapturedInput{input: event, root: r, layout: r.written})

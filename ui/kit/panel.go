@@ -18,7 +18,7 @@ type PanelConfig struct {
 // Panel must not be copied after first use; its collaborators share one live identity.
 type Panel struct {
 	noCopy noCopy
-	Box    Box
+	box    Box
 	group  *scene.Group
 }
 
@@ -27,7 +27,7 @@ func NewPanel(config PanelConfig) *Panel {
 	if err := config.Box.validate(); err != nil {
 		panic(err)
 	}
-	p := &Panel{Box: config.Box}
+	p := &Panel{box: config.Box.clone()}
 	p.SetContent(config.Content)
 	return p
 }
@@ -37,19 +37,16 @@ func (p *Panel) ensure() {
 		return
 	}
 	p.group = scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{
-		Paint:   func(frame scene.Frame) { p.Box.paint(frame.View) },
+		Paint:   func(frame scene.Frame) { p.box.paint(frame.View) },
 		Measure: p.measure,
 	}, Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
 		if len(items) == 0 {
 			return nil
 		}
-		return []image.Rectangle{p.Box.InnerRect(space)}
+		return []image.Rectangle{p.box.InnerRect(space)}
 	}})
 }
 
-// Element exposes scene measurement and painting that panic for invalid box
-// alignment before invoking child measurers or changing cells. Box remains mutable
-// after construction, so those projections validate its current configuration.
 func (p *Panel) Element() scene.Element { p.ensure(); return p.group.Element() }
 
 func (p *Panel) Content() scene.Element { item, _ := p.group.At(0); return item.Element }
@@ -76,20 +73,31 @@ func (p *Panel) SetContent(child scene.Element) {
 	}
 }
 
-// HeightForWidth panics for invalid box alignment before measuring its child,
-// because Box may have changed since construction.
 func (p *Panel) HeightForWidth(width int) int {
 	return p.measure(layout.Down, width)
 }
 
 func (p *Panel) measure(axis layout.Axis, across int) int {
-	if err := p.Box.validate(); err != nil {
-		panic(err)
-	}
-	overhead := p.Box.Overhead()
+	overhead := p.box.Overhead()
 	along, cross := overhead.X, overhead.Y
 	if axis == layout.Down {
 		along, cross = overhead.Y, overhead.X
 	}
 	return layout.Sum(along, p.Content().Measure(axis, layout.Remaining(across, cross)))
+}
+
+func (p *Panel) Box() Box { return p.box.clone() }
+
+// SetBox panics for invalid title or footer alignment or with scene.ErrBusy outside
+// owner mutation, before the retained presentation can change.
+func (p *Panel) SetBox(value Box) {
+	element := p.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	if err := value.validate(); err != nil {
+		panic(err)
+	}
+	p.box = value.clone()
+	element.Invalidate()
 }

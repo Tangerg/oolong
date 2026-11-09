@@ -184,7 +184,7 @@ func items(n int) []string {
 // newList builds a list that draws each item as its text, marking the selected one.
 
 func newList(n int) *base.List[string] {
-	list := &base.List[string]{
+	list := base.NewList(base.ListConfig[string]{
 		Keys: base.DefaultListKeys(),
 		Row: func(v grid.View, _ int, item string, selected bool) {
 			prefix := " "
@@ -193,7 +193,7 @@ func newList(n int) *base.List[string] {
 			}
 			v.Text(0, 0, prefix+item, grid.Style{})
 		},
-	}
+	})
 	list.SetItems(items(n))
 	return list
 }
@@ -225,7 +225,7 @@ func TestOneKeyCanBeReboundWithoutReplacingTheRest(t *testing.T) {
 	keys := base.DefaultEditorKeys()
 	keys.Bind(base.DeleteWordBack, input.Ctrl.Rune('q'))
 
-	e := base.Editor{Keys: keys}
+	e := base.NewEditor(base.EditorConfig{Keys: keys})
 	e.Insert("one two")
 	if !e.Handle(input.Key{Code: input.Character, Rune: 'q', Mods: input.Ctrl}) {
 		t.Fatal("the rebound key did nothing")
@@ -326,7 +326,7 @@ func TestAnEmptyOfferIsADismissal(t *testing.T) {
 func TestAClosedCompletionAnswersNothing(t *testing.T) {
 	// It would be a completion with opinions about text it is not offering anything for.
 	var c base.Completion
-	c.Accept = func(base.Candidate, base.Token) { t.Fatal("a closed completion accepted") }
+	c.SetAccept(func(base.Candidate, base.Token) { t.Fatal("a closed completion accepted") })
 	for _, ev := range []input.Event{
 		input.Key{Code: input.Down},
 		input.Key{Code: input.Tab},
@@ -367,7 +367,7 @@ func TestAcceptingReportsTheCandidateAndTheTokenItReplaces(t *testing.T) {
 	var c base.Completion
 	var got base.Candidate
 	var at base.Token
-	c.Accept = func(candidate base.Candidate, token base.Token) { got, at = candidate, token }
+	c.SetAccept(func(candidate base.Candidate, token base.Token) { got, at = candidate, token })
 	token := offer(&c, "src/one.go", "src/two.go")
 
 	c.Handle(input.Key{Code: input.Down})
@@ -390,7 +390,7 @@ func TestAcceptingClosesBeforeTheCallbackRuns(t *testing.T) {
 	// must not read as another query for a completion that is still open.
 	var c base.Completion
 	openDuring := true
-	c.Accept = func(base.Candidate, base.Token) { openDuring = c.Open() }
+	c.SetAccept(func(base.Candidate, base.Token) { openDuring = c.Open() })
 	offer(&c, "one")
 	c.Handle(input.Key{Code: input.Tab})
 	if openDuring {
@@ -455,7 +455,7 @@ func TestANewOfferStartsAtTheFirstCandidate(t *testing.T) {
 
 func TestTheMeasuredHeightIsARowPerCandidateUpToTheCap(t *testing.T) {
 	var c base.Completion
-	c.MaxRows = 3
+	c.SetMaxRows(3)
 	offer(&c, "one", "two")
 	if got := c.HeightForWidth(20); got != 2 {
 		t.Fatalf("height = %d, want a row each", got)
@@ -508,7 +508,9 @@ func TestTheMatchedCharactersArePickedOut(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	var c base.Completion
-	c.Look.Accent = grid.Style{Attr: grid.Bold}
+	cLook := c.Look()
+	cLook.Accent = grid.Style{Attr: grid.Bold}
+	c.SetLook(cLook)
 	c.Offer(base.Token{}, []base.Candidate{{Text: "status", Matched: []int{0, 1}}})
 
 	s := grid.NewSurface(20, 1)
@@ -528,7 +530,9 @@ func TestAMatchInsideAClusterEmphasisesTheWholeCluster(t *testing.T) {
 	// cluster rather than at its start. Testing for equality there would leave the
 	// character the reader sees unhighlighted.
 	var c base.Completion
-	c.Look.Accent = grid.Style{Attr: grid.Bold}
+	cLook := c.Look()
+	cLook.Accent = grid.Style{Attr: grid.Bold}
+	c.SetLook(cLook)
 	// "e" plus a combining acute: one cluster, two runes, the mark at offset 1.
 	c.Offer(base.Token{}, []base.Candidate{{Text: "éx", Matched: []int{1}}})
 
@@ -547,7 +551,9 @@ func TestTheSelectedRowIsTheOneUnderTheCursor(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	var c base.Completion
-	c.Look.Selection = grid.Style{Attr: grid.Reverse}
+	cLook := c.Look()
+	cLook.Selection = grid.Style{Attr: grid.Reverse}
+	c.SetLook(cLook)
 	offer(&c, "one", "two")
 	c.Handle(input.Key{Code: input.Down})
 
@@ -935,7 +941,7 @@ func TestEditorMeasuresTheWidthAndItsCap(t *testing.T) {
 	if narrow <= wide {
 		t.Fatalf("height at 10 = %d, at 40 = %d, want narrower to be taller", narrow, wide)
 	}
-	e.MaxRows = 2
+	e.SetMaxRows(2)
 	if got := e.HeightForWidth(10); got != 2 {
 		t.Fatalf("height with a cap of 2 = %d", got)
 	}
@@ -964,7 +970,7 @@ func TestEditorPlaceholderIsNotText(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	e := &base.Editor{}
-	e.Placeholder = "Ask anything"
+	e.SetPlaceholder("Ask anything")
 	rows := paintWidget(scenes, 20, 1, e)
 	if !strings.Contains(rows[0], "Ask anything") {
 		t.Fatalf("row = %q, want the placeholder", rows[0])
@@ -1273,7 +1279,7 @@ func TestListSelectionMoves(t *testing.T) {
 
 func TestListWrapsOnlyWhenAskedTo(t *testing.T) {
 	l := newList(3)
-	l.Wrap = true
+	l.SetWrap(true)
 	l.Handle(key(input.Up))
 	if got := l.Selected(); got != 2 {
 		t.Fatalf("selection = %d, want it wrapped to the last item", got)
@@ -1299,7 +1305,7 @@ func TestListMovementKeepsItsDirectionAtIntegerLimits(t *testing.T) {
 		t.Fatalf("largest backward movement stopped at %d, want the start", got)
 	}
 
-	l.Wrap = true
+	l.SetWrap(true)
 	l.Select(1)
 	l.Move(maxInt)
 	if got := l.Selected(); got != 2 {
@@ -1367,7 +1373,7 @@ func TestListWithNothingInIt(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	l := &base.List[string]{Keys: base.DefaultListKeys()}
+	l := base.NewList(base.ListConfig[string]{Keys: base.DefaultListKeys()})
 	if got := l.Selected(); got != -1 {
 		t.Fatalf("selection = %d, want none", got)
 	}
@@ -1634,10 +1640,10 @@ func TestAPressOnAListScrolledDownReachesTheRowUnderIt(t *testing.T) {
 func TestCompletionTracksTheEditorsLiveToken(t *testing.T) {
 	editor := base.NewEditor(base.EditorConfig{Initial: "@one\n@one"})
 	accepted := false
-	completion := &base.Completion{
+	completion := base.NewCompletion(base.CompletionConfig{
 		CurrentToken: func() (base.Token, bool) { return editor.TokenAtCursor(base.Trigger{Prefix: "@"}) },
 		Accept:       func(base.Candidate, base.Token) { accepted = true },
-	}
+	})
 	editor.SetCursor(0, 4)
 	token, ok := completion.CurrentToken()
 	if !ok {

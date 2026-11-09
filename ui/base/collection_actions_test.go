@@ -205,7 +205,7 @@ func TestSettingsSemanticActionsKeepAcceptanceSeparateFromDomainChange(t *testin
 		t.Fatalf("read-only setting = %v", err)
 	}
 	volume := 1
-	settings.Change = func(index int, item string, action keymap.Action) scene.ActionResult[bool] {
+	settings.SetChange(func(index int, item string, action keymap.Action) scene.ActionResult[bool] {
 		if index != 0 || item != "volume" {
 			t.Fatal("action reached the wrong domain item")
 		}
@@ -218,7 +218,7 @@ func TestSettingsSemanticActionsKeepAcceptanceSeparateFromDomainChange(t *testin
 			result.State = scene.Applied
 		}
 		return result
-	}
+	})
 	for _, expected := range []scene.ActionState{scene.Applied, scene.Unchanged} {
 		result, err := root.Invoke(t.Context(), settings.Element().Target(), scene.ActionIncrement, address)
 		if err != nil || result.State != expected || result.Value != true || volume != 2 {

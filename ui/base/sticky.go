@@ -39,10 +39,27 @@ type Sticky struct {
 	// starts scrolling off instead. Zero means it does not collapse.
 	//
 	// A tall prompt pinned in full eats the view it was meant to give context to.
-	MinHeight int
+	minHeight int
 	// Gap is the rows kept clear between a pinned header and the content below it,
 	// so that the two do not read as one block.
-	Gap int
+	gap int
+}
+
+type StickyConfig struct {
+	Blocks    []BlockID
+	MinHeight int
+	Gap       int
+}
+
+// NewSticky panics for negative dimensions or block identities that are not
+// nonzero and strictly increasing. The caller retains ownership of config.Blocks.
+func NewSticky(config StickyConfig) *Sticky {
+	if config.MinHeight < 0 || config.Gap < 0 {
+		panic("base: sticky dimensions cannot be negative")
+	}
+	s := &Sticky{minHeight: config.MinHeight, gap: config.Gap}
+	s.SetBlocks(config.Blocks)
+	return s
 }
 
 // SetBlocks replaces the identities that can be pinned. It panics before mutation
@@ -155,13 +172,13 @@ func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
 	}
 
 	p := Pinned{Block: i, Height: height}
-	if s.MinHeight > 0 {
+	if s.minHeight > 0 {
 		// Collapsed towards the floor as its own rows scroll away, so a tall prompt
 		// does not go on eating the view it was meant to explain.
-		p.Height = max(min(height, height-(from-top)), s.MinHeight)
+		p.Height = max(min(height, height-(from-top)), s.minHeight)
 		p.Height = min(p.Height, height)
 	}
-	p.Rows = layout.Sum(p.Height, s.Gap)
+	p.Rows = layout.Sum(p.Height, s.gap)
 	p.Fade = 1
 
 	if next, ok := s.nextAfter(t, i); ok {
@@ -226,4 +243,36 @@ func (s *Sticky) discardBefore(first BlockID) bool {
 	}
 	s.blocks.Discard(n)
 	return n > 0
+}
+
+func (s *Sticky) MinHeight() int { return s.minHeight }
+
+// SetMinHeight panics for a negative minimum. Zero keeps the full header height.
+func (s *Sticky) SetMinHeight(value int) {
+	element := s.element
+	requireMutable(element)
+	if value < 0 {
+		panic("base: MinHeight cannot be negative")
+	}
+	if s.minHeight == value {
+		return
+	}
+	s.minHeight = value
+	element.Invalidate()
+}
+
+func (s *Sticky) Gap() int { return s.gap }
+
+// SetGap panics for a negative gap before changing header geometry.
+func (s *Sticky) SetGap(value int) {
+	element := s.element
+	requireMutable(element)
+	if value < 0 {
+		panic("base: Gap cannot be negative")
+	}
+	if s.gap == value {
+		return
+	}
+	s.gap = value
+	element.Invalidate()
 }

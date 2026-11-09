@@ -22,17 +22,17 @@ type Editor struct {
 	geometry eventGeometry
 	noCopy   noCopy
 
-	Placeholder string
-	Look        Look
+	placeholder string
+	look        Look
 	// Nil uses [DefaultEditorKeys].
-	Keys *keymap.Map
+	keys keyBinding
 	// Nil disables clipboard actions.
-	Clipboard Clipboard
+	clipboard Clipboard
 	// Zero allows unlimited height; a positive limit scrolls to keep the cursor visible.
-	MaxRows int
+	maxRows int
 	// Gutter input belongs to the containing component; its text is excluded from selection.
-	Gutter      RowGutter
-	CursorStyle grid.CursorStyle
+	gutter      RowGutter
+	cursorStyle grid.CursorStyle
 
 	session          *EditSession
 	local            EditSession
@@ -74,14 +74,27 @@ type EditorConfig struct {
 	Placeholder string
 	MaxRows     int
 	SingleLine  bool
+	Look        Look
+	Keys        *keymap.Map
+	Clipboard   Clipboard
+	Gutter      RowGutter
+	CursorStyle grid.CursorStyle
 }
 
-// NewEditor constructs one view. It panics if Session is combined with Initial or SingleLine, which would supply competing document owners.
+// NewEditor panics for negative MaxRows, an invalid CursorStyle.Shape, or a
+// Session combined with Initial or SingleLine, which would supply competing
+// document owners.
 func NewEditor(config EditorConfig) *Editor {
+	if config.MaxRows < 0 {
+		panic("base: editor MaxRows cannot be negative")
+	}
+	if err := config.CursorStyle.Shape.Validate(); err != nil {
+		panic(err)
+	}
 	if config.Session != nil && (config.Initial != "" || config.SingleLine) {
 		panic("base: editor Session cannot be combined with Initial or SingleLine")
 	}
-	e := &Editor{session: config.Session, Placeholder: strings.Clone(config.Placeholder), MaxRows: config.MaxRows}
+	e := &Editor{session: config.Session, placeholder: strings.Clone(config.Placeholder), maxRows: config.MaxRows, look: config.Look, keys: keyBinding{current: config.Keys}, clipboard: config.Clipboard, gutter: config.Gutter, cursorStyle: config.CursorStyle}
 	if e.session == nil {
 		e.local.initialize(EditSessionConfig{Initial: config.Initial, SingleLine: config.SingleLine})
 		e.finishReplacement(e.local.end(), true)
@@ -664,7 +677,7 @@ func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed fun
 	}
 	e.ensure()
 
-	matched, handled := e.matcher.Handle(e.keys(), key, keyboardReceipt(&e.element), do)
+	matched, handled := e.matcher.Handle(e.resolvedKeys(), key, keyboardReceipt(&e.element), do)
 	if !matched {
 		return typed(key)
 	}
@@ -734,9 +747,9 @@ func (e *Editor) typed(key input.Key) bool {
 	return false
 }
 
-func (e *Editor) keys() *keymap.Map {
-	if e.Keys != nil {
-		return e.Keys
+func (e *Editor) resolvedKeys() *keymap.Map {
+	if e.keys.current != nil {
+		return e.keys.current
 	}
 	return editorKeys()
 }
@@ -816,14 +829,14 @@ func (e *Editor) HeightForWidth(width int) int {
 		return 1
 	}
 	rows := len(e.rows(width))
-	if e.MaxRows > 0 {
-		return min(rows, e.MaxRows)
+	if e.maxRows > 0 {
+		return min(rows, e.maxRows)
 	}
 	return rows
 }
 
 func (e *Editor) Draw(frame scene.Frame) {
-	e.DrawWith(frame, e.Look)
+	e.DrawWith(frame, e.look)
 }
 
 // DrawWith paints one projection with look without changing the editor's configured
@@ -879,8 +892,8 @@ func (e *Editor) drawMultiline(
 	last := min(layout.Sum(first, height), len(rows))
 	e.drawGutter(gutterView, projection, first, last)
 
-	if e.Empty() && e.Placeholder != "" {
-		view.Text(0, 0, text.Truncate(e.Placeholder, width, look.Ellipsis), look.Subtle)
+	if e.Empty() && e.placeholder != "" {
+		view.Text(0, 0, text.Truncate(e.placeholder, width, look.Ellipsis), look.Subtle)
 		e.placeCursor(view, 0, 0)
 		return presentation
 	}
@@ -914,10 +927,10 @@ func (e *Editor) drawMultiline(
 }
 
 func (e *Editor) gutterWidth() int {
-	if e.Gutter == nil {
+	if e.gutter == nil {
 		return 0
 	}
-	return readProjection(e.Element(), func() int { return max(e.Gutter.Width(max(len(e.document().lines), 1)), 0) })
+	return readProjection(e.Element(), func() int { return max(e.gutter.Width(max(len(e.document().lines), 1)), 0) })
 }
 
 func (e *Editor) textWidth(total int) int {
@@ -925,7 +938,7 @@ func (e *Editor) textWidth(total int) int {
 }
 
 func (e *Editor) drawGutter(view grid.View, projection *text.Layout, first, last int) {
-	if e.Gutter == nil {
+	if e.gutter == nil {
 		return
 	}
 	rows := make([]text.Row, last-first)
@@ -933,7 +946,7 @@ func (e *Editor) drawGutter(view grid.View, projection *text.Layout, first, last
 		row, _ := projection.Row(first + i)
 		rows[i] = text.Row{Text: row.Text, Line: row.Line + 1, Joined: row.Joined}
 	}
-	e.Gutter.Draw(view, rows)
+	e.gutter.Draw(view, rows)
 }
 
 // Losing the keyboard ends transient input. Cursor painting reads scene focus directly.
@@ -948,7 +961,7 @@ func (e *Editor) placeCursor(v grid.View, x, y int) {
 	if !e.element.Focused() {
 		return
 	}
-	v.PlaceCursor(x, y, e.CursorStyle)
+	v.PlaceCursor(x, y, e.cursorStyle)
 }
 
 // revealCursor is the semantic navigation boundary. A draw may refine the visual
@@ -995,10 +1008,10 @@ func (e *Editor) projectionKey() editorProjectionKey {
 func (e *Editor) lineView() editorLineView {
 	return editorLineView{
 		editorProjectionKey: e.projectionKey(),
-		value:               e.Text(), placeholder: e.Placeholder,
+		value:               e.Text(), placeholder: e.placeholder,
 		cursorByte: e.byteOffset, anchorByte: e.anchor.Byte, selecting: e.selecting,
 		focused: e.element.Focused(), left: e.geometry.read(&e.presentation).left,
-		gutter: e.Gutter, cursorStyle: e.CursorStyle,
+		gutter: e.gutter, cursorStyle: e.cursorStyle,
 	}
 }
 
@@ -1111,7 +1124,7 @@ func (e *Editor) Copy() bool {
 }
 
 func (e *Editor) copyRange(start, end Caret) bool {
-	return e.Mask() == "" && e.Clipboard != nil && e.Clipboard.Copy(e.document().textBetween(start, end))
+	return e.Mask() == "" && e.clipboard != nil && e.clipboard.Copy(e.document().textBetween(start, end))
 }
 
 // Cut copies and removes the selection only after clipboard acceptance. Clipboard
@@ -1360,4 +1373,84 @@ var editorActions = map[keymap.Action]func(*Editor){
 type RowSpan struct {
 	Row        int
 	Col, Width int
+}
+
+func (e *Editor) Placeholder() string { return e.placeholder }
+
+func (e *Editor) SetPlaceholder(value string) {
+	element := e.Element()
+	requireMutable(element)
+	if e.placeholder == value {
+		return
+	}
+	e.placeholder = strings.Clone(value)
+	element.Invalidate()
+}
+
+func (e *Editor) Look() Look { return e.look }
+
+func (e *Editor) SetLook(value Look) {
+	element := e.Element()
+	requireMutable(element)
+	if e.look == value {
+		return
+	}
+	e.look = value
+	element.Invalidate()
+}
+
+func (e *Editor) MaxRows() int { return e.maxRows }
+
+// SetMaxRows panics for a negative limit. Zero leaves the measured height uncapped.
+func (e *Editor) SetMaxRows(value int) {
+	element := e.Element()
+	requireMutable(element)
+	if value < 0 {
+		panic("base: MaxRows cannot be negative")
+	}
+	if e.maxRows == value {
+		return
+	}
+	e.maxRows = value
+	element.Invalidate()
+}
+
+func (e *Editor) Clipboard() Clipboard { return e.clipboard }
+
+func (e *Editor) SetClipboard(value Clipboard) {
+	element := e.Element()
+	requireMutable(element)
+	e.clipboard = value
+	element.Invalidate()
+}
+
+func (e *Editor) Gutter() RowGutter { return e.gutter }
+
+func (e *Editor) SetGutter(value RowGutter) {
+	element := e.Element()
+	requireMutable(element)
+	e.gutter = value
+	element.Invalidate()
+}
+
+func (e *Editor) CursorStyle() grid.CursorStyle { return e.cursorStyle }
+
+// SetCursorStyle panics for an unknown cursor shape before changing presentation.
+func (e *Editor) SetCursorStyle(value grid.CursorStyle) {
+	element := e.Element()
+	requireMutable(element)
+	if err := value.Shape.Validate(); err != nil {
+		panic(err)
+	}
+	if e.cursorStyle == value {
+		return
+	}
+	e.cursorStyle = value
+	element.Invalidate()
+}
+
+func (e *Editor) Keys() *keymap.Map { return e.keys.current }
+
+func (e *Editor) SetKeys(keys *keymap.Map) {
+	e.keys.set(e.Element(), &e.matcher, keys)
 }

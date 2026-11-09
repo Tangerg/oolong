@@ -36,7 +36,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 		}
 
 		clipboard := &clip{}
-		editor := base.Editor{Clipboard: clipboard}
+		editor := base.NewEditor(base.EditorConfig{Clipboard: clipboard})
 		editor.SetText(string(data))
 		for i, b := range data {
 			before := editor.Revision()
@@ -114,7 +114,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 			case 32:
 				editor.SelectNone()
 			case 33:
-				scenes.Focus(&editor, b&1 != 0)
+				scenes.Focus(editor, b&1 != 0)
 			case 34:
 				editor.Copy()
 			case 35:
@@ -123,14 +123,14 @@ func FuzzEditorStateTransitions(f *testing.F) {
 			if editor.Revision() < before {
 				t.Fatalf("revision moved backwards from %d to %d", before, editor.Revision())
 			}
-			assertEditorStorage(t, &editor)
+			assertEditorStorage(t, editor)
 		}
 
 		width := 1
 		if len(data) > 0 {
 			width += int(data[0] % 12)
 		}
-		paintWidget(scenes, width, max(editor.HeightForWidth(width), 1), &editor)
+		paintWidget(scenes, width, max(editor.HeightForWidth(width), 1), editor)
 	})
 }
 

@@ -38,24 +38,25 @@ type FormConfig struct {
 type Form struct {
 	noCopy     noCopy
 	appearance appearance
-	Glyphs     Glyphs
+	glyphs     Glyphs
 	hints      []keymap.Action
 	controller *base.Form
 	group      *scene.Group
 }
 
-// NewForm constructs the form and its appearance. It panics for invalid fields or scene relations, or competing Theme and Scope sources.
+// NewForm panics for negative Gap, invalid fields or scene relations, or
+// competing Theme and Scope palette sources.
 func NewForm(config FormConfig) *Form {
 	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	f := &Form{appearance: look, Glyphs: config.Glyphs, hints: slices.Clone(config.Hints)}
+	f := &Form{appearance: look, glyphs: config.Glyphs.clone(), hints: slices.Clone(config.Hints)}
 	f.controller = base.NewForm(base.FormConfig{
 		Key: config.Key, Title: config.Title, Fields: config.Fields, Keys: config.Keys, Gap: config.Gap, Check: config.Check, Submit: config.Submit, Cancel: config.Cancel,
 		PaintField: func(frame scene.Frame, field base.Field) {
 			if themed, ok := field.(base.ThemedField); ok {
-				themed.DrawWith(frame, f.appearance.palette().Look(f.Glyphs))
+				themed.DrawWith(frame, f.appearance.palette().Look(f.glyphs))
 			} else {
 				field.Draw(frame)
 			}
@@ -73,7 +74,7 @@ func NewForm(config FormConfig) *Form {
 			Paint: func(frame scene.Frame) {
 				w, h := frame.Size()
 				if f.controller.Title() != "" {
-					Label{Text: f.controller.Title(), Style: f.appearance.palette().Heading, Ellipsis: f.Glyphs.Ellipsis}.Draw(frame.View)
+					Label{Text: f.controller.Title(), Style: f.appearance.palette().Heading, Ellipsis: f.glyphs.Ellipsis}.Draw(frame.View)
 				}
 				help := f.help()
 				rows := help.HeightForWidth(w)
@@ -115,8 +116,21 @@ func (f *Form) help() Help { return Help{Theme: f.appearance.palette(), Keys: f.
 var defaultFormKeys = sync.OnceValue(base.DefaultFormKeys)
 
 func (f *Form) keys() *keymap.Map {
-	if f.controller.Keys != nil {
-		return f.controller.Keys
+	if f.controller.Keys() != nil {
+		return f.controller.Keys()
 	}
 	return defaultFormKeys()
+}
+
+func (f *Form) Glyphs() Glyphs { return f.glyphs.clone() }
+
+// SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
+// presentation must stay stable during observation and frame preparation.
+func (f *Form) SetGlyphs(value Glyphs) {
+	element := f.Element()
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	f.glyphs = value.clone()
+	element.Invalidate()
 }

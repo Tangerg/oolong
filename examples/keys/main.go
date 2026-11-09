@@ -56,14 +56,16 @@ func newKeys(runtime *program.Runtime) (scene.Element, error) {
 		return scene.Element{}, err
 	}
 	k := &keys{runtime: runtime}
-	bindings := &keymap.Map{Timeout: sequenceTimeout, Resolve: func(delay time.Duration, resolve func()) func() {
+	bindings := new(keymap.Map)
+	bindings.SetTimeout(sequenceTimeout)
+	bindings.SetResolver(func(delay time.Duration, resolve func()) func() {
 		timer, err := runtime.After(scope, delay, resolve)
 		if err != nil {
 			k.last = err.Error()
 			return func() {}
 		}
 		return timer.Stop
-	}}
+	})
 	bindings.Bind(next, input.Chord{Rune: 'g'})
 	bindings.Bind(top, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	bindings.Bind(quit, input.Chord{Rune: 'q'})
@@ -87,7 +89,7 @@ func (k *keys) Draw(view grid.View) {
 	area := grid.Area(max((width-panelColumns)/2, 0), max((height-panelRows)/2, 0), min(width, panelColumns), min(height, panelRows))
 	inside := box.Draw(view.Sub(area))
 	kit.Help{Theme: k.theme, Keys: k.mapKeys, Show: []keymap.Action{next, top, quit}}.Draw(inside)
-	kit.Label{Text: fmt.Sprintf("prefix timeout: %s", k.mapKeys.Timeout), Style: k.theme.Subtle}.
+	kit.Label{Text: fmt.Sprintf("prefix timeout: %s", k.mapKeys.Timeout()), Style: k.theme.Subtle}.
 		Draw(inside.Sub(grid.Area(0, 1, inside.Bounds().Dx(), 1)))
 	kit.Label{Text: fmt.Sprintf("row %d — %s", k.row, k.last), Style: k.theme.Accent}.
 		Draw(inside.Sub(grid.Area(0, 2, inside.Bounds().Dx(), 1)))
