@@ -16,7 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - Rename `core/grid.CursorDefault` to `core/grid.CursorReset`. The zero style explicitly requests DECSCUSR reset, whose meaning is terminal-specific; it does not promise the user's preferred or pre-session shape. Local startup probing records a valid DECRQSS cursor-style reply and uses that same restoration target for close and handover. `core/term.Config.RestoreCursor` supplies the target when probing is disabled or unsupported, including remote transports. Invalid restoration shapes are rejected before acquiring a local or SSH terminal.
 - Synthetic and transport input share `core/input.Validate`. Invalid event shapes, enum values, modifiers, scalar values or text are rejected at scene/program admission; an invalid key transition cannot execute an action. Handle `core/input.ErrInvalidEvent` or the program's `ErrInvalidInput` result at the corresponding boundary. Legal synthetic negative pointer coordinates, zero-value keys and unrecognized nonnegative keyboard feature bits remain representable.
 
-This is a coordinated development change. Publish the updated `ui` module before updating the declared UI requirements in `examples` and `extensions/ssh`. Their existing published UI revisions do not provide the new owner methods or `RestoreCursor`; workspace integration and the repository's disposable local-module checks exercise the complete candidate before that release.
+The `examples` and `extensions/ssh` modules now declare the updated UI dependency, including the owner methods and `RestoreCursor`, so their declared dependency graphs build without workspace replacements.
 
 | Component owner | Fields replaced by owner methods |
 | --- | --- |
