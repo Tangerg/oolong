@@ -172,6 +172,7 @@ func (s Session) SetTitle(title string) error { return s.runtime.services().setT
 // SetProgress presents task progress outside the cell grid when supported. The
 // zero value clears an earlier value. It is independent of progress drawn inside
 // the interface, which remains ordinary component state.
+// Unknown states return [term.ErrInvalidProgressState] before the host is called.
 func (s Session) SetProgress(progress term.Progress) error {
 	return s.runtime.services().setProgress(progress)
 }

@@ -21,8 +21,6 @@ const (
 	maxStringBody = 1 << 20
 )
 
-// oscHead reads the command number at the start of an operating system command.
-//
 // The returned size is how many bytes the introducer, the number and its separator
 // took, and its sign is the verdict: positive for a command, zero when too few bytes
 // have arrived to tell, and negative when what follows the introducer is not a number

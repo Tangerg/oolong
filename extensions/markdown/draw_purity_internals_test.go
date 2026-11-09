@@ -21,8 +21,8 @@ import (
 // A document is the value that goes into a transcript and into terminal scrollback,
 // so drawing it is the one place where losing purity writes wrong bytes into history
 // the program can never take back. The wrap memo is deliberately absent from the
-// projection: it describes the frame just built, while Doc.blocks says what the
-// document means.
+// projection: it describes the frame just built, while the retained block sequence
+// says what the document means.
 type drawPurityCase struct {
 	name    string
 	width   int

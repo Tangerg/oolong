@@ -3,6 +3,8 @@
 package diff
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -15,7 +17,20 @@ const (
 	Removed
 )
 
+var ErrInvalidKind = errors.New("diff: invalid line kind")
+
+func (k Kind) Validate() error {
+	if k > Removed {
+		return fmt.Errorf("%w: %d", ErrInvalidKind, k)
+	}
+	return nil
+}
+
+// String panics for an invalid kind so an unknown change cannot appear as context.
 func (k Kind) String() string {
+	if err := k.Validate(); err != nil {
+		panic(err)
+	}
 	switch k {
 	case Added:
 		return "+"
@@ -36,13 +51,25 @@ type Line struct {
 	Old, New int
 }
 
+// String panics for an invalid Kind so the marker cannot misrepresent the line.
 func (l Line) String() string { return l.Kind.String() + l.Text }
 
 // Script is a change to a text, as the lines that make it.
 //
 // It reads top to bottom as the change itself: every line of both texts appears once,
 // in an order in which the removals and the additions of the same passage sit together.
+// Same, String and Hunks panic for unknown line kinds so malformed input cannot be
+// displayed as a different change. Validate supports error-returning input boundaries.
 type Script []Line
+
+func (s Script) Validate() error {
+	for i, line := range s {
+		if err := line.Kind.Validate(); err != nil {
+			return fmt.Errorf("diff: line %d: %w", i, err)
+		}
+	}
+	return nil
+}
 
 func Between(before, after []string) Script {
 	// The ends first. Two versions of a file usually differ in the middle, and the
@@ -75,11 +102,21 @@ func Between(before, after []string) Script {
 	return out
 }
 
+// Same panics for any invalid line kind, even after an earlier change has already
+// established that the script differs, so the answer covers the complete script.
 func (s Script) Same() bool {
+	if err := s.Validate(); err != nil {
+		panic(err)
+	}
 	return !slices.ContainsFunc(s, func(line Line) bool { return line.Kind != Context })
 }
 
+// String panics for invalid line kinds so malformed input cannot acquire
+// apparently valid change markers.
 func (s Script) String() string {
+	if err := s.Validate(); err != nil {
+		panic(err)
+	}
 	var b strings.Builder
 	for _, line := range s {
 		b.WriteString(line.String())
@@ -101,7 +138,12 @@ func (s Script) String() string {
 // Each hunk owns its line storage and text. Retaining a small changed passage therefore
 // does not retain the complete script or the source documents its lines were sliced
 // from, and changing the script after this call cannot change an already-built hunk.
+// Invalid line kinds panic before any hunk is constructed; every returned passage
+// must describe a valid change.
 func (s Script) Hunks(context int) []Hunk {
+	if err := s.Validate(); err != nil {
+		panic(err)
+	}
 	context = max(context, 0)
 	var out []Hunk
 	start, end := 0, 0
@@ -133,6 +175,7 @@ type Hunk struct {
 	Old, New int
 }
 
+// String panics for invalid line kinds so the passage cannot misstate a change.
 func (h Hunk) String() string { return h.Lines.String() }
 
 func hunkOf(lines Script) Hunk {

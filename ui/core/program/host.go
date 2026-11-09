@@ -149,6 +149,8 @@ type HandoverHost interface {
 
 type TitleHost interface{ SetTitle(title string) error }
 
+// ProgressHost receives known states from [Session.SetProgress]; rejected states
+// never reach the host.
 type ProgressHost interface {
 	SetProgress(progress term.Progress) error
 }
@@ -275,6 +277,9 @@ func (s hostServices) setTitle(title string) error {
 }
 
 func (s hostServices) setProgress(progress term.Progress) error {
+	if err := progress.State.Validate(); err != nil {
+		return err
+	}
 	if s.progressHost == nil {
 		return errors.ErrUnsupported
 	}

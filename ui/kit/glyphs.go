@@ -44,7 +44,6 @@ type Glyphs struct {
 	Spinner               []string
 }
 
-// Unicode is the set for a terminal that can draw them, which is nearly all of them.
 func Unicode() Glyphs {
 	return Glyphs{
 		Horizontal: mustCellGlyph("─"), Vertical: mustCellGlyph("│"),
@@ -134,8 +133,6 @@ func (g Glyphs) Rounded() Border {
 	}
 }
 
-// Square is the other, for a table or anything that should not read as a floating
-// panel.
 func (g Glyphs) Square() Border {
 	return Border{
 		Top: g.Horizontal, Bottom: g.Horizontal, Left: g.Vertical, Right: g.Vertical,

@@ -156,7 +156,11 @@ func (l TranscriptLayout) hit(point Point, nearest bool) (TextRange, bool) {
 }
 
 // Caret maps a valid logical endpoint into this layout, refusing a changed text projection.
+// An unknown affinity panics even when the endpoint's projection is stale.
 func (l TranscriptLayout) Caret(point TextPoint) (Point, bool) {
+	if err := point.Position.Affinity.Validate(); err != nil {
+		panic(err)
+	}
 	if !l.valid(point) {
 		return Point{}, false
 	}

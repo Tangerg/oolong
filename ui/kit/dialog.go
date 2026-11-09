@@ -31,13 +31,18 @@ type DialogConfig struct {
 type Dialog struct {
 	noCopy     noCopy
 	appearance appearance
+	// Where remains mutable after construction. Invalid anchors panic during frame
+	// preparation before the backdrop is painted.
 	Where      layout.Placement
 	controller *base.Dialog
 	panel      *Panel
 }
 
-// NewDialog composes one base dialog with an ordinary Panel. It panics for an invalid child relation or competing Theme and Scope sources.
+// NewDialog composes one base dialog with an ordinary Panel. It panics for an invalid anchor, invalid child relation or competing Theme and Scope sources.
 func NewDialog(config DialogConfig) *Dialog {
+	if err := config.Where.Anchor.Validate(); err != nil {
+		panic(err)
+	}
 	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
 	if appearanceErr != nil {
 		panic(appearanceErr)

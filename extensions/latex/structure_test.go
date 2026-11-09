@@ -274,7 +274,6 @@ func TestAControlSequenceThisPackageDoesNotImplementIsRefused(t *testing.T) {
 			}
 		}
 	}
-	// A symbol this package does have is still spelled the plain way.
 	for _, tc := range []struct{ source, want string }{
 		{`\alpha`, "alpha"}, {`x \leq y`, "x <= y"},
 	} {
@@ -286,7 +285,6 @@ func TestAControlSequenceThisPackageDoesNotImplementIsRefused(t *testing.T) {
 			t.Errorf("Render(%q) plain = %q, want %q", tc.source, got, tc.want)
 		}
 	}
-	// A lettered operator is spelled with its own letters and still is one.
 	for _, tc := range []struct{ source, want string }{
 		{`\sin`, "sin"}, {`\lim`, "lim"}, {`\log`, "log"}, {`\max`, "max"},
 	} {

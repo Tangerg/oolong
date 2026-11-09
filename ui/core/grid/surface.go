@@ -292,8 +292,11 @@ func (v View) Subs(rects []image.Rectangle) []View {
 //
 // A position outside what the view may draw on is ignored, for the same reason a
 // glyph there would be. A frame in which nobody places the cursor has no cursor.
+// An unknown shape is a programmer error and panics before changing the cursor,
+// including on a clipped or offscreen view.
 func (v View) PlaceCursor(x, y int, style CursorStyle) {
 	v.scope.requireWritable()
+	style = style.normalized()
 	if v.cursor == nil {
 		return
 	}
@@ -301,7 +304,7 @@ func (v View) PlaceCursor(x, y int, style CursorStyle) {
 	if !p.In(v.clipped()) {
 		return
 	}
-	*v.cursor = Cursor{Visible: true, Pos: p, Style: style.normalized()}
+	*v.cursor = Cursor{Visible: true, Pos: p, Style: style}
 }
 
 // CellAt copies the cell at local (x, y) and reports whether it is inside the clip.

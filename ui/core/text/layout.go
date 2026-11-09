@@ -1,6 +1,8 @@
 package text
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"strings"
 
@@ -15,6 +17,15 @@ const (
 	Forward Affinity = iota
 	Backward
 )
+
+var ErrInvalidAffinity = errors.New("text: invalid affinity")
+
+func (a Affinity) Validate() error {
+	if a > Backward {
+		return fmt.Errorf("%w: %d", ErrInvalidAffinity, a)
+	}
+	return nil
+}
 
 // Position addresses a byte boundary in one logical line. Positions belong to
 // the document revision carried by their enclosing Layout or model request; a
@@ -57,6 +68,7 @@ type LayoutConfig struct {
 // Layout is an immutable logical-text to cell projection. It owns terminal-safe
 // lines, so byte positions refer to cleaned logical text, never unparsed format
 // source. Rendering, hit testing, caret placement and selection use one wrap.
+// Unknown position affinities panic, including on nil and empty layouts.
 type Layout struct {
 	lines        []string
 	rows         []LayoutRow
@@ -167,7 +179,11 @@ func (l *Layout) wrapLine(index int, policy WrapMode) {
 }
 
 // Normalize clamps a logical position to a valid line and grapheme boundary.
+// An unknown affinity panics before clamping, so it cannot acquire a visual interpretation.
 func (l *Layout) Normalize(position Position) Position {
+	if err := position.Affinity.Validate(); err != nil {
+		panic(err)
+	}
 	if l == nil || len(l.lines) == 0 {
 		return Position{}
 	}
@@ -196,11 +212,12 @@ func (l *Layout) Normalize(position Position) Position {
 }
 
 // Caret maps a normalized logical position and affinity to visual cell coordinates.
+// An unknown affinity panics, including on a nil or empty layout.
 func (l *Layout) Caret(position Position) image.Point {
+	position = l.Normalize(position)
 	if l == nil || len(l.rows) == 0 {
 		return image.Point{}
 	}
-	position = l.Normalize(position)
 	for i, row := range l.rows {
 		if row.Line != position.Line {
 			continue
@@ -248,11 +265,12 @@ func (l *Layout) normalizeRange(selected Range) Range {
 
 // Rects returns cell intervals for the selected logical characters. A selected
 // newline has one marker cell after its line when the width leaves room for it.
+// An unknown endpoint affinity panics, including on a nil or empty layout.
 func (l *Layout) Rects(selected Range) []image.Rectangle {
+	selected = l.normalizeRange(selected)
 	if l == nil {
 		return nil
 	}
-	selected = l.normalizeRange(selected)
 	if selected.Start.Line == selected.End.Line && selected.Start.Byte == selected.End.Byte {
 		return nil
 	}
@@ -284,11 +302,12 @@ func (l *Layout) Rects(selected Range) []image.Rectangle {
 }
 
 // Text copies logical text, preserving hard newlines and omitting soft wraps.
+// An unknown endpoint affinity panics, including on a nil or empty layout.
 func (l *Layout) Text(selected Range) string {
+	selected = l.normalizeRange(selected)
 	if l == nil || len(l.lines) == 0 {
 		return ""
 	}
-	selected = l.normalizeRange(selected)
 	var out strings.Builder
 	for line := selected.Start.Line; line <= selected.End.Line; line++ {
 		if line != selected.Start.Line {

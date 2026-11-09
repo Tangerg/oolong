@@ -41,6 +41,7 @@ var ErrStaleSelection = errors.New("base: selected content revision is unavailab
 
 // Selection owns logical anchors. Width, scroll and cell rectangles are read-only
 // projections, so a resize cannot silently select a different word.
+// Unknown position affinities panic before changing the anchors or gesture.
 type Selection struct {
 	element          scene.Element
 	clicks           Clicks
@@ -49,6 +50,7 @@ type Selection struct {
 }
 
 // Begin starts a directional selection anchored to one content revision.
+// It panics for an unknown affinity or during a read-only projection, before changing the selection.
 func (s *Selection) Begin(p TextPoint) {
 	if s.setRange(TextRange{Start: p, End: p}, true) {
 		s.element.Invalidate()
@@ -56,8 +58,13 @@ func (s *Selection) Begin(p TextPoint) {
 }
 
 // Extend moves the active endpoint while preserving the gesture anchor.
+// It panics for an unknown affinity even without an active drag, or during a read-only projection.
+// Refusal leaves the selection unchanged.
 func (s *Selection) Extend(p TextPoint) {
 	requireMutable(s.element)
+	if err := p.Position.Affinity.Validate(); err != nil {
+		panic(err)
+	}
 
 	if s.dragging && s.extent != p {
 		s.extent = p
@@ -112,6 +119,7 @@ func (s *Selection) Range() (TextPoint, TextPoint) {
 }
 
 // Set replaces the logical range and settles any active drag.
+// It panics for an unknown endpoint affinity or during a read-only projection, before changing the selection.
 func (s *Selection) Set(selected TextRange) {
 	if s.setRange(selected, false) {
 		s.element.Invalidate()
@@ -120,6 +128,11 @@ func (s *Selection) Set(selected TextRange) {
 
 func (s *Selection) setRange(selected TextRange, dragging bool) bool {
 	requireMutable(s.element)
+	for _, point := range [...]TextPoint{selected.Start, selected.End} {
+		if err := point.Position.Affinity.Validate(); err != nil {
+			panic(err)
+		}
+	}
 	changed := !s.active || s.anchor != selected.Start || s.extent != selected.End || s.dragging != dragging
 	s.anchor, s.extent = selected.Start, selected.End
 	s.active, s.dragging = true, dragging

@@ -2,6 +2,8 @@ package input
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -58,13 +60,28 @@ const (
 	KittyKeyboard
 )
 
+var ErrInvalidKeyboardDialect = errors.New("input: invalid keyboard dialect")
+
+func (d KeyboardDialect) Validate() error {
+	if d > KittyKeyboard {
+		return fmt.Errorf("%w: %d", ErrInvalidKeyboardDialect, d)
+	}
+	return nil
+}
+
 type ParserConfig struct {
 	// Legacy modified F3 overlaps an unmarked cursor-position reply. Query
 	// owners must use DEC private CPR (CSI ?6n) while this dialect is active.
 	Keyboard KeyboardDialect
 }
 
-func NewParser(cfg ParserConfig) *Parser { return &Parser{keyboard: cfg.Keyboard} }
+// NewParser panics for an invalid dialect because modifier interpretation requires a known protocol.
+func NewParser(cfg ParserConfig) *Parser {
+	if err := cfg.Keyboard.Validate(); err != nil {
+		panic(err)
+	}
+	return &Parser{keyboard: cfg.Keyboard}
+}
 
 // Once a payload introducer is complete, its bytes cannot regain keyboard
 // meaning through a timeout. One frame kind owns that interpretation until the

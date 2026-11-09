@@ -273,7 +273,6 @@ const (
 // SubmissionState distinguishes a pending attempt from its terminal outcome.
 type SubmissionState uint8
 
-// Submission states distinguish validation, active work and terminal outcomes.
 const (
 	SubmissionIdle SubmissionState = iota
 	SubmissionPending

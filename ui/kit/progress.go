@@ -52,8 +52,6 @@ func (p Progress) Fraction() float64 {
 	return min(max(float64(p.Done)/float64(p.Total), 0), 1)
 }
 
-// Finished reports whether the work is over, which is what a caller asks before
-// deciding whether the bar is still worth showing.
 func (p Progress) Finished() bool { return p.Total > 0 && p.Done >= p.Total }
 
 func (p Progress) HeightForWidth(int) int { return 1 }

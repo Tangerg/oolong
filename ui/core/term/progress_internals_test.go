@@ -22,10 +22,12 @@ func TestProgressHasOneCanonicalWireValue(t *testing.T) {
 		{"error", Progress{State: ProgressError, Percent: 37}, Progress{State: ProgressError, Percent: 37}, "\x1b]9;4;2;37\x07"},
 		{"indeterminate", Progress{State: ProgressIndeterminate, Percent: 37}, Progress{State: ProgressIndeterminate}, "\x1b]9;4;3\x07"},
 		{"warning", Progress{State: ProgressWarning, Percent: 80}, Progress{State: ProgressWarning, Percent: 80}, "\x1b]9;4;4;80\x07"},
-		{"unknown", Progress{State: ProgressState(255), Percent: 80}, Progress{}, "\x1b]9;4;0\x07"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			if err := test.in.State.Validate(); err != nil {
+				t.Fatal(err)
+			}
 			if got := test.in.normalized(); got != test.want {
 				t.Fatalf("normalized = %+v, want %+v", got, test.want)
 			}
@@ -96,12 +98,23 @@ func TestActiveProgressKeepsItselfAliveAndIdleProgressDoesNoWork(t *testing.T) {
 			return len(written)
 		}
 		go p.run(stop, queue)
+		defer func() {
+			close(stop)
+			<-p.done
+		}()
 		if err := p.to(Progress{State: ProgressIndeterminate}, queue); err != nil {
 			t.Error(err)
 		}
 		synctest.Wait()
 		if got := count(); got != 1 {
 			t.Fatalf("opening writes = %d, want 1", got)
+		}
+		if err := p.to(Progress{State: ProgressState(255)}, queue); !errors.Is(err, ErrInvalidProgressState) {
+			t.Errorf("unknown progress state while active: %v", err)
+		}
+		synctest.Wait()
+		if got := count(); got != 1 {
+			t.Fatalf("invalid progress produced output: writes=%d", got)
 		}
 		time.Sleep(progressKeepalive)
 		synctest.Wait()
@@ -115,14 +128,14 @@ func TestActiveProgressKeepsItselfAliveAndIdleProgressDoesNoWork(t *testing.T) {
 		if got := count(); got != 3 {
 			t.Fatalf("writes after clear = %d, want 3", got)
 		}
+		if err := p.to(Progress{State: ProgressState(255)}, queue); !errors.Is(err, ErrInvalidProgressState) {
+			t.Errorf("unknown progress state while idle: %v", err)
+		}
 		time.Sleep(2 * progressKeepalive)
 		synctest.Wait()
 		if got := count(); got != 3 {
 			t.Fatalf("idle progress wrote %d times, want 3", got)
 		}
-
-		close(stop)
-		<-p.done
 	})
 }
 

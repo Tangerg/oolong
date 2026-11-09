@@ -35,6 +35,8 @@ var internalAssertions = map[string]string{
 	"ui/core/grid:frameBuffer.setDepth":          "Screen.SetDepth and Inline.SetDepth document invalid Depth refusal; Depth.Validate runs before either canvas changes its encoding baseline",
 	"ui/core/grid:publication.requireIdle":       "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
 	"ui/core/grid:viewScope.requireWritable":     "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
+	"ui/core/grid:CursorStyle.normalized":        "View.PlaceCursor documents invalid CursorShape refusal and normalizes before changing the frame cursor",
+	"ui/core/grid:CursorStyle.sequence":          "View.PlaceCursor validates the only accepted cursor shape before either Screen or Inline can encode it",
 
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.
@@ -43,6 +45,9 @@ var internalAssertions = map[string]string{
 	"ui/base:requireMutable":                       "all live controllers require owner-phase mutation; this common guard checks scene phase before any controller state changes",
 	"ui/base:requireProjection":                    "Stage and drawing require the controller's mounted scene and refuse geometry writes during its read-only phase",
 	"ui/base:requireStickyOrder":                   "Sticky.SetBlocks and Add document strict nonzero identity ordering and validate the entire batch before mutation",
+	"ui/base:Selection.setRange":                   "Selection.Begin and Set document invalid Affinity refusal; both endpoints are checked before anchors or gesture state change",
+	"ui/kit:Box.paint":                             "Box.Draw and Panel.Element document invalid title or footer alignment refusal before cells change",
+	"ui/kit:Panel.measure":                         "Panel.HeightForWidth and Element document invalid box alignment refusal before child measurement",
 	"ui/base:subscriptions.add":                    "public Subscribe operations reject nil callbacks before entering the subscription owner",
 	"ui/kit:Composer.ensure":                       "Composer.Element and Controller document that the compound element must be assembled before its editor is independently attached",
 	"ui/core/content:StreamDocument.assertMutable": "StreamDocument documents construction and prohibits reentrant source mutation from its synchronous change notification",

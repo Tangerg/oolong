@@ -72,7 +72,6 @@ const (
 	ScrollBottom   keymap.Action = "scroll-bottom"
 )
 
-// The actions a [Completion] answers to, on top of the list movement inside it.
 const (
 	Accept  keymap.Action = "accept"
 	Dismiss keymap.Action = "dismiss"
@@ -80,7 +79,6 @@ const (
 
 const Close keymap.Action = "close"
 
-// Activate invokes a button-like control such as a [Button].
 const Activate keymap.Action = "activate"
 
 // The actions a [Tree] answers to, on top of the list movement through its rows.
@@ -106,8 +104,6 @@ const (
 	ToMaximum keymap.Action = "to-maximum"
 )
 
-// The actions a form and its fields answer to, on top of the list movement a choice
-// uses and the editing a line of text uses.
 const (
 	// Toggle takes the choice under the cursor, or gives it back.
 	Toggle keymap.Action = "toggle"
@@ -116,7 +112,6 @@ const (
 	Cancel keymap.Action = "cancel"
 )
 
-// The actions a scene focus order answers to: which of its children has the keyboard.
 const (
 	FocusNext keymap.Action = "focus-next"
 	FocusPrev keymap.Action = "focus-prev"
@@ -241,8 +236,6 @@ func DefaultFocusKeys() *keymap.Map {
 	return m
 }
 
-// DefaultTreeKeys are the keystrokes a tree is expected to answer: the movement any
-// list has, and the two that open and close a branch.
 func DefaultTreeKeys() *keymap.Map {
 	m := DefaultListKeys()
 	m.Bind(Expand, input.Chord{Code: input.Right})
@@ -290,8 +283,6 @@ func DefaultSettingsKeys() *keymap.Map {
 	return m
 }
 
-// DefaultMultiSelectKeys are the keystrokes a list of choices answers: the movement any
-// list has, and the one that takes what is under the cursor.
 func DefaultMultiSelectKeys() *keymap.Map {
 	m := DefaultListKeys()
 	m.Bind(Toggle, input.Chord{Code: input.Character, Rune: ' '})

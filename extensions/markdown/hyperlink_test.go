@@ -8,8 +8,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
 
-// linkedText reads back what one rendered line shows and which of its words
-// carry which destination.
 func linkedText(t *testing.T, source string, look markdown.Look) (shown string, links map[string]string) {
 	t.Helper()
 	var doc markdown.Doc

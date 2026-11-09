@@ -1,6 +1,8 @@
 package term
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -16,6 +18,15 @@ const (
 	ProgressWarning
 )
 
+var ErrInvalidProgressState = errors.New("term: invalid progress state")
+
+func (s ProgressState) Validate() error {
+	if s > ProgressWarning {
+		return fmt.Errorf("%w: %d", ErrInvalidProgressState, s)
+	}
+	return nil
+}
+
 // Progress is task progress shown by the terminal outside the cell grid, such as
 // in its window or taskbar. Percent is clamped to 0–100 and ignored for None and
 // Indeterminate. The zero value clears an earlier value.
@@ -29,9 +40,6 @@ type Progress struct {
 }
 
 func (p Progress) normalized() Progress {
-	if p.State > ProgressWarning {
-		return Progress{}
-	}
 	switch p.State {
 	case ProgressNone, ProgressIndeterminate:
 		p.Percent = 0
@@ -84,6 +92,9 @@ func newTaskProgress() *taskProgress {
 }
 
 func (p *taskProgress) to(next Progress, queue func([]byte) (uint64, error)) error {
+	if err := next.State.Validate(); err != nil {
+		return err
+	}
 	next = next.normalized()
 	p.mu.Lock()
 	defer p.mu.Unlock()

@@ -394,8 +394,11 @@ func (e Element) SetFocusable(focusable func() bool) error {
 }
 
 // Measure returns the nonnegative intrinsic extent, delegating group composition when no callback is supplied.
-// It panics before calling application code while its scene has an unsettled frame candidate.
+// It panics before calling application code for an invalid axis or while its scene has an unsettled frame candidate.
 func (e Element) Measure(axis layout.Axis, across int) int {
+	if err := axis.Validate(); err != nil {
+		panic(err)
+	}
 	if e.node == nil {
 		return 0
 	}
@@ -444,8 +447,11 @@ type Group struct {
 	items   []Item
 }
 
-// NewGroup creates an ordered composition. It panics for an invalid initial child relation.
+// NewGroup creates an ordered composition. It panics for an invalid axis or initial child relation.
 func NewGroup(cfg GroupConfig) *Group {
+	if err := cfg.Axis.Validate(); err != nil {
+		panic(err)
+	}
 	g := &Group{config: cfg}
 	g.config.Items = nil
 	g.config.Element = ElementConfig{}

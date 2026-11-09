@@ -22,8 +22,11 @@ type Panel struct {
 	group  *scene.Group
 }
 
-// NewPanel composes box geometry with a child. It panics for a child already owned by an incompatible scene relation.
+// NewPanel composes box geometry with a child. It panics for invalid box alignment or a child already owned by an incompatible scene relation.
 func NewPanel(config PanelConfig) *Panel {
+	if err := config.Box.validate(); err != nil {
+		panic(err)
+	}
 	p := &Panel{Box: config.Box}
 	p.SetContent(config.Content)
 	return p
@@ -44,6 +47,9 @@ func (p *Panel) ensure() {
 	}})
 }
 
+// Element exposes scene measurement and painting that panic for invalid box
+// alignment before invoking child measurers or changing cells. Box remains mutable
+// after construction, so those projections validate its current configuration.
 func (p *Panel) Element() scene.Element { p.ensure(); return p.group.Element() }
 
 func (p *Panel) Content() scene.Element { item, _ := p.group.At(0); return item.Element }
@@ -70,11 +76,16 @@ func (p *Panel) SetContent(child scene.Element) {
 	}
 }
 
+// HeightForWidth panics for invalid box alignment before measuring its child,
+// because Box may have changed since construction.
 func (p *Panel) HeightForWidth(width int) int {
 	return p.measure(layout.Down, width)
 }
 
 func (p *Panel) measure(axis layout.Axis, across int) int {
+	if err := p.Box.validate(); err != nil {
+		panic(err)
+	}
 	overhead := p.Box.Overhead()
 	along, cross := overhead.X, overhead.Y
 	if axis == layout.Down {

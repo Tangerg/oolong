@@ -60,7 +60,6 @@ func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
 	host.Until(t, "the Markdown heading to become visible", func() bool {
 		return strings.Contains(host.Frames(), "What is happening here")
 	})
-	// And the whole answer arrives, ending with the row that says so.
 	host.Until(t, "the answer to finish", func() bool {
 		title, notified := host.state()
 		return title == "" && notified == 1

@@ -229,9 +229,7 @@ const (
 	Release
 )
 
-// Key is a keyboard event.
-//
-// A character key arrives as [Character] with the rune in Rune. Ctrl held with a
+// Key carries a character as [Character] with the rune in Rune. Ctrl held with a
 // letter also arrives as a character — the letter, lowercased, with [Ctrl] in
 // Mods — because that is what the terminal actually sends and inventing a
 // separate representation for it would mean two ways to ask the same question.

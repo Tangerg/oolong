@@ -44,10 +44,8 @@ func TestTheKeyboardMovesBetweenPanesAndTheBranchesOpen(t *testing.T) {
 
 	host.Shows(t, "core")
 	host.Shows(t, "README.md")
-	// A directory says what it is rather than being read.
 	host.Shows(t, "is a directory")
 
-	// Right opens the branch, and what is under it appears.
 	host.Press(input.Right)
 	host.Shows(t, "grid.go")
 

@@ -2,9 +2,14 @@
 // fixed, flexible, fractional or measured extent; [Axis] selects rows or columns.
 // [Measurer] receives the cross-axis extent, keeping one sizing rule for both axes.
 // Callers compose rectangles for nesting; layout owns no widget tree or wrapping.
+// Geometry operations panic for invalid enum values even with empty geometry,
+// before measurers run, so resizing cannot hide malformed configuration.
+// Validate methods support error-returning boundaries.
 package layout
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"math/bits"
 	"slices"
@@ -18,7 +23,21 @@ const (
 	End
 )
 
+var ErrInvalidAlign = errors.New("layout: invalid alignment")
+
+func (a Align) Validate() error {
+	if a > End {
+		return fmt.Errorf("%w: %d", ErrInvalidAlign, a)
+	}
+	return nil
+}
+
+// Offset panics for invalid alignment even without available space, so collapsing
+// geometry cannot hide malformed configuration.
 func (a Align) Offset(space, extent int) int {
+	if err := a.Validate(); err != nil {
+		panic(err)
+	}
 	switch a {
 	case Center:
 		return Remaining(space, extent) / 2
@@ -86,7 +105,14 @@ type Measurer interface {
 
 type MeasureFunc func(axis Axis, across int) int
 
-func (f MeasureFunc) Measure(axis Axis, across int) int { return f(axis, across) }
+// Measure panics for an invalid axis before invoking f, so the callback only
+// receives a supported dimension.
+func (f MeasureFunc) Measure(axis Axis, across int) int {
+	if err := axis.Validate(); err != nil {
+		panic(err)
+	}
+	return f(axis, across)
+}
 
 // Sizing says how much of an axis a slot wants.
 //
@@ -216,6 +242,15 @@ const (
 	Across
 )
 
+var ErrInvalidAxis = errors.New("layout: invalid axis")
+
+func (a Axis) Validate() error {
+	if a > Across {
+		return fmt.Errorf("%w: %d", ErrInvalidAxis, a)
+	}
+	return nil
+}
+
 // Flow is an axis with room between the things it divides.
 //
 // The gap is here rather than in [Slot] because it is one answer for the whole
@@ -234,6 +269,8 @@ type Flow struct {
 
 // Rects is where each slot goes when a space is divided, in the space's own
 // coordinates.
+// An invalid Axis or any slot's Cross.Align panics before any measurer runs,
+// including for empty geometry, so a rejected candidate has no measurement effects.
 func (f Flow) Rects(space image.Point, slots []Slot) []image.Rectangle {
 	space.X, space.Y = max(space.X, 0), max(space.Y, 0)
 	total, across := space.Y, space.X
@@ -259,14 +296,24 @@ func (f Flow) Rects(space image.Point, slots []Slot) []image.Rectangle {
 	return rects
 }
 
+// Divide panics for an invalid Axis or any slot's Cross.Align before any measurer
+// runs, including for empty geometry, so a rejected candidate has no measurement effects.
 func (f Flow) Divide(total, across int, slots []Slot) []int {
+	if err := f.validate(slots); err != nil {
+		panic(err)
+	}
 	available := max(total, 0)
 	return divide(f.Axis, Remaining(available, f.gaps(len(slots))), across, slots)
 }
 
 // Wanted is how much of the divided axis the slots ask for altogether, the gaps
 // between them included.
+// An invalid Axis or any slot's Cross.Align panics before any measurer runs,
+// including for empty geometry, so a rejected candidate has no measurement effects.
 func (f Flow) Wanted(across int, slots []Slot) int {
+	if err := f.validate(slots); err != nil {
+		panic(err)
+	}
 	wanted, gaps := wanted(f.Axis, across, slots), f.gaps(len(slots))
 	return Sum(wanted, gaps)
 }
@@ -276,6 +323,8 @@ func (f Flow) Wanted(across int, slots []Slot) int {
 // A measured request that itself depends on the unknown cross extent gets the
 // largest main extent it can receive, respecting its cap and preceding floors.
 // An application with mutually dependent constraints can supply its own measure.
+// An invalid Axis or any slot's Cross.Align panics before any measurer runs,
+// including for empty geometry, so a rejected candidate has no measurement effects.
 func (f Flow) CrossWanted(total int, slots []Slot) int {
 	requests := slices.Clone(slots)
 	for i := range requests {
@@ -308,6 +357,18 @@ func (f Flow) CrossWanted(total int, slots []Slot) int {
 		}
 	}
 	return extent
+}
+
+func (f Flow) validate(slots []Slot) error {
+	if err := f.Axis.Validate(); err != nil {
+		return err
+	}
+	for i, slot := range slots {
+		if err := slot.Cross.Align.Validate(); err != nil {
+			return fmt.Errorf("layout: slot %d: %w", i, err)
+		}
+	}
+	return nil
 }
 
 func (f Flow) gaps(slots int) int {

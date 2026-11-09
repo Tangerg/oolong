@@ -69,7 +69,6 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 		done <- err
 	}()
 
-	// The strip names every pane and the first one is showing.
 	host.Shows(t, "tasks")
 	host.Shows(t, "activity")
 	host.Shows(t, "settings")

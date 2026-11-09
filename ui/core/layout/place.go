@@ -1,6 +1,10 @@
 package layout
 
-import "image"
+import (
+	"errors"
+	"fmt"
+	"image"
+)
 
 type Anchor uint8
 
@@ -16,6 +20,15 @@ const (
 	BottomRight
 )
 
+var ErrInvalidAnchor = errors.New("layout: invalid anchor")
+
+func (a Anchor) Validate() error {
+	if a > BottomRight {
+		return fmt.Errorf("%w: %d", ErrInvalidAnchor, a)
+	}
+	return nil
+}
+
 // Placement is where a rectangle goes inside a larger space.
 //
 // It is geometry and has no knowledge of what occupies the returned rectangle. The
@@ -30,7 +43,12 @@ type Placement struct {
 	Margin int
 }
 
+// In panics for an invalid Anchor even without available space, so resizing cannot
+// turn malformed placement into an apparently valid empty rectangle.
 func (p Placement) In(space image.Point) image.Rectangle {
+	if err := p.Anchor.Validate(); err != nil {
+		panic(err)
+	}
 	space.X, space.Y = max(space.X, 0), max(space.Y, 0)
 	margin := max(p.Margin, 0)
 	room := image.Pt(Remaining(space.X, margin, margin), Remaining(space.Y, margin, margin))

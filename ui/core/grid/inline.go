@@ -493,7 +493,7 @@ func (i *Inline) cursorPending() bool {
 		return true
 	}
 	return i.placed.Visible && (i.placed.Pos != i.at || !i.cursorStyleKnown ||
-		i.placed.Style.normalized() != i.cursorStyle)
+		i.placed.Style != i.cursorStyle)
 }
 
 func (i *Inline) placeCursor(at image.Point) image.Point {
@@ -505,7 +505,7 @@ func (i *Inline) placeCursor(at image.Point) image.Point {
 		}
 		return at
 	}
-	style := i.placed.Style.normalized()
+	style := i.placed.Style
 	if !i.cursorStyleKnown || style != i.cursorStyle {
 		i.buf = append(i.buf, style.sequence()...)
 		i.cursorStyleKnown = true

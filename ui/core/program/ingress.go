@@ -56,10 +56,8 @@ type ByteIngressConfig struct {
 	Consume    func(ByteBatch)
 }
 
-// NewByteIngress makes a bounded byte ingress.
-//
-// A stopped or zero dispatcher is refused because it has no owner on which to invoke
-// config.Consume.
+// NewByteIngress refuses a stopped or zero dispatcher because it has no owner
+// on which to invoke config.Consume.
 func NewByteIngress(config ByteIngressConfig) (*ByteIngress, error) {
 	if config.Limit <= 0 {
 		return nil, errors.New("program: byte ingress limit must be positive")

@@ -131,7 +131,12 @@ type Formula struct {
 // Render accepts an expression body rather than a TeX document. Bounded parser
 // depth keeps untrusted nesting off the goroutine stack. Unsupported constructs
 // remain visible through Formula.Err without writing process output.
+// Invalid alignment panics before parsing so malformed appearance cannot be
+// retained as an apparently valid formula, including an empty one.
 func Render(source string, look Look) *Formula {
+	if err := look.Align.Validate(); err != nil {
+		panic(err)
+	}
 	look = look.normalized()
 	f := &Formula{source: strings.Clone(source), look: look}
 	if source == "" {

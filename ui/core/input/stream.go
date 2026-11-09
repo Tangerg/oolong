@@ -1,6 +1,8 @@
 package input
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/clipboard"
@@ -27,7 +29,7 @@ type Stream struct {
 type StreamConfig struct {
 	Keyboard KeyboardDialect
 	// Grace is how long an ambiguous sequence waits for the bytes that would settle
-	// it. Zero uses [DefaultEscapeTimeout].
+	// it. Zero uses [DefaultEscapeTimeout]; negative values are invalid.
 	Grace time.Duration
 	// Clipboard consumes replies for this session's reads. Solicited results travel
 	// to their requesting caller, never through focus-based input routing. Nil
@@ -35,7 +37,23 @@ type StreamConfig struct {
 	Clipboard *clipboard.Channel
 }
 
+var ErrInvalidEscapeGrace = errors.New("input: invalid escape grace")
+
+func (c StreamConfig) Validate() error {
+	if err := c.Keyboard.Validate(); err != nil {
+		return err
+	}
+	if c.Grace < 0 {
+		return fmt.Errorf("%w: %s", ErrInvalidEscapeGrace, c.Grace)
+	}
+	return nil
+}
+
+// NewStream panics for invalid configuration. External settings can be checked with [StreamConfig.Validate].
 func NewStream(cfg StreamConfig) *Stream {
+	if err := cfg.Validate(); err != nil {
+		panic(err)
+	}
 	return &Stream{grace: cfg.Grace, clipboard: cfg.Clipboard, parser: NewParser(ParserConfig{Keyboard: cfg.Keyboard})}
 }
 
@@ -50,7 +68,7 @@ func (s *Stream) decoder() *Parser {
 }
 
 func (s *Stream) escapeGrace() time.Duration {
-	if s.grace <= 0 {
+	if s.grace == 0 {
 		return DefaultEscapeTimeout
 	}
 	return s.grace

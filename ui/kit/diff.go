@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -15,7 +16,7 @@ import (
 //
 // It takes hunks rather than lines because a change of three lines in a file of two
 // thousand is a view nobody reads unless the two thousand are left out — and the break
-// between one hunk and the next is how the reader is told they were. [diff.Hunks] is
+// between one hunk and the next is how the reader is told they were. [diff.Script.Hunks] is
 // what makes them.
 //
 // Finished content remains a passive [base.Block]; scrolling and input belong to
@@ -44,6 +45,8 @@ type DiffConfig struct {
 }
 
 // NewDiff returns a diff that owns a copy of config.Hunks.
+// Invalid line kinds panic before retention so the component cannot preserve
+// malformed changes for later measurement or drawing.
 func NewDiff(config DiffConfig) *Diff {
 	d := &Diff{
 		theme:   config.Theme,
@@ -56,7 +59,13 @@ func NewDiff(config DiffConfig) *Diff {
 
 // SetHunks replaces the parts of the change worth showing. The input and its text are
 // copied, so changing or releasing the source cannot change or retain the component.
+// Invalid line kinds panic before replacing the retained hunks or their layout.
 func (d *Diff) SetHunks(hunks []diff.Hunk) {
+	for i, hunk := range hunks {
+		if err := hunk.Lines.Validate(); err != nil {
+			panic(fmt.Errorf("kit: hunk %d: %w", i, err))
+		}
+	}
 	if d == nil {
 		return
 	}

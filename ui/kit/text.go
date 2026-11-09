@@ -28,7 +28,12 @@ type Label struct {
 
 func (l Label) HeightForWidth(int) int { return 1 }
 
+// Draw panics for invalid Align before changing cells, even for an empty view,
+// so clipping cannot hide malformed appearance.
 func (l Label) Draw(v grid.View) {
+	if err := l.Align.Validate(); err != nil {
+		panic(err)
+	}
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
 		return

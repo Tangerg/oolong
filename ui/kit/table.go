@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"fmt"
 	"image"
 	"slices"
 	"strings"
@@ -36,7 +37,12 @@ type Cell struct {
 //
 // The row's base style is merged under the label's style, so a selection or band is
 // retained unless the label deliberately replaces it.
+// Invalid alignment panics before the label is captured, so a cell cannot retain
+// malformed appearance until a later drawing callback.
 func LabelCell(label Label) Cell {
+	if err := label.Align.Validate(); err != nil {
+		panic(err)
+	}
 	style := label.Style
 	return Cell{
 		Preferred: text.Width(label.Text),
@@ -111,13 +117,27 @@ type TableLayout struct {
 	boxes []image.Rectangle
 }
 
+// Layout panics for any invalid column alignment before Cell or Sorted runs,
+// including at zero width, so callbacks never observe a partially admitted table.
 func (t Table) Layout(width int) TableLayout {
+	if err := t.validate(); err != nil {
+		panic(err)
+	}
 	t.Columns = slices.Clone(t.Columns)
 	for i := range t.Columns {
 		t.Columns[i].Title = strings.Clone(t.Columns[i].Title)
 	}
 	boxes := t.flow().Rects(image.Pt(max(width, 0), 1), t.slots())
 	return TableLayout{table: t, boxes: boxes}
+}
+
+func (t Table) validate() error {
+	for i, column := range t.Columns {
+		if err := column.Align.Validate(); err != nil {
+			return fmt.Errorf("kit: table column %d: %w", i, err)
+		}
+	}
+	return nil
 }
 
 // Widths returns the column widths. The caller owns the result.
@@ -173,7 +193,12 @@ func (t Table) HeightForWidth(int) int {
 	return rows
 }
 
+// Draw panics for any invalid column alignment before callbacks run or cells
+// change, even for an empty view, so rejection cannot leave a partial table.
 func (t Table) Draw(v grid.View) {
+	if err := t.validate(); err != nil {
+		panic(err)
+	}
 	if v.Empty() {
 		return
 	}

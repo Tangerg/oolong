@@ -854,6 +854,7 @@ func (t *Terminal) park(parked <-chan struct{}) error {
 // SetProgress changes task progress outside the cell grid. Unsupported terminals
 // ignore it. Repeating an unchanged value writes nothing; active values are refreshed
 // often enough for terminals that expire the indicator.
+// An unknown state returns [ErrInvalidProgressState] without replacing accepted progress.
 func (t *Terminal) SetProgress(progress Progress) error {
 	return t.task.to(progress, t.writer.Queue)
 }

@@ -1,6 +1,8 @@
 package grid
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"io"
 )
@@ -16,6 +18,15 @@ const (
 	CursorBar
 )
 
+var ErrInvalidCursorShape = errors.New("grid: invalid cursor shape")
+
+func (s CursorShape) Validate() error {
+	if s > CursorBar {
+		return fmt.Errorf("%w: %d", ErrInvalidCursorShape, s)
+	}
+	return nil
+}
+
 // CursorStyle is how the terminal's own cursor is drawn. The zero value uses the
 // terminal's default. Blink applies to Block, Underline and Bar.
 type CursorStyle struct {
@@ -25,6 +36,8 @@ type CursorStyle struct {
 
 func (s CursorStyle) sequence() string {
 	switch s.Shape {
+	case CursorDefault:
+		return defaultCursor
 	case CursorBlock:
 		if s.Blink {
 			return blinkingBlockCursor
@@ -40,14 +53,13 @@ func (s CursorStyle) sequence() string {
 			return blinkingBarCursor
 		}
 		return steadyBarCursor
-	default:
-		return defaultCursor
 	}
+	panic(ErrInvalidCursorShape)
 }
 
 func (s CursorStyle) normalized() CursorStyle {
-	if s.Shape > CursorBar {
-		return CursorStyle{}
+	if err := s.Shape.Validate(); err != nil {
+		panic(err)
 	}
 	if s.Shape == CursorDefault {
 		s.Blink = false
@@ -307,12 +319,12 @@ func (c *cursorState) emit(p *painter, next Cursor, cellsChanged bool) {
 		if next.Visible {
 			c.pos = next.Pos
 			c.styleKnown = true
-			c.style = next.Style.normalized()
+			c.style = next.Style
 		}
 	}()
 
 	if next.Visible {
-		style := next.Style.normalized()
+		style := next.Style
 		if !c.styleKnown || style != c.style {
 			p.out = append(p.out, style.sequence()...)
 		}

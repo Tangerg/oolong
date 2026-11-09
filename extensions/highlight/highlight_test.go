@@ -25,7 +25,6 @@ func TestCodeComesBackAsStyledLines(t *testing.T) {
 		}
 	}
 
-	// The keyword and the string are not drawn the same, which is the whole point.
 	var styles []grid.Style
 	for _, span := range lines[0] {
 		styles = append(styles, span.Style)

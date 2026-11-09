@@ -12,6 +12,8 @@ import (
 // That completion can increase the natural width. Use Pad(0, layout.Start)
 // before measurement or wrapping to prepare the same field.
 // Padding has default appearance and no link. Wider fields remain whole.
+// Invalid alignment panics even when no padding is needed, so an empty field
+// cannot hide malformed configuration.
 func (l Line) Pad(width int, alignment layout.Align) Line {
 	out := line(l.units())
 	if len(out) > 0 {

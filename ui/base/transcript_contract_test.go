@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -331,33 +332,35 @@ func TestLogicalSelectionDirectionAndRevisionBelongToOneOwner(t *testing.T) {
 }
 
 func TestTranscriptPointerUsesArrivalFrameLocalProjection(t *testing.T) {
-	m := transcriptModel(t, base.TranscriptConfig{})
-	transcriptAdd(t, m, transcriptBody("first\nsecond\nthird\nfourth"))
-	m.Scroll().ToTop()
-	r := transcriptScene(t, m)
-	transcriptCommit(t, r, 20, 2, 1)
-	captured := r.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0), At: time.Now()}, func(time.Time) (uint64, bool) { return 1, true })
-	m.Scroll().By(1)
-	candidate, err := r.Prepare(grid.NewSurface(20, 2).View())
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidate.Commit(2)
-	if !r.HandleInput(captured) {
-		t.Fatal("old written click was refused")
-	}
-	got, err := m.Selection().Text(m.Layout())
-	if err != nil || got != "f" {
-		t.Fatalf("old click selected %q: %v", got, err)
-	}
-	r.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonRight})
-	if !m.Selection().Dragging() {
-		t.Fatal("foreign release ended the gesture")
-	}
-	r.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft, Pos: image.Pt(999, 999), At: time.Now()})
-	if m.Selection().Dragging() {
-		t.Fatal("capture did not settle outside viewport")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		m := transcriptModel(t, base.TranscriptConfig{})
+		transcriptAdd(t, m, transcriptBody("first\nsecond\nthird\nfourth"))
+		m.Scroll().ToTop()
+		r := transcriptScene(t, m)
+		transcriptCommit(t, r, 20, 2, 1)
+		captured := r.CapturePresentedInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 0), At: time.Now()}, 1)
+		m.Scroll().By(1)
+		candidate, err := r.Prepare(grid.NewSurface(20, 2).View())
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidate.Commit(2)
+		if !r.HandleInput(captured) {
+			t.Fatal("old written click was refused")
+		}
+		got, err := m.Selection().Text(m.Layout())
+		if err != nil || got != "f" {
+			t.Fatalf("old click selected %q: %v", got, err)
+		}
+		r.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonRight})
+		if !m.Selection().Dragging() {
+			t.Fatal("foreign release ended the gesture")
+		}
+		r.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft, Pos: image.Pt(999, 999), At: time.Now()})
+		if m.Selection().Dragging() {
+			t.Fatal("capture did not settle outside viewport")
+		}
+	})
 }
 
 func TestTranscriptSelectionUsesItsConfiguredClickInterval(t *testing.T) {

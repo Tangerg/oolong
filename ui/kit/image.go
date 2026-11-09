@@ -62,7 +62,12 @@ func (i Image) HeightForWidth(width int) int {
 	return max(1, cells.Y)
 }
 
+// Draw panics for invalid Align before drawing the image or Alt, even for an empty
+// view, so image availability cannot hide malformed appearance.
 func (i Image) Draw(v grid.View) {
+	if err := i.Align.Validate(); err != nil {
+		panic(err)
+	}
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return

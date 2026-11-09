@@ -83,7 +83,6 @@ func requestSession(t *testing.T, client *gossh.Client, rows, cols int) *gossh.S
 	return session
 }
 
-// keyReader quits on the first key and records what it was.
 type keyReader struct {
 	runtime *program.Runtime
 	keys    chan input.Key
@@ -209,8 +208,6 @@ func TestAWindowChangeReachesTheProgramOverARealSession(t *testing.T) {
 	}
 }
 
-// canvas draws one frame and stops, optionally with something painting a region of
-// it in bytes this library did not compose.
 type canvas struct {
 	runtime *program.Runtime
 	paint   grid.Painter

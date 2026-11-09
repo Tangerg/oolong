@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -44,6 +45,8 @@ func (c *directedClipboard) Read(ctx context.Context, receive func(string, error
 
 func (c *directedClipboard) answer(t *testing.T, value string) {
 	t.Helper()
+	// These fixtures use synctest: a reply needs a later virtual tick to prove it followed admission.
+	time.Sleep(time.Nanosecond)
 	if c.stream == nil {
 		c.stream = input.NewStream(input.StreamConfig{Clipboard: &c.wire})
 	}
@@ -59,67 +62,71 @@ func (c *directedClipboard) answer(t *testing.T, value string) {
 }
 
 func TestEditorClipboardReplyKeepsItsOriginalRecipientAfterFocusMoves(t *testing.T) {
-	transport := &directedClipboard{}
-	first, second := &base.Editor{Clipboard: transport}, &base.Editor{}
-	group := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{
-		{Key: "first", Element: first.Element()}, {Key: "second", Element: second.Element()},
-	}})
-	root, err := scene.NewRoot(scene.RootConfig{Element: group.Element()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer root.Close()
-	if err := first.Element().RequestFocus(); err != nil {
-		t.Fatal(err)
-	}
-	completed := false
-	if err := first.Paste(t.Context(), func(err error) {
-		completed = true
+	synctest.Test(t, func(t *testing.T) {
+		transport := &directedClipboard{}
+		first, second := &base.Editor{Clipboard: transport}, &base.Editor{}
+		group := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{
+			{Key: "first", Element: first.Element()}, {Key: "second", Element: second.Element()},
+		}})
+		root, err := scene.NewRoot(scene.RootConfig{Element: group.Element()})
 		if err != nil {
-			t.Error(err)
+			t.Fatal(err)
 		}
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := second.Element().RequestFocus(); err != nil {
-		t.Fatal(err)
-	}
-	transport.answer(t, "for first")
-	if !completed || first.Text() != "for first" || second.Text() != "" {
-		t.Fatalf("directed paste: first=%q second=%q completed=%t", first.Text(), second.Text(), completed)
-	}
-	for _, event := range transport.stream.Feed([]byte("\x1b[200~for second\x1b[201~"), time.Now()) {
-		root.Handle(event)
-	}
-	if second.Text() != "for second" || first.Text() != "for first" {
-		t.Fatalf("native paste: first=%q second=%q", first.Text(), second.Text())
-	}
+		defer root.Close()
+		if err := first.Element().RequestFocus(); err != nil {
+			t.Fatal(err)
+		}
+		completed := false
+		if err := first.Paste(t.Context(), func(err error) {
+			completed = true
+			if err != nil {
+				t.Error(err)
+			}
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := second.Element().RequestFocus(); err != nil {
+			t.Fatal(err)
+		}
+		transport.answer(t, "for first")
+		if !completed || first.Text() != "for first" || second.Text() != "" {
+			t.Fatalf("directed paste: first=%q second=%q completed=%t", first.Text(), second.Text(), completed)
+		}
+		for _, event := range transport.stream.Feed([]byte("\x1b[200~for second\x1b[201~"), time.Now()) {
+			root.Handle(event)
+		}
+		if second.Text() != "for second" || first.Text() != "for first" {
+			t.Fatalf("native paste: first=%q second=%q", first.Text(), second.Text())
+		}
+	})
 }
 
 func TestEditorClipboardReplyCannotCrossUnmountAndRemount(t *testing.T) {
-	transport := &directedClipboard{}
-	editor := &base.Editor{Clipboard: transport}
-	root, err := scene.NewRoot(scene.RootConfig{Element: editor.Element()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer root.Close()
-	var result error
-	if err := editor.Paste(t.Context(), func(err error) { result = err }); err != nil {
-		t.Fatal(err)
-	}
-	other := (&base.Editor{}).Element()
-	if err := root.SetContent(other); err != nil {
-		t.Fatal(err)
-	}
-	root.FlushNotifications()
-	if err := root.SetContent(editor.Element()); err != nil {
-		t.Fatal(err)
-	}
-	transport.answer(t, "obsolete")
-	if !errors.Is(result, base.ErrPasteStale) || editor.Text() != "" {
-		t.Fatalf("remount revived paste: text=%q error=%v", editor.Text(), result)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		transport := &directedClipboard{}
+		editor := &base.Editor{Clipboard: transport}
+		root, err := scene.NewRoot(scene.RootConfig{Element: editor.Element()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer root.Close()
+		var result error
+		if err := editor.Paste(t.Context(), func(err error) { result = err }); err != nil {
+			t.Fatal(err)
+		}
+		other := (&base.Editor{}).Element()
+		if err := root.SetContent(other); err != nil {
+			t.Fatal(err)
+		}
+		root.FlushNotifications()
+		if err := root.SetContent(editor.Element()); err != nil {
+			t.Fatal(err)
+		}
+		transport.answer(t, "obsolete")
+		if !errors.Is(result, base.ErrPasteStale) || editor.Text() != "" {
+			t.Fatalf("remount revived paste: text=%q error=%v", editor.Text(), result)
+		}
+	})
 }
 
 func TestStandalonePasteCannotSurviveAnInterveningSceneLifetime(t *testing.T) {

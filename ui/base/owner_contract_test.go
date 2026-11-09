@@ -5,6 +5,7 @@ import (
 	"image"
 	"slices"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/base"
@@ -259,19 +260,24 @@ func TestSliderUsesTheWrittenTrackUntilNewFrameIsWritten(t *testing.T) {
 }
 
 func TestListRejectsAnOldHitAfterCollectionReplacement(t *testing.T) {
-	scenes := scenetest.New()
-	t.Cleanup(scenes.Close)
+	synctest.Test(t, func(t *testing.T) {
+		scenes := scenetest.New()
+		t.Cleanup(scenes.Close)
 
-	list := &base.List[string]{}
-	list.SetItems([]string{"old a", "old b"})
-	root := scenes.Mount(list)
-	root.Draw(grid.NewSurface(10, 2).View())
-	old := root.CaptureInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 1), At: time.Now()}, func(time.Time) (uint64, bool) { return 1, true })
-	list.SetItems([]string{"new a", "new b"})
-	root.Draw(grid.NewSurface(10, 2).View())
-	if root.HandleInput(old) || list.Selected() != 0 {
-		t.Fatal("old dataset hit selected a new record")
-	}
+		list := &base.List[string]{}
+		list.SetItems([]string{"old a", "old b"})
+		root := scenes.Mount(list)
+		root.Draw(grid.NewSurface(10, 2).View())
+		old := root.CapturePresentedInput(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(0, 1), At: time.Now()}, root.Progress().WrittenSequence)
+		if old.Input() == nil {
+			t.Fatal("written collection declined capture")
+		}
+		list.SetItems([]string{"new a", "new b"})
+		root.Draw(grid.NewSurface(10, 2).View())
+		if root.HandleInput(old) || list.Selected() != 0 {
+			t.Fatal("old dataset hit selected a new record")
+		}
+	})
 }
 
 func TestEditSessionResetPublishesOnlyAfterHistoryIsSettled(t *testing.T) {

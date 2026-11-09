@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"fmt"
 	"image"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -82,6 +83,9 @@ func (b Box) InnerRect(size image.Point) image.Rectangle {
 //
 //	inner := box.Draw(v)
 //	content.Draw(inner)
+//
+// Invalid TitleAlign or FooterAlign panics before any cells change, even when
+// labels or the view are empty, so rejection cannot leave a partial frame.
 func (b Box) Draw(v grid.View) grid.View {
 	b.paint(v)
 	return v.Sub(b.InnerRect(v.Bounds().Size()))
@@ -91,6 +95,9 @@ func (b Box) Draw(v grid.View) grid.View {
 // interior rectangle they must stage with a base frame; Draw remains the public
 // one-step path for passive content.
 func (b Box) paint(v grid.View) {
+	if err := b.validate(); err != nil {
+		panic(err)
+	}
 	if v.Empty() {
 		return
 	}
@@ -101,6 +108,16 @@ func (b Box) paint(v grid.View) {
 	if border := b.border(); border.drawn() {
 		b.drawBorder(v, border, w, h)
 	}
+}
+
+func (b Box) validate() error {
+	if err := b.TitleAlign.Validate(); err != nil {
+		return fmt.Errorf("kit: box title: %w", err)
+	}
+	if err := b.FooterAlign.Validate(); err != nil {
+		return fmt.Errorf("kit: box footer: %w", err)
+	}
+	return nil
 }
 
 func (b Box) drawBorder(v grid.View, border Border, w, h int) {

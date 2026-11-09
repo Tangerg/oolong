@@ -72,10 +72,11 @@ func (d *Dialog) ensure() {
 				if !d.Open() {
 					return
 				}
+				area := d.placement(frame.Bounds().Size())
 				if d.backdrop != nil {
 					d.backdrop(frame)
 				}
-				d.presentation.Stage(frame, d.placement(frame.Bounds().Size()))
+				d.presentation.Stage(frame, area)
 			}, Semantics: func() scene.Semantic {
 				state := scene.SemanticState(0)
 				if d.Open() {

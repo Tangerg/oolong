@@ -23,7 +23,10 @@ type Overlay struct {
 	Theme Theme
 }
 
+// Draw panics for an invalid Anchor before shading any cells, even for an empty
+// view, so rejected placement cannot leave a dimmed background behind.
 func (o Overlay) Draw(v grid.View) grid.View {
+	area := o.Area(v)
 	width, height := v.Size()
 	if width <= 0 || height <= 0 {
 		return v.Sub(image.Rectangle{})
@@ -31,11 +34,12 @@ func (o Overlay) Draw(v grid.View) grid.View {
 	// Mixed rather than filled: what is behind stays legible and simply recedes,
 	// which is what tells the reader it is still there and not gone.
 	o.Theme.Scrim.Over(v)
-	return v.Sub(o.Area(v))
+	return v.Sub(area)
 }
 
 // Area is where the layer goes, in the space's own coordinates. It is separate from
 // drawing so that a hit test a frame later asks the same question.
+// Invalid Anchor values panic even for empty views, matching Draw's placement contract.
 func (o Overlay) Area(v grid.View) image.Rectangle {
 	return o.In(v.Bounds().Size())
 }

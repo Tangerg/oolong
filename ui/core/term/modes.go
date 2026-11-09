@@ -55,9 +55,8 @@ type Modes struct {
 	observeKeyboard bool
 }
 
-// Modes returns the terminal-mode encoding selected by o for an environment.
-// Acquisition owns keyboard observation for both local and remote transports.
-// Startup probing consumes that same reply rather than issuing a second query.
+// Modes includes keyboard observation in acquisition for both local and remote
+// transports so startup probing consumes that reply without a second query.
 //
 // lookup is the environment of the terminal being driven, not necessarily this
 // process. A local terminal passes its process environment lookup; an SSH adapter
