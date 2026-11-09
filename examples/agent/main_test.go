@@ -226,7 +226,7 @@ func TestTheWheelScrollsTheChangeItLandedOn(t *testing.T) {
 	host.Shows(t, "func parse")
 
 	for range 6 {
-		host.Send(input.Mouse{
+		host.Pointer(input.Mouse{
 			// The last row of the change: the row a report has furthest to travel
 			// to, and the one an untranslated report falls outside.
 			Pos:    image.Pt(10, 8),

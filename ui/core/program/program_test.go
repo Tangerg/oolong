@@ -1575,7 +1575,9 @@ func TestAFailedDisplayIsNotBuiltAgainForASecondHandover(t *testing.T) {
 	})
 
 	host.send(input.Key{Code: input.Character, Rune: 'h'})
-	<-done
+	if err := <-done; !errors.Is(err, cause) {
+		t.Fatalf("Run error = %v, want handover frame cause", err)
+	}
 	if !errors.Is(root.handErr, cause) {
 		t.Fatalf("first Hand = %v, want frame cause", root.handErr)
 	}
@@ -2120,7 +2122,10 @@ func startOn(t *testing.T, h *host, root func(*program.Runtime) (scene.Element, 
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-done:
+		case err := <-done:
+			if err != nil {
+				t.Errorf("program: %v", err)
+			}
 		case <-time.After(5 * time.Second):
 			t.Error("the program never returned after its context was cancelled")
 		}

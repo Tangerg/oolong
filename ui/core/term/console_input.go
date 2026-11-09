@@ -1,6 +1,7 @@
 package term
 
 import (
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -29,41 +30,50 @@ const consoleKeyEventType = 0x0001
 // count or surrogate that does not fit in the current UTF-8 chunk.
 type consoleText struct {
 	records []consoleInputRecord
-	leading uint16
+	at      time.Time
+	leading consoleSurrogate
+}
+
+type consoleSurrogate struct {
+	unit uint16
+	at   time.Time
 }
 
 func (c *consoleText) reset() {
-	c.leading = 0
+	c.leading = consoleSurrogate{}
 }
 
-func (c *consoleText) read() []byte {
-	var out []byte
-	for len(out)+utf8.UTFMax <= readChunkBytes {
+func (c *consoleText) read() readResult {
+	out := readResult{at: c.at}
+	for len(out.data)+utf8.UTFMax <= readChunkBytes {
 		unit, ok := c.peek()
 		if !ok {
 			break
 		}
-		if c.leading != 0 {
+		if c.leading.unit != 0 {
 			leading := c.leading
-			c.leading = 0
+			c.leading = consoleSurrogate{}
+			if !leading.at.Equal(c.at) {
+				out.firstAt = &leading.at
+			}
 			if unit >= 0xdc00 && unit <= 0xdfff {
 				c.consume()
-				out = utf8.AppendRune(out, utf16.DecodeRune(rune(leading), rune(unit)))
+				out.data = utf8.AppendRune(out.data, utf16.DecodeRune(rune(leading.unit), rune(unit)))
 			} else {
 				// Keep the next unit for the next iteration: a malformed pair must
 				// neither lose that character nor exceed this chunk's byte budget.
-				out = utf8.AppendRune(out, utf8.RuneError)
+				out.data = utf8.AppendRune(out.data, utf8.RuneError)
 			}
 			continue
 		}
 		c.consume()
 		switch {
 		case unit >= 0xd800 && unit <= 0xdbff:
-			c.leading = unit
+			c.leading = consoleSurrogate{unit: unit, at: c.at}
 		case unit >= 0xdc00 && unit <= 0xdfff:
-			out = utf8.AppendRune(out, utf8.RuneError)
+			out.data = utf8.AppendRune(out.data, utf8.RuneError)
 		default:
-			out = utf8.AppendRune(out, rune(unit))
+			out.data = utf8.AppendRune(out.data, rune(unit))
 		}
 	}
 	return out

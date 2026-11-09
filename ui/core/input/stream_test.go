@@ -10,24 +10,25 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
-func TestRunawayStringExpirySettlesTrailingEscape(t *testing.T) {
+func TestDiscardedStringKeepsItsSplitTerminatorAcrossSilence(t *testing.T) {
 	var stream input.Stream
 	at := time.Unix(1, 0)
 	stream.Feed([]byte("\x1b]52;"+strings.Repeat("A", 1<<20)+"\x1b"), at)
-	due, waiting := stream.DueAt()
-	if !waiting {
-		t.Fatal("runaway input has no recovery deadline")
-	}
-	stream.Expire(due)
 	if _, waiting := stream.DueAt(); waiting {
-		t.Fatal("recovery left ambiguous input")
+		t.Fatal("discarded payload acquired a keyboard deadline")
 	}
-	events := stream.Feed([]byte("a"), at.Add(time.Second))
-	if len(events) != 1 {
+	if events := stream.Expire(at.Add(time.Second)); len(events) != 0 {
+		t.Fatalf("silence decoded payload as keys: %+v", events)
+	}
+	events := stream.Feed([]byte("\\a"), at.Add(time.Second))
+	if len(events) != 2 {
 		t.Fatalf("events = %+v", events)
 	}
-	if key, ok := events[0].(input.Key); !ok || !key.IsRune('a', 0) {
-		t.Fatalf("next key = %+v, want unmodified a", events[0])
+	if _, ok := events[0].(input.OSCRejection); !ok {
+		t.Fatalf("terminated discarded OSC = %+v", events[0])
+	}
+	if key, ok := events[1].(input.Key); !ok || !key.IsRune('a', 0) {
+		t.Fatalf("next key = %+v, want unmodified a", events[1])
 	}
 }
 
@@ -48,8 +49,8 @@ func TestStreamUsesArrivalTimeToResolveBufferedEscape(t *testing.T) {
 			}
 		case len(events) != 2 || events[0].(input.Key).Code != input.Esc || !events[1].(input.Key).IsRune('a', 0):
 			t.Fatalf("after deadline: %+v", events)
-		case !events[0].(input.Key).At.Equal(due) || !events[1].(input.Key).At.Equal(at.Add(gap)):
-			t.Fatalf("arrival and deadline times changed: %+v", events)
+		case !events[0].(input.Key).At.Equal(at) || !events[1].(input.Key).At.Equal(at.Add(gap)):
+			t.Fatalf("assembly changed arrival times: %+v", events)
 		}
 	}
 }
@@ -69,12 +70,13 @@ func TestEmptyReadsCannotExtendAnEscapeDeadline(t *testing.T) {
 	}
 }
 
-func TestEndAfterEscapeDeadlineKeepsTheDeadlineTime(t *testing.T) {
+func TestEndAfterEscapeDeadlineKeepsTheArrivalTime(t *testing.T) {
 	var stream input.Stream
-	stream.Feed([]byte{27}, time.Unix(1, 0))
+	at := time.Unix(1, 0)
+	stream.Feed([]byte{27}, at)
 	due, _ := stream.DueAt()
 	events := stream.Flush(due.Add(time.Second))
-	if len(events) != 1 || events[0].(input.Key).Code != input.Esc || !events[0].(input.Key).At.Equal(due) {
+	if len(events) != 1 || events[0].(input.Key).Code != input.Esc || !events[0].(input.Key).At.Equal(at) {
 		t.Fatalf("EOF restamped a previously due Escape: %+v", events)
 	}
 }
@@ -215,15 +217,16 @@ func TestDiscardedControlStringCannotBecomeKeystrokesAcrossAPause(t *testing.T) 
 	at := time.Unix(1, 0)
 	key := input.Key{Code: input.Character, Rune: 'x', At: at.Add(time.Second)}
 	for _, tc := range []struct {
-		intro string
-		want  []input.Event
+		intro  string
+		ending string
+		want   []input.Event
 	}{
-		{intro: "\x1b]52;", want: []input.Event{input.OSCRejection{Command: 52}, key}},
-		{intro: "\x1bP>|", want: []input.Event{key}},
+		{intro: "\x1b]52;", ending: "\x07", want: []input.Event{input.OSCRejection{Command: 52}, key}},
+		{intro: "\x1bP>|", ending: "\x1b\\", want: []input.Event{key}},
 	} {
 		var stream input.Stream
 		stream.Feed([]byte(tc.intro+strings.Repeat("A", 1<<20)), at)
-		events := stream.Feed([]byte("still payload\x07x"), at.Add(time.Second))
+		events := stream.Feed([]byte("still payload"+tc.ending+"x"), at.Add(time.Second))
 		if !slices.Equal(events, tc.want) {
 			t.Fatalf("%q body escaped the decoder: %+v, want %+v", tc.intro, events, tc.want)
 		}

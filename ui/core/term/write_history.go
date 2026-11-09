@@ -47,6 +47,15 @@ func (h *writeHistory) latest() uint64 {
 	return h.written
 }
 
+func (h *writeHistory) now() (uint64, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if len(h.records) != 0 && h.records[len(h.records)-1].sequence != h.written {
+		return 0, false
+	}
+	return h.written, true
+}
+
 func (h *writeHistory) at(at, now time.Time) (uint64, bool) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

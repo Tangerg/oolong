@@ -53,8 +53,8 @@ func TestNonConsoleInputCannotStartAnUninterruptibleRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.close()
-	if _, err := w.read(nil); !errors.Is(err, errors.ErrUnsupported) {
-		t.Fatalf("non-console read = %v, want unsupported", err)
+	if result := w.read(nil); !errors.Is(result.err, errors.ErrUnsupported) {
+		t.Fatalf("non-console read = %v, want unsupported", result.err)
 	}
 }
 
@@ -115,20 +115,20 @@ func TestConsoleInputNativeHelper(t *testing.T) {
 	t.Run("noncharacter record", func(t *testing.T) {
 		w := openInput(t)
 		writeConsoleRecords(t, handle, []consoleInputRecord{{eventType: 0x0010}})
-		if chunk, err := w.read(nil); err != nil || len(chunk) != 0 {
-			t.Fatalf("focus record = %q, %v", chunk, err)
+		if result := w.read(nil); result.err != nil || len(result.data) != 0 {
+			t.Fatalf("focus record = %q, %v", result.data, result.err)
 		}
 		w.wake()
-		if chunk, err := w.read(nil); err != nil || len(chunk) != 0 {
-			t.Fatalf("wake after focus record = %q, %v", chunk, err)
+		if result := w.read(nil); result.err != nil || len(result.data) != 0 {
+			t.Fatalf("wake after focus record = %q, %v", result.data, result.err)
 		}
 	})
 	t.Run("wake preserves the next owner's input", func(t *testing.T) {
 		w := openInput(t)
 		writeConsoleRecords(t, handle, consoleCharacters("next"))
 		w.wake()
-		if chunk, err := w.read(nil); err != nil || len(chunk) != 0 {
-			t.Fatalf("wake overtaken by input: %q, %v", chunk, err)
+		if result := w.read(nil); result.err != nil || len(result.data) != 0 {
+			t.Fatalf("wake overtaken by input: %q, %v", result.data, result.err)
 		}
 		readConsoleText(t, w, "next")
 	})
@@ -155,17 +155,17 @@ func TestConsoleInputNativeHelper(t *testing.T) {
 		if err := windows.SetConsoleMode(handle, mode); err != nil {
 			t.Fatal(err)
 		}
-		first, err := w.read(nil)
-		if err != nil || len(first) == 0 || len(first) > readChunkBytes || !w.buffered() {
-			t.Fatalf("first repeated chunk = %d bytes, %v, buffered=%t", len(first), err, w.buffered())
+		first := w.read(nil)
+		if first.err != nil || len(first.data) == 0 || len(first.data) > readChunkBytes || !w.buffered() {
+			t.Fatalf("first repeated chunk = %d bytes, %v, buffered=%t", len(first.data), first.err, w.buffered())
 		}
-		if firstText := string(first); firstText != strings.Repeat("r", len(first)) {
+		if firstText := string(first.data); firstText != strings.Repeat("r", len(first.data)) {
 			t.Fatalf("first repeated chunk contains %q", firstText)
 		}
 		if err := windows.FlushConsoleInputBuffer(handle); err != nil {
 			t.Fatal(err)
 		}
-		readConsoleText(t, w, strings.Repeat("r", 6000-len(first)))
+		readConsoleText(t, w, strings.Repeat("r", 6000-len(first.data)))
 	})
 }
 
@@ -191,11 +191,11 @@ func readConsoleText(t *testing.T, w *waker, want string) {
 	t.Helper()
 	var got strings.Builder
 	for got.Len() < len(want) {
-		chunk, err := w.read(nil)
-		if err != nil || len(chunk) > readChunkBytes || !utf8.Valid(chunk) {
-			t.Fatalf("console chunk = %d bytes, %v", len(chunk), err)
+		result := w.read(nil)
+		if result.err != nil || len(result.data) > readChunkBytes || !utf8.Valid(result.data) {
+			t.Fatalf("console chunk = %d bytes, %v", len(result.data), result.err)
 		}
-		got.Write(chunk)
+		got.Write(result.data)
 	}
 	if got.String() != want {
 		t.Fatalf("console text = %q, want %q", got.String(), want)

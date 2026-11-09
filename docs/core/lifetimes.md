@@ -18,6 +18,8 @@ Leave `Attachment` nil for a session-bound scope. To bind work to a mounted elem
 
 Worker failure diagnostics do not own settlement. Even if formatting a recovered panic value exits the goroutine, the accepted task still publishes `ErrTaskAborted`, settles its delivery responsibility and releases its reserved capacity.
 
+Stopping task admission precedes final inline presentation. Final preparation and painting can still read the live canvas through `Runtime.Size`; they cannot start new work or post owner actions. Cleanup releases the canvas after presentation ends, and a retained runtime then reports zero dimensions.
+
 ## Delayed keyboard input
 
 A key sequence captures `element.KeyboardLease()` and passes `lease.Valid` to `Matcher.Handle`. The scene owns the continuous keyboard route, including modal or content fallback when nothing is focused. Moving focus between descendants preserves an ancestor's lease; leaving its route, detaching or closing the root permanently revokes it. Returning later cannot revive an old prefix or queued resolver. A deferred traversal uses `lease.FocusNext`, since the originating event's imperative methods have already expired.
@@ -71,7 +73,7 @@ Read-only borrows also refuse snapshot staging and refinement. A pending candida
 
 `Publisher.Prepare` reads an immutable pending prefix. `grid.Inline.Prepare` composes that prefix with the live frame without advancing the anchor. The runtime checks the complete encoded payload and writer capacity, then commits publication, output and scene candidates without running application callbacks between them. Refusal aborts the candidate and keeps the previous complete projection authoritative.
 
-`CloseAdmission` prevents new publication while preserving accepted content for the final frame and drain. `Written` settles actual progress. Terminal failure settles remaining responsibility with its real cause. Deferred `FlushNotifications` runs after all owners settle, allowing Transcript to resume capacity-blocked publication in a later owner turn.
+`CloseAdmission` prevents new publication while preserving accepted content for the final frame and drain. `Written` settles actual progress. Terminal failure settles remaining responsibility with its real cause. Deferred `FlushNotifications` runs after all owners settle, allowing Transcript to resume capacity-blocked publication in a later owner turn. Custom `base.TranscriptPublisher` implementations follow the same notification contract defined by `publication.Publisher.Subscribe`: the caller must finish settling the returned receipt before a subscriber reenters the model. An adapter finishing its own capture does not end the caller's read-only borrow.
 
 Inline shutdown drains the final accepted frame before admitting cursor cleanup, then waits for cleanup itself. A one-frame writer budget therefore preserves output order and cursor restoration without relying on a background writer winning a scheduling race.
 

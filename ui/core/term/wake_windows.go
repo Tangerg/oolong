@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -60,16 +61,16 @@ func (w *waker) interruptible() bool { return w.console }
 
 func (w *waker) buffered() bool { return len(w.text.records) > 0 }
 
-func (w *waker) read(_ *os.File) ([]byte, error) {
+func (w *waker) read(_ *os.File) readResult {
 	if !w.console {
-		return nil, fmt.Errorf("term: input is not a console: %w", errors.ErrUnsupported)
+		return readResult{at: time.Now(), err: fmt.Errorf("term: input is not a console: %w", errors.ErrUnsupported)}
 	}
 	if w.buffered() {
-		return w.text.read(), nil
+		return w.text.read()
 	}
 	ready, err := w.wait()
 	if err != nil || !ready {
-		return nil, err
+		return readResult{at: time.Now(), err: err}
 	}
 	var count uint32
 	const consoleReadNowait = 0x0002
@@ -81,17 +82,19 @@ func (w *waker) read(_ *os.File) ([]byte, error) {
 		uintptr(unsafe.Pointer(&count)),
 		consoleReadNowait,
 	)
+	at := time.Now()
 	if result == 0 {
 		if errors.Is(cause, windows.ERROR_SUCCESS) {
 			cause = errors.New("console read failed without an error code")
 		}
-		return nil, fmt.Errorf("term: read console input: %w", cause)
+		return readResult{at: at, err: fmt.Errorf("term: read console input: %w", cause)}
 	}
 	if count > uint32(len(w.records)) {
-		return nil, fmt.Errorf("term: console returned %d records into a %d-record buffer", count, len(w.records))
+		return readResult{at: at, err: fmt.Errorf("term: console returned %d records into a %d-record buffer", count, len(w.records))}
 	}
 	w.text.records = w.records[:count]
-	return w.text.read(), nil
+	w.text.at = at
+	return w.text.read()
 }
 
 func (w *waker) reset() { w.text.reset() }

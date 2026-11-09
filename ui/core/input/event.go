@@ -249,8 +249,8 @@ type Key struct {
 	// hold more than one code point, and is empty on terminals that do not report
 	// it. [Key.FallbackRune] supplies the character fallback.
 	Text string
-	// At belongs to the transport reader so queueing delay cannot change whether
-	// two keys form a sequence. Zero means arrival was not timed.
+	// At is when the transport first observed this key's bytes, so assembly and
+	// queueing cannot move it across a frame or key-sequence boundary. Zero is untimed.
 	At time.Time
 }
 
@@ -307,8 +307,9 @@ type Mouse struct {
 	Action MouseAction
 	Button Button
 	Mods   Mods
-	// At belongs to the transport reader so queueing delay cannot change click
-	// or wheel-gesture classification. Zero means arrival was not timed.
+	// At is when the transport first observed this report's bytes. Completing a
+	// split report cannot authorize its old coordinates against a newer frame.
+	// Zero means arrival was not timed.
 	At time.Time
 }
 

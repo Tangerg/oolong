@@ -92,3 +92,28 @@ func TestWriteHistoryCannotCertifyPastADeliveryFailure(t *testing.T) {
 		t.Fatalf("failure erased earlier valid evidence: (%d, %t)", sequence, known)
 	}
 }
+
+func TestWriteHistoryCurrentObservationUsesCompletionOrder(t *testing.T) {
+	for _, boundary := range []time.Time{{}, time.Unix(100, 0)} {
+		history := writeHistory{opened: boundary, limit: 2}
+		check := func(want uint64, settled bool) {
+			t.Helper()
+			if sequence, known := history.now(); sequence != want || known != settled {
+				t.Fatalf("current prefix = (%d, %t), want (%d, %t)", sequence, known, want, settled)
+			}
+		}
+		check(0, true)
+		history.begin(1, boundary)
+		check(0, false)
+		history.complete(1, boundary)
+		check(1, true)
+		if _, known := history.at(boundary, boundary); known {
+			t.Fatal("current completion weakened physical arrival ordering")
+		}
+		history.begin(2, boundary)
+		check(0, false)
+		history.begin(3, boundary)
+		history.complete(3, boundary)
+		check(0, false)
+	}
+}

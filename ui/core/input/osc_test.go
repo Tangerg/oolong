@@ -241,16 +241,13 @@ func TestOSCOverrunAbandonedByAnEscape(t *testing.T) {
 	}
 }
 
-// TestOSCStillArrivingSurvivesAFlush is the distinction between the two waits. A
-// command already given up on has to end when input goes quiet; one still
-// arriving must not, or a large answer split across a pause is corrupted.
-func TestOSCStillArrivingSurvivesAFlush(t *testing.T) {
+func TestOSCStillArrivingSurvivesEscapeExpiry(t *testing.T) {
 	var p input.Parser
 	if events := p.Feed([]byte("\x1b]52;c;aGVs")); len(events) != 0 {
 		t.Fatalf("a partial command produced %d events: %+v", len(events), events)
 	}
-	if events := p.Flush(); len(events) != 0 {
-		t.Fatalf("flushing a partial command produced %d events: %+v", len(events), events)
+	if events := p.Expire(); len(events) != 0 {
+		t.Fatalf("expiring a partial command produced %d events: %+v", len(events), events)
 	}
 	events := p.Feed([]byte("bG8=\x07"))
 	if len(events) != 1 {
@@ -305,10 +302,7 @@ func TestOSCOverrunWaitsForTheRestOfAnST(t *testing.T) {
 	}
 }
 
-// TestOSCOverrunEndsWhenInputGoesQuiet is the state that has to end somewhere. A
-// command already given up on must not eat the next keystroke that happens to be
-// a parameter byte.
-func TestOSCOverrunEndsWhenInputGoesQuiet(t *testing.T) {
+func TestOSCOverrunEndsAtEOF(t *testing.T) {
 	var p input.Parser
 	p.Feed([]byte("\x1b]52;" + strings.Repeat("A", 1<<20+16)))
 	p.Flush()

@@ -44,7 +44,7 @@ func readAnswer(t *testing.T, channel *clipboard.Channel, selection clipboard.Se
 	sent, result := startRead(ctx, channel, selection)
 	<-sent
 	time.Sleep(time.Nanosecond)
-	if !channel.Answer(params, time.Now()) {
+	if !channel.Answer(params, time.Now(), time.Now()) {
 		cancel()
 	}
 	return <-result
@@ -89,13 +89,13 @@ func TestReadSelectsTheRequestedClipboardAndKeepsOneWireOwner(t *testing.T) {
 				t.Fatalf("duplicate read = %v", err)
 			}
 			params := string(wire) + ";" + base64.StdEncoding.EncodeToString([]byte("answer"))
-			if !channel.Answer(params, time.Now()) {
+			if !channel.Answer(params, time.Now(), time.Now()) {
 				t.Fatal("matching answer refused")
 			}
 			if got := <-result; got.err != nil || got.text != "answer" {
 				t.Fatalf("read = %+v", got)
 			}
-			if channel.Answer(params, time.Now()) {
+			if channel.Answer(params, time.Now(), time.Now()) {
 				t.Fatal("one response settled twice")
 			}
 			if got := readAnswer(t, channel, clipboard.Primary, "p;bmV4dA=="); got.err != nil || got.text != "next" {
@@ -113,14 +113,14 @@ func TestUnrelatedRepliesCannotConsumeAQuery(t *testing.T) {
 		<-sent
 		time.Sleep(time.Nanosecond)
 		for _, params := range []string{"", "c", ";aGk=", "cc;aGk=", "x;aGk=", "p;aGk="} {
-			if channel.Answer(params, time.Now()) {
+			if channel.Answer(params, time.Now(), time.Now()) {
 				t.Fatalf("unrelated reply %q consumed query", params)
 			}
 		}
-		if channel.Answer("c;aGk=", before) {
+		if channel.Answer("c;aGk=", before, before) {
 			t.Fatal("bytes received before admission consumed query")
 		}
-		if !channel.Answer("c;aGk=", time.Now()) {
+		if !channel.Answer("c;aGk=", time.Now(), time.Now()) {
 			t.Fatal("matching reply did not settle")
 		}
 		if got := <-result; got.err != nil || got.text != "hi" {
@@ -133,7 +133,7 @@ func TestEqualAdmissionTimestampCannotConsumeAReplyInEitherOrder(t *testing.T) {
 	for _, response := range []struct {
 		name   string
 		params string
-		apply  func(*clipboard.Channel, string, time.Time) bool
+		apply  func(*clipboard.Channel, string, time.Time, time.Time) bool
 		want   readResult
 	}{
 		{name: "answer", params: "c;aGk=", apply: (*clipboard.Channel).Answer, want: readResult{text: "hi"}},
@@ -153,7 +153,7 @@ func TestEqualAdmissionTimestampCannotConsumeAReplyInEitherOrder(t *testing.T) {
 					if !beforeAdmission {
 						arrival = time.Now()
 					}
-					if response.apply(channel, response.params, arrival) {
+					if response.apply(channel, response.params, arrival, arrival) {
 						t.Fatal("equal admission timestamp consumed a reply")
 					}
 					select {
@@ -168,7 +168,7 @@ func TestEqualAdmissionTimestampCannotConsumeAReplyInEitherOrder(t *testing.T) {
 						t.Fatalf("ambiguous query lost wire ownership: %v", err)
 					}
 					time.Sleep(time.Nanosecond)
-					if !response.apply(channel, response.params, time.Now()) {
+					if !response.apply(channel, response.params, time.Now(), time.Now()) {
 						t.Fatal("distinct later timestamp did not settle the reply")
 					}
 					if got := <-result; got.text != response.want.text || !errors.Is(got.err, response.want.err) {
@@ -177,6 +177,38 @@ func TestEqualAdmissionTimestampCannotConsumeAReplyInEitherOrder(t *testing.T) {
 				})
 			})
 		}
+	}
+}
+
+func TestReplyReceiptSeparatesAdmissionFromCompletion(t *testing.T) {
+	for _, response := range []struct {
+		name, params string
+		apply        func(*clipboard.Channel, string, time.Time, time.Time) bool
+	}{
+		{"answer", "c;aGk=", (*clipboard.Channel).Answer},
+		{"rejection", "c;", (*clipboard.Channel).Reject},
+	} {
+		t.Run(response.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				channel := &clipboard.Channel{}
+				admitted := time.Now()
+				sent, result := startRead(t.Context(), channel, clipboard.System)
+				<-sent
+				started := admitted.Add(time.Nanosecond)
+				if response.apply(channel, response.params, admitted.Add(-time.Nanosecond), started) {
+					t.Fatal("completion authorized bytes received before admission")
+				}
+				if response.apply(channel, response.params, started, admitted) {
+					t.Fatal("a reversed receive interval released the query")
+				}
+				if !response.apply(channel, response.params, started, admitted.Add(11*time.Second)) {
+					t.Fatal("complete matching reply failed to release the wire slot")
+				}
+				if got := <-result; !errors.Is(got.err, context.DeadlineExceeded) {
+					t.Fatalf("timely origin hid late completion: %+v", got)
+				}
+			})
+		})
 	}
 }
 
@@ -201,11 +233,11 @@ func TestInvalidPayloadSettlesWithAnExplicitFailure(t *testing.T) {
 func TestRejectedReplyMatchesTheOutstandingSelectionAndAdmission(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var absent *clipboard.Channel
-		if absent.Reject("c;", time.Now()) {
+		if absent.Reject("c;", time.Now(), time.Now()) {
 			t.Fatal("nil channel accepted a rejection")
 		}
 		channel := &clipboard.Channel{}
-		if channel.Reject("c;", time.Now()) {
+		if channel.Reject("c;", time.Now(), time.Now()) {
 			t.Fatal("unsolicited rejection consumed a query")
 		}
 		before := time.Now().Add(-time.Second)
@@ -213,20 +245,20 @@ func TestRejectedReplyMatchesTheOutstandingSelectionAndAdmission(t *testing.T) {
 		<-sent
 		time.Sleep(time.Nanosecond)
 		for _, prefix := range []string{"", "p", ";", "pp;", "x;", "c;"} {
-			if channel.Reject(prefix, time.Now()) {
+			if channel.Reject(prefix, time.Now(), time.Now()) {
 				t.Fatalf("unrelated rejection %q consumed query", prefix)
 			}
 		}
-		if channel.Reject("p;", before) {
+		if channel.Reject("p;", before, before) {
 			t.Fatal("rejection received before admission consumed query")
 		}
-		if !channel.Reject("p;", time.Now()) {
+		if !channel.Reject("p;", time.Now(), time.Now()) {
 			t.Fatal("complete matching rejection did not settle")
 		}
 		if got := <-result; got.text != "" || !errors.Is(got.err, clipboard.ErrResponse) {
 			t.Fatalf("rejection result = %+v", got)
 		}
-		if channel.Reject("p;", time.Now()) {
+		if channel.Reject("p;", time.Now(), time.Now()) {
 			t.Fatal("one rejection settled twice")
 		}
 		if got := readAnswer(t, channel, clipboard.System, "c;bmV3"); got.err != nil || got.text != "new" {
@@ -257,10 +289,10 @@ func TestRejectionUsesReceiveTimeWithoutRevivingRevokedDelivery(t *testing.T) {
 					synctest.Wait()
 					want = context.Canceled
 				}
-				if channel.Reject("c;", admitted) {
+				if channel.Reject("c;", admitted, admitted) {
 					t.Fatal("ambiguous receive time released the unanswered wire slot")
 				}
-				if !channel.Reject("c;", at) {
+				if !channel.Reject("c;", at, at) {
 					t.Fatal("matching rejection was not consumed")
 				}
 				cancel()
@@ -307,7 +339,7 @@ func TestReadRefusalDoesNotCreateAProtocolObligation(t *testing.T) {
 		if _, err := channel.Read(ctx, clipboard.System, func(string) error { t.Fatal("cancelled query sent"); return nil }); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled admission = %v", err)
 		}
-		if channel.Answer("c;aGk=", time.Now()) {
+		if channel.Answer("c;aGk=", time.Now(), time.Now()) {
 			t.Fatal("refused query authorized unsolicited reply")
 		}
 		if got := readAnswer(t, channel, clipboard.System, "c;aGk="); got.err != nil {
@@ -317,7 +349,7 @@ func TestReadRefusalDoesNotCreateAProtocolObligation(t *testing.T) {
 		if _, ok := absent.Copy(clipboard.System, "text"); ok {
 			t.Fatal("nil copy accepted")
 		}
-		if _, err := absent.Read(t.Context(), clipboard.System, func(string) error { return nil }); !errors.Is(err, errors.ErrUnsupported) || absent.Answer("c;aGk=", time.Now()) {
+		if _, err := absent.Read(t.Context(), clipboard.System, func(string) error { return nil }); !errors.Is(err, errors.ErrUnsupported) || absent.Answer("c;aGk=", time.Now(), time.Now()) {
 			t.Fatalf("nil channel = %v", err)
 		}
 		absent.Interrupt()
@@ -339,7 +371,7 @@ func TestInterruptedAdmissionCannotForgetAnEscapedQuery(t *testing.T) {
 			t.Fatalf("uncertain admission lost its obligation: %v", err)
 		}
 		time.Sleep(time.Nanosecond)
-		if !channel.Answer("c;b2xk", time.Now()) {
+		if !channel.Answer("c;b2xk", time.Now(), time.Now()) {
 			t.Fatal("escaped query reply was not absorbed")
 		}
 		if got := readAnswer(t, channel, clipboard.System, "c;bmV3"); got.err != nil || got.text != "new" {
@@ -368,13 +400,13 @@ func TestCancellationAndHandoverRetainTheUnansweredWireSlot(t *testing.T) {
 			if got := <-result; !errors.Is(got.err, want) || got.text != "" {
 				t.Fatalf("revoked read = %+v", got)
 			}
-			if channel.Answer("c;b2xk", admitted) {
+			if channel.Answer("c;b2xk", admitted, admitted) {
 				t.Fatal("ambiguous receive time released the revoked query")
 			}
 			if _, err := channel.Read(t.Context(), clipboard.System, func(string) error { t.Fatal("ambiguous retry sent"); return nil }); !errors.Is(err, clipboard.ErrPending) {
 				t.Fatalf("retry = %v", err)
 			}
-			if !channel.Answer("c;b2xk", time.Now()) {
+			if !channel.Answer("c;b2xk", time.Now(), time.Now()) {
 				t.Fatal("late reply was not absorbed")
 			}
 			if got := readAnswer(t, channel, clipboard.System, "c;bmV3"); got.err != nil || got.text != "new" {
@@ -399,7 +431,7 @@ func TestTimeoutDoesNotLetAnOldReplyClaimTheNextRead(t *testing.T) {
 			t.Fatalf("retry after timeout = %v", err)
 		}
 		// Even timely transport bytes decoded after settlement cannot revive delivery.
-		if !channel.Answer("c;b2xk", at) {
+		if !channel.Answer("c;b2xk", at, at) {
 			t.Fatal("old reply was not absorbed")
 		}
 		if got := readAnswer(t, channel, clipboard.System, "c;bmV3"); got.err != nil || got.text != "new" {
@@ -415,7 +447,7 @@ func TestSettledReplySurvivesLaterCancellationAndDeliveryDelay(t *testing.T) {
 		sent, result := startRead(ctx, channel, clipboard.System)
 		<-sent
 		time.Sleep(time.Nanosecond)
-		if !channel.Answer("c;aGk=", time.Now()) {
+		if !channel.Answer("c;aGk=", time.Now(), time.Now()) {
 			t.Fatal("timely reply refused")
 		}
 		cancel()
@@ -450,7 +482,7 @@ func TestOnlyOneConcurrentReaderCanAdmitAQuery(t *testing.T) {
 				t.Fatalf("competing read = %v", err)
 			}
 		}
-		channel.Answer("c;aGk=", time.Now())
+		channel.Answer("c;aGk=", time.Now(), time.Now())
 		if err := <-results; err != nil {
 			t.Fatalf("accepted read = %v", err)
 		}
@@ -483,7 +515,7 @@ func TestCopyLimitsAndExplicitPassthrough(t *testing.T) {
 					t.Fatalf("unexpected wrapper: %q", sequence[:min(50, len(sequence))])
 				}
 			}
-			channel.Answer("c;aGk=", time.Now())
+			channel.Answer("c;aGk=", time.Now(), time.Now())
 			<-result
 		}
 	})

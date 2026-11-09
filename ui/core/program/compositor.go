@@ -297,8 +297,10 @@ func (p *program) repaint() error {
 // ends repaint requests. Run can stop before claiming a request, so callers must
 // also observe their Run context or completion.
 // A claimed request waits through frame preparation without consuming later
-// input. Input EOF answers a waiting request with ErrStopped and zero dimensions,
-// then drains already admitted input before Run returns the source result.
+// input. If the next input cannot enter the bounded queue, the owner answers
+// ErrRepaintBackpressure, then resumes normal FIFO delivery. Once the reader
+// observes input EOF, it answers a waiting request with ErrStopped and zero
+// dimensions, then drains admitted input before Run returns the source result.
 // Shutdown also answers it with ErrStopped if no complete repaint was written.
 type RepaintSource interface {
 	Repaints() <-chan func(width, height int, err error)

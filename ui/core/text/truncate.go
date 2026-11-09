@@ -43,9 +43,7 @@ func (l Line) WithSuffix(width int, suffix string) Line {
 	ending := newSuffix(suffix, width)
 	var kept []unit
 	used := 0
-	// Removing a separator can regroup regional indicators. Boundary checks need
-	// the drawable projection's clusters, not the original separated clusters.
-	for u := range l.printable().eachUnit() {
+	for u := range l.eachUnit() {
 		next := layout.Sum(used, u.width)
 		if ending.endColumn(next) > width {
 			break

@@ -78,7 +78,7 @@ func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 			t.Fatalf("second read = %v", err)
 		}
 		time.Sleep(time.Nanosecond)
-		host.clip.Answer("c;aGk=", time.Now())
+		host.clip.Answer("c;aGk=", time.Now(), time.Now())
 		if err := <-result; err != nil {
 			t.Fatal(err)
 		}
@@ -106,7 +106,7 @@ func TestHostCannotAcceptClipboardCommandsAfterWriterClose(t *testing.T) {
 	if _, err := h.ReadClipboard(t.Context()); err == nil {
 		t.Fatal("a closed SSH writer accepted a paste request")
 	}
-	if h.clip.Answer("c;dGV4dA==", time.Now()) {
+	if h.clip.Answer("c;dGV4dA==", time.Now(), time.Now()) {
 		t.Fatal("a refused paste authorized an unsolicited answer")
 	}
 }
@@ -167,7 +167,7 @@ func TestHostReadCancellationRetainsWireOwnership(t *testing.T) {
 			t.Fatalf("cancelled query lost wire ownership: %v", err)
 		}
 		time.Sleep(time.Nanosecond)
-		if !host.clip.Answer("c;b2xk", time.Now()) {
+		if !host.clip.Answer("c;b2xk", time.Now(), time.Now()) {
 			t.Fatal("old reply was not absorbed")
 		}
 	})

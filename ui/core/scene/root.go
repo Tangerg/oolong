@@ -25,7 +25,7 @@ type RootConfig struct {
 }
 
 // Root is the sole owner of live attachment, actual focus, capture and geometry.
-// Except CaptureInput, its operations run on the UI owner sequence.
+// Except CaptureInput and CapturePresentedInput, its operations run on the UI owner sequence.
 // A Root must not be copied after first use.
 type Root struct {
 	noCopy                noCopy

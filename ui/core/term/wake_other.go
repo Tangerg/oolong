@@ -5,6 +5,7 @@ package term
 import (
 	"errors"
 	"os"
+	"time"
 )
 
 // Source portability does not imply an owned terminal input adapter. Refuse
@@ -15,7 +16,9 @@ func newWaker(int) (*waker, error) { return &waker{}, nil }
 
 func (w *waker) interruptible() bool { return false }
 
-func (w *waker) read(*os.File) ([]byte, error) { return nil, errors.ErrUnsupported }
+func (w *waker) read(*os.File) readResult {
+	return readResult{at: time.Now(), err: errors.ErrUnsupported}
+}
 
 func (w *waker) reset() {}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -13,6 +14,49 @@ import (
 	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/input"
 )
+
+func TestClipboardReplyStartedBeforeAdmissionCannotClaimTheQuery(t *testing.T) {
+	for _, oversized := range []bool{false, true} {
+		t.Run(strconv.FormatBool(oversized), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				channel := &clipboard.Channel{}
+				stream := input.NewStream(input.StreamConfig{Clipboard: channel})
+				payload := "b2xk"
+				if oversized {
+					payload = strings.Repeat("A", 1<<20)
+				}
+				stream.Feed([]byte("\x1b]52;c;"+payload), time.Now())
+				time.Sleep(time.Nanosecond)
+				result := startClipboardRead(t.Context(), t, channel)
+				time.Sleep(time.Nanosecond)
+				events := stream.Feed([]byte("\x1b\\\x1b]52;c;bmV3\x1b\\"), time.Now())
+				if len(events) != 1 {
+					t.Fatalf("old reply was consumed or new reply escaped: %+v", events)
+				}
+				if got := <-result; got.err != nil || got.text != "new" {
+					t.Fatalf("old prefix claimed new query: %+v", got)
+				}
+			})
+		})
+	}
+}
+
+func TestSplitClipboardReplyUsesItsCompletionForTheDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		channel := &clipboard.Channel{}
+		result := startClipboardRead(t.Context(), t, channel)
+		time.Sleep(time.Nanosecond)
+		stream := input.NewStream(input.StreamConfig{Clipboard: channel})
+		started := time.Now()
+		stream.Feed([]byte("\x1b]52;c;aGk="), started)
+		if events := stream.Feed([]byte("\x1b\\"), started.Add(11*time.Second)); len(events) != 0 {
+			t.Fatalf("late completed reply escaped as input: %+v", events)
+		}
+		if got := <-result; !errors.Is(got.err, context.DeadlineExceeded) {
+			t.Fatalf("timely prefix admitted late completion: %+v", got)
+		}
+	})
+}
 
 type clipboardResult struct {
 	text string

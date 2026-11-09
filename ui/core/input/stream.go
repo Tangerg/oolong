@@ -67,6 +67,8 @@ func (s *Stream) Reset() {
 //
 // Drivers record at when the transport read completes, before queueing the bytes.
 // An arrival at or after a pending deadline first settles that ambiguity.
+// Each decoded unit keeps its first byte's observation across read boundaries;
+// deciding an Escape later does not change when its bytes actually arrived.
 //
 // The returned slice is the caller's. Whether the parse is now waiting on time is
 // answered by [Stream.DueAt], which every feed brings up to date.
@@ -75,7 +77,7 @@ func (s *Stream) Feed(chunk []byte, at time.Time) []Event {
 	if len(chunk) == 0 {
 		return events
 	}
-	events = append(events, s.settle(s.decoder().Feed(chunk), at)...)
+	events = append(events, s.settle(s.decoder().feed(chunk, at))...)
 	s.arm(at)
 	return events
 }
@@ -86,17 +88,18 @@ func (s *Stream) Expire(at time.Time) []Event {
 	if !s.waiting || at.Before(s.deadline) {
 		return nil
 	}
-	events := s.settle(s.decoder().Expire(), s.deadline)
+	events := s.settle(s.decoder().expire())
 	s.arm(at)
 	return events
 }
 
-// Flush ends the stream. A buffered escape becomes the Escape key and a half-arrived
-// character is dropped, because the rest is never coming.
+// Flush ends the stream. A buffered escape becomes the Escape key. Incomplete
+// characters and control strings are dropped because the rest is never coming.
+// An open bracketed paste remains incomplete as described by [Parser.Flush].
 func (s *Stream) Flush(at time.Time) []Event {
 	events := s.Expire(at)
 	s.disarm()
-	return append(events, s.settle(s.decoder().Flush(), at)...)
+	return append(events, s.settle(s.decoder().drain(true))...)
 }
 
 // DueAt is when a waiting ambiguous sequence must be settled, if one is waiting.
@@ -117,25 +120,21 @@ func (s *Stream) disarm() { s.deadline, s.waiting = time.Time{}, false }
 
 // Reply settlement happens before input delivery so a later focus change cannot
 // turn a solicited result into a new user paste.
-func (s *Stream) settle(events []Event, at time.Time) []Event {
-	events = Stamp(events, at)
-	if s.clipboard == nil {
-		return events
-	}
-	out := events[:0]
-	for _, event := range events {
-		switch reply := event.(type) {
+func (s *Stream) settle(received []receivedEvent) []Event {
+	var events []Event
+	for _, item := range received {
+		switch event := item.event.(type) {
 		case OSC:
-			if reply.Command == clipboard.Command && s.clipboard.Answer(reply.Params, at) {
+			if event.Command == clipboard.Command && s.clipboard.Answer(event.Params, item.started, item.completed) {
 				continue
 			}
 		case OSCRejection:
-			if reply.Command == clipboard.Command && s.clipboard.Reject(reply.Prefix, at) {
+			if event.Command == clipboard.Command && s.clipboard.Reject(event.Prefix, item.started, item.completed) {
 				continue
 			}
 		}
-		out = append(out, event)
+		events = append(events, item.event)
+		Stamp(events[len(events)-1:], item.started)
 	}
-	clear(events[len(out):])
-	return out
+	return events
 }

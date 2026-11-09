@@ -4,11 +4,15 @@ import "errors"
 
 var errFrameNotReady = errors.New("program: frame preparation is pending")
 
-// Size reads the live canvas on the UI owner. A zero or stopped Runtime has no
-// canvas and returns zero dimensions; Environment remains the startup snapshot.
+// ErrRepaintBackpressure ends a preparation barrier so bounded input can advance.
+// No frame was completed; the session continues with its queued input in order.
+var ErrRepaintBackpressure = errors.New("program: repaint preparation blocks input")
+
+// Size remains valid during final preparation and painting, after task admission
+// has stopped. Cleanup releases the canvas; retained runtimes then return zero.
 func (r *Runtime) Size() (width, height int) {
-	if p := r.owner(); p != nil && p.canvas != nil {
-		return p.canvas.Size()
+	if r != nil && r.p != nil && r.p.canvas != nil {
+		return r.p.canvas.Size()
 	}
 	return 0, 0
 }

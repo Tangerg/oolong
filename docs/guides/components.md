@@ -20,6 +20,31 @@ A form calls `Submit(id)` with an opaque `base.SubmissionID`. Return `scene.Appl
 
 An editor element snapshot carries its captured text: call `element.Text()` even after editing. Use the opaque `base.ElementID` to key associated payloads, and pass it only to an editor sharing the issuing `EditSession`. Use `tabs.SetRule(glyph)` to change both the visible rule and the space it occupies; the empty string removes it.
 
+## Answer forms without a screen
+
+Create one `kit.Prompter` for the lifetime of an input conversation. Reuse it for successive `*base.Form` values so bytes read ahead for a later answer stay with the same owner:
+
+```go
+prompter, err := kit.NewPrompter(kit.PrompterConfig{
+    Input:  os.Stdin,
+    Output: os.Stdout,
+})
+if err != nil {
+    return err
+}
+for _, form := range forms {
+    if _, err := prompter.Ask(form); err != nil {
+        return err
+    }
+}
+```
+
+Here `forms` is the application's ordered `[]*base.Form`; a styled `kit.Form` supplies its existing owner through `Controller()`. The fields provide their own `Ask` and `Reply` behavior, and the form owns validation receipts and submission. The prompter keeps no second answer model. See the [form example](https://github.com/Tangerg/oolong/tree/main/examples/form) for screen and textual flows sharing the same fields.
+
+`PrompterConfig.MaxAnswerBytes` is an explicit transport budget in bytes. Zero imposes no size limit; a positive value excludes the LF or CRLF line ending. A final unterminated answer is accepted, with an optional trailing CR removed. An oversized line is discarded through its ending before `Ask` returns `kit.ErrAnswerTooLong`; the next call can read the following answer. Empty input before an answer returns `io.ErrUnexpectedEOF`, and a read failure cannot commit an unfinished answer. Failure to print a prompt leaves its answer unread.
+
+Use `Ask` serially and keep the prompter's pointer: copying it or reading the borrowed input through another reader breaks ownership of buffered bytes. A callback attempting another `Ask` on the same prompter receives `kit.ErrPromptActive`. The caller owns closing both streams.
+
 ## Assemble real parts
 
 A `scene.Group` receives keyed `scene.Item` children and a layout function. An overlay is a `scene.Group` with `GroupConfig.Overlay`; `GroupConfig.Modal` defines its modal boundary. These same parts determine paint, focus, routing, lifecycle and semantic observation.
@@ -67,6 +92,6 @@ Use `runtime.Clipboard().Read(ctx, receive)` for a directed read. Admission erro
 
 OSC 52 has no request identifier. A response timeout ends waiting after ten seconds but does not make a late reply safe for a newer request. Cancellation and terminal handover obey the same rule: `clipboard.ErrPending` remains until the earlier response is consumed. Repeated reads cannot bypass that unresolved query. Direct users of `clipboard.Channel` must provide a send callback with atomic admission; a partially emitted query is already sent and must retain its response obligation.
 
-A complete matching answer received before its deadline that exceeds the clipboard or decoder budget settles with `clipboard.ErrResponse` and releases its query's wire slot. A cancelled result stays cancelled. An unfinished frame or a foreign selection cannot release the slot. Custom decoder hosts must forward a complete oversized OSC 52's `input.OSCRejection.Prefix` to `clipboard.Channel.Reject` with its transport receive time; `input.Stream` handles this routing automatically.
+A complete matching answer received before its deadline that exceeds the clipboard or decoder budget settles with `clipboard.ErrResponse` and releases its query's wire slot. A cancelled result stays cancelled. An unfinished frame or a foreign selection cannot release the slot. Custom decoder hosts must pass the reply's first-byte and final-byte observation times to `clipboard.Channel.Answer` or `clipboard.Channel.Reject`, including the `input.OSCRejection.Prefix` for a complete oversized OSC 52. The first observation must follow query admission; the final observation must precede its deadline. `input.Stream` preserves these observations across transport reads and handles reply routing automatically. `input.Key.At` and `input.Mouse.At` likewise retain the first observation, including across Escape timeout decisions.
 
 Ghostty implements both wire protocols. A custom libghostty host may build or configure them independently. Oolong uses the capabilities of the connected terminal. Its embedded SSH server adapter handles keyboard input but does not expose a live image host. Image passthrough through a multiplexer requires separate transport support. [Ghostty terminal features](https://ghostty.org/docs/features)

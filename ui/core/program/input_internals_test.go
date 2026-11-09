@@ -44,8 +44,8 @@ func TestNormalizedInputBudgetPreservesEdges(t *testing.T) {
 		t.Fatal("budget was not returned to the reader")
 	}
 	<-pipe.done
-	if pipe.err() != nil {
-		t.Fatal(pipe.err())
+	if err := pipe.takeResult(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -58,8 +58,8 @@ func TestOversizedNormalizedInputEndsWithAnExplicitCause(t *testing.T) {
 	if _, open := <-pipe.events; open {
 		t.Fatal("oversized input retained")
 	}
-	if !errors.Is(pipe.err(), ErrInputTooLarge) {
-		t.Fatalf("cause = %v", pipe.err())
+	if err := pipe.takeResult(); !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("cause = %v", err)
 	}
 }
 
@@ -76,8 +76,8 @@ func TestNormalizedInputCannotBypassTheBudgetThroughItsShape(t *testing.T) {
 			t.Errorf("%T bypassed budget with a charge of %d", tc.event, item.bytes)
 		}
 		<-pipe.done
-		if !errors.Is(pipe.err(), tc.want) {
-			t.Errorf("%T ended with %v, want %v", tc.event, pipe.err(), tc.want)
+		if err := pipe.takeResult(); !errors.Is(err, tc.want) {
+			t.Errorf("%T ended with %v, want %v", tc.event, err, tc.want)
 		}
 	}
 }
@@ -115,7 +115,7 @@ func TestInputSourceFailureUnwindsOnTheProgramOwner(t *testing.T) {
 			t.Error("owner did not receive the original panic")
 		}
 	}()
-	_ = p.err()
+	_ = p.takeResult()
 }
 
 func TestDefaultInputBudgetDeliversALargeBracketedPaste(t *testing.T) {
@@ -138,7 +138,7 @@ func TestDefaultInputBudgetDeliversALargeBracketedPaste(t *testing.T) {
 		delivered.WriteString(paste.Text)
 		pipe.consumed <- item.bytes
 	}
-	if err := pipe.err(); err != nil || delivered.String() != strings.ToValidUTF8(text, "�") {
+	if err := pipe.takeResult(); err != nil || delivered.String() != strings.ToValidUTF8(text, "�") {
 		t.Fatalf("delivered %d bytes; input ended with %v", delivered.Len(), err)
 	}
 }
@@ -171,7 +171,7 @@ func TestInputCompletionFailureUnwindsOnTheProgramOwner(t *testing.T) {
 			go func() {
 				defer close(done)
 				defer func() { recovered = recover() }()
-				_ = pipe.err()
+				_ = pipe.takeResult()
 				returned = true
 			}()
 			<-done

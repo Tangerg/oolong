@@ -12,8 +12,20 @@ import (
 type readResult struct {
 	data    []byte
 	at      time.Time
+	firstAt *time.Time
 	err     error
 	restart bool
+}
+
+// A decoded console rune can span two record reads. Its encoded first byte
+// carries the earlier observation; its last byte keeps the completing read's
+// time. Later characters in the same result retain their own arrival.
+func (r readResult) decode(stream *input.Stream) []input.Event {
+	if r.firstAt == nil {
+		return stream.Feed(r.data, r.at)
+	}
+	events := stream.Feed(r.data[:1], *r.firstAt)
+	return append(events, stream.Feed(r.data[1:], r.at)...)
 }
 
 // pump receives transport results separately so Escape timing can be tested
@@ -92,7 +104,7 @@ func (p *pump) take(result readResult) (done bool, err error) {
 		p.stream.Reset()
 		return false, nil
 	}
-	if !p.send(p.stream.Feed(result.data, result.at)) {
+	if !p.send(result.decode(p.stream)) {
 		return true, p.failure
 	}
 	if result.err == nil {

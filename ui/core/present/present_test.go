@@ -200,6 +200,54 @@ func TestThrottledRequestsAreSpacedOut(t *testing.T) {
 	}
 }
 
+func TestPacingAcceptsZeroHistoryAndDeadlineValues(t *testing.T) {
+	for _, clock := range []struct {
+		name  string
+		start time.Time
+	}{
+		{name: "zero history"},
+		{name: "zero deadline", start: time.Time{}.Add(-time.Second)},
+		{name: "ordinary clock", start: epoch},
+	} {
+		t.Run(clock.name, func(t *testing.T) {
+			var p present.Presenter
+			var d drew
+			if !p.RequestBy(clock.start, time.Second) || !presented(t, &p, clock.start, d.draw) {
+				t.Fatal("a first request was throttled without a preceding frame")
+			}
+			early := clock.start.Add(time.Second / 2)
+			if p.RequestBy(early, time.Second) || presented(t, &p, early, d.draw) {
+				t.Fatal("a frame ignored its preceding draw's pacing interval")
+			}
+			due, waiting := p.DueAt()
+			if !waiting || !due.Equal(clock.start.Add(time.Second)) {
+				t.Fatalf("deadline = %v, waiting=%t", due, waiting)
+			}
+			if !presented(t, &p, due, d.draw) || d.calls != 2 {
+				t.Fatal("the pending frame was not drawn at its deadline")
+			}
+			if _, waiting := p.DueAt(); waiting {
+				t.Fatal("a satisfied deadline remained pending")
+			}
+		})
+	}
+}
+
+func TestClockReversalFromZeroForgetsThePreviousFrame(t *testing.T) {
+	var p present.Presenter
+	var d drew
+	var zero time.Time
+	p.Request()
+	presented(t, &p, zero, d.draw)
+	if p.RequestBy(zero, time.Second) {
+		t.Fatal("a real draw at zero did not establish pacing")
+	}
+	earlier := zero.Add(-time.Second)
+	if !p.RequestBy(earlier, time.Second) || !presented(t, &p, earlier, d.draw) {
+		t.Fatal("the previous clock epoch retained its pacing constraint")
+	}
+}
+
 func TestClockReversalStartsANewPacingEpoch(t *testing.T) {
 	var p present.Presenter
 	d := drew{seq: 1}

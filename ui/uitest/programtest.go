@@ -1,10 +1,10 @@
 // Package uitest drives a program without opening a terminal.
 //
-// Host implements only [program.Host]'s transport boundary: ordered events in, frames
-// out, and an opening cell size. Optional terminal capabilities are deliberately not
-// present. A test that needs one can embed *Host in its own type and implement exactly
-// that capability, so absence and partial support remain testable rather than being
-// hidden by an all-powerful fake.
+// Host implements [program.Host]'s transport boundary and [program.PointerSource]
+// for synthetic pointer intent against completed output. Optional terminal
+// capabilities are deliberately absent. A test that needs one can embed *Host in
+// its own type and implement that capability, keeping absence and partial support
+// testable.
 //
 // Frames are terminal escape streams, not a simulated screen. Shows and Hides request
 // a full frame and inspect its appearance-free text runs: style and hyperlink changes
@@ -25,8 +25,8 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/term"
-	"github.com/Tangerg/oolong/ui/internal/fifo"
 )
 
 const assertionTimeout = 5 * time.Second
@@ -114,10 +114,11 @@ func (h *Host) Size() (width, height int, err error) {
 	return h.w, h.h, nil
 }
 
-// Send queues a concrete terminal report and returns false for invalid input or a closed host.
+// Send queues a physical terminal report and returns false for invalid input or a closed host.
 // It does not wait for the program to receive earlier events.
 // Resize events use [Host.Resize] so geometry validation, reported size and input
-// admission remain one transition.
+// admission remain one transition. Pointer intent based on completed output uses
+// [Host.Pointer]; a physical timestamp cannot order events within one clock tick.
 func (h *Host) Send(event input.Event) bool {
 	if h == nil || h.input == nil || input.ByteSize(event) == 0 {
 		return false
@@ -126,6 +127,25 @@ func (h *Host) Send(event input.Event) bool {
 		return h.Resize(resized.Width, resized.Height)
 	}
 	return h.input.post(input.Stamp([]input.Event{event}, time.Now())[0])
+}
+
+// Pointer captures synthetic intent against the complete output observed at this
+// call, before buffering it. It refuses an unbound session or uncertain geometry.
+// Leave At zero: explicit physical arrival tests belong to Send. A later frame
+// cannot retarget this capture, even when the process clock has not advanced.
+func (h *Host) Pointer(mouse input.Mouse) bool {
+	if h == nil || h.input == nil || h.writer == nil || !mouse.At.IsZero() {
+		return false
+	}
+	mouse.At = time.Now()
+	return h.input.postPointer(mouse, h.writer.WrittenNow)
+}
+
+func (h *Host) BindPointerInput(capture func(input.Mouse, uint64) scene.CapturedInput) (<-chan scene.CapturedInput, func(), error) {
+	if h == nil || h.input == nil {
+		return nil, nil, program.ErrStopped
+	}
+	return h.input.bindPointer(capture)
 }
 
 func (h *Host) Type(text string) bool {
@@ -384,117 +404,6 @@ func (h *Host) Close() error {
 		}
 	})
 	return h.closeErr
-}
-
-// eventSource is an ordered input FIFO with one coalesced wake-up.
-//
-// A fixed-capacity event channel would make Send block behind work only a program
-// that may not have started yet can consume. The queue has no arbitrary burst limit;
-// tests choose how many events they retain by how many they send.
-type eventSource struct {
-	mu     sync.Mutex
-	queue  fifo.Queue[hostEvent]
-	closed bool
-
-	events   chan input.Event
-	repaints chan func(int, int, error)
-	wake     chan struct{}
-	done     chan struct{}
-	ended    chan struct{}
-}
-
-func newEventSource() *eventSource {
-	source := &eventSource{
-		events:   make(chan input.Event),
-		repaints: make(chan func(int, int, error)),
-		wake:     make(chan struct{}, 1),
-		done:     make(chan struct{}),
-		ended:    make(chan struct{}),
-	}
-	go source.run()
-	return source
-}
-
-type hostEvent struct {
-	input   input.Event
-	repaint bool
-	reply   func(int, int, error)
-}
-
-func (s *eventSource) post(event input.Event) bool { return s.enqueue(hostEvent{input: event}) }
-
-func (s *eventSource) accepting() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return !s.closed
-}
-
-func (s *eventSource) postRepaint(reply func(int, int, error)) bool {
-	return s.enqueue(hostEvent{repaint: true, reply: reply})
-}
-
-func (s *eventSource) enqueue(event hostEvent) bool {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return false
-	}
-	s.queue.Push(event)
-	s.mu.Unlock()
-	select {
-	case s.wake <- struct{}{}:
-	default:
-	}
-	return true
-}
-
-func (s *eventSource) run() {
-	defer close(s.ended)
-	defer close(s.events)
-	defer close(s.repaints)
-	for {
-		event, ok := s.take()
-		if ok {
-			if event.repaint {
-				select {
-				case s.repaints <- event.reply:
-				case <-s.done:
-					return
-				}
-				continue
-			}
-			select {
-			case s.events <- event.input:
-			case <-s.done:
-				return
-			}
-			continue
-		}
-		select {
-		case <-s.wake:
-		case <-s.done:
-			return
-		}
-	}
-}
-
-func (s *eventSource) take() (hostEvent, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.queue.Pop()
-}
-
-func (s *eventSource) close() {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return
-	}
-	s.closed = true
-	s.queue.Clear()
-	close(s.done)
-	s.mu.Unlock()
-	<-s.ended
 }
 
 type sink struct {

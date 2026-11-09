@@ -8,16 +8,6 @@ import (
 const (
 	bel = ansi.Bell
 
-	// Each introducer is also what a terminal sends for a chord — Alt+] and
-	// Alt+Shift+P — and the byte alone cannot tell the two apart, so each is decoded
-	// only when what follows looks like an answer. See [oscHead] and [dcsHead].
-	//
-	// The rest of the family is left undecoded: catching a start-of-string or a privacy
-	// message would cost Alt+Shift+X and Alt+^ for sequences nothing here asks for.
-	oscIntro = ']'
-	dcsIntro = 'P'
-	apcIntro = '_'
-
 	// maxOSCCommand bounds how many digits a command number may have. The longest in
 	// use is four — iTerm2's 1337 — so five is room to spare and a bound all the same.
 	maxOSCCommand = 5

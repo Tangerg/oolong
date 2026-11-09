@@ -1388,7 +1388,7 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 	sure := base.NewConfirm(base.ConfirmConfig{Label: "Sure?"})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{name, model, sure}})
 	var out strings.Builder
-	result, err := kit.Ask(form, strings.NewReader("\nada\ngo\ny\n"), &out)
+	result, err := newPrompter(t, kit.PrompterConfig{Input: strings.NewReader("\nada\ngo\ny\n"), Output: &out}).Ask(form)
 	if err != nil || result.State != scene.Applied {
 		t.Fatalf("result=%v err=%v", result, err)
 	}

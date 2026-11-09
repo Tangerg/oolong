@@ -161,7 +161,7 @@ func TestUnsupportedTerminalsNeverReceiveImageData(t *testing.T) {
 			}()
 			host.Shows(t, "Inline images unavailable")
 			host.Shows(t, "flowchart TD")
-			host.Send(input.Mouse{Pos: image.Pt(41, 0), Action: input.MouseDown, Button: input.ButtonLeft})
+			host.Pointer(input.Mouse{Pos: image.Pt(41, 0), Action: input.MouseDown, Button: input.ButtonLeft})
 			host.Shows(t, "Source copied")
 			host.Type("p")
 			host.Shows(t, "Image path copied")

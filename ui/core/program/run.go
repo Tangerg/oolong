@@ -238,6 +238,9 @@ func (p *program) run(ctx context.Context) (err error) {
 		}
 		defer func() { err = errors.Join(err, p.finish()) }()
 		p.completeRepaint(ErrStopped)
+		if p.inputPipe != nil {
+			err = errors.Join(err, p.inputPipe.takeResult())
+		}
 	}()
 	// Taking the record here is what makes its consumption unconditional. A component
 	// that stops the program in the same turn it was handed a failure — the ordinary
@@ -282,9 +285,13 @@ func (p *program) loop(ctx context.Context) error {
 func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err error) {
 	inputs := p.inputPipe.events
 	var inputEnded <-chan struct{}
+	var pressure chan chan bool
+	var pressureReply chan bool
 	if p.pendingRepaint != nil {
 		inputs = nil
 		inputEnded = p.inputPipe.done
+		pressure = p.inputPipe.pressure
+		pressureReply = make(chan bool, 1)
 	}
 	select {
 	case <-ctx.Done():
@@ -296,9 +303,15 @@ func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err
 		p.completeRepaint(ErrStopped)
 		return false, nil
 
+	case pressure <- pressureReply:
+		if <-pressureReply {
+			p.completeRepaint(ErrRepaintBackpressure)
+		}
+		return false, nil
+
 	case item, ok := <-inputs:
 		if !ok {
-			return true, p.inputPipe.err()
+			return true, p.inputPipe.takeResult()
 		}
 		select {
 		case p.inputPipe.consumed <- item.bytes:

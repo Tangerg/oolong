@@ -144,9 +144,10 @@ func (c *Channel) Read(ctx context.Context, sel Selection, send func(string) err
 // replies whose delivery has been revoked. Only consumption releases the wire slot.
 // Foreign selections and bytes not provably received after admission remain
 // unrelated input; equality cannot establish causal order or release the wire slot.
-// at is transport receive time, not the time a queued read was decoded.
-func (c *Channel) Answer(params string, at time.Time) bool {
-	return c.answer(params, at, false)
+// started is the first reply byte's receive time and completed is the last one's.
+// These are transport observations, not the later time the reply was decoded.
+func (c *Channel) Answer(params string, started, completed time.Time) bool {
+	return c.answer(params, started, completed, false)
 }
 
 // Reject consumes a complete reply whose payload the decoder refused to retain.
@@ -154,12 +155,12 @@ func (c *Channel) Answer(params string, at time.Time) bool {
 // is not a reply: only its terminator authorizes this call. Matching and timing
 // follow Answer; a timely live result settles ErrResponse and a revoked result stays
 // revoked. An unrelated or incomplete selection cannot release the wire slot.
-func (c *Channel) Reject(prefix string, at time.Time) bool {
-	return c.answer(prefix, at, true)
+func (c *Channel) Reject(prefix string, started, completed time.Time) bool {
+	return c.answer(prefix, started, completed, true)
 }
 
-func (c *Channel) answer(params string, at time.Time, rejected bool) bool {
-	if c == nil {
+func (c *Channel) answer(params string, started, completed time.Time, rejected bool) bool {
+	if c == nil || completed.Before(started) {
 		return false
 	}
 	selection, payload, valid := splitAnswer(params)
@@ -169,12 +170,12 @@ func (c *Channel) answer(params string, at time.Time, rejected bool) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	q := c.pending
-	if q == nil || selection != q.selection || !at.After(q.started) {
+	if q == nil || selection != q.selection || !started.After(q.started) {
 		return false
 	}
 	c.pending = nil
 	result := readResult{err: ErrResponse}
-	if !at.Before(q.until) {
+	if !completed.Before(q.until) {
 		result.err = context.DeadlineExceeded
 	} else if !rejected {
 		result.text, result.err = decodePayload(payload)

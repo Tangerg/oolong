@@ -647,14 +647,13 @@ func (t *Terminal) read(raw chan<- readResult) {
 			}
 		}
 
-		data, err := t.waker.read(t.in)
-		at := time.Now()
-		if len(data) > 0 || err != nil {
-			if !t.sendRead(raw, readResult{data: data, at: at, err: err}) {
+		result := t.waker.read(t.in)
+		if len(result.data) > 0 || result.err != nil {
+			if !t.sendRead(raw, result) {
 				return
 			}
 		}
-		if err != nil {
+		if result.err != nil {
 			return
 		}
 		select {

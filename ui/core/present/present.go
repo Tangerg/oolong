@@ -19,8 +19,9 @@ type Presenter struct {
 	// Completion can arrive during draw, before its accepted sequence is returned.
 	queued, written uint64
 
-	drawnAt time.Time
-	dueAt   time.Time
+	// Driver timestamps may be zero; only nil means no history or deadline.
+	drawnAt *time.Time
+	dueAt   *time.Time
 	// drawing is the unfinished frame's time. It excludes reentry and establishes
 	// pacing for requests made by its composition callback.
 	drawing *time.Time
@@ -30,7 +31,7 @@ type Presenter struct {
 // cancels any wait a throttled request had put in the way.
 func (p *Presenter) Request() {
 	p.owed = true
-	p.dueAt = time.Time{}
+	p.dueAt = nil
 }
 
 // RequestFull asks for a frame drawn from scratch, for when what the terminal is
@@ -52,22 +53,22 @@ func (p *Presenter) RequestFull() {
 // During drawing, the unfinished frame establishes the next request's interval.
 func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 	p.rebaseClock(now)
-	if p.owed && p.dueAt.IsZero() {
+	if p.owed && p.dueAt == nil {
 		return true
 	}
 	p.owed = true
 	drawnAt := p.drawnAt
 	if p.drawing != nil {
-		drawnAt = *p.drawing
+		drawnAt = p.drawing
 	}
-	if now.Sub(drawnAt) < minInterval {
+	if drawnAt != nil && now.Sub(*drawnAt) < minInterval {
 		deadline := drawnAt.Add(minInterval)
-		if p.dueAt.IsZero() || deadline.Before(p.dueAt) {
-			p.dueAt = deadline
+		if p.dueAt == nil || deadline.Before(*p.dueAt) {
+			p.dueAt = &deadline
 		}
 		return false
 	}
-	p.dueAt = time.Time{}
+	p.dueAt = nil
 	return true
 }
 
@@ -98,17 +99,17 @@ func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error))
 	if p.queued > p.written || !p.owed {
 		return false, nil
 	}
-	if !p.dueAt.IsZero() && now.Before(p.dueAt) {
+	if p.dueAt != nil && now.Before(*p.dueAt) {
 		return false, nil
 	}
 	full := p.full
-	p.owed, p.full, p.dueAt = false, false, time.Time{}
+	p.owed, p.full, p.dueAt = false, false, nil
 	p.drawing = &now
 	completed := false
 	defer func() {
 		p.drawing = nil
 		if !completed {
-			p.dueAt = time.Time{}
+			p.dueAt = nil
 			p.owed = true
 			p.full = p.full || full
 		}
@@ -118,7 +119,7 @@ func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error))
 	if err != nil {
 		return false, err
 	}
-	p.drawnAt = now
+	p.drawnAt = &now
 	completed = true
 	return true, nil
 }
@@ -128,9 +129,9 @@ func (p *Presenter) Present(now time.Time, draw func(full bool) (uint64, error))
 // driver can own time and a test can control it. A clock that moved backwards cannot
 // meaningfully owe a wait measured from the old epoch.
 func (p *Presenter) rebaseClock(now time.Time) {
-	if !p.drawnAt.IsZero() && now.Before(p.drawnAt) {
-		p.drawnAt = time.Time{}
-		p.dueAt = time.Time{}
+	if p.drawnAt != nil && now.Before(*p.drawnAt) {
+		p.drawnAt = nil
+		p.dueAt = nil
 	}
 }
 
@@ -147,5 +148,8 @@ func (p *Presenter) Wrote(seq uint64) {
 // update of a burst is never drawn. While a frame is in flight, no timer is
 // actionable: Wrote is the wakeup that makes the retained deadline eligible.
 func (p *Presenter) DueAt() (time.Time, bool) {
-	return p.dueAt, p.queued <= p.written && !p.dueAt.IsZero()
+	if p.dueAt == nil {
+		return time.Time{}, false
+	}
+	return *p.dueAt, p.queued <= p.written
 }

@@ -410,8 +410,13 @@ func (p *Publisher) Pending() (items int, bytes int64) {
 	return len(p.pending) + len(p.inflight), p.bytes
 }
 
-// Subscribe observes settled admission/progress on a later owner turn. It does
-// not call fn during registration, candidate commit or transport settlement.
+// Subscribe observes settled admission/progress in a later mutable UI-owner turn,
+// after both producer and consumer finish the current responsibility transfer.
+// Consumers can hold read-only borrows across TryPublish, so fn must not run from
+// Subscribe, TryPublish, capture, candidate commit or transport settlement. The
+// returned cancellation is idempotent. Alternate implementations of a consumer's
+// publication subscription follow this same contract; Publisher dispatches through
+// FlushNotifications after all owners have settled.
 func (p *Publisher) Subscribe(fn func()) func() {
 	p.assertIdle()
 	if p == nil || p.closed != nil || fn == nil {

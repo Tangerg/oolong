@@ -36,7 +36,7 @@ func TestAskSubmitsOnlyTheQuestionsAndAnswersItCollected(t *testing.T) {
 				submitted = true
 				return scene.Applied, nil
 			}})
-			_, err := kit.Ask(form, strings.NewReader("one\ntwo\n"), io.Discard)
+			_, err := newPrompter(t, kit.PrompterConfig{Input: strings.NewReader("one\ntwo\n"), Output: io.Discard}).Ask(form)
 			if !errors.Is(err, test.wantErr) || submitted {
 				t.Fatalf("err=%v want=%v submitted=%t", err, test.wantErr, submitted)
 			}
@@ -53,7 +53,7 @@ func TestAskWritesPromptsAndValidationErrorsAsTerminalText(t *testing.T) {
 	}})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	var out strings.Builder
-	result, err := kit.Ask(form, strings.NewReader("\nok\n"), &out)
+	result, err := newPrompter(t, kit.PrompterConfig{Input: strings.NewReader("\nok\n"), Output: &out}).Ask(form)
 	if err != nil || result.State != scene.Applied {
 		t.Fatalf("state=%v err=%v", result.State, err)
 	}

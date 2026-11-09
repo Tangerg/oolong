@@ -121,3 +121,36 @@ func TestWrittenAtRetainsOnlyProvableBoundedHistory(t *testing.T) {
 		}
 	})
 }
+
+func TestWrittenNowObservesCompletionWithoutClockAdvance(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		destination := newBlocker()
+		writer := newTestWriter(t, destination)
+		defer destination.releaseAll()
+		instant := time.Now()
+		if sequence, settled := writer.WrittenNow(); sequence != 0 || !settled {
+			t.Fatalf("new writer prefix = (%d, %t)", sequence, settled)
+		}
+		sequence, err := writer.Queue([]byte("frame"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		synctest.Wait()
+		if got, settled := writer.WrittenNow(); got != 0 || settled {
+			t.Fatalf("incomplete frame certified prefix (%d, %t)", got, settled)
+		}
+		destination.release <- struct{}{}
+		if err := writer.Drain(time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if got, settled := writer.WrittenNow(); got != sequence || !settled {
+			t.Fatalf("completed frame certified prefix (%d, %t), want (%d, true)", got, settled, sequence)
+		}
+		if !time.Now().Equal(instant) {
+			t.Fatal("test advanced the clock before observing completion")
+		}
+		if _, settled := writer.WrittenAt(instant); settled {
+			t.Fatal("current observation changed physical arrival evidence")
+		}
+	})
+}

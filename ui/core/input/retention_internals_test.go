@@ -3,12 +3,13 @@ package input
 import (
 	"bytes"
 	"testing"
+	"time"
 	"unsafe"
 )
 
 func TestParserReleasesTheConsumedReadBufferBehindAPendingTail(t *testing.T) {
 	var parser Parser
-	parser.buf = append(bytes.Repeat([]byte{'x'}, 4096), esc)
+	parser.buffer(append(bytes.Repeat([]byte{'x'}, 4096), esc), time.Time{})
 	sourceStart := uintptr(unsafe.Pointer(unsafe.SliceData(parser.buf))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	sourceEnd := sourceStart + uintptr(len(parser.buf))
 	parser.drain(false)

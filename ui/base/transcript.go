@@ -45,7 +45,8 @@ const (
 
 // TranscriptPublisher admits complete content and notifies the UI owner when progress
 // may allow a refused prefix to resume. Only successful admission transfers the content.
-// Subscribe returns an idempotent cancellation and does not call fn during registration.
+// Subscribe follows [publication.Publisher.Subscribe]'s deferred notification contract:
+// the consumer holds a read-only borrow until it can settle the returned receipt.
 type TranscriptPublisher interface {
 	TryPublish(body grid.Drawable) (publication.Receipt, error)
 	Subscribe(fn func()) func()

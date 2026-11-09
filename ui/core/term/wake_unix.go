@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -53,14 +54,14 @@ func newWaker(fd int) (*waker, error) {
 
 // Raw input has one consumer, so readiness permits a bounded read while the
 // session still owns its modes. Close joins that read before restoring them.
-func (w *waker) read(in *os.File) ([]byte, error) {
+func (w *waker) read(in *os.File) readResult {
 	ready, err := w.wait()
 	if err != nil || !ready {
-		return nil, err
+		return readResult{at: time.Now(), err: err}
 	}
 	buf := make([]byte, readChunkBytes)
 	n, err := in.Read(buf)
-	return buf[:n], err
+	return readResult{data: buf[:n], at: time.Now(), err: err}
 }
 
 func (w *waker) reset() {}

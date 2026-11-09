@@ -15,7 +15,8 @@ func TestX10MouseBodyDoesNotExpireAsTyping(t *testing.T) {
 	const introducerBytes = len("\x1b[M")
 	for split := introducerBytes; split < len(report); split++ {
 		t.Run(strconv.Itoa(split), func(t *testing.T) {
-			at := time.Unix(1, 0)
+			started := time.Unix(1, 0)
+			at := started
 			var stream input.Stream
 			if events := stream.Feed([]byte(report[:split]), at); len(events) != 0 {
 				t.Fatalf("incomplete mouse report produced %+v", events)
@@ -27,7 +28,7 @@ func TestX10MouseBodyDoesNotExpireAsTyping(t *testing.T) {
 			if events := stream.Expire(at); len(events) != 0 {
 				t.Fatalf("mouse report expired into %+v", events)
 			}
-			want := []input.Event{input.Mouse{Pos: image.Pt(2, 3), Action: input.MouseDown, Button: input.ButtonLeft, At: at}}
+			want := []input.Event{input.Mouse{Pos: image.Pt(2, 3), Action: input.MouseDown, Button: input.ButtonLeft, At: started}}
 			if got := stream.Feed([]byte(report[split:]), at); !slices.Equal(got, want) {
 				t.Fatalf("delayed mouse body produced %+v, want %+v", got, want)
 			}

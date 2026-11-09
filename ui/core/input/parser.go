@@ -2,6 +2,7 @@ package input
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -43,8 +44,8 @@ const (
 	// droppingParams is a control sequence whose parameter section overran. It
 	// ends at the first byte a sequence could have ended with.
 	droppingParams
-	// droppingString is an operating system command whose parameters overran. It
-	// ends at a terminator.
+	// Refusing a control string's body cannot grant its remaining bytes keyboard
+	// authority; its framing and bounded correlation header must survive.
 	droppingString
 )
 
@@ -74,9 +75,12 @@ const (
 	noFrame frameKind = iota
 	pasteFrame
 	x10MouseFrame
-	oscFrame
-	dcsFrame
-	apcFrame
+)
+
+const (
+	oscFrame = frameKind(ansi.OSC)
+	dcsFrame = frameKind(ansi.DCS)
+	apcFrame = frameKind(ansi.APC)
 )
 
 // Parser retains ambiguous bytes across arbitrary chunks so split escape sequences
@@ -94,8 +98,11 @@ type Parser struct {
 	paste     []byte
 	oscCmd    int
 	strBody   []byte
+	arrivals  []arrivedBytes
+	origin    arrival
+	hasOrigin bool
 	// dropping is set when a sequence overran what one can hold, and stays set
-	// until that sequence ends. See [Parser.skipParams] and [Parser.skipString].
+	// until that sequence ends.
 	dropping dropping
 }
 
@@ -107,7 +114,11 @@ func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
 func (p *Parser) Feed(b []byte) []Event {
-	p.buf = append(p.buf, b...)
+	return eventsOnly(p.feed(b, time.Time{}))
+}
+
+func (p *Parser) feed(b []byte, at time.Time) []receivedEvent {
+	p.buffer(b, at)
 	return p.drain(false)
 }
 
@@ -118,8 +129,9 @@ func (p *Parser) Feed(b []byte) []Event {
 // ordinary input. A half-arrived character is dropped, since the rest is never
 // coming. A paste in progress is left alone: it is incomplete rather than
 // ambiguous, and cutting it short would corrupt the text.
-// A truncated X10 report is discarded because its raw fields cannot become keys.
-func (p *Parser) Flush() []Event { return p.drain(true) }
+// Incomplete control strings and X10 reports are discarded because their payloads
+// cannot become keys, and EOF cannot authorize a protocol reply.
+func (p *Parser) Flush() []Event { return eventsOnly(p.drain(true)) }
 
 // Pending reports whether the parser is waiting for more input. It does not
 // indicate a timeout: partial UTF-8 and paste data must continue waiting. Arm an
@@ -136,16 +148,18 @@ func (p *Parser) Pending() bool {
 // Ambiguous reports whether an Escape timeout can resolve pending input.
 // Incomplete UTF-8 and recognized paste, mouse or string payloads must wait for more bytes.
 func (p *Parser) Ambiguous() bool {
-	// A discarded OSC/DCS body still has framing. Silence in its payload
-	// grants no keyboard authority; only a trailing Escape is ambiguous.
 	if p.dropping == droppingParams {
 		return true
 	}
-	return (p.frame == noFrame || p.dropping == droppingString) && len(p.buf) > 0 && p.buf[0] == esc
+	return p.frame == noFrame && len(p.buf) > 0 && p.buf[0] == esc
 }
 
 // Expire resolves Escape ambiguity without declaring the byte stream finished.
 func (p *Parser) Expire() []Event {
+	return eventsOnly(p.expire())
+}
+
+func (p *Parser) expire() []receivedEvent {
 	if !p.Ambiguous() {
 		return nil
 	}
@@ -154,14 +168,18 @@ func (p *Parser) Expire() []Event {
 	return p.drain(true)
 }
 
-func (p *Parser) drain(final bool) (events []Event) {
+func (p *Parser) drain(final bool) (events []receivedEvent) {
 	initial := len(p.buf)
+	observations := len(p.arrivals)
 	defer func() {
 		if len(p.buf) > 0 && len(p.buf) < initial/2 {
 			// The undecided tail is short by construction. Clone it after draining so
 			// a lone escape or partial UTF-8 sequence cannot keep an otherwise consumed
 			// terminal read buffer alive while input is idle.
 			p.buf = bytes.Clone(p.buf)
+		}
+		if len(p.arrivals) > 0 && len(p.arrivals) < observations/2 {
+			p.arrivals = slices.Clone(p.arrivals)
 		}
 	}()
 	for {
@@ -170,7 +188,10 @@ func (p *Parser) drain(final bool) (events []Event) {
 			return events
 		}
 		if event != nil {
-			events = append(events, event)
+			events = append(events, receivedEvent{event: event, arrival: p.origin})
+		}
+		if p.frame == noFrame && p.dropping == droppingNothing {
+			p.origin, p.hasOrigin = arrival{}, false
 		}
 	}
 }
@@ -178,8 +199,8 @@ func (p *Parser) drain(final bool) (events []Event) {
 // advance makes one state transition. Its boolean distinguishes waiting from
 // consuming bytes that deliberately produce no event.
 func (p *Parser) advance(final bool) (Event, bool) {
-	if p.dropping != droppingNothing {
-		return p.advanceRunaway(final)
+	if p.dropping == droppingParams {
+		return p.advanceControlDiscard(final)
 	}
 	switch p.frame {
 	case pasteFrame:
@@ -187,23 +208,33 @@ func (p *Parser) advance(final bool) (Event, bool) {
 	case x10MouseFrame:
 		return p.advanceX10Mouse(final)
 	case oscFrame, dcsFrame, apcFrame:
-		return p.readString()
+		return p.advanceString(final)
 	default:
 		return p.advanceInput(final)
 	}
 }
 
-func (p *Parser) advanceRunaway(final bool) (Event, bool) {
-	if event, advanced := p.skipRunaway(); advanced {
-		return event, true
+func (p *Parser) advanceControlDiscard(final bool) (Event, bool) {
+	if p.skipParams() {
+		return nil, true
 	}
 	if final {
-		// EOF releases every discard. During a live stream only ambiguous
-		// input can reach this branch; an ordinary string payload has no timer.
-		p.abandonString()
+		p.dropping = droppingNothing
 		return nil, true
 	}
 	return nil, false
+}
+
+func (p *Parser) advanceString(final bool) (Event, bool) {
+	if event, advanced := p.readString(); advanced {
+		return event, true
+	}
+	if !final {
+		return nil, false
+	}
+	p.take(len(p.buf))
+	p.abandonString()
+	return nil, true
 }
 
 func (p *Parser) advancePaste() (Event, bool) {
@@ -241,13 +272,6 @@ func (p *Parser) advanceInput(final bool) (Event, bool) {
 	return nil, true
 }
 
-func (p *Parser) skipRunaway() (Event, bool) {
-	if p.dropping == droppingString {
-		return p.skipString()
-	}
-	return nil, p.skipParams()
-}
-
 // skipParams drops the rest of a control sequence whose parameter section
 // overran, and reports whether it found the end.
 //
@@ -277,6 +301,7 @@ func (p *Parser) skipParams() bool {
 // take drops n decoded bytes, releasing the buffer once it is empty so an idle
 // parser holds nothing.
 func (p *Parser) take(n int) {
+	p.consumeArrival(n)
 	p.controlAt = 0
 	p.buf = p.buf[n:]
 	if len(p.buf) == 0 {
@@ -314,7 +339,7 @@ func (p *Parser) readPaste() (string, bool) {
 			return text, true
 		}
 	}
-	p.buf = nil
+	p.take(len(p.buf))
 	return "", false
 }
 
@@ -401,12 +426,12 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 	switch second := b[1]; {
 	case second == '[':
 		return p.decodeControl(b)
-	case second == oscIntro:
+	case second == byte(ansi.OSC):
 		cmd, size := oscHead(b)
 		return p.introduceString(b, oscFrame, cmd, size)
-	case second == dcsIntro:
+	case second == byte(ansi.DCS):
 		return p.introduceString(b, dcsFrame, 0, dcsHead(b))
-	case second == apcIntro:
+	case second == byte(ansi.APC):
 		return p.introduceString(b, apcFrame, 0, graphicsHead(b))
 	case second == 'O':
 		if len(b) < 3 {
@@ -588,32 +613,26 @@ func (p *Parser) introduceString(b []byte, kind frameKind, cmd, size int) (int, 
 	}
 }
 
-// OSC and DCS accept BEL; graphics replies require ST. An unexpected Escape
-// abandons the current body so a truncated reply cannot consume every later key.
 func (p *Parser) readString() (Event, bool) {
 	for i := 0; i < len(p.buf); {
-		c := p.buf[i]
-		switch {
-		case c == bel && p.frame != apcFrame:
-			p.take(i + 1)
+		n, result := ansi.StringFamily(p.frame).Step(p.buf[i], p.buf[min(i+1, len(p.buf)-1)], i+1 < len(p.buf))
+		switch result {
+		case ansi.StringTerminated:
+			p.take(i + n)
 			return p.endString(), true
-		case c == esc:
-			if i+1 >= len(p.buf) {
-				// What is left could still become ST. Keep the escape.
-				p.take(i)
-				return nil, false
-			}
-			if p.buf[i+1] == '\\' {
-				p.take(i + 2)
-				return p.endString(), true
-			}
+		case ansi.StringIncomplete:
 			p.take(i)
+			return nil, false
+		case ansi.StringCanceled:
+			p.take(i + n)
 			p.abandonString()
 			return nil, true
-		default:
-			p.strBody = append(p.strBody, c)
+		case ansi.StringContent:
+			if p.dropping != droppingString {
+				p.strBody = append(p.strBody, p.buf[i])
+			}
 			i++
-			if len(p.strBody) >= maxStringBody {
+			if p.dropping != droppingString && len(p.strBody) >= maxStringBody {
 				// Overran what one may hold. The rest is dropped wherever it turns up
 				// rather than read as text, for the same reason a runaway control
 				// sequence is: a flood of keystrokes is a worse answer to a malformed
@@ -624,7 +643,7 @@ func (p *Parser) readString() (Event, bool) {
 			}
 		}
 	}
-	p.buf = nil
+	p.take(len(p.buf))
 	return nil, false
 }
 
@@ -665,30 +684,4 @@ func (p *Parser) endString() Event {
 func (p *Parser) abandonString() {
 	p.frame, p.oscCmd, p.strBody = noFrame, 0, nil
 	p.dropping = droppingNothing
-}
-
-func (p *Parser) skipString() (Event, bool) {
-	for i := range len(p.buf) {
-		switch {
-		case p.buf[i] == bel && p.frame != apcFrame:
-			p.take(i + 1)
-			return p.endString(), true
-		case p.buf[i] == esc:
-			if i+1 >= len(p.buf) {
-				p.take(i)
-				return nil, false
-			}
-			if p.buf[i+1] == '\\' {
-				p.take(i + 2)
-				return p.endString(), true
-			}
-			// The escape abandoned the string, and belongs to whatever comes next
-			// rather than to this. Abandonment cannot discharge a query's reply.
-			p.take(i)
-			p.abandonString()
-			return nil, true
-		}
-	}
-	p.buf = nil
-	return nil, false
 }

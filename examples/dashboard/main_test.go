@@ -81,7 +81,7 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 	// What is asserted is what reached the screen, and not the table's own state:
 	// one goroutine owns the interface, and a test that reached into it from outside
 	// would be breaking the rule the whole library is built on.
-	host.Send(input.Mouse{
+	host.Pointer(input.Mouse{
 		Pos:    image.Pt(2, 2), // the strip is two rows, then the header
 		Action: input.MouseDown,
 		Button: input.ButtonLeft,
@@ -143,7 +143,7 @@ func TestTheSliderAnswersThePressThatLandedOnIt(t *testing.T) {
 	// the rate slider.
 	const progressRow, sliderRow = 2, 3
 	press := func(y int) {
-		host.Send(input.Mouse{
+		host.Pointer(input.Mouse{
 			Pos:    image.Pt(55, y),
 			Action: input.MouseDown,
 			Button: input.ButtonLeft,

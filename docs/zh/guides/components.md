@@ -20,6 +20,31 @@ contentType: How-to
 
 编辑器的元素快照保存捕获时的文本；即使文档已修改，仍可用 `element.Text()` 读取旧内容。关联的业务数据以不透明的 `base.ElementID` 为键；只有共享签发该标识的 `EditSession` 的编辑器能用它操作元素。调用 `tabs.SetRule(glyph)` 会同时更新分隔线和它占用的空间，空字符串移除该行。
 
+## 无屏回答表单
+
+为一段输入会话创建一个 `kit.Prompter`，依次回答多张 `*base.Form` 时复用它，让为后续答案预读的字节始终保留在同一所有者中：
+
+```go
+prompter, err := kit.NewPrompter(kit.PrompterConfig{
+    Input:  os.Stdin,
+    Output: os.Stdout,
+})
+if err != nil {
+    return err
+}
+for _, form := range forms {
+    if _, err := prompter.Ask(form); err != nil {
+        return err
+    }
+}
+```
+
+这里的 `forms` 是应用持有的有序 `[]*base.Form`；带外观的 `kit.Form` 通过 `Controller()` 提供已有所有者。字段提供自身的 `Ask` 和 `Reply` 行为，表单拥有校验回执与提交，prompter 不另存一份答案模型。[Form 示例](https://github.com/Tangerg/oolong/tree/main/examples/form) 展示了屏幕与文本流程如何共享同一组字段。
+
+`PrompterConfig.MaxAnswerBytes` 是显式的传输字节预算。零值不限制大小；正值不计 LF 或 CRLF 行尾。最后一条未带换行的答案仍可被接受，末尾可选的 CR 也会移除。超长行会被丢弃至行尾，然后 `Ask` 返回 `kit.ErrAnswerTooLong`，下次调用可以读取下一条答案。尚未读到答案就遇到空输入时返回 `io.ErrUnexpectedEOF`；读取失败不会提交尚未完整读取的答案。提示输出失败时，对应答案保持未读。
+
+串行调用 `Ask` 并保留 prompter 指针；复制它，或通过其他 reader 读取借入的输入流，会破坏缓冲字节的归属。回调中再次调用同一 prompter 的 `Ask` 会收到 `kit.ErrPromptActive`。两个流的关闭责任均由调用方承担。
+
 ## 装配实际部件
 
 `scene.Group` 接收带 key 的 `scene.Item` 子项与布局函数。覆盖层通过 `scene.Group` 的 `GroupConfig.Overlay` 配置实际挂载，`GroupConfig.Modal` 配置模态边界。绘制、焦点、路由、生命周期和语义观察由这些相同部件决定。
@@ -69,6 +94,6 @@ Oolong 发送 Kitty 图片编号 `I`，并接收终端分配的物理图片 ID `
 
 OSC 52 没有请求标识。响应超时会在十秒后结束等待，但不能证明迟到回复可以安全地归属新请求。取消和终端交接遵守相同规则：旧回复被消费前一直返回 `clipboard.ErrPending`，重复读取不能绕过未结清的查询。直接使用 `clipboard.Channel` 时，发送回调必须提供原子接纳语义；已经部分发出的查询也属于已发送，必须保留接收其回复的义务。
 
-在期限内接收的完整匹配回复即使超过剪贴板或解码器的容量限制，也会以 `clipboard.ErrResponse` 结算并释放该查询的线协议槽位。已取消的结果保持取消；未终止的帧或其他选择区的回复不能释放槽位。自定义解码宿主须将完整超量 OSC 52 的 `input.OSCRejection.Prefix` 及传输接收时间交给 `clipboard.Channel.Reject`；`input.Stream` 自动完成这项路由。
+在期限内接收的完整匹配回复即使超过剪贴板或解码器的容量限制，也会以 `clipboard.ErrResponse` 结算并释放该查询的线协议槽位。已取消的结果保持取消；未终止的帧或其他选择区的回复不能释放槽位。自定义解码宿主须将回复首字节与末字节的观察时间传给 `clipboard.Channel.Answer` 或 `clipboard.Channel.Reject`，完整超量 OSC 52 还需提供 `input.OSCRejection.Prefix`。首次观察必须晚于查询接纳，完整接收必须早于响应期限。`input.Stream` 跨传输读取保留这两个时刻，并自动完成回复路由。`input.Key.At` 和 `input.Mouse.At` 同样保留首次观察时间，等待 Escape 超时不会重写它。
 
 Ghostty 支持这两套线协议。嵌入 libghostty 的宿主可以单独配置各项能力，Oolong 以当前连接为准。内嵌 SSH 服务端适配器可处理键盘输入，目前未提供实时图像宿主接口。多路复用器的图像透传需要传输层另行支持。[Ghostty 终端能力](https://ghostty.org/docs/features)

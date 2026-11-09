@@ -77,8 +77,8 @@ func TestControlledFieldAndExternalButtonShareOneDomainVersion(t *testing.T) {
 	host.Type(" ")
 	host.Shows(t, "● on")
 	for _, x := range []int{3, 21} {
-		host.Send(input.Mouse{Pos: image.Pt(x, 17), Action: input.MouseDown, Button: input.ButtonLeft})
-		host.Send(input.Mouse{Pos: image.Pt(x, 17), Action: input.MouseUp, Button: input.ButtonLeft})
+		host.Pointer(input.Mouse{Pos: image.Pt(x, 17), Action: input.MouseDown, Button: input.ButtonLeft})
+		host.Pointer(input.Mouse{Pos: image.Pt(x, 17), Action: input.MouseUp, Button: input.ButtonLeft})
 		if x == 3 {
 			host.Shows(t, "○ on")
 		}

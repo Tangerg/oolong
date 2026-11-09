@@ -186,7 +186,7 @@ func (s *Scanner) incomplete(source string) bool {
 		return true
 	}
 	start := 1
-	if source[1] == '[' || introduces(source[1]) {
+	if source[1] == '[' || StringFamily(source[1]).Valid() {
 		start = 2
 	}
 	s.scanned = max(s.scanned, start)
@@ -215,8 +215,16 @@ func (s *Scanner) step(source string, at int) scanStep {
 	switch b := source[at]; {
 	case source[1] == '[':
 		return s.controlStep(b)
-	case introduces(source[1]):
-		return stringStep(b, at+1 == len(source))
+	case StringFamily(source[1]).Valid():
+		_, result := StringFamily(source[1]).Step(b, source[min(at+1, len(source)-1)], at+1 < len(source))
+		switch result {
+		case StringContent:
+			return scanOn
+		case StringIncomplete:
+			return scanWaiting
+		default:
+			return scanEnded
+		}
 	case intermediate(b):
 		return scanOn
 	default:
@@ -235,20 +243,5 @@ func (s *Scanner) controlStep(b byte) scanStep {
 		return scanOn
 	default:
 		return scanEnded
-	}
-}
-
-// stringStep reads one byte of a control string's body. An escape ends it only
-// together with the byte after it, so one at the end of what has arrived is a wait.
-func stringStep(b byte, last bool) scanStep {
-	switch {
-	case b == Bell:
-		return scanEnded
-	case b == Escape && last:
-		return scanWaiting
-	case b == Escape:
-		return scanEnded
-	default:
-		return scanOn
 	}
 }

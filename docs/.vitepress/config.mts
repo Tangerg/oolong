@@ -1,6 +1,8 @@
 import { defineConfig, type DefaultTheme } from 'vitepress'
 
 const repository = 'https://github.com/Tangerg/oolong'
+const siteOrigin = 'https://tangerg.github.io'
+const siteBase = '/oolong/'
 
 type Locale = 'en' | 'zh'
 type LocalizedText = Readonly<Record<Locale, string>>
@@ -129,16 +131,16 @@ const sharedTheme: DefaultTheme.Config = {
 }
 
 export default defineConfig({
-  base: '/oolong/',
+  base: siteBase,
   cleanUrls: true,
   lastUpdated: true,
-  sitemap: { hostname: 'https://tangerg.github.io/oolong/' },
+  sitemap: { hostname: new URL(siteBase, siteOrigin).href },
   rewrites: {
     'README.md': 'index.md',
     'zh/README.md': 'zh/index.md'
   },
   head: [
-    ['link', { rel: 'icon', href: '/oolong/brand/oolong-icon.png', type: 'image/png' }],
+    ['link', { rel: 'icon', href: `${siteBase}brand/oolong-icon.png`, type: 'image/png' }],
     ['meta', { name: 'theme-color', content: '#071127' }]
   ],
   locales: {

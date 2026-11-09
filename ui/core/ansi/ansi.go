@@ -89,7 +89,7 @@ func Next(s string) (p Piece, n int, ok bool) {
 	switch c := s[1]; {
 	case c == '[':
 		return control(s)
-	case introduces(c):
+	case StringFamily(c).Valid():
 		return command(s)
 	case c < 0x20 || c == 0x7f:
 		// A control byte cannot continue a sequence, so the escape stood alone and
@@ -112,15 +112,6 @@ func completeText(s string) int {
 		return len(s)
 	}
 	return start
-}
-
-func introduces(b byte) bool {
-	switch b {
-	case ']', 'P', '_', '^', 'X':
-		return true
-	default:
-		return false
-	}
 }
 
 func control(s string) (Piece, int, bool) {
@@ -149,22 +140,17 @@ func control(s string) (Piece, int, bool) {
 	}, i + 1, true
 }
 
-// Reject the single-byte C1 terminator because 0x9c can be inside a UTF-8 character.
 func command(s string) (Piece, int, bool) {
 	for i := 2; i < len(s); i++ {
-		switch s[i] {
-		case Bell:
-			return Piece{Kind: String, Raw: s[:i+1], Body: s[2:i], Final: s[1]}, i + 1, true
-		case Escape:
-			if i+1 >= len(s) {
-				return Piece{}, 0, false
-			}
-			if s[i+1] == '\\' {
-				return Piece{Kind: String, Raw: s[:i+2], Body: s[2:i], Final: s[1]}, i + 2, true
-			}
-			// An escape inside a command that is not the terminator: the command was
-			// never closed, and what is here is the start of something else.
-			return Piece{Kind: Malformed, Raw: s[:i]}, i, true
+		n, result := StringFamily(s[1]).Step(s[i], s[min(i+1, len(s)-1)], i+1 < len(s))
+		switch result {
+		case StringTerminated:
+			return Piece{Kind: String, Raw: s[:i+n], Body: s[2:i], Final: s[1]}, i + n, true
+		case StringCanceled:
+			return Piece{Kind: Malformed, Raw: s[:i+n]}, i + n, true
+		case StringIncomplete:
+			return Piece{}, 0, false
+		case StringContent:
 		}
 	}
 	return Piece{}, 0, false

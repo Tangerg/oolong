@@ -30,8 +30,13 @@ type ownerInput struct {
 type inputPipe struct {
 	events   chan ownerInput
 	consumed chan int
+	pressure chan chan bool
 	done     chan struct{}
 	result   func() error // Transferred to the owner by closing events.
+	// Only the reader advances the byte budget. The owner asks it to recheck
+	// admission while a repaint barrier prevents normal queue consumption.
+	pendingBytes int
+	byteLimit    int
 }
 
 func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, writtenAt func(time.Time) (uint64, bool), cfg Config) *inputPipe {
@@ -42,16 +47,19 @@ func newInputPipe(ctx context.Context, root *scene.Root, source EventSource, eve
 	if bytes == 0 {
 		bytes = input.MaxDecodedEventBytes
 	}
-	p := &inputPipe{events: make(chan ownerInput, count), consumed: make(chan int, count+1), done: make(chan struct{})}
+	p := &inputPipe{
+		events: make(chan ownerInput, count), consumed: make(chan int, count+1),
+		pressure: make(chan chan bool), done: make(chan struct{}), byteLimit: bytes,
+	}
 	var repaints <-chan func(int, int, error)
 	if source, ok := source.(RepaintSource); ok {
 		repaints = source.Repaints()
 	}
-	go p.read(ctx, root, source, events, repaints, writtenAt, bytes)
+	go p.read(ctx, root, source, events, repaints, writtenAt)
 	return p
 }
 
-func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(int, int, error), writtenAt func(time.Time) (uint64, bool), limit int) {
+func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(int, int, error), writtenAt func(time.Time) (uint64, bool)) {
 	defer close(p.done)
 	defer close(p.events)
 	completed := false
@@ -59,7 +67,7 @@ func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSour
 		if completed {
 			return
 		}
-		// A host's completion query runs on the reader, but its abnormal exit
+		// A host's input callbacks run on the reader, but their abnormal exit
 		// must unwind the Run owner and its terminal cleanup, not this worker.
 		if cause := recover(); cause != nil {
 			p.result = func() error { panic(cause) }
@@ -67,19 +75,26 @@ func (p *inputPipe) read(ctx context.Context, root *scene.Root, source EventSour
 			p.result = func() error { runtime.Goexit(); return nil }
 		}
 	}()
-	p.receive(ctx, root, source, events, repaints, writtenAt, limit)
+	p.receive(ctx, root, source, events, repaints, writtenAt)
 	completed = true
 }
 
-func (p *inputPipe) receive(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(int, int, error), writtenAt func(time.Time) (uint64, bool), limit int) {
-	pending := 0
+func (p *inputPipe) receive(ctx context.Context, root *scene.Root, source EventSource, events <-chan input.Event, repaints <-chan func(int, int, error), writtenAt func(time.Time) (uint64, bool)) {
+	pointers, release, err := bindPointerInput(root, source)
+	if release != nil {
+		defer release()
+	}
+	if err != nil {
+		p.result = func() error { return err }
+		return
+	}
 	for {
 		var item ownerInput
 		select {
 		case <-ctx.Done():
 			return
 		case n := <-p.consumed:
-			pending -= n
+			p.pendingBytes -= n
 			continue
 		case reply, ok := <-repaints:
 			if !ok {
@@ -87,6 +102,12 @@ func (p *inputPipe) receive(ctx context.Context, root *scene.Root, source EventS
 				continue
 			}
 			item = ownerInput{repaint: true, reply: reply, bytes: 1}
+		case captured, ok := <-pointers:
+			if !ok {
+				pointers = nil
+				continue
+			}
+			item = ownerInput{event: captured, bytes: input.ByteSize(captured.Input())}
 		case event, ok := <-events:
 			if !ok {
 				p.result = source.Err
@@ -99,36 +120,68 @@ func (p *inputPipe) receive(ctx context.Context, root *scene.Root, source EventS
 		case item.bytes == 0:
 			p.result = func() error { return ErrInvalidInput }
 			return
-		case item.bytes > limit:
+		case item.bytes > p.byteLimit:
 			p.result = func() error { return ErrInputTooLarge }
 			return
 		}
-		// The owner may be returning credit while the event queue is full.
-		// Keep receiving credit here so neither bounded channel waits on the other.
-		sent := false
-		for !sent {
-			var output chan<- ownerInput
-			if item.bytes <= limit-pending {
-				output = p.events
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case n := <-p.consumed:
-				pending -= n
-			case output <- item:
-				pending += item.bytes
-				sent = true
-			}
+		if !p.deliver(ctx, item) {
+			return
 		}
 	}
 }
 
-// An external source's terminal callback belongs to the Run caller, where a
-// panic or goroutine exit unwinds normal program and terminal cleanup.
-func (p *inputPipe) err() error {
-	if p.result == nil {
+func (p *inputPipe) deliver(ctx context.Context, item ownerInput) bool {
+	sent := false
+	for !sent {
+		select {
+		case <-ctx.Done():
+			return false
+		case n := <-p.consumed:
+			p.pendingBytes -= n
+		case p.outputFor(item) <- item:
+			sent = true
+		case reply := <-p.pressure:
+			// The owner is waiting for this answer, so no new credit can arrive.
+			// Collect its preceding acknowledgements before deciding whether the
+			// barrier must yield; a queued pressure notification could be stale.
+			p.collectCredits()
+			select {
+			case p.outputFor(item) <- item:
+				sent = true
+			default:
+			}
+			reply <- !sent
+		}
+	}
+	p.pendingBytes += item.bytes
+	return true
+}
+
+func (p *inputPipe) outputFor(item ownerInput) chan<- ownerInput {
+	if item.bytes > p.byteLimit-p.pendingBytes {
 		return nil
 	}
-	return p.result()
+	return p.events
+}
+
+func (p *inputPipe) collectCredits() {
+	for {
+		select {
+		case n := <-p.consumed:
+			p.pendingBytes -= n
+		default:
+			return
+		}
+	}
+}
+
+// Closing events transfers the terminal result to the Run owner. Claim it before
+// invoking external code so EOF and shutdown cannot settle or unwind it twice.
+func (p *inputPipe) takeResult() error {
+	result := p.result
+	p.result = nil
+	if result == nil {
+		return nil
+	}
+	return result()
 }

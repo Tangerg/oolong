@@ -39,8 +39,8 @@ func TestRunReportsAWriterExitWithoutWaitingForInput(t *testing.T) {
 			}
 		case <-time.After(time.Second):
 			cancel()
-			<-done
-			t.Fatal("Run stayed alive after its writer exited")
+			stoppedErr := <-done
+			t.Fatalf("Run stayed alive after its writer exited; cancellation returned %v", stoppedErr)
 		}
 	})
 }

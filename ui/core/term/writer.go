@@ -314,6 +314,12 @@ func (w *Writer) WrittenAt(at time.Time) (uint64, bool) {
 	return w.completion.at(at, time.Now())
 }
 
+// WrittenNow observes a complete prefix at this call, even when the process clock
+// has not advanced since its completion. It refuses in-flight or failed delivery.
+// Synthetic input can use this causal observation; buffered physical input must
+// use WrittenAt to preserve its earlier arrival instead.
+func (w *Writer) WrittenNow() (uint64, bool) { return w.completion.now() }
+
 // Err preserves the first delivery failure; admission refusals stay with
 // their Queue caller. A clean ErrFrameRefused still permits later restoration
 // output, while a broken write ends the stream.

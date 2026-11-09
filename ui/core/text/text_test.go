@@ -572,6 +572,9 @@ func FuzzCoordinatesMatchCompleteSegmentation(f *testing.F) {
 		if len(s) > 256 {
 			s = s[:256]
 		}
+		// This oracle segments logical text. Raw source offsets additionally need
+		// the filtering map covered by the display-projection tests.
+		s = text.Printable(s)
 		for at := -1; at <= len(s)+1; at++ {
 			if got, want := text.ColumnOf(s, at), columnOfByIteration(s, at); got != want {
 				t.Fatalf("ColumnOf(%q, %d) = %d, want %d", s, at, got, want)

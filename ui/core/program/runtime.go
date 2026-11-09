@@ -18,10 +18,8 @@ import (
 // Clipboard, Session and Images values. Environment snapshots remain readable.
 type Runtime struct{ p *program }
 
-// owner centralizes the inert zero-value contract for operations that need the
-// live interface goroutine. It deliberately returns the concrete internal owner:
-// callers stay inside this package, while capability consumers receive the narrow
-// values exposed below.
+// Operations that can change the host or start work end with task admission.
+// Final presentation may still read its canvas after that boundary closes.
 func (r *Runtime) owner() *program {
 	if r == nil {
 		return nil

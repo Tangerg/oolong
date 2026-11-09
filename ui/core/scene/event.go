@@ -204,7 +204,7 @@ func (c CapturedInput) Input() input.Event { return c.input }
 // concurrency-safe query and return false for uncertain or expired evidence.
 // Invalid input returns a zero capture; uncertain coordinates retain no hit map.
 // Equality with layout admission cannot prove which geometry preceded the input.
-// Only this operation may run on an input reader instead of the UI owner.
+// This operation and CapturePresentedInput may run outside the UI owner.
 func (r *Root) CaptureInput(event input.Event, writtenAt func(time.Time) (uint64, bool)) CapturedInput {
 	if input.ByteSize(event) == 0 {
 		return CapturedInput{}
@@ -225,27 +225,43 @@ func (r *Root) CaptureInput(event input.Event, writtenAt func(time.Time) (uint64
 	if !known {
 		return captured
 	}
-	history := r.published.Load()
-	if history == nil || history.pending {
-		return captured
+	captured.layout = r.published.Load().layoutAt(sequence, &mouse.At)
+	return captured
+}
+
+// CapturePresentedInput binds synthetic pointer intent to a completed writer
+// prefix observed by its source at admission. It does not infer causal order from
+// the clock. Physical reports must use CaptureInput instead. The source must
+// capture before buffering, using this root's writer sequence space; expired or
+// unsettled geometry returns a zero capture. Mouse.At remains gesture timing.
+// The immutable geometry query is safe outside the UI owner.
+func (r *Root) CapturePresentedInput(mouse input.Mouse, sequence uint64) CapturedInput {
+	if r == nil || input.ByteSize(mouse) == 0 {
+		return CapturedInput{}
 	}
-	for _, snapshot := range slices.Backward(history.layouts) {
+	layout := r.published.Load().layoutAt(sequence, nil)
+	if layout == nil {
+		return CapturedInput{}
+	}
+	return CapturedInput{input: input.Stamp([]input.Event{mouse}, time.Now())[0], root: r, layout: layout}
+}
+
+func (g *inputGeometry) layoutAt(sequence uint64, arrived *time.Time) *layoutSnapshot {
+	if g == nil || g.pending {
+		return nil
+	}
+	for _, snapshot := range slices.Backward(g.layouts) {
 		if snapshot.sequence > sequence {
 			continue
 		}
-		if mouse.At.Equal(snapshot.admittedAt) {
-			return captured
+		if arrived == nil || arrived.After(snapshot.admittedAt) {
+			return snapshot
 		}
-		if mouse.At.Before(snapshot.admittedAt) {
-			if snapshot.hasOutput {
-				return captured
-			}
-			continue
+		if arrived.Equal(snapshot.admittedAt) || snapshot.hasOutput {
+			return nil
 		}
-		captured.layout = snapshot
-		break
 	}
-	return captured
+	return nil
 }
 
 // Handle injects synthetic input against the owner's current written geometry.

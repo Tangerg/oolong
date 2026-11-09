@@ -3,9 +3,12 @@ package term
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 	"unicode/utf8"
 	"unsafe"
+
+	"github.com/Tangerg/oolong/ui/core/input"
 )
 
 func TestConsoleInputRecordMatchesTheWindowsABI(t *testing.T) {
@@ -48,7 +51,7 @@ func consoleChunks(t *testing.T, input *consoleText) string {
 	t.Helper()
 	var out strings.Builder
 	for {
-		chunk := input.read()
+		chunk := input.read().data
 		if len(chunk) > readChunkBytes || !utf8.Valid(chunk) {
 			t.Fatalf("invalid UTF-8 chunk of %d bytes", len(chunk))
 		}
@@ -98,12 +101,79 @@ func TestConsoleRepeatsStayBoundedAndNeedNoNewRecord(t *testing.T) {
 
 func TestConsoleSurrogatesContinueAcrossRecordBatches(t *testing.T) {
 	input := consoleText{records: []consoleInputRecord{consoleCharacter(0xd83d)}}
-	if got := input.read(); len(got) != 0 {
+	if got := input.read().data; len(got) != 0 {
 		t.Fatalf("leading surrogate emitted %q", got)
 	}
 	input.records = []consoleInputRecord{{eventType: 0x0010}, consoleCharacter(0xde00), consoleCharacter('x')}
 	if got := consoleChunks(t, &input); got != "😀x" {
 		t.Fatalf("continued characters = %q, want 😀x", got)
+	}
+}
+
+func TestConsoleSurrogateArrivalDoesNotBackdateTheFollowingCharacter(t *testing.T) {
+	started := time.Unix(1, 0)
+	completed := started.Add(time.Second)
+	for _, test := range []struct {
+		name     string
+		trailing []consoleInputRecord
+		first    rune
+	}{
+		{"complete pair", []consoleInputRecord{consoleCharacter(0xde00), consoleCharacter('x')}, '😀'},
+		{"malformed pair", []consoleInputRecord{consoleCharacter('x')}, utf8.RuneError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			text := consoleText{records: []consoleInputRecord{consoleCharacter(0xd83d)}, at: started}
+			var stream input.Stream
+			if got := text.read().decode(&stream); len(got) != 0 {
+				t.Fatalf("leading surrogate produced %+v", got)
+			}
+			text.records, text.at = []consoleInputRecord{{eventType: 0x0010}}, started.Add(time.Millisecond)
+			if got := text.read().decode(&stream); len(got) != 0 {
+				t.Fatalf("noncharacter record produced %+v", got)
+			}
+			text.records, text.at = test.trailing, completed
+			got := text.read().decode(&stream)
+			if len(got) != 2 || got[0] != (input.Key{Rune: test.first, At: started}) ||
+				got[1] != (input.Key{Rune: 'x', At: completed}) {
+				t.Fatalf("cross-record origin leaked into following text: %+v", got)
+			}
+		})
+	}
+}
+
+func TestConsoleRepeatsRetainTheirRecordObservationAcrossChunks(t *testing.T) {
+	at := time.Unix(1, 0)
+	record := consoleCharacter('r')
+	record.key.repeatCount = readChunkBytes + 20
+	want := int(record.key.repeatCount)
+	text := consoleText{records: []consoleInputRecord{record}, at: at}
+	var stream input.Stream
+	var count int
+	for len(text.records) > 0 {
+		for _, event := range text.read().decode(&stream) {
+			if event != (input.Key{Rune: 'r', At: at}) {
+				t.Fatalf("buffered repeat changed origin: %+v", event)
+			}
+			count++
+		}
+	}
+	if count != want {
+		t.Fatalf("repeated %d characters, want %d", count, want)
+	}
+}
+
+func TestConsoleResetReleasesTheIncompleteCharacterOrigin(t *testing.T) {
+	started := time.Unix(1, 0)
+	completed := started.Add(time.Second)
+	text := consoleText{records: []consoleInputRecord{consoleCharacter(0xd83d)}, at: started}
+	_ = text.read()
+	text.reset()
+	text.records, text.at = []consoleInputRecord{consoleCharacter(0xde00), consoleCharacter('x')}, completed
+	var stream input.Stream
+	got := text.read().decode(&stream)
+	if len(got) != 2 || got[0] != (input.Key{Rune: utf8.RuneError, At: completed}) ||
+		got[1] != (input.Key{Rune: 'x', At: completed}) {
+		t.Fatalf("reset retained the prior foreground's origin: %+v", got)
 	}
 }
 

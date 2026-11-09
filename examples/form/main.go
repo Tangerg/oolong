@@ -105,7 +105,11 @@ func ask(into *answers) *sessionForm {
 
 // The textual and visual flows submit the same field owners and validation tuple.
 func askInWords(form *sessionForm, in io.Reader, out io.Writer) error {
-	_, err := kit.Ask(form.view.Controller(), in, out)
+	prompter, err := kit.NewPrompter(kit.PrompterConfig{Input: in, Output: out})
+	if err != nil {
+		return err
+	}
+	_, err = prompter.Ask(form.view.Controller())
 	return err
 }
 

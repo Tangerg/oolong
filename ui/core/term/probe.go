@@ -149,12 +149,11 @@ func (p *probe) run() answers {
 
 func (p *probe) read(result readResult, got *answers) bool {
 	p.readBytes += len(result.data)
-	for _, ev := range p.stream.Feed(result.data, result.at) {
+	for _, ev := range result.decode(p.stream) {
 		p.take(ev, got)
 	}
 	if result.err != nil {
-		result.data = nil
-		p.end = &result
+		p.end = &readResult{at: result.at, err: result.err}
 		return false
 	}
 	return p.readBytes < probeInputBudget
