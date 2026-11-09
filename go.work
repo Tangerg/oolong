@@ -20,5 +20,5 @@ replace (
 	github.com/Tangerg/oolong/extensions/mermaid v0.27.0 => ./extensions/mermaid
 	github.com/Tangerg/oolong/ui v0.27.0 => ./ui
 	github.com/Tangerg/oolong/ui v0.27.1-0.20261106061924-ba34d8bad7e0 => ./ui
-	github.com/Tangerg/oolong/ui v0.27.1-0.20261107191513-3bde295f74eb => ./ui
+	github.com/Tangerg/oolong/ui v0.27.1-0.20261109052520-3b96839c887d => ./ui
 )
