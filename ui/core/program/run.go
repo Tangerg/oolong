@@ -239,6 +239,8 @@ func (p *program) run(ctx context.Context) (err error) {
 		defer func() { err = errors.Join(err, p.finish()) }()
 		p.completeRepaint(ErrStopped)
 		if p.inputPipe != nil {
+			// Transport callbacks settle after the loop so their unwind cannot
+			// classify an intact model as a failed frame and skip its final paint.
 			err = errors.Join(err, p.inputPipe.takeResult())
 		}
 	}()
@@ -311,7 +313,7 @@ func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err
 
 	case item, ok := <-inputs:
 		if !ok {
-			return true, p.inputPipe.takeResult()
+			return true, nil
 		}
 		select {
 		case p.inputPipe.consumed <- item.bytes:

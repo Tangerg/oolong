@@ -24,8 +24,8 @@ func (h *pointerLifetimeHost) BindPointerInput(func(input.Mouse, uint64) scene.C
 	return make(chan scene.CapturedInput), h.release, nil
 }
 
-func TestPointerReleaseFailureUnwindsRunAfterQuitOrCancellation(t *testing.T) {
-	for _, ending := range []string{"quit", "cancellation"} {
+func TestPointerReleaseFailurePreservesFinalPresentation(t *testing.T) {
+	for _, ending := range []string{"quit", "cancellation", "input EOF"} {
 		for _, exit := range []string{"panic", "Goexit"} {
 			t.Run(ending+"/"+exit, func(t *testing.T) {
 				cause := errors.New("pointer release failed")
@@ -72,10 +72,13 @@ func TestPointerReleaseFailureUnwindsRunAfterQuitOrCancellation(t *testing.T) {
 				retained := <-built
 				<-host.bound
 				if postErr := retained.Dispatcher().Post(func() {
-					if ending == "quit" {
+					switch ending {
+					case "quit":
 						retained.Quit()
-					} else {
+					case "cancellation":
 						cancel()
+					case "input EOF":
+						close(host.events)
 					}
 				}); postErr != nil {
 					t.Fatal(postErr)
