@@ -15,8 +15,8 @@ use (
 // Required metadata is local even before a module has its first tag.
 replace (
 	github.com/Tangerg/oolong/extensions/highlight v0.27.0 => ./extensions/highlight
-	github.com/Tangerg/oolong/extensions/latex v0.28.0 => ./extensions/latex
-	github.com/Tangerg/oolong/extensions/markdown v0.28.0 => ./extensions/markdown
+	github.com/Tangerg/oolong/extensions/latex v0.28.1-0.20261110123514-f1584334e196 => ./extensions/latex
+	github.com/Tangerg/oolong/extensions/markdown v0.28.1-0.20261110123514-f1584334e196 => ./extensions/markdown
 	github.com/Tangerg/oolong/extensions/mermaid v0.28.0 => ./extensions/mermaid
 	github.com/Tangerg/oolong/ui v0.28.1-0.20261110123116-1763edcb488e => ./ui
 )

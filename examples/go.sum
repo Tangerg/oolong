@@ -4,10 +4,10 @@ codeberg.org/go-latex/latex v0.3.0 h1:LKTaDHFbEC2PH1sh0sYv6PZ1pzs/g2aoeV1HItWj/b
 codeberg.org/go-latex/latex v0.3.0/go.mod h1:8ETijTpK2bFtwRAXLXe1RZJrYxnc5pibibZfQBj+Lk4=
 github.com/Tangerg/oolong/extensions/highlight v0.27.0 h1:neLU8rmWrNKwAgfWlAkKq3daJxF8MfezoT+3WM30+Go=
 github.com/Tangerg/oolong/extensions/highlight v0.27.0/go.mod h1:UC72WJwiOP/V69eL3Hgr4XUofb8DYyWhP3I5GjwkSkE=
-github.com/Tangerg/oolong/extensions/latex v0.28.0 h1:QZdZtT2D0PfrYknxCHXwEIE+yvS6gj9EzPw0NbZ5yGs=
-github.com/Tangerg/oolong/extensions/latex v0.28.0/go.mod h1:hNDBDIXG5Dki5DvznXLe4UFvKRmCs85MYpmW8+IP5/o=
-github.com/Tangerg/oolong/extensions/markdown v0.28.0 h1:FN9ESqJqF57JWeFH4OMIM9TxwlLHwf+idmKBpkkWkF4=
-github.com/Tangerg/oolong/extensions/markdown v0.28.0/go.mod h1:JINeZn0XISdcCvawfoBNTw7PKkcZfha8oAn5dbvCA2o=
+github.com/Tangerg/oolong/extensions/latex v0.28.1-0.20261110123514-f1584334e196 h1:lNjSbYShMCGUfYA4XVIbe9rB+9SThREhoyRn4qeCpcE=
+github.com/Tangerg/oolong/extensions/latex v0.28.1-0.20261110123514-f1584334e196/go.mod h1:Aepf+3T9CMOn/gafWnYAZavk/MQZ/GS1uFbDAEond00=
+github.com/Tangerg/oolong/extensions/markdown v0.28.1-0.20261110123514-f1584334e196 h1:+fDUaGg/06poM0R3X+tcU5NIE8mXhdxyd36DRSFg4z8=
+github.com/Tangerg/oolong/extensions/markdown v0.28.1-0.20261110123514-f1584334e196/go.mod h1:m8gKKL/aHB9DjbacVPj3unOkYgBFmO4cPQPWHeI8To0=
 github.com/Tangerg/oolong/extensions/mermaid v0.28.0 h1:Mps3fe2fVOX44ALJPfdNln5RV4qwzVRTNuNxa+20NS4=
 github.com/Tangerg/oolong/extensions/mermaid v0.28.0/go.mod h1:824whWWSMOZyn4/6hBkCZ31713YwvMz8eAJiMcHxqOY=
 github.com/Tangerg/oolong/ui v0.28.1-0.20261110123116-1763edcb488e h1:e6Fza/dvOv3E1StmkGlqMu/UV8IL2GiG+Y31TcguGwY=
