@@ -14,12 +14,9 @@ use (
 // Versioned replacements are derived by scripts/sync-workspace.sh.
 // Required metadata is local even before a module has its first tag.
 replace (
-	github.com/Tangerg/oolong/extensions/highlight v0.26.1 => ./extensions/highlight
-	github.com/Tangerg/oolong/extensions/latex v0.27.0 => ./extensions/latex
-	github.com/Tangerg/oolong/extensions/markdown v0.27.1-0.20261107191513-3bde295f74eb => ./extensions/markdown
-	github.com/Tangerg/oolong/extensions/mermaid v0.27.0 => ./extensions/mermaid
-	github.com/Tangerg/oolong/ui v0.27.0 => ./ui
-	github.com/Tangerg/oolong/ui v0.27.1-0.20261106061924-ba34d8bad7e0 => ./ui
-	github.com/Tangerg/oolong/ui v0.27.1-0.20261109100616-0d277d9be255 => ./ui
-	github.com/Tangerg/oolong/ui v0.27.1-0.20261109172620-24ac86e0e781 => ./ui
+	github.com/Tangerg/oolong/extensions/highlight v0.26.2-0.20261110040416-f0277f4ad0ce => ./extensions/highlight
+	github.com/Tangerg/oolong/extensions/latex v0.27.1-0.20261110040416-f0277f4ad0ce => ./extensions/latex
+	github.com/Tangerg/oolong/extensions/markdown v0.27.1-0.20261110040416-f0277f4ad0ce => ./extensions/markdown
+	github.com/Tangerg/oolong/extensions/mermaid v0.27.1-0.20261110040416-f0277f4ad0ce => ./extensions/mermaid
+	github.com/Tangerg/oolong/ui v0.27.1-0.20261110040416-f0277f4ad0ce => ./ui
 )
