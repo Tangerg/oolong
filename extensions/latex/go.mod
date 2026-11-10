@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	codeberg.org/go-latex/latex v0.3.0
-	github.com/Tangerg/oolong/ui v0.28.0
+	github.com/Tangerg/oolong/ui v0.28.1-0.20261110123116-1763edcb488e
 )
 
 require (

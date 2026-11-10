@@ -15,7 +15,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 - `core/text.(*Decoder).Feed` and `core/text.(*Decoder).Flush` return `([]Line, error)`. Handle returned completed lines before the error. Construct a bounded decoder with `NewDecoder(DecoderConfig{MaxLineBytes: ..., MaxLineSpans: ...})`; zero limits remain unbounded. An admission refusal matches `ErrLineLimit`, retains the accepted open prefix, and remains in force until `Reset`. Successful `Flush` transfers its final line once.
 - `base.SettingsConfig.Change`, `kit.SettingsConfig.Change`, `base.(*Settings[T]).Change` and `base.(*Settings[T]).SetChange` use `func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)`. Domain acceptance and failure are explicit; the result value only says whether physical input was consumed. Use `Settings.Request` for typed calls and read the latest physical request's `ChangeError` for presentation. Kit delegates row and feedback geometry to its base controller.
 
-The workspace callers, format extensions and examples migrate together. Publishing consumers of these new contracts requires releasing `ui` first and updating their declared UI dependency to that real tag; no compatibility path or local replacement is added to published module manifests.
+The workspace callers, format extensions and examples migrate together. Development consumers pin canonical pseudo-versions of the pushed module commits so their declared dependencies also resolve without `go.work`. Release the lower modules and update consumers to those real tags before publishing them; no compatibility path or local replacement is added to published module manifests.
 
 ### Fixed
 

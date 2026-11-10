@@ -3,7 +3,7 @@ module github.com/Tangerg/oolong/extensions/highlight
 go 1.27.0
 
 require (
-	github.com/Tangerg/oolong/ui v0.28.0
+	github.com/Tangerg/oolong/ui v0.28.1-0.20261110123116-1763edcb488e
 	github.com/alecthomas/chroma/v2 v2.27.0
 )
 

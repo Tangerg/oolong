@@ -18,5 +18,5 @@ replace (
 	github.com/Tangerg/oolong/extensions/latex v0.28.0 => ./extensions/latex
 	github.com/Tangerg/oolong/extensions/markdown v0.28.0 => ./extensions/markdown
 	github.com/Tangerg/oolong/extensions/mermaid v0.28.0 => ./extensions/mermaid
-	github.com/Tangerg/oolong/ui v0.28.0 => ./ui
+	github.com/Tangerg/oolong/ui v0.28.1-0.20261110123116-1763edcb488e => ./ui
 )
