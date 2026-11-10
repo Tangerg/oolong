@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"io"
-	"strings"
-	"time"
 
-	"github.com/Tangerg/oolong/ui/core/program"
+	"github.com/Tangerg/oolong/ui/core/diff"
 )
 
 type planningMode string
@@ -17,6 +15,15 @@ const (
 	planningArgument              = "<" + string(planningFast) + "|" + string(planningCareful) + ">"
 )
 
+func parsePlanningMode(value string) (planningMode, bool) {
+	switch mode := planningMode(value); mode {
+	case planningFast, planningCareful:
+		return mode, true
+	default:
+		return "", false
+	}
+}
+
 type runRequest struct {
 	prompt       string
 	planningMode planningMode
@@ -26,6 +33,12 @@ type changeProposal struct {
 	Path          string
 	Summary       string
 	Before, After []string
+}
+
+func (c changeProposal) title() string { return c.Path + " — " + c.Summary }
+
+func (c changeProposal) hunks() []diff.Hunk {
+	return diff.Between(c.Before, c.After).Hunks(diffContextLines)
 }
 
 type toolResult struct {
@@ -49,176 +62,3 @@ type agentOutput interface {
 	Review(ctx context.Context, proposal changeProposal) (bool, error)
 	Tool(ctx context.Context, result toolResult) error
 }
-
-type mockBackend struct{ delay time.Duration }
-
-func (m mockBackend) Run(ctx context.Context, request runRequest, output agentOutput) error {
-	run := &script{backend: m, output: output}
-	run.step(ctx, stepUnderstand, stepRunning)
-	run.say(ctx, "# Working plan\n\nI\u2019ll inspect the parser boundary for **"+clip(request.prompt)+"**.\n\n")
-	run.step(ctx, stepUnderstand, stepDone)
-
-	if request.planningMode == planningFast {
-		run.step(ctx, stepInspect, stepSkipped)
-	} else {
-		run.step(ctx, stepInspect, stepRunning)
-		run.say(ctx, "The behavior is correct, but the validation and state transition are split across two functions. I can make the parser own that invariant.\n\n")
-		run.step(ctx, stepInspect, stepDone)
-	}
-
-	proposal := parserProposal()
-	run.step(ctx, stepReview, stepRunning)
-	if !run.review(ctx, proposal) {
-		run.step(ctx, stepReview, stepSkipped)
-		run.step(ctx, stepVerify, stepSkipped)
-		run.say(ctx, "I left the workspace unchanged. The review decision is a domain result, not a transport failure.\n")
-		return run.err
-	}
-
-	run.tool(ctx, toolResult{
-		Name: "apply_patch", Summary: "updated internal/parser.go", Change: proposal,
-	})
-	run.step(ctx, stepReview, stepDone)
-	run.step(ctx, stepVerify, stepRunning)
-	run.say(ctx, "## Verification\n\nThe focused tests and race detector pass. The parser now owns validation and callers have one obvious path.\n\nAll checks pass.\n")
-	run.step(ctx, stepVerify, stepDone)
-	return run.err
-}
-
-// script carries the first failure through a scripted answer, so the answer reads as
-// the sequence it is rather than as an error check between every line of it. Once one
-// step has failed the rest do nothing, which is what returning early did.
-type script struct {
-	backend mockBackend
-	output  agentOutput
-	err     error
-}
-
-func (s *script) step(ctx context.Context, step stepID, state stepState) {
-	if s.err == nil {
-		s.err = s.output.Step(ctx, stepUpdate{Step: step, State: state})
-	}
-}
-
-func (s *script) say(ctx context.Context, text string) {
-	if s.err == nil {
-		s.err = s.backend.write(ctx, s.output, text)
-	}
-}
-
-func (s *script) tool(ctx context.Context, result toolResult) {
-	if s.err == nil {
-		s.err = s.output.Tool(ctx, result)
-	}
-}
-
-func (s *script) review(ctx context.Context, proposal changeProposal) bool {
-	if s.err != nil {
-		return false
-	}
-	approved, err := s.output.Review(ctx, proposal)
-	s.err = err
-	return err == nil && approved
-}
-
-func parserProposal() changeProposal {
-	return changeProposal{
-		Path:    "internal/parser.go",
-		Summary: "move validation into parser.advance",
-		Before: []string{
-			"func parse(token string) error {",
-			"    if token == \"\" { return errEmpty }",
-			"    return state.advance(token)",
-			"}",
-		},
-		After: []string{
-			"func parse(token string) error {",
-			"    return state.advance(token)",
-			"}",
-			"",
-			"func (s *parser) advance(token string) error {",
-			"    if token == \"\" { return errEmpty }",
-			"    // transition remains owned here",
-			"    return nil",
-			"}",
-		},
-	}
-}
-
-func (m mockBackend) write(ctx context.Context, dst io.Writer, body string) error {
-	const chunk = 19
-	for from := 0; from < len(body); from += chunk {
-		if m.delay > 0 {
-			timer := time.NewTimer(m.delay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return context.Cause(ctx)
-			case <-timer.C:
-			}
-		} else {
-			select {
-			case <-ctx.Done():
-				return context.Cause(ctx)
-			default:
-			}
-		}
-		to := min(from+chunk, len(body))
-		n, err := io.WriteString(dst, body[from:to])
-		if err != nil {
-			return err
-		}
-		if n != to-from {
-			return io.ErrShortWrite
-		}
-	}
-	return nil
-}
-
-// agentBridge is the run-owned adapter from background domain work into the two
-// ownership channels. Bytes use bounded ingress. Sparse transitions use Dispatcher
-// and wait for the owner, preserving their order relative to earlier byte drains.
-type agentBridge struct {
-	ingress  *program.ByteIngress
-	dispatch program.Dispatcher
-	owner    *agent
-	run      *agentRun
-}
-
-func (b *agentBridge) Write(p []byte) (int, error) { return b.ingress.Write(p) }
-
-func (b *agentBridge) Step(ctx context.Context, update stepUpdate) error {
-	return b.post(ctx, func() error { return b.owner.workflow.Apply(update) })
-}
-
-func (b *agentBridge) Tool(ctx context.Context, result toolResult) error {
-	return b.post(ctx, func() error { return b.owner.showTool(result) }) //nolint:contextcheck // ctx governs dispatch admission; a claimed UI callback uses the session scope to finish its visible transition.
-}
-
-func (b *agentBridge) Review(ctx context.Context, proposal changeProposal) (bool, error) {
-	request := &reviewRequest{ctx: ctx, proposal: proposal, done: make(chan struct{})}
-	if err := b.post(ctx, func() error { return b.owner.openReview(request) }); err != nil { //nolint:contextcheck // Request cancellation governs admission and the reply wait; UI callbacks use the session scope.
-		return false, err
-	}
-	select {
-	case <-request.done:
-	case <-b.dispatch.Done():
-		select {
-		case <-request.done:
-		default:
-			return false, program.ErrStopped
-		}
-	}
-	return request.approved, request.err
-}
-
-func (b *agentBridge) post(ctx context.Context, fn func() error) error {
-	return b.dispatch.Invoke(ctx, func() error {
-		if b.owner.run != b.run || b.run.finishing {
-			return context.Canceled
-		}
-		return fn()
-	})
-}
-
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

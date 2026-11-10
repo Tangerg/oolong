@@ -4,6 +4,7 @@ import (
 	"image"
 	"slices"
 	"strconv"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
@@ -170,10 +171,10 @@ func (p *painter) appendStyle(next wireStyle) {
 		}
 	}
 	if next.fg.kind != defaultWireColor {
-		p.appendColor(ansi.SGRForeground, next.fg)
+		p.appendColor(foregroundLayer, next.fg)
 	}
 	if next.bg.kind != defaultWireColor {
-		p.appendColor(ansi.SGRBackground, next.bg)
+		p.appendColor(backgroundLayer, next.bg)
 	}
 	p.out = append(p.out, 'm')
 }
@@ -222,6 +223,9 @@ func colorOnWire(color Color, depth Depth) wireColor {
 	if color.Default() || depth == NoColor {
 		return wireColor{}
 	}
+	if index, ok := color.Palette(); ok {
+		return paletteOnWire(index, depth)
+	}
 	switch depth {
 	case Depth16:
 		return wireColor{kind: indexed16WireColor, index: color.rgb.Index16()}
@@ -232,23 +236,46 @@ func colorOnWire(color Color, depth Depth) wireColor {
 	}
 }
 
-func (p *painter) appendColor(base int64, color wireColor) {
+// paletteOnWire keeps a palette entry an index at every depth that has it, so the
+// terminal's theme still decides how it looks; only an entry beyond sixteen
+// colours is approximated, and only for a sixteen-colour terminal.
+func paletteOnWire(index uint8, depth Depth) wireColor {
+	switch {
+	case index < cubeStart:
+		return wireColor{kind: indexed16WireColor, index: index}
+	case depth == Depth16:
+		return wireColor{kind: indexed16WireColor, index: PaletteRGB(index).Index16()}
+	default:
+		return wireColor{kind: indexed256WireColor, index: index}
+	}
+}
+
+// colorLayer names the SGR codes of one colour layer. Foreground and background
+// each have their own standard, bright and extended codes; none is derived from
+// another by arithmetic over the ECMA-48 table.
+type colorLayer struct{ standard, bright, extended int64 }
+
+var (
+	foregroundLayer = colorLayer{standard: ansi.SGRForegroundFirst, bright: ansi.SGRBrightForegroundFirst, extended: ansi.SGRForeground}
+	backgroundLayer = colorLayer{standard: ansi.SGRBackgroundFirst, bright: ansi.SGRBrightBackgroundFirst, extended: ansi.SGRBackground}
+)
+
+func (p *painter) appendColor(layer colorLayer, color wireColor) {
 	switch color.kind {
 	case defaultWireColor:
 		// appendStyle excludes defaults; keep the representation exhaustive so a
 		// new wire colour kind cannot silently acquire truecolor semantics.
 	case indexed16WireColor:
-		index := color.index
-		code := base - ansi.ColorsPerIntensity + int64(index%ansi.ColorsPerIntensity)
-		if index >= ansi.ColorsPerIntensity {
-			code += ansi.SGRBrightForegroundFirst - ansi.SGRForegroundFirst
+		first := layer.standard
+		if color.index >= ansi.ColorsPerIntensity {
+			first = layer.bright
 		}
 		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, code, 10)
+		p.out = strconv.AppendInt(p.out, first+int64(color.index%ansi.ColorsPerIntensity), 10)
 
 	case indexed256WireColor:
 		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, base, 10)
+		p.out = strconv.AppendInt(p.out, layer.extended, 10)
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, ansi.SGRColorIndexed, 10)
 		p.out = append(p.out, ';')
@@ -256,7 +283,7 @@ func (p *painter) appendColor(base int64, color wireColor) {
 
 	case truecolorWireColor:
 		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, base, 10)
+		p.out = strconv.AppendInt(p.out, layer.extended, 10)
 		p.out = append(p.out, ';')
 		p.out = strconv.AppendInt(p.out, ansi.SGRColorRGB, 10)
 		p.out = append(p.out, ';')
@@ -381,7 +408,7 @@ func LinkTarget(target string) string {
 		return ""
 	}
 	for _, r := range target {
-		if r < 0x20 || r >= 0x7f && r <= 0x9f {
+		if unicode.IsControl(r) {
 			return ""
 		}
 	}

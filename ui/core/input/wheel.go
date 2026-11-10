@@ -39,7 +39,7 @@ const wheelDefault = 3
 // Distance is how many rows one report of the wheel is worth, as a fraction of a row.
 //
 // A fraction, because a report is very often worth less than a row and rounding each
-// one to zero would stop the view moving at all — see [Advance].
+// one to zero would stop the view moving at all — see [WheelAccumulator].
 func (w Wheel) Distance() float64 {
 	reports, rows := w.effectiveReports(), w.Rows
 	if rows <= 0 {
@@ -60,31 +60,40 @@ func (w Wheel) TrackpadDistance() float64 {
 	return float64(w.Trackpad) / trackpadReports
 }
 
+// The batching families terminals fall into. Naming each once keeps the identity
+// table and the environment hints from describing the same terminal twice.
+var (
+	// One report to a notch, and a notch is one row. A terminal that reports every
+	// notch separately is reporting finely, and matching it row for row is what makes
+	// the wheel feel the same on it as on one that batches.
+	perNotchWheel = Wheel{Reports: 1, Rows: 1, Trackpad: 3}
+	// An editor embedding a terminal sends one report and means a notch by it, and
+	// coalesces a swipe hardest of all — which is why its finger number is the one
+	// that is nothing like its wheel number.
+	embeddedWheel  = Wheel{Reports: 1, Rows: 3, Trackpad: 15}
+	notchRowsWheel = Wheel{Reports: 1, Rows: 3, Trackpad: 3}
+	batchedWheel   = Wheel{Reports: 3, Rows: 3, Trackpad: 3}
+)
+
 // Keep wheel profiles conservative: a false identity match applies the wrong
 // batching to every gesture, while unknown terminals can retain the default.
 var wheelProfiles = []struct {
 	name  string
 	wheel Wheel
 }{
-	// One report to a notch, and a notch is one row. A terminal that reports every
-	// notch separately is reporting finely, and matching it row for row is what makes
-	// the wheel feel the same on it as on one that batches.
-	{"iterm", Wheel{Reports: 1, Rows: 1, Trackpad: 3}},
-	{"wezterm", Wheel{Reports: 1, Rows: 1, Trackpad: 3}},
-	{"mintty", Wheel{Reports: 1, Rows: 1, Trackpad: 3}},
-	// An editor embedding a terminal sends one report and means a notch by it, and
-	// coalesces a swipe hardest of all — which is why its finger number is the one
-	// that is nothing like its wheel number.
-	{"vscode", Wheel{Reports: 1, Rows: 3, Trackpad: 15}},
-	{"cursor", Wheel{Reports: 1, Rows: 3, Trackpad: 15}},
-	{"windsurf", Wheel{Reports: 1, Rows: 3, Trackpad: 15}},
-	{"zed", Wheel{Reports: 1, Rows: 3, Trackpad: 3}},
-	{"apple_terminal", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
-	{"ghostty", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
-	{"kitty", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
-	{"alacritty", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
-	{"warp", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
-	{"rio", Wheel{Reports: 3, Rows: 3, Trackpad: 3}},
+	{"iterm", perNotchWheel},
+	{"wezterm", perNotchWheel},
+	{"mintty", perNotchWheel},
+	{"vscode", embeddedWheel},
+	{"cursor", embeddedWheel},
+	{"windsurf", embeddedWheel},
+	{"zed", notchRowsWheel},
+	{"apple_terminal", batchedWheel},
+	{"ghostty", batchedWheel},
+	{"kitty", batchedWheel},
+	{"alacritty", batchedWheel},
+	{"warp", batchedWheel},
+	{"rio", batchedWheel},
 }
 
 // WheelFor chooses wheel batching from the negotiated terminal and environment.
@@ -109,12 +118,12 @@ func environmentWheel(lookup func(string) (string, bool)) Wheel {
 		return Wheel{}
 	}
 	if multiplexed(lookup) {
-		return Wheel{Reports: 1, Rows: 1, Trackpad: 3}
+		return perNotchWheel
 	}
 	if environmentValue(lookup, "KITTY_WINDOW_ID") != "" ||
 		environmentValue(lookup, "GHOSTTY_RESOURCES_DIR") != "" ||
 		environmentValue(lookup, "ALACRITTY_SOCKET") != "" {
-		return Wheel{Reports: 3, Rows: 3, Trackpad: 3}
+		return batchedWheel
 	}
 	if wheel, ok := profileOf(strings.Join([]string{
 		environmentValue(lookup, "TERM"),
@@ -156,9 +165,10 @@ func environmentValue(lookup func(string) (string, bool), name string) string {
 	return value
 }
 
-// Advance retains fractional rows so reports worth less than one row still
-// produce movement after accumulating. Zero rows is a valid intermediate result.
-type Advance struct {
+// WheelAccumulator converts wheel reports into rows, retaining fractional rows so
+// reports worth less than one row still produce movement after accumulating. Zero
+// rows is a valid intermediate result.
+type WheelAccumulator struct {
 	wheel   Wheel
 	carried float64
 
@@ -184,11 +194,12 @@ const (
 	fingerReports  = 2
 )
 
-// Wheel replaces what the reports are worth, keeping any part of a row already
+// SetWheel replaces what the reports are worth, keeping any part of a row already
 // accumulated. It is what a caller does once, having asked [WheelFor].
-func (a *Advance) Wheel(w Wheel) { a.wheel = w }
+func (a *WheelAccumulator) SetWheel(w Wheel) { a.wheel = w }
 
-// Rows converts reports in one direction into whole rows at when.
+// Accumulate adds reports in one direction at when and returns the whole rows
+// they complete.
 //
 // The time is what tells a finger from the wheel. Both send the same report, and only
 // how fast they arrive is different: a wheel's notches come as far apart as a hand can
@@ -198,7 +209,7 @@ func (a *Advance) Wheel(w Wheel) { a.wheel = w }
 // A negative report count is upwards, which is what a caller already has: a wheel
 // event is one report in a direction, so this is normally called with plus or minus
 // one.
-func (a *Advance) Rows(when time.Time, reports int) int {
+func (a *WheelAccumulator) Accumulate(when time.Time, reports int) int {
 	distance := a.wheel.Distance()
 	if a.observe(when, reports) {
 		distance = a.wheel.TrackpadDistance()
@@ -214,7 +225,7 @@ func (a *Advance) Rows(when time.Time, reports int) int {
 // observe advances gesture identity and reports whether the current reports come
 // from a finger. Classification belongs to the gesture state itself; converting
 // reports to rows only consumes its answer.
-func (a *Advance) observe(when time.Time, reports int) bool {
+func (a *WheelAccumulator) observe(when time.Time, reports int) bool {
 	if when.IsZero() {
 		return false
 	}
@@ -235,7 +246,7 @@ func (a *Advance) observe(when time.Time, reports int) bool {
 
 // Reset drops any part of a row accumulated and forgets the gesture, which a caller
 // does when the view moves for a reason that had nothing to do with scrolling.
-func (a *Advance) Reset() {
+func (a *WheelAccumulator) Reset() {
 	a.carried = 0
 	a.last, a.began, a.reports, a.finger = time.Time{}, time.Time{}, 0, false
 }

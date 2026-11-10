@@ -26,11 +26,11 @@ func TestCloseRestoresTheReportedCursorStyle(t *testing.T) {
 }
 
 func TestTransportModesUseTheConfiguredCursorRestorationTarget(t *testing.T) {
-	modes := (term.Config{RestoreCursor: grid.CursorStyle{Shape: grid.CursorBar}}).Modes(nil)
+	modes := mustModes(t, term.Config{RestoreCursor: grid.CursorStyle{Shape: grid.CursorBar}}, nil)
 	if got := modes.Leave(); !strings.HasSuffix(got, "\x1b[6 q\x1b[?25h") {
 		t.Fatalf("restoration = %q", got)
 	}
-	if got := (term.Config{}).Modes(nil).Leave(); !strings.HasSuffix(got, "\x1b[0 q\x1b[?25h") {
+	if got := mustModes(t, term.Config{}, nil).Leave(); !strings.HasSuffix(got, "\x1b[0 q\x1b[?25h") {
 		t.Fatalf("explicit protocol reset = %q", got)
 	}
 }

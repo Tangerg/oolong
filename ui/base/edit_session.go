@@ -5,8 +5,6 @@ import (
 	"slices"
 	"strings"
 	"weak"
-
-	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 // ChangeMap maps byte positions from one document revision to its successor.
@@ -38,7 +36,7 @@ type EditSession struct {
 	changes      subscriptions[ChangeMap]
 	noCopy       noCopy
 	lines        []string
-	marks        []text.Mark
+	marks        []elementMark
 	elementIDs   identitySequence
 	elementOwner *byte
 	history      editHistory
@@ -95,10 +93,9 @@ func (s *EditSession) Reset(value string) {
 	s.replace(nil, editReplacement{text: value, whole: true, history: discardEdits}, nil)
 }
 
+// commit runs only after requireRevision has refused an exhausted revision space,
+// so it has no refusal of its own to make after the change is applied.
 func (s *EditSession) commit(initiator *Editor, oldLines []string, change ChangeMap, extendHistory bool) {
-	if s.revision == math.MaxUint64 {
-		panic("base: edit session exhausted revisions")
-	}
 	change.Before, change.After = s.revision, s.revision+1
 	if extendHistory {
 		s.history.extend(change)

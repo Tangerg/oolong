@@ -6,10 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+## [ui/v0.28.0] — 2026-11-10
+
 ### Breaking API migration
 
 #### ui
 
+- `kit.Panel` resolves its palette like every live skin: set `kit.PanelConfig.Theme` or `Scope` (and optionally `Appearance`) instead of `Box.Theme`, which `NewPanel` and `SetBox` now refuse. An application theme change restyles the frame together with its content. `kit.Box.Bare` is removed; a box with neither glyphs nor a border has no frame.
+- `kit.Help.Keys` is a `kit.KeyBindings` interface; `*keymap.Map` still satisfies it. Use `kit.KeysFunc(controller.KeysFor)` with the new `base.(*Editor).KeysFor` and `base.(*Form).KeysFor` to show the bindings a controller actually uses, including its defaults.
+- Construct `kit.Composer` with `kit.NewComposer`; the zero value is no longer assembled lazily by `Element` or `Controller`. `ComposerConfig.Glyphs`, `Composer.Glyphs` and `SetGlyphs` supply the placeholder ellipsis.
+- Remove `automation.ErrStopped`. `Driver.Wait` reports a stopped owner with the owner's own refusal, the same error `Observe` and `Invoke` return, whenever the stop is observed.
+- Rename `core/input.Advance` to `WheelAccumulator`, with `SetWheel` and `Accumulate` replacing `Wheel` and `Rows`.
+- `core/input.Validate` refuses control characters as a key's `Rune`, `ShiftedRune` or `BaseRune`; no key reports one. `ParseChord` and `UnmarshalText` refuse them and any function-key spelling `String` never writes, such as `f+1` or `f01`, and `MarshalText` refuses chords that would not round-trip.
+- Rename `core/graphics.Placement` to `Persistence`. `Sixel.Supports(Printed)` reports false because nothing in the package encodes Sixel. `graphics.Inline` writes `auto` for a zero box dimension, as `ImagePlacement.Paint` already treats zero.
+- `core/term.Config.Modes` returns `(Modes, error)`, and `Config.Validate` refuses a configuration no session can honour. Both local and SSH terminals validate before acquiring anything.
+- `base.(*Editor).Replace` takes the line explicitly: `Replace(token.Line, token.Start, token.End, value)`. A range read from one line can no longer edit the line the cursor has since moved to.
+- `base.MultiSelectConfig.Limit` sets the choice limit before `Initial`, which must respect it. Interactive paths refuse a count beyond the limit; `SetTaken` and `SetLimit` keep the earliest choices.
+- Remove `base.(*Selection).ContentChanged` and `base.(*Selection).DiscardBefore`. A selection is reached only through its transcript, which owns the content identities and is the only one that retires them.
+- `base.TextProjector` moves to `core/text.Projector`, beside the `text.Row` it produces, so format extensions name the same contract without depending on `base`.
+- `core/ansi.Piece.Family` names a `String` piece's command family; `Piece.Final` is now zero for string pieces instead of holding their introducer. Compare `piece.Family == ansi.OSC` where code compared `piece.Final == ']'`.
+- `core/text.Mark` is generic over the caller's `Kind` label, and `core/text.Edit.Shift` over the marks it moves: write `text.Mark[MyKind]` (or `text.Mark[struct{}]` when nothing labels a mark). A label keeps its type through every edit instead of passing through `int`.
+- Add `core/scene.MeasureRows`, `core/text.NormalizeLineEndings` and `base.SpokenField`, the contract `kit.Prompter` drives.
+- Remove the forwarding accessors `base.(*Transcript).Width`, `base.(*Transcript).Height`, `base.(*Transcript).StartRow`, `base.(*Transcript).EndRow`, `base.(*Transcript).Extent`, `base.(*Transcript).At` and `base.(*Transcript).Rows`; read them from `Transcript.Layout()`. `base.(*Transcript).Visible` moves to `base.TranscriptLayout.Visible`.
 - Replace the writable component fields listed below with methods: read `Field()` and update through `SetField(value)`, or supply the existing configuration field during construction. Mutations validate before retention, obey the scene mutation gate, invalidate presentation and semantic observations, and notify subscribers. Keys borrowed from a shared map participate in the same gate and notification lifetime. Mutable glyph and hint slices are copied at admission and observation, so a returned configuration cannot bypass its owner.
 - `base.Completion.CurrentToken` is now a domain query returning `(Token, bool)`; install its provider with `SetCurrentToken`. `base.NewCompletion`, `base.NewList`, `base.NewFilter`, `base.NewSettings`, `base.NewSticky` and `base.NewTable` accept explicit configuration values. A zero-value owner remains useful. Negative row limits, gaps, label widths and indentation fail at configuration admission; zero retains its documented meaning.
 - Remove writable `core/keymap.Map.Timeout` and `core/keymap.Map.Resolve`. Use `Timeout`/`SetTimeout` and `Resolver`/`SetResolver`. A policy change advances the same map revision as binding changes. `Subscribe` returns a consumer-owned handle; close it on rebinding or release. Checks run before commit, every consumer publishes its projection before notifications, and a rejected check leaves the shared map unchanged. Mutation or subscription during checks panics with `ErrChecking`, and during publication with `ErrPublishing`; notification callbacks may reenter. `Matcher.ResetStale` revokes only matching against an obsolete map revision, preserving a new sequence started during another consumer's notification.
@@ -73,18 +91,12 @@ The `examples` and `extensions/ssh` modules now declare the updated UI dependenc
 - `base.(*Transcript).SetMatches` returns `base.ErrInvalidMatches` for unordered or out-of-range rows, empty row spans, negative cell ranges and overflowing cell endpoints. Handle the admission error: the owner validates the complete candidate before publishing it. Rejected results leave the previous search state unchanged; overlapping matches and zero-width spans remain valid.
 - `base.(*Sticky).SetBlocks` and `Add` panic before mutation when block identities are zero, duplicated or out of order. An appended batch must follow the current last identity. Supply strictly increasing identities; the owner does not sort or silently accept invalid input.
 
-#### extensions/latex
-
-- Text commands now preserve literal punctuation and whitespace in a distinct text context; operators retain math scripts and math spacing. `\texttt` still parses command/group syntax, and unescaped `_` or `^` in text is rejected instead of becoming a math script. Use escaped text characters such as `\_`. A `%` comment consumes its line ending, so `\texttt{left%comment\nright}` renders `leftright`; this deliberately replaces the former subset rule that inserted a space.
-- `Render` panics for an invalid `Look.Align` before parsing or retaining a formula, including empty source. Validate external alignment with `core/layout.Align.Validate` and handle `core/layout.ErrInvalidAlign`. The declared UI requirement supplies that validation API for standalone consumers.
-
-#### extensions/markdown
-
-- `Render`, `Doc.Blocks` and `Doc.Len` retain and count each complete list item as one `Block`, including its child paragraphs and nested lists. Do not treat this sequence as a flattened syntax-node index. `ExtensionError.Block` identifies the containing returned block for a nested failure; independent retained blocks keep their marker and child geometry.
-- `markdown.(*Look).SetRenderer` panics before mutation for an unknown extension identity, including removal with a nil renderer. Use `markdown.FencedCode` or `markdown.DisplayMath`: these identify Markdown-owned syntax, not user-defined grammar. The method keeps its void signature, and rejected configuration leaves existing renderers unchanged. Renderer and source failures still use their existing error results.
-
 ### Changed
 
+- Run, review and status state in the agent example belong to the run that owns them: its task, clock, start time and live status live on one `agentRun` with an explicit streaming/finishing phase, and the review request settles once. The example is split by responsibility.
+- `publication.Publisher` keeps one explicit admission phase with one refusal cause instead of two nullable errors with a precedence rule. `term.Writer` admission is likewise one state (admitting, handed over, sealed).
+- The keymap matcher keeps its partially typed sequence as one value. Re-binding an identical binding changes nothing and notifies no one.
+- One owner each for: "nil keymap means defaults" in base controllers, non-negative counts in base constructors and setters, the geometry currency rule in scene, the theme role list in kit, glyph replacement in kit skins, selected-row styling in kit lists, wheel profiles, and the line-ending rule across editors and formats.
 - Live component configuration has one owner. Text delegates editor policy to its retained Editor, Table and Filter delegate list policy to their retained List, and agent/streaming examples resolve commands and help from their current Editor keymap. Picker commands match full semantic key actions, including modifiers and alternate key identities.
 - ANSI cursor controls and Kitty graphics field/action vocabulary are encoded by their protocol owners. EOF, Escape expiry and newly available input are separate parser transitions.
 - Control-string boundaries belong to `core/ansi.StringFamily.Step`. Complete, incremental, retained and oversized parsing share its family-specific termination and cancellation rules. Retention pressure does not give a recognized protocol payload keyboard authority.
@@ -97,7 +109,6 @@ The `examples` and `extensions/ssh` modules now declare the updated UI dependenc
 - `TranscriptConfig.PublishPartial` also permits retiring a failed final preparation with no body. The publisher admits its empty capture in order without writing bytes; the original failure remains on the item. A failed prefix can no longer strand later diagnostics and replies when partial publication is enabled.
 - `scripts/tools.sh` owns Go tool versions for CI installation and release admission. Release checks verify each executable's Go package, module version and absence of replacements. Contributor documentation consumes these commands instead of copying the pins.
 - Screen diff/full frame sequences now run through the pinned independent xterm model as well as a separately specified cell model. The gate covers style and hyperlink transitions, wide and combining characters, resizing, cursor state and scroll margins, including deterministic seeded sequences.
-- Markdown declares the published UI revision that supplies the text layout used by hyperlink validation, so standalone consumers receive the same filtering semantics as workspace builds.
 - The agent example exposes `/plan <fast|careful>` and names the corresponding state `planningMode`. This controls the optional inspection step, not a model provider; `/model` is removed.
 - Component tests share one explicit scene scope. Each test, fuzz sample and example owns and closes its roots and identity cache; no package-global registry retains earlier widget graphs.
 - `base.Submission` documents an observation-time snapshot: `Current` compares submitted revisions with the form draft at that observation.
@@ -105,9 +116,19 @@ The `examples` and `extensions/ssh` modules now declare the updated UI dependenc
 - Transcript search results, their source identity and current selection belong to one private search aggregate. Its prefix-end index is derived only from an accepted result snapshot, so overlapping matches can be queried without a second source of truth.
 - Program frame composition and final output now live together in `core/program/compositor.go`; runtime state and ownership stay unchanged. Private forwarding aliases with no additional contract were removed from program and text paths.
 - Emoji variation bases are generated offline from the pinned Unicode 17 source data that matches the width dependency. The generated table has no independent editing path; its provenance, license and source-to-table equivalence are checked in the repository.
+- `core/grid.Color` can be a palette entry: `grid.PaletteColor(index)` and `Color.Palette()`. A palette entry crosses the wire as its index at every depth that has it, so the terminal's theme decides how it looks; `Color.RGB` reports xterm's estimate of it. `core/text.Decoder` reads named (`31`, `91`) and indexed (`38;5;n`) colours as palette entries, so a command's coloured output keeps the user's terminal colours instead of xterm's defaults.
+- `Select` and `MultiSelect` share one choice list for label, rows, keys, row painter, measurement and focus; a negative `Rows` now reports `choice Rows`. A Confirm without a domain control owns its answer through the same `ConfirmControl` protocol a domain owner implements.
 
 ### Fixed
 
+- Closing a terminal restores cooked mode last, after the leave sequence and writer drain, so a keystroke during shutdown can neither raise a signal nor echo into a display still in session modes. A failed reacquisition after a handover seals the writer with that failure instead of leaving it reporting a handover in progress. The writer takes the byte stream only after the startup probe has finished writing to it.
+- Windows consoles without `TERM` default to truecolor, which the virtual terminal processing enabled at startup interprets.
+- `ESC O` followed by a byte that cannot end SS3 is Alt+O and the byte is read again; legacy `ESC O <modifier> <final>` decodes. A sequence split by the transport across the Escape wait is discarded through its final byte instead of being replayed as keys. Two Escapes before a CSI or SS3 sequence are Alt with that key. Modified numbered keys that rxvt ends with `$`, `^` or `@` decode.
+- Focusing into a modal that opens by enabling itself records the original opener, so closing it restores focus there. A changed action or invalidating task always settles modal layers. Ending a gesture waits for a frame already prepared. A pointer a modal blocks reaches the modal through hover, Preview and Handle. Capturing implies consumption. `Event.CurrentLayout` agrees with `Read` for keys. Observations refuse uninterpretable semantic values, and an unavailable action says whether its target is disabled or outside the active modal.
+- A quoted sentence no longer hides the rooted path inside it from link detection, and a URL inside a quoted sentence leaves the sentence's final period. One-sided diff hunks report their real line positions.
+- `text.Truncate` expands tabs, so labels drawn with `View.Text` keep their alignment. Wrapping keeps leading indentation instead of hiding it in an unjoined row's gap. `View.Text` reports the same advance whether or not the joined atom is clipped.
+- A superseded pending form submission is cancelled through `FormConfig.Cancel`. A numeric label said exactly chooses that label; a numeral that names one choice by number and another by label is refused. A multi-choice label may contain a comma. An empty table keeps the sort it is given. Button and Confirm failures from keys or pointer appear in their semantics.
+- A handled no-op edit ends the typing run however the key was encoded, and any edit ends a pointer drag. An edit in one view no longer scrolls another view that has scrolled away.
 - Validation attempts revoke and publish old receipts before calling external validators. Panic, goroutine exit, a rejected reply and reentrant no-op feedback cannot leave a form presenting a revoked error or result. A rejected cancellation does not advance the feedback authority of the active request.
 - Shared keymap mutations check every mounted borrower before committing, then notify all borrowers even when a callback panics or exits. A notification from an old subscription cannot reset a matcher installed by a reentrant replacement, and delayed delivery cannot erase a sequence already started against the committed map. Every consumer publishes its scene revision before resolver cancellation can observe or prepare another scene.
 - CAN/SUB cancels every supported control-string family, including oversized rejected strings. Rejected CSI input remains quarantined until its real boundary or EOF; Escape expiry cannot promote its remaining payload into keys.
@@ -123,7 +144,6 @@ The `examples` and `extensions/ssh` modules now declare the updated UI dependenc
 - Form prompting retains buffered answers between forms, accepts answers beyond the former implicit scanner limit, and never submits partial data after a non-EOF input failure. Output failures do not consume an answer, and field callbacks cannot reenter the same prompting session.
 - Documentation base, sitemap root and favicon URL derive from one site-base value.
 - Equal timestamps cannot prove input order at writer creation, write boundaries or scene layout admission. `WrittenAt` reports uncertain evidence, and `CaptureInput` retains no hit map instead of falling back to older geometry. Clipboard `Answer` and `Reject` likewise require reception strictly after query admission; ambiguous replies cannot settle delivery or release the outstanding wire slot. Deterministic tests distinguish equal and strictly later instants without relying on host clock precision.
-- Markdown prepared layouts retain recursively prepared list geometry and text projections across width replacement and shared Blocks. Cancellation reaches nested measurement and row preparation, and retained drawing never remeasures a source child after another width replaces its memo.
 - Go tool verification resolves the executable selected by the shell to its native Windows path before reading build metadata. An omitted `.exe` suffix is restored only when file identity proves it is the selected executable; unrelated adjacent files cannot replace it. Installation checks also cover paths containing spaces.
 - The form and state examples resolve exit shortcuts through their key maps. Alternate-layout Ctrl-C works, while releases and extra modifiers cannot accidentally exit a session.
 - Mouse input is associated with actual writer completion evidence even when completion notifications are delayed or coalesced. Missing history and admission/write ambiguity refuse coordinates instead of activating a target in another frame.
@@ -133,15 +153,12 @@ The `examples` and `extensions/ssh` modules now declare the updated UI dependenc
 - Bare host, IP and IDNA link labels use the same canonical destination comparison as explicit URLs. Misleading address text exposes its real target without a concealed hyperlink.
 - The dashboard stops its timer after work and history samples settle, and avoids rewriting identical list state. Example help is projected from the same action bindings used by keyboard and mouse behavior.
 - Image input checks cancellation, admits only bounded regular files, rejects special files and symbolic links before blocking reads, and shares file-open policy with the files example.
-- Markdown hyperlink decisions use the label's rendered text. Removed controls and stranded zero-width graphemes cannot conceal an address mismatch from validation while leaving a different address visible on screen. The text renderer owns this projection for both painting and link validation.
 - An oversized, completely terminated OSC reply emits bounded `core/input.OSCRejection` evidence. `core/clipboard.(*Channel).Reject` matches and settles it through the same owner as `Answer`, releasing an answered query's wire slot while preserving cancellation, deadline, selection and receive-time rules. Partial or abandoned frames cannot release a pending query.
-- Markdown link labels compare complete web hosts and mailbox recipients with their actual targets. Unicode host names use IDNA normalization; mailbox local-parts retain their case and `+` characters. A misleading or ambiguous address label exposes the actual target and does not receive its hidden click destination, including extra `mailto` recipients.
 - File links consume complete decimal line and column tokens before range validation. Leading zeros preserve the complete value; zero or overflowing positions are omitted instead of becoming a different location through prefix truncation.
 - Release checks run in a temporary checkout of the exact commit selected for the tag. Editing the caller's working tree cannot change the checked candidate, and gate mutations abort before tag creation. Success and failure both remove the temporary checkout.
 - Inline painting establishes one cursor-containing soft-wrap group before writing independent row atoms. On supported terminal reflow policies, narrowing no longer leaves an old live prefix above the replacement. Diffs preserve the group, finish restores hard boundaries, and aborted or over-budget output does not advance the accepted anchor. A pinned xterm regression runs actual resize behavior in CI.
 - The run example accepts editor commands such as `code --wait` without looking for an executable whose name includes the arguments. Unix and Windows command interpreters own their respective quoting rules, while filenames remain independent arguments and process failures retain their exit status.
 - `core/text.Line.WithSuffix` owns bounded composition for `Truncate` and capped `kit.Paragraph` rows. Suffixes keep an independent grapheme boundary and never inherit a source hyperlink; variation selectors, enclosing key cap sequences, regional indicators and tabs cannot widen the result beyond its budget. A joining-only suffix survives without a source prefix.
-- Markdown list markers survive extension children with zero height, including empty LaTeX formulas. Placement uses the current width; an entirely invisible item retains a marker-only row without inventing copy text.
 - The composer example dispatches submission, history and exit through the editor's actual keymap. Modified Enter cannot accidentally submit, and replacing bindings updates both behavior and help without a second raw-key switch.
 - Editor atomic elements and repeated masks test the actual joining byte boundary through `core/text.IsClusterBoundary`. Regional indicators can change their pairing without changing the total grapheme count; such a join now inserts the existing element separator or rejects the mask before changing document state.
 - Cell-based progress bars, bar charts, sliders, scrollbars and sparkline charts cannot accept wide or zero-width nonempty glyphs that overwrite adjacent cells or erase their entire display. Their shared `CellGlyph` admission boundary owns this geometry constraint.
@@ -149,10 +166,66 @@ The `examples` and `extensions/ssh` modules now declare the updated UI dependenc
 - `core/grid.ClusterWidth` requires a valid, adjacent Unicode emoji variation base before a selector can widen it. Ordinary text followed by VARIATION SELECTOR-16 stays at its original width, and spacing kana marks add their own columns after emoji presentation is resolved.
 - `base.(*Transcript).MatchesIn` includes earlier long matches that overlap a viewport even when intervening matches end before it. The returned contiguous range preserves the original result indices used to highlight the current match.
 - `base.Dialog` traverses focus only for a Tab or Shift+Tab going down. On terminals that report key events, a release that reaches the dialog after a field's keymap consumed the press no longer moves focus a second time.
-- `extensions/markdown` makes only `http`, `https` and `mailto` destinations clickable. A link, image or autolink to any other scheme, or to a relative address, keeps its text and link style without an OSC 8 hyperlink: such a destination could name a local file or launch a registered application. Words that show a URL on a different host than the destination no longer carry the link, and the real destination is written after them even when `Look.Target` is zero.
 - `core/grid.ClusterWidth` measures an emoji presentation sequence, a text-default symbol followed by VARIATION SELECTOR-16 such as `⚠️`, `❤️` or `#️⃣`, as two columns. iTerm2, Kitty, WezTerm, Ghostty, Windows Terminal, VS Code and tmux draw these sequences two columns wide, so a one-column measurement shifted the rest of the line and left stale cells on repaint. Text presentation (`⚠︎`) and ambiguous-width characters keep one column. Layouts containing such sequences change width.
 - `core/text` no longer lets a removed control join the clusters on either side of it. A variation selector stranded by a dropped newline used to attach to the symbol before the newline in wrapped, truncated and drawn text.
 - `core/input.Parser` decodes X10-encoded mouse reports (`CSI M Cb Cx Cy`) into `input.Mouse` events. Terminals that track pointer motion but not SGR coordinates previously typed three characters into the focused control for every report. In this encoding, a release does not identify its button. A report whose coordinate falls outside the encoding is consumed without producing an event.
+
+## [extensions/highlight/v0.27.0] — 2026-11-10
+
+### Breaking API migration
+
+#### extensions/highlight
+
+- Rename `Style` to `Scheme` and `Styles` to `Schemes`; the values name color schemes. Untyped string arguments to `New` are unchanged.
+
+## [extensions/latex/v0.28.0] — 2026-11-10
+
+### Breaking API migration
+
+#### extensions/latex
+
+- Text commands now preserve literal punctuation and whitespace in a distinct text context; operators retain math scripts and math spacing. `\texttt` still parses command/group syntax, and unescaped `_` or `^` in text is rejected instead of becoming a math script. Use escaped text characters such as `\_`. A `%` comment consumes its line ending, so `\texttt{left%comment\nright}` renders `leftright`; this deliberately replaces the former subset rule that inserted a space.
+- `Render` panics for an invalid `Look.Align` before parsing or retaining a formula, including empty source. Validate external alignment with `core/layout.Align.Validate` and handle `core/layout.ErrInvalidAlign`. The declared UI requirement supplies that validation API for standalone consumers.
+
+## [extensions/markdown/v0.28.0] — 2026-11-10
+
+### Breaking API migration
+
+#### extensions/markdown
+
+- Add `markdown.Format`, the content label for Markdown source, so registries and stream documents need not spell it. `Extension` has a `String` method used by diagnostics.
+- `Render`, `Doc.Blocks` and `Doc.Len` retain and count each complete list item as one `Block`, including its child paragraphs and nested lists. Do not treat this sequence as a flattened syntax-node index. `ExtensionError.Block` identifies the containing returned block for a nested failure; independent retained blocks keep their marker and child geometry.
+- `markdown.(*Look).SetRenderer` panics before mutation for an unknown extension identity, including removal with a nil renderer. Use `markdown.FencedCode` or `markdown.DisplayMath`: these identify Markdown-owned syntax, not user-defined grammar. The method keeps its void signature, and rejected configuration leaves existing renderers unchanged. Renderer and source failures still use their existing error results.
+
+### Changed
+
+- Markdown declares the published UI revision that supplies the text layout used by hyperlink validation, so standalone consumers receive the same filtering semantics as workspace builds.
+
+### Fixed
+
+- Markdown prepared layouts retain recursively prepared list geometry and text projections across width replacement and shared Blocks. Cancellation reaches nested measurement and row preparation, and retained drawing never remeasures a source child after another width replaces its memo.
+- Markdown hyperlink decisions use the label's rendered text. Removed controls and stranded zero-width graphemes cannot conceal an address mismatch from validation while leaving a different address visible on screen. The text renderer owns this projection for both painting and link validation.
+- Markdown link labels compare complete web hosts and mailbox recipients with their actual targets. Unicode host names use IDNA normalization; mailbox local-parts retain their case and `+` characters. A misleading or ambiguous address label exposes the actual target and does not receive its hidden click destination, including extra `mailto` recipients.
+- Markdown list markers survive extension children with zero height, including empty LaTeX formulas. Placement uses the current width; an entirely invisible item retains a marker-only row without inventing copy text.
+- `extensions/markdown` makes only `http`, `https` and `mailto` destinations clickable. A link, image or autolink to any other scheme, or to a relative address, keeps its text and link style without an OSC 8 hyperlink: such a destination could name a local file or launch a registered application. Words that show a URL on a different host than the destination no longer carry the link, and the real destination is written after them even when `Look.Target` is zero.
+
+## [extensions/mermaid/v0.28.0] — 2026-11-10
+
+### Changed
+
+- The mermaid renderer reports a cancellation cause once: the context that owns the deadline is its only reporter, and the backend script no longer keeps a second deadline. Platform supervisors receive an explicit launch description instead of a partially used `exec.Cmd`.
+
+### Fixed
+
+- The Mermaid backend names Chrome explicitly, so an ambient `PUPPETEER_BROWSER` cannot change the executable or its arguments.
+
+## [extensions/ssh/v0.28.0] — 2026-11-10
+
+### Breaking API migration
+
+#### extensions/ssh
+
+- Opening a terminal validates its `term.Config` before claiming the session's one open, and a refused mode-entry sequence is returned instead of producing a host that would later leave modes it never entered.
 
 ## [ui/v0.27.0] — 2026-11-05
 

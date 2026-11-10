@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
@@ -73,6 +74,7 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 					runtime: runtime,
 					command: []string{"a", "command"},
 				}
+				r.element = drawn.Element("run", r)
 				close(ready)
 				return r.Element(), nil
 			},
@@ -86,10 +88,11 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	host.Shows(t, "ctrl+e: editor")
 
 	// A chunk boundary can fall anywhere, including inside an escape sequence.
-	if err := r.publish(t.Context(), nil, func() []text.Line { return r.out.Feed("plain \x1b[3") }); err != nil {
+	pump := r.pump(nil)
+	if err := pump.deliver(t.Context(), func() []text.Line { return pump.feed("plain \x1b[3") }); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.publish(t.Context(), nil, func() []text.Line { return r.out.Feed("1mred\x1b[0m and more\nsecond line\nhalf a li") }); err != nil {
+	if err := pump.deliver(t.Context(), func() []text.Line { return pump.feed("1mred\x1b[0m and more\nsecond line\nhalf a li") }); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,13 +103,13 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 	})
 	host.Shows(t, "half a li")
 
-	// And the colour survived the chunk boundary: red is 31, which the frame carries
-	// as the colour the palette gives it.
+	// And the colour survived the chunk boundary: red is 31, and the frame still
+	// says 31, so the terminal's own theme decides what red looks like.
 	host.Until(t, "the output to keep its colour", func() bool {
-		return strings.Contains(host.Frames(), "128;0;0")
+		return strings.Contains(host.Frames(), ";31m")
 	})
 
-	if err := r.publish(t.Context(), nil, r.out.Flush); err != nil {
+	if err := pump.deliver(t.Context(), pump.flush); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.runtime.Dispatcher().Invoke(t.Context(), func() error { r.finish(nil); return nil }); err != nil {

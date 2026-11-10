@@ -183,7 +183,14 @@ func ParseChord(s string) (Chord, bool) {
 	return Chord{Code: Character, Rune: r, Mods: mods}, true
 }
 
+// parseRune refuses control characters: no key reports one as its identity, so
+// a chord naming one could never match and its binding would be silently dead.
 func parseRune(s string) (rune, bool) {
+	r, ok := spelledRune(s)
+	return r, ok && !unicode.IsControl(r)
+}
+
+func spelledRune(s string) (rune, bool) {
 	if code, ok := strings.CutPrefix(s, "U+"); ok && len(code) >= 4 && len(code) <= 6 {
 		value, err := strconv.ParseUint(code, 16, 32)
 		if err == nil && value <= unicode.MaxRune && utf8.ValidRune(rune(value)) {
@@ -211,7 +218,9 @@ func codeNamed(name string) (Code, bool) {
 		return code, true
 	}
 	if rest, ok := strings.CutPrefix(name, "f"); ok {
-		if n, err := strconv.Atoi(rest); err == nil && n >= 1 && n <= int(F35-F1)+1 {
+		// Only the spelling String writes: a sign or a leading zero would let
+		// "f+1" or "f01" parse as a key nothing ever names that way.
+		if n, err := strconv.Atoi(rest); err == nil && strconv.Itoa(n) == rest && n >= 1 && n <= int(F35-F1)+1 {
 			return F1 + Code(n-1), true
 		}
 	}

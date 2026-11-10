@@ -117,7 +117,9 @@ func (c *checker) script(ctx context.Context, shell, name string, args ...string
 func (c *checker) selectedModules(ctx context.Context) ([]string, error) {
 	var out string
 	var err error
+	source := "scripts/modules.sh --public"
 	if c.releaseTag != "" {
+		source = "scripts/module-tag.sh --resolve " + c.releaseTag
 		out, err = c.script(ctx, "bash", "module-tag.sh", "--resolve", c.releaseTag)
 	} else {
 		out, err = c.script(ctx, "sh", "modules.sh", "--public")
@@ -140,10 +142,10 @@ func (c *checker) selectedModules(ctx context.Context) ([]string, error) {
 	slices.Sort(modules)
 	unique := slices.Compact(modules)
 	if len(unique) != len(modules) {
-		return nil, errors.New("scripts/modules.sh --public returned duplicate modules")
+		return nil, fmt.Errorf("%s returned duplicate modules", source)
 	}
 	if len(unique) == 0 {
-		return nil, errors.New("scripts/modules.sh --public returned no modules")
+		return nil, fmt.Errorf("%s returned no modules", source)
 	}
 	return unique, nil
 }

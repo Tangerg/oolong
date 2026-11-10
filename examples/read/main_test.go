@@ -49,7 +49,11 @@ func TestWhatIsFinishedIsPrintedAndWhatIsNotIsDrawn(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-			return read(runtime, 64, time.Millisecond).Element(), nil
+			r, err := newPacedReader(runtime, 64, time.Millisecond)
+			if err != nil {
+				return scene.Element{}, err
+			}
+			return r.Element(), nil
 		}})
 		if err == nil {
 			err = app.Run(t.Context())
@@ -81,7 +85,10 @@ func TestFinalPreparationFailureDoesNotAnnounceSuccess(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(rt *program.InlineRuntime) (scene.Element, error) {
-			r := read(rt, 64, time.Hour)
+			r, err := newPacedReader(rt, 64, time.Hour)
+			if err != nil {
+				return scene.Element{}, err
+			}
 			r.render = func(context.Context, string) (grid.Drawable, error) {
 				return nil, errors.New("renderer unavailable")
 			}

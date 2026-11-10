@@ -51,8 +51,9 @@ func (s *Spring) Value() float64 { return s.position }
 
 func (s *Spring) Velocity() float64 { return s.velocity }
 
-// Done uses position and velocity tolerances because an exact spring never
-// reaches its target in finite time.
+// Done reports exact rest. An exact spring never reaches its target in finite
+// time, so stepping snaps it there once position and velocity are within their
+// settling tolerances.
 func (s *Spring) Done() bool {
 	return s.position == s.target && s.velocity == 0
 }

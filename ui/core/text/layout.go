@@ -151,6 +151,10 @@ func (l *Layout) appendRow(line, from, to int) {
 	l.rows = append(l.rows, LayoutRow{Line: line, From: from, To: to, Joined: from > 0, Width: Width(content), Text: content})
 }
 
+// wrapLine differs from [Line.Wrap] on purpose: an editing layout keeps every
+// byte on some row, the spaces at a break included, because each byte must stay
+// addressable by a caret; and a tab advances to a stop measured from its row's
+// origin, because each row is drawn from its own.
 func (l *Layout) wrapLine(index int, policy WrapMode) {
 	line := l.lines[index]
 	if l.width <= 0 || policy == WrapNone || line == "" {

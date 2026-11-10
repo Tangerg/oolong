@@ -97,20 +97,44 @@ func normalizedOpacity(opacity float64) float64 {
 	return min(max(opacity, 0), 1)
 }
 
-// Color is a cell colour: either the terminal's own default, or a truecolor
-// value. The zero Color is the default, which is what an unstyled cell wants.
+// Color is a cell colour: the terminal's own default, an entry of the terminal's
+// palette, or a truecolor value. A palette entry crosses the wire as its index, so
+// the user's terminal theme decides how it looks. The zero Color is the default,
+// which is what an unstyled cell wants.
 type Color struct {
-	set bool
-	rgb RGB
+	kind  colorKind
+	index uint8
+	rgb   RGB
 }
 
-func RGBColor(r, g, b uint8) Color { return Color{set: true, rgb: RGB{r, g, b}} }
+type colorKind uint8
 
-func (c Color) Default() bool { return !c.set }
+const (
+	defaultColor colorKind = iota
+	paletteColor
+	rgbColor
+)
 
-// RGB returns the colour's components. They are meaningless when the colour is
-// the terminal default.
-func (c Color) RGB() RGB { return c.rgb }
+func RGBColor(r, g, b uint8) Color { return Color{kind: rgbColor, rgb: RGB{r, g, b}} }
+
+// PaletteColor is the terminal's palette entry at index, numbered as in the xterm
+// 256-colour palette: the sixteen ANSI colours first.
+func PaletteColor(index uint8) Color { return Color{kind: paletteColor, index: index} }
+
+func (c Color) Default() bool { return c.kind == defaultColor }
+
+// Palette reports the palette index of a palette colour.
+func (c Color) Palette() (index uint8, ok bool) { return c.index, c.kind == paletteColor }
+
+// RGB returns the colour's components: exact for a truecolor value, and for a
+// palette entry only xterm's estimate of it, since the terminal's theme decides.
+// They are meaningless when the colour is the terminal default.
+func (c Color) RGB() RGB {
+	if c.kind == paletteColor {
+		return PaletteRGB(c.index)
+	}
+	return c.rgb
+}
 
 // Blend cannot resolve a terminal-default color to a number, so it leaves c
 // unchanged if either input is unresolved. Ground supplies queried RGB values
@@ -121,7 +145,7 @@ func (c Color) Blend(over Color, opacity float64) Color {
 	if c.Default() || over.Default() {
 		return c
 	}
-	blended := c.rgb.Blend(over.rgb, opacity)
+	blended := c.RGB().Blend(over.RGB(), opacity)
 	return RGBColor(blended.R, blended.G, blended.B)
 }
 

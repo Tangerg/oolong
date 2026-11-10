@@ -29,7 +29,7 @@ func TestWakePrecedesReadyConsoleInput(t *testing.T) {
 		t.Cleanup(func() { _ = windows.CloseHandle(event) })
 		return event
 	}
-	w := waker{input: readyEvent(), signal: readyEvent(), console: true}
+	w := inputReader{input: readyEvent(), signal: readyEvent(), console: true}
 	if ready, err := w.wait(); err != nil || ready {
 		t.Fatalf("input overtook a pending wake: ready=%t err=%v", ready, err)
 	}
@@ -48,7 +48,7 @@ func TestNonConsoleInputCannotStartAnUninterruptibleRead(t *testing.T) {
 			t.Error(closeErr)
 		}
 	}()
-	w, err := newWaker(int(event))
+	w, err := newInputReader(int(event))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,12 +100,12 @@ func TestConsoleInputNativeHelper(t *testing.T) {
 		}
 	}()
 
-	openInput := func(t *testing.T) *waker {
+	openInput := func(t *testing.T) *inputReader {
 		t.Helper()
 		if err := windows.FlushConsoleInputBuffer(handle); err != nil {
 			t.Fatal(err)
 		}
-		w, err := newWaker(int(handle))
+		w, err := newInputReader(int(handle))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -187,7 +187,7 @@ func writeConsoleRecords(t *testing.T, handle windows.Handle, records []consoleI
 	}
 }
 
-func readConsoleText(t *testing.T, w *waker, want string) {
+func readConsoleText(t *testing.T, w *inputReader, want string) {
 	t.Helper()
 	var got strings.Builder
 	for got.Len() < len(want) {

@@ -14,10 +14,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// waker waits on input readiness and an owned pipe before reading. A wake can
+// inputReader waits on input readiness and an owned pipe before reading. A wake can
 // therefore return input ownership without consuming a byte meant for the child,
 // unlike an uncancellable blocking read.
-type waker struct {
+type inputReader struct {
 	fd int
 	// in and out are the two ends of the pipe. One byte on it means "stop waiting";
 	// the byte itself says nothing, so several are as good as one.
@@ -29,9 +29,9 @@ type waker struct {
 
 // This session's readiness wait always includes an owned wake pipe, so handing
 // input back never depends on the user typing a key.
-func (w *waker) interruptible() bool { return true }
+func (w *inputReader) interruptible() bool { return true }
 
-func newWaker(fd int) (*waker, error) {
+func newInputReader(fd int) (*inputReader, error) {
 	// Pipe and close-on-exec are separate on some Unix targets.
 	syscall.ForkLock.RLock()
 	defer syscall.ForkLock.RUnlock()
@@ -39,22 +39,22 @@ func newWaker(fd int) (*waker, error) {
 	if err := unix.Pipe(pipe[:]); err != nil {
 		return nil, fmt.Errorf("term: a pipe to wake the reader: %w", err)
 	}
-	for _, fd := range pipe {
+	for _, end := range pipe {
 		// Not inherited by whatever the terminal is handed to, and never able to
 		// block: a wake-up that filled the pipe would hang the caller asking for it.
-		unix.CloseOnExec(fd)
-		if err := unix.SetNonblock(fd, true); err != nil {
+		unix.CloseOnExec(end)
+		if err := unix.SetNonblock(end, true); err != nil {
 			_ = unix.Close(pipe[0])
 			_ = unix.Close(pipe[1])
 			return nil, fmt.Errorf("term: a pipe to wake the reader: %w", err)
 		}
 	}
-	return &waker{fd: fd, in: pipe[0], out: pipe[1]}, nil
+	return &inputReader{fd: fd, in: pipe[0], out: pipe[1]}, nil
 }
 
 // Raw input has one consumer, so readiness permits a bounded read while the
 // session still owns its modes. Close joins that read before restoring them.
-func (w *waker) read(in *os.File) readResult {
+func (w *inputReader) read(in *os.File) readResult {
 	ready, err := w.wait()
 	if err != nil || !ready {
 		return readResult{at: time.Now(), err: err}
@@ -64,11 +64,11 @@ func (w *waker) read(in *os.File) readResult {
 	return readResult{data: buf[:n], at: time.Now(), err: err}
 }
 
-func (w *waker) reset() {}
+func (w *inputReader) reset() {}
 
-func (w *waker) buffered() bool { return false }
+func (w *inputReader) buffered() bool { return false }
 
-func (w *waker) wait() (bool, error) {
+func (w *inputReader) wait() (bool, error) {
 	terminal, ok := pollFd(w.fd)
 	if !ok {
 		return false, fmt.Errorf("term: watch the terminal: descriptor %d is out of range", w.fd)
@@ -99,7 +99,7 @@ func (w *waker) wait() (bool, error) {
 	}
 }
 
-func (w *waker) wake() {
+func (w *inputReader) wake() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -111,7 +111,7 @@ func (w *waker) wake() {
 // close releases the pipe. It belongs to the reader, and is called when the reader
 // returns: closing it from anywhere else could close a descriptor out from under a
 // wait, and a descriptor number is reused the moment it is free.
-func (w *waker) close() {
+func (w *inputReader) close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -123,7 +123,7 @@ func (w *waker) close() {
 }
 
 // drain empties the pipe, so that one wake-up does not answer the next wait as well.
-func (w *waker) drain() {
+func (w *inputReader) drain() {
 	var buf [16]byte
 	for {
 		if n, err := unix.Read(w.in, buf[:]); n <= 0 || err != nil {

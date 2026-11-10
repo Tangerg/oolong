@@ -40,7 +40,7 @@ func TestHelpReadsTheCurrentBindingsAndTimeout(t *testing.T) {
 	bindings.Bind(next, input.Chord{Rune: 'j'})
 	bindings.Bind(top, input.Chord{Rune: 'j'}, input.Chord{Rune: 'j'})
 	bindings.Bind(quit, input.Chord{Rune: 'x'})
-	k := &keys{mapKeys: bindings}
+	k := &keys{bindings: bindings}
 	surface := grid.NewSurface(70, 12)
 	k.Draw(surface.View())
 	visible := strings.Join(surface.Rows(), "\n")

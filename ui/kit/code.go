@@ -20,8 +20,8 @@ type Code struct {
 }
 
 var (
-	_ base.Block         = (*Code)(nil)
-	_ base.TextProjector = (*Code)(nil)
+	_ base.Block     = (*Code)(nil)
+	_ text.Projector = (*Code)(nil)
 )
 
 // NewCode returns a code block that owns a copy of lines.

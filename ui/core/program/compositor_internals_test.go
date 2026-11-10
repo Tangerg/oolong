@@ -226,12 +226,12 @@ func TestOrderedRepaintCannotReportUnadmittedOutput(t *testing.T) {
 	writer := &admissionWriter{refuse: true, changes: make(chan struct{}, 1)}
 	p := &program{root: root, canvas: grid.NewScreen(10, 1), writer: writer}
 	var replied bool
-	err = p.answerRepaint(func(_, _ int, result error) {
+	err = p.answerRepaint(&repaintRequest{reply: func(_, _ int, result error) {
 		replied = true
 		if !errors.Is(result, term.ErrQueueFull) {
 			t.Errorf("repaint receipt=%v", result)
 		}
-	})
+	}})
 	if !replied || !errors.Is(err, term.ErrQueueFull) || root.Progress().LayoutRevision != 0 {
 		t.Fatalf("unadmitted repaint: replied=%v err=%v layout=%d", replied, err, root.Progress().LayoutRevision)
 	}
@@ -257,12 +257,12 @@ func TestClaimedRepaintAnswersWhenPaintDoesNotReturn(t *testing.T) {
 			go func() {
 				defer close(done)
 				defer func() { recovered = recover() }()
-				_ = p.answerRepaint(func(w, h int, failure error) {
+				_ = p.answerRepaint(&repaintRequest{reply: func(w, h int, failure error) {
 					if w != 0 || h != 0 {
 						t.Errorf("aborted paint reported %dx%d", w, h)
 					}
 					receipt = failure
-				})
+				}})
 			}()
 			<-done
 			if !errors.Is(receipt, ErrInvocationAborted) || !p.frameFailed || (exit == "panic") != (recovered == "interrupt repaint") {

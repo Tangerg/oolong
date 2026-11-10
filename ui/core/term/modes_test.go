@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
+
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/term"
 )
@@ -24,7 +26,7 @@ func TestCompatibleKeyboardRequestsOnlyPortableFeatures(t *testing.T) {
 			t.Errorf("compatible keyboard unexpectedly requests feature %d", feature)
 		}
 	}
-	if got := (term.Config{Features: term.Features{Keyboard: features}}).Modes(nil).Enter(); !strings.Contains(got, "\x1b[>5u") {
+	if got := mustModes(t, term.Config{Features: term.Features{Keyboard: features}}, nil).Enter(); !strings.Contains(got, "\x1b[>5u") {
 		t.Fatalf("compatible keyboard mode = %q, want flags 5", got)
 	}
 }
@@ -71,7 +73,7 @@ func TestKeyboardModesUseTheDrivenTerminalEnvironment(t *testing.T) {
 				value, ok := tt.env[name]
 				return value, ok
 			}
-			modes := (term.Config{Features: term.Features{Keyboard: input.KeyboardAll | 1<<20}}).Modes(lookup)
+			modes := mustModes(t, term.Config{Features: term.Features{Keyboard: input.KeyboardAll | 1<<20}}, lookup)
 			enter, leave := modes.Enter(), modes.Leave()
 			if tt.want == 0 {
 				if strings.Contains(enter, "\x1b[>") || strings.Contains(leave, "\x1b[<u") {
@@ -91,7 +93,7 @@ func TestKeyboardModesUseTheDrivenTerminalEnvironment(t *testing.T) {
 }
 
 func TestKeyboardTextRequestsItsWirePrerequisite(t *testing.T) {
-	modes := (term.Config{Features: term.Features{Keyboard: input.KeyboardReportText}}).Modes(nil)
+	modes := mustModes(t, term.Config{Features: term.Features{Keyboard: input.KeyboardReportText}}, nil)
 	if !strings.Contains(modes.Enter(), "\x1b[>24u") || !strings.Contains(modes.Leave(), "\x1b[<u") {
 		t.Fatalf("text-reporting acquisition %q, restoration %q", modes.Enter(), modes.Leave())
 	}
@@ -101,7 +103,7 @@ func TestAcquisitionOwnsOneRequestedKeyboardObservation(t *testing.T) {
 	for _, features := range []term.Features{
 		{}, {Probe: true}, {Keyboard: term.KeyboardCompatible}, {Probe: true, Keyboard: term.KeyboardCompatible},
 	} {
-		modes := (term.Config{Features: features}).Modes(nil)
+		modes := mustModes(t, term.Config{Features: features}, nil)
 		want := 0
 		if features.Probe || features.Keyboard != 0 {
 			want = 1
@@ -114,5 +116,20 @@ func TestAcquisitionOwnsOneRequestedKeyboardObservation(t *testing.T) {
 		if strings.Contains(modes.Leave(), "\x1b[?u") {
 			t.Fatal("restoration queried a terminal whose input is being released")
 		}
+	}
+}
+
+func mustModes(t *testing.T, cfg term.Config, lookup func(string) (string, bool)) term.Modes {
+	t.Helper()
+	modes, err := cfg.Modes(lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return modes
+}
+
+func TestModesRefuseAnUnrestorableCursor(t *testing.T) {
+	if _, err := (term.Config{RestoreCursor: grid.CursorStyle{Shape: grid.CursorShape(255)}}).Modes(nil); err == nil {
+		t.Fatal("an invalid restoration target produced modes")
 	}
 }

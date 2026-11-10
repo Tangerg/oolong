@@ -30,10 +30,10 @@ func blockCount(n int) base.BlockID {
 func assertOneNumbering(t *testing.T, tr *base.Transcript) {
 	t.Helper()
 	first, total := tr.FirstBlock(), 0
-	at := tr.StartRow()
+	at := tr.Layout().StartRow()
 	for i := range tr.Len() {
 		id := first + blockCount(i)
-		top, height, ok := tr.Extent(id)
+		top, height, ok := tr.Layout().Extent(id)
 		if !ok {
 			t.Fatalf("block %d of %d has no extent", i, tr.Len())
 		}
@@ -42,7 +42,7 @@ func assertOneNumbering(t *testing.T, tr *base.Transcript) {
 		}
 		for offset := range height {
 			row := top + offset
-			gotID, gotOffset, ok := tr.At(row)
+			gotID, gotOffset, ok := tr.Layout().At(row)
 			if !ok || gotID != id || gotOffset != offset {
 				t.Fatalf("row %d belongs to block %d offset %d, but block %d says it is its row %d",
 					row, gotID, gotOffset, id, offset)
@@ -50,31 +50,31 @@ func assertOneNumbering(t *testing.T, tr *base.Transcript) {
 		}
 		at, total = at+height, total+height
 	}
-	if at != tr.EndRow() {
-		t.Fatalf("the blocks end at row %d and the transcript ends at %d", at, tr.EndRow())
+	if at != tr.Layout().EndRow() {
+		t.Fatalf("the blocks end at row %d and the transcript ends at %d", at, tr.Layout().EndRow())
 	}
-	if total != tr.Height() {
-		t.Fatalf("the blocks are %d rows and the transcript is %d", total, tr.Height())
+	if total != tr.Layout().Height() {
+		t.Fatalf("the blocks are %d rows and the transcript is %d", total, tr.Layout().Height())
 	}
-	if _, _, ok := tr.At(tr.EndRow()); ok {
-		t.Fatalf("row %d is past the end and belongs to a block anyway", tr.EndRow())
+	if _, _, ok := tr.Layout().At(tr.Layout().EndRow()); ok {
+		t.Fatalf("row %d is past the end and belongs to a block anyway", tr.Layout().EndRow())
 	}
 	// Every row of every block, so the answer is every block with rows in it. A
 	// block of no rows is touched by nothing and is outside it at either end.
-	if tr.Height() > 0 {
+	if tr.Layout().Height() > 0 {
 		wantFirst, wantLast := first, first+blockCount(tr.Len())
 		for wantFirst < wantLast {
-			if _, height, _ := tr.Extent(wantFirst); height > 0 {
+			if _, height, _ := tr.Layout().Extent(wantFirst); height > 0 {
 				break
 			}
 			wantFirst++
 		}
 		for ; wantLast > wantFirst; wantLast-- {
-			if _, height, _ := tr.Extent(wantLast - 1); height > 0 {
+			if _, height, _ := tr.Layout().Extent(wantLast - 1); height > 0 {
 				break
 			}
 		}
-		gotFirst, gotLast := tr.Visible(tr.StartRow(), tr.Height())
+		gotFirst, gotLast := tr.Layout().Visible(tr.Layout().StartRow(), tr.Layout().Height())
 		if gotFirst != wantFirst || gotLast != wantLast {
 			t.Fatalf("every row shows blocks [%d,%d), want [%d,%d)",
 				gotFirst, gotLast, wantFirst, wantLast)

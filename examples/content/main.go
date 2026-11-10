@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/examples/internal/latexlook"
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
 	"github.com/Tangerg/oolong/extensions/highlight"
@@ -25,7 +26,13 @@ import (
 )
 
 func main() {
-	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.Runtime) (scene.Element, error) { return newContent(runtime).Element(), nil }})
+	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.Runtime) (scene.Element, error) {
+		screen, err := newContent(runtime)
+		if err != nil {
+			return scene.Element{}, err
+		}
+		return screen.Element(), nil
+	}})
 	if err == nil {
 		err = app.Run(context.Background())
 	}
@@ -48,19 +55,28 @@ type contentScreen struct {
 const (
 	goFormat       content.Format = "go"
 	latexFormat    content.Format = "latex"
-	markdownFormat content.Format = "markdown"
-	quitContent    keymap.Action  = "quit"
+	markdownFormat content.Format = markdown.Format
 )
 
-func newContent(runtime *program.Runtime) *contentScreen {
+// The key actions name what a key does; the formats name what the registry
+// renders. They are separate vocabularies even where one action shows one format.
+const (
+	showMarkdown keymap.Action = "show-markdown"
+	showCode     keymap.Action = "show-code"
+	showFormula  keymap.Action = "show-formula"
+	quitContent  keymap.Action = "quit"
+)
+
+func newContent(runtime *program.Runtime) (*contentScreen, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
 	look := markdownlook.New(theme, kit.GlyphsFor(runtime.Environment().Locale()))
 	highlighter := highlight.New("github-dark")
 	formulaLook := latexlook.New(theme, runtime.Environment().Locale())
 	screen := &contentScreen{runtime: runtime, theme: theme}
-	screen.keys.Bind(keymap.Action(markdownFormat), input.Chord{Rune: '1'})
-	screen.keys.Bind(keymap.Action(goFormat), input.Chord{Rune: '2'})
-	screen.keys.Bind(keymap.Action(latexFormat), input.Chord{Rune: '3'})
+	screen.element = drawn.Element("content", screen)
+	screen.keys.Bind(showMarkdown, input.Chord{Rune: '1'})
+	screen.keys.Bind(showCode, input.Chord{Rune: '2'})
+	screen.keys.Bind(showFormula, input.Chord{Rune: '3'})
 	screen.keys.Bind(quitContent, input.Chord{Rune: 'q'})
 	screen.keys.Bind(quitContent, input.Ctrl.Rune('c'))
 	registry, err := content.New(content.Config{Bindings: []content.Binding{
@@ -79,8 +95,7 @@ func newContent(runtime *program.Runtime) *contentScreen {
 		}},
 	}})
 	if err != nil {
-		screen.renderErr = err
-		return screen
+		return nil, err
 	}
 	screen.registry = registry
 	look.SetRenderer(markdown.FencedCode, func(info, source string) (grid.Drawable, error) {
@@ -93,7 +108,7 @@ func newContent(runtime *program.Runtime) *contentScreen {
 		return registry.Render(context.Background(), latexFormat, source)
 	})
 	screen.show(markdownFormat, contentSource)
-	return screen
+	return screen, nil
 }
 
 func (s *contentScreen) show(format content.Format, source string) {
@@ -115,37 +130,30 @@ func (s *contentScreen) Draw(view grid.View) {
 		kit.Label{Text: s.renderErr.Error(), Style: s.theme.Danger}.Draw(rows[2])
 		return
 	}
-	kit.Help{Theme: s.theme, Keys: &s.keys, Show: []keymap.Action{
-		keymap.Action(markdownFormat), keymap.Action(goFormat), keymap.Action(latexFormat), quitContent,
-	}}.Draw(rows[2])
+	kit.Help{Theme: s.theme, Keys: &s.keys, Show: []keymap.Action{showMarkdown, showCode, showFormula, quitContent}}.Draw(rows[2])
 }
 
 func (s *contentScreen) Handle(event input.Event) bool {
 	key, ok := event.(input.Key)
-	if !ok || !key.Down() {
+	if !ok {
 		return false
 	}
 	action, bound := s.keys.ActionFor(key)
 	if !bound {
 		return false
 	}
-	if s.registry != nil {
-		switch content.Format(action) {
-		case markdownFormat:
-			s.show(markdownFormat, contentSource)
-			return true
-		case goFormat:
-			s.show(goFormat, "func main() { println(\"Oolong\") }")
-			return true
-		case latexFormat:
-			s.show(latexFormat, `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`)
-			return true
-		}
-	}
-	if action != quitContent {
+	switch action {
+	case showMarkdown:
+		s.show(markdownFormat, contentSource)
+	case showCode:
+		s.show(goFormat, "func main() { println(\"Oolong\") }")
+	case showFormula:
+		s.show(latexFormat, `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`)
+	case quitContent:
+		s.runtime.Quit()
+	default:
 		return false
 	}
-	s.runtime.Quit()
 	return true
 }
 
@@ -163,16 +171,4 @@ $$
 
 The modules share a drawable contract. Each owns its layout and optional text projection.`
 
-func (s *contentScreen) Element() scene.Element {
-	if s.element.IsZero() {
-		s.element = scene.NewElement(scene.ElementConfig{
-			Key:       "content",
-			Focusable: func() bool { return true },
-			Paint:     func(frame scene.Frame) { s.Draw(frame.View) },
-			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: s.Handle(event.Input())}
-			},
-		})
-	}
-	return s.element
-}
+func (s *contentScreen) Element() scene.Element { return s.element }

@@ -21,3 +21,10 @@ func Printable(s string) string {
 	}
 	return b.String()
 }
+
+var lineEndings = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
+// NormalizeLineEndings turns CRLF and lone CR into LF. Every source format reads
+// lines the same way, so a document written on any platform splits into the same
+// lines everywhere it is parsed or edited.
+func NormalizeLineEndings(s string) string { return lineEndings.Replace(s) }

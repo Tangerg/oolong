@@ -58,6 +58,8 @@ const (
 
 func (state SemanticState) Has(flags SemanticState) bool { return flags != 0 && state&flags == flags }
 
+const knownStates = StateChecked<<1 - 1
+
 type ContentAvailability uint8
 
 // Content locations describe which capability can still provide an item.
@@ -80,6 +82,25 @@ const (
 type Relation struct {
 	Kind   RelationKind
 	Target Target
+}
+
+// validate refuses values no automation client can interpret. The behavior owner
+// supplies them, so Observe checks them where they cross into an observation.
+func (s Semantic) validate() error {
+	switch {
+	case s.Role > RoleMenuItem:
+		return fmt.Errorf("%w: semantic role %d", ErrInvalid, s.Role)
+	case s.State&^knownStates != 0:
+		return fmt.Errorf("%w: semantic state %#x", ErrInvalid, s.State)
+	case s.Availability > ContentRetired:
+		return fmt.Errorf("%w: content availability %d", ErrInvalid, s.Availability)
+	}
+	for _, relation := range s.Relations {
+		if relation.Kind > Controls {
+			return fmt.Errorf("%w: relation kind %d", ErrInvalid, relation.Kind)
+		}
+	}
+	return nil
 }
 
 // Semantic is a read projection from the behavior owner. There is no independent
@@ -294,12 +315,12 @@ func (r *Root) Progress() Progress {
 	if r == nil {
 		return Progress{}
 	}
-	p := Progress{ModelRevision: r.modelRevision, WrittenSequence: r.writtenSequence}
+	p := Progress{ModelRevision: r.modelRevision, WrittenSequence: r.frames.sequence}
 	if r.layout != nil {
 		p.LayoutRevision, p.LayoutModelRevision = r.layout.revision, r.layout.model
 	}
-	if r.written != nil {
-		p.WrittenFrame = r.written.revision
+	if written := r.frames.written; written != nil {
+		p.WrittenFrame = written.revision
 	}
 	return p
 }
@@ -308,11 +329,8 @@ func (r *Root) Progress() Progress {
 // or focus. Pagination is pinned to the model revision that produced its cursor.
 // An unsettled frame candidate returns ErrBusy before any projection callback runs.
 func (r *Root) Observe(query Query) (Observation, error) {
-	if r == nil || r.closed {
-		return Observation{}, ErrClosed
-	}
-	if r.preparing || r.observing || r.pending != nil {
-		return Observation{}, ErrBusy
+	if err := r.mutable(); err != nil {
+		return Observation{}, err
 	}
 	query, err := query.normalized()
 	if err != nil {
@@ -448,6 +466,10 @@ func (b *observationBuilder) project(n *node, parent Target) (Target, bool) {
 	if n.config.Semantics != nil {
 		semantic = n.config.Semantics()
 	}
+	if err := semantic.validate(); err != nil {
+		b.err = err
+		return parent, false
+	}
 	if semantic.Role == RoleNone && semantic.Name == "" && n.config.Key == "" && len(n.config.Actions) == 0 {
 		return parent, true
 	}
@@ -498,7 +520,8 @@ func (b *observationBuilder) semanticNode(n *node, parent Target, semantic Seman
 	}
 	semantic.ContentID = budget.text(semantic.ContentID)
 	semantic.Relations = b.relations(semantic.Relations, budget)
-	allowed := r.allowedIn(n, b.modal)
+	access := r.eligibilityIn(n, b.modal)
+	allowed := access == eligible
 	semantic.State &^= StateFocused | StateDisabled
 	if r.focus == n.target() {
 		semantic.State |= StateFocused
@@ -510,14 +533,16 @@ func (b *observationBuilder) semanticNode(n *node, parent Target, semantic Seman
 		Target: budget.target(n.target()), Parent: budget.target(parent), Key: budget.text(n.config.Key),
 		Semantic: semantic, TruncatedText: truncated,
 	}
-	if placement, ok := r.layout.lookup(n.target()); ok && r.layout.epoch == r.geometryEpoch {
-		entry.Bounds, entry.HasBounds = placement.clip, true
+	if r.current(r.layout) {
+		if placement, ok := r.layout.lookup(n.target()); ok {
+			entry.Bounds, entry.HasBounds = placement.clip, true
+		}
 	}
 	for _, action := range n.config.Actions {
 		if !budget.detail() {
 			break
 		}
-		entry.Actions = append(entry.Actions, b.actionDescription(action, allowed, budget))
+		entry.Actions = append(entry.Actions, b.actionDescription(action, access, budget))
 	}
 	return entry
 }
@@ -537,11 +562,11 @@ func (b *observationBuilder) relations(relations []Relation, budget *observation
 	return live
 }
 
-func (b *observationBuilder) actionDescription(action ActionBinding, allowed bool, budget *observationBudget) ActionDescription {
+func (b *observationBuilder) actionDescription(action ActionBinding, access eligibility, budget *observationBudget) ActionDescription {
 	var available Availability
 	needs := !unitParameter(action.parameter)
-	if !allowed {
-		available = Availability{Disabled: true, Reason: "target is outside the active scope"}
+	if access != eligible {
+		available = Availability{Disabled: true, Reason: access.reason()}
 	} else if !needs {
 		available, _ = action.availability(nil)
 	}

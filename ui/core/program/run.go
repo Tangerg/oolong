@@ -321,8 +321,8 @@ func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err
 			// EOF can leave buffered input. Its reader has released its budget,
 			// so draining the accepted events needs no further credit delivery.
 		}
-		if item.repaint {
-			return false, p.answerRepaint(item.reply)
+		if item.repaint != nil {
+			return false, p.answerRepaint(item.repaint)
 		}
 		return false, p.handleInput(item.event)
 
@@ -341,11 +341,11 @@ func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err
 // answerRepaint redraws from nothing and tells whoever asked how it went, before the
 // loop ends on the same error: a caller waiting on the reply would otherwise learn
 // only that the program had stopped.
-func (p *program) answerRepaint(reply func(int, int, error)) error {
+func (p *program) answerRepaint(request *repaintRequest) error {
 	if p.pendingRepaint != nil {
 		panic("program: repaint request already pending")
 	}
-	p.pendingRepaint = &repaintRequest{reply: reply}
+	p.pendingRepaint = request
 	return p.attemptRepaint()
 }
 
@@ -389,11 +389,12 @@ func (p *program) apply(task func() bool) {
 	}
 	before := p.root.Progress().ModelRevision
 	invalidate := task()
-	if p.root.Progress().ModelRevision == before {
-		if !invalidate {
-			return
-		}
+	// An invalidating task always settles the scene: a revision it advanced may
+	// have been only a focus move, which does not settle modal layers itself.
+	if invalidate {
 		p.root.Changed()
+	} else if p.root.Progress().ModelRevision == before {
+		return
 	}
 	p.present.RequestBy(time.Now(), p.frameInterval)
 }

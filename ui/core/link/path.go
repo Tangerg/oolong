@@ -17,6 +17,8 @@ const (
 
 // Consuming a complete token before classifying it prevents a rejected relative
 // path from donating a suffix that looks like a different rooted path or bare name.
+// A quoted span is the exception: its interior is scanned too, because a quoted
+// sentence can contain a path that is the real link.
 type pathScanner struct {
 	source string
 	offset int
@@ -29,8 +31,7 @@ func (s *pathScanner) next() (from, to int, quoted, ok bool) {
 		s.offset += size
 		if (r == '\'' || r == '"') && s.quoteStarts(from) {
 			if end := strings.IndexRune(s.source[s.offset:], r); end >= 0 {
-				s.offset += end + 1
-				return from, s.offset, true, true
+				return from, s.offset + end + 1, true, true
 			}
 		}
 		if !unquotedPathRune(r) {
@@ -109,7 +110,9 @@ func detectPaths(source string, allowBare bool) []Link {
 		}
 		if candidate, ok := pathAt(source, from, to, quoted, allowBare); ok {
 			found = append(found, candidate)
-			scanner.offset = max(scanner.offset, candidate.End)
+			if !quoted {
+				scanner.offset = max(scanner.offset, candidate.End)
+			}
 		}
 	}
 }
@@ -122,13 +125,25 @@ func pathAt(source string, from, to int, quoted, allowBare bool) (Link, bool) {
 		target = trimTrailing(target, false)
 		to = from + len(target)
 	}
-	if _, url := prefixOf(target); url || !pathEvidence(target, quoted, allowBare) {
+	if _, url := prefixOf(target); url || !pathEvidence(target, quoted, allowBare) || quoted && containsAnchoredWord(target) {
 		return Link{}, false
 	}
 	result := Link{Start: from, End: to, Kind: File, Target: target}
 	line, column, size := positionSuffix(source[to:])
 	result.Line, result.Column, result.End = line, column, to+size
 	return result, true
+}
+
+// A quoted phrase whose later words include a rooted, home or drive path is prose
+// around that path, not a file name; the path inside is the candidate.
+func containsAnchoredWord(phrase string) bool {
+	words := strings.Fields(phrase)
+	for _, word := range words[min(1, len(words)):] {
+		if pathAnchorLength(word) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Consume complete decimal tokens before validating their range. A partial

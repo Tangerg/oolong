@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,7 +30,13 @@ import (
 )
 
 func main() {
-	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) { return newReader(runtime).Element(), nil }})
+	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
+		r, err := newReader(runtime)
+		if err != nil {
+			return scene.Element{}, err
+		}
+		return r.Element(), nil
+	}})
 	if err == nil {
 		err = app.Run(context.Background())
 	}
@@ -46,7 +53,7 @@ type reader struct {
 	document *content.StreamDocument
 	render   content.Renderer
 	view     *kit.Transcript
-	pieces   []string
+	pieces   [][]byte
 	at       int
 	scope    *program.Scope
 	spinner  kit.Spinner
@@ -61,16 +68,18 @@ const (
 	leave keymap.Action = "leave"
 )
 
-func newReader(runtime *program.InlineRuntime) *reader { return read(runtime, piece, pace) }
+func newReader(runtime *program.InlineRuntime) (*reader, error) {
+	return newPacedReader(runtime, piece, pace)
+}
 
-func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader {
+func newPacedReader(runtime *program.InlineRuntime, size int, every time.Duration) (*reader, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 
 	r := &reader{
 		runtime: runtime,
 		theme:   theme,
-		pieces:  pieces(answer(), size),
+		pieces:  slices.Collect(slices.Chunk([]byte(answer()), size)),
 		spinner: kit.Spinner{Theme: theme, Glyphs: glyphs, Label: "writing"},
 	}
 	r.keys.Bind(leave, input.Ctrl.Rune('c'))
@@ -88,16 +97,17 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 	})
 	r.render = markdown.NewRenderer(markdown.RendererConfig{Look: look})
 	var err error
-	r.document, err = content.NewStreamDocument(content.StreamConfig{Format: "markdown"})
+	r.document, err = content.NewStreamDocument(content.StreamConfig{Format: markdown.Format})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	r.view, err = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: runtime.Publisher(), Retention: base.PublishCompleted}, Theme: theme, Glyphs: glyphs})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	if _, err = r.view.Controller().AddDocument(r.document); err != nil {
-		panic(err)
+		r.view.Controller().Close()
+		return nil, err
 	}
 	status := scene.NewElement(scene.ElementConfig{Paint: r.paintStatus})
 	r.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
@@ -107,14 +117,16 @@ func read(runtime *program.InlineRuntime, size int, every time.Duration) *reader
 
 	// Title and notification are optional terminal enhancements.
 	_ = runtime.Session().SetTitle("reading")
-	r.scope, r.stepErr = runtime.NewScope(program.ScopeConfig{})
-	if r.stepErr == nil {
-		_, r.stepErr = runtime.Every(r.scope, every, r.advance)
-		if r.stepErr != nil {
-			r.scope.Close()
-		}
+	if r.scope, err = runtime.NewScope(program.ScopeConfig{}); err != nil {
+		r.view.Controller().Close()
+		return nil, err
 	}
-	return r
+	if _, err = runtime.Every(r.scope, every, r.advance); err != nil {
+		r.scope.Close()
+		r.view.Controller().Close()
+		return nil, err
+	}
+	return r, nil
 }
 
 func (r *reader) advance() {
@@ -123,7 +135,7 @@ func (r *reader) advance() {
 		r.finish(nil)
 		return
 	}
-	if err := r.document.Append([]byte(r.pieces[r.at])); err != nil {
+	if err := r.document.Append(r.pieces[r.at]); err != nil {
 		r.finish(err)
 		return
 	}
@@ -173,7 +185,7 @@ func (r *reader) Element() scene.Element { return r.element }
 
 func (r *reader) Handle(ev input.Event) bool {
 	key, ok := ev.(input.Key)
-	if !ok || !key.Down() {
+	if !ok {
 		return false
 	}
 	if action, bound := r.keys.ActionFor(key); bound && action == leave {
@@ -181,14 +193,6 @@ func (r *reader) Handle(ev input.Event) bool {
 		return true
 	}
 	return false
-}
-
-func pieces(whole string, size int) []string {
-	var out []string
-	for i := 0; i < len(whole); i += size {
-		out = append(out, whole[i:min(i+size, len(whole))])
-	}
-	return out
 }
 
 func answer() string {

@@ -66,7 +66,9 @@ func NewButton(config ButtonConfig) *Button {
 				b.matcher.Clear()
 			}
 		},
-		Handle: b.handleEvent, Semantics: func() scene.Semantic { return scene.Semantic{Role: scene.RoleButton, Name: b.label} }, Actions: []scene.ActionBinding{b.action.Binding()},
+		Handle: b.handleEvent, Semantics: func() scene.Semantic {
+			return withFeedback(scene.Semantic{Role: scene.RoleButton, Name: b.label}, b.Error())
+		}, Actions: []scene.ActionBinding{b.action.Binding()},
 	})
 	return b
 }
@@ -75,7 +77,7 @@ func (b *Button) handleEvent(event scene.Event) scene.EventResult {
 	if mouse, ok := event.Input().(input.Mouse); ok {
 		return partEvent(event, func(input.Event) bool {
 			accepted := b.pointer.Handle(mouse)
-			if !accepted || b.pointer.button != input.ButtonLeft {
+			if !accepted || b.pointer.pressedWith() != input.ButtonLeft {
 				return false
 			}
 			if mouse.Action == input.MouseUp && b.pointer.Clicked(input.ButtonLeft) {
@@ -88,11 +90,7 @@ func (b *Button) handleEvent(event scene.Event) scene.EventResult {
 	if !ok {
 		return scene.EventResult{}
 	}
-	bindings := b.keys.current
-	if bindings == nil {
-		bindings = activationKeys()
-	}
-	_, handled := b.matcher.Handle(bindings, key, keyboardReceipt(&b.element), b.Do)
+	_, handled := b.matcher.Handle(b.keys.resolve(activationKeys), key, keyboardReceipt(&b.element), b.Do)
 	return scene.EventResult{Consumed: handled}
 }
 

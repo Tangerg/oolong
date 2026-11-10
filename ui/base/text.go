@@ -25,7 +25,7 @@ type Text struct {
 func (t *Text) Text() string { return t.editor.Text() }
 
 // SetText replaces the owned answer and records one document edit. It panics during presentation or observation.
-func (t *Text) SetText(value string) { t.editor.SetSingleLine(true); t.editor.SetText(value) }
+func (t *Text) SetText(value string) { t.line().SetText(value) }
 
 // Cursor returns the caret's byte offset in the answer.
 func (t *Text) Cursor() int { _, byteOffset := t.editor.Cursor(); return byteOffset }
@@ -55,23 +55,27 @@ func (t *Text) DrawWith(v scene.Frame, look Look) {
 
 // Handle applies local edit input. Mounted applications route events through Element so focus, capture and written-frame geometry remain scene-owned.
 func (t *Text) Handle(event input.Event) bool {
-	t.editor.SetSingleLine(true)
 	if mouse, ok := event.(input.Mouse); ok {
 		event = t.local(mouse)
 	}
-	return t.editor.Handle(event)
+	return t.line().Handle(event)
 }
 
 func (t *Text) Do(action keymap.Action) bool {
-	t.editor.SetSingleLine(true)
-	return t.editor.Do(action)
+	return t.line().Do(action)
 }
 
 // Paste uses the field's single-line edit owner and the same directed completion
 // contract as Editor.Paste, including attachment and cancellation checks.
 func (t *Text) Paste(ctx context.Context, complete func(error)) error {
+	return t.line().Paste(ctx, complete)
+}
+
+// line is the field's editor. Every entry that can change the editor reaches it
+// here, so the field is one line even when it was not built by NewText.
+func (t *Text) line() *Editor {
 	t.editor.SetSingleLine(true)
-	return t.editor.Paste(ctx, complete)
+	return &t.editor
 }
 
 // PasteError exposes keyboard paste feedback from the field's existing editor.

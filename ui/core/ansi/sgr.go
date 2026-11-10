@@ -29,13 +29,15 @@ const (
 	SGRBrightForegroundLast  = 97
 	SGRBrightBackgroundFirst = 100
 	SGRBrightBackgroundLast  = 107
+	// ColorsPerIntensity is how many palette colours each standard and bright
+	// range holds.
+	ColorsPerIntensity = 8
 )
 
 // Subparameters have their own namespace: their numeric overlap with top-level
 // attributes must not make a color mode change an attribute.
 const (
-	SGRColorRGB        = 2
-	SGRColorIndexed    = 5
-	SGRNoUnderline     = 0
-	ColorsPerIntensity = 8
+	SGRColorRGB     = 2
+	SGRColorIndexed = 5
+	SGRNoUnderline  = 0
 )

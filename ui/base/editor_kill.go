@@ -102,10 +102,19 @@ func (k *editorKill) materialise() string {
 	return k.value
 }
 
-type editorContinuation uint8
+// editorContinuation is what the previous command leaves for the next one to
+// continue: a kill that the next kill joins, or a yank that YankPop replaces.
+// It is assigned whole, so a yank range never outlives its yank.
+type editorContinuation struct {
+	kind editorContinuationKind
+	// yank is the inserted range and its ring position; set for a yank only.
+	yank editorYank
+}
+
+type editorContinuationKind uint8
 
 const (
-	editorContinuationNone editorContinuation = iota
+	editorContinuationNone editorContinuationKind = iota
 	editorContinuationKill
 	editorContinuationYank
 )
@@ -113,4 +122,91 @@ const (
 type editorYank struct {
 	start, end Caret
 	ring       int
+}
+
+// KillToEnd cuts from the cursor to the end of the line, keeping what it cut.
+// At the end of a line, the line break itself belongs to the kill.
+func (e *Editor) KillToEnd() {
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
+	e.ensure()
+	start := Caret{Line: e.line, Byte: e.byteOffset}
+	end := Caret{Line: e.line, Byte: len(e.document().lines[e.line])}
+	if start == end && end.Line+1 < len(e.document().lines) {
+		end = Caret{Line: end.Line + 1}
+	}
+	e.killRange(start, end, false)
+}
+
+// KillToStart cuts from the start of the line to the cursor.
+func (e *Editor) KillToStart() {
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
+	e.ensure()
+	e.killRange(Caret{Line: e.line}, Caret{Line: e.line, Byte: e.byteOffset}, true)
+}
+
+func (e *Editor) killRange(start, end Caret, prepend bool) {
+	join := e.continuation.kind == editorContinuationKill
+	if start == end {
+		e.endTyping()
+		return
+	}
+	killed := e.document().textBetween(start, end)
+	e.document().replace(e, editReplacement{start: start, end: end}, func(at Caret, changed bool) {
+		e.rememberKill(killed, prepend, join)
+		e.finishReplacement(at, changed)
+	})
+}
+
+// Yank puts back the most recently killed text.
+func (e *Editor) Yank() {
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
+	killed, ok := e.kills.newest()
+	if !ok {
+		e.endTyping()
+		return
+	}
+	e.ensure()
+	start, end := Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: e.byteOffset}
+	if first, last, selected := e.Selection(); selected {
+		start, end = first, last
+	}
+	e.applyYank(start, end, killed, 0)
+}
+
+// YankPop replaces the immediately preceding yank with the next older kill, cycling
+// through the bounded ring. Any intervening edit, movement, or selection ends the
+// sequence and makes this a no-op.
+func (e *Editor) YankPop() {
+	e.beginViewUpdate()
+	defer e.endViewUpdate()
+	previous := e.continuation
+	if previous.kind != editorContinuationYank {
+		e.endTyping()
+		return
+	}
+	killed, next, ok := e.kills.older(previous.yank.ring)
+	if !ok {
+		e.endTyping()
+		return
+	}
+	e.applyYank(previous.yank.start, previous.yank.end, killed, next)
+}
+
+func (e *Editor) applyYank(start, end Caret, killed string, ring int) {
+	e.document().replace(e, editReplacement{start: start, end: end, text: killed}, func(at Caret, changed bool) {
+		e.finishReplacement(at, changed)
+		e.continuation = editorContinuation{kind: editorContinuationYank, yank: editorYank{start: start, end: at, ring: ring}}
+	})
+}
+
+func (e *Editor) breakContinuation() {
+	e.continuation = editorContinuation{}
+}
+
+func (e *Editor) rememberKill(text string, prepend, join bool) {
+	e.kills.add(text, prepend, join)
+	e.continuation = editorContinuation{kind: editorContinuationKill}
 }

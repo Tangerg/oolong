@@ -57,12 +57,12 @@ func TestClaimedRepaintWaitsForPreparationAndPreservesInputOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.runTasks()
-	if err := p.answerRepaint(func(w, h int, err error) {
+	if err := p.answerRepaint(&repaintRequest{reply: func(w, h int, err error) {
 		replies++
 		if err != nil || w != 20 || h != 4 || inputs != 0 || writer.Written() != writer.queued || len(writer.frames) != 1 {
 			t.Errorf("premature repaint: size=%dx%d inputs=%d written=%d frames=%d err=%v", w, h, inputs, writer.Written(), len(writer.frames), err)
 		}
-	}); err != nil {
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	if replies != 0 || p.pendingRepaint == nil {
@@ -92,12 +92,12 @@ func TestCancellationSettlesAPreparationBlockedRepaint(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.runTasks()
-	if err := p.answerRepaint(func(w, h int, err error) {
+	if err := p.answerRepaint(&repaintRequest{reply: func(w, h int, err error) {
 		replies++
 		if w != 0 || h != 0 || !errors.Is(err, ErrStopped) {
 			t.Errorf("cancelled repaint size=%dx%d err=%v", w, h, err)
 		}
-	}); err != nil {
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -123,12 +123,12 @@ func TestInputEOFFailsPendingRepaintBeforeDrainingAcceptedInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.runTasks()
-	if err := p.answerRepaint(func(w, h int, err error) {
+	if err := p.answerRepaint(&repaintRequest{reply: func(w, h int, err error) {
 		replies++
 		if w != 0 || h != 0 || !errors.Is(err, ErrStopped) {
 			t.Errorf("EOF repaint size=%dx%d err=%v", w, h, err)
 		}
-	}); err != nil {
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	p.inputPipe.events <- ownerInput{event: p.root.CaptureInput(input.Key{Rune: 'x'}, nil), bytes: 1}
@@ -277,12 +277,12 @@ func TestResumedRepaintFailureEndsTheSessionAfterItsErrorReply(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if err := p.answerRepaint(func(w, h int, err error) {
+		if err := p.answerRepaint(&repaintRequest{reply: func(w, h int, err error) {
 			replies++
 			if w != 0 || h != 0 || !errors.Is(err, term.ErrQueueFull) {
 				t.Errorf("failed repaint size=%dx%d err=%v", w, h, err)
 			}
-		}); err != nil {
+		}}); err != nil {
 			t.Fatal(err)
 		}
 		ready = true

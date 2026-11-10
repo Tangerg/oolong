@@ -72,7 +72,11 @@ func TestRefusedTitleCannotCreateOrReplaceRestorationState(t *testing.T) {
 func TestTitleAdmissionReservesEnoughRoomForReacquisition(t *testing.T) {
 	w := NewWriter(WriterConfig{Destination: io.Discard})
 	defer func() { _ = w.Close() }()
-	terminal := &Terminal{writer: w, modes: Config{AltScreen: true}.Modes(nil)}
+	modes, err := Config{AltScreen: true}.Modes(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := &Terminal{writer: w, modes: modes}
 	if err := terminal.SetTitle("accepted"); err != nil {
 		t.Fatal(err)
 	}

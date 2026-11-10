@@ -35,7 +35,7 @@ func TestCloseJoinsInputBeforeRestoringTheTerminal(t *testing.T) {
 		return
 	}
 
-	tty := newTerminal(os.Stdin, os.Stdout, Config{}, nil)
+	tty := newTerminal(os.Stdin, os.Stdout, Config{}, Modes{}, nil)
 	var err error
 	tty.inFD, err = checkedTerminalFD(os.Stdin, "input")
 	if err != nil {

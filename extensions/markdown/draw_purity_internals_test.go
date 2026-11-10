@@ -186,13 +186,13 @@ func meaningOfDoc(doc *Doc) docMeaning {
 	meaning := docMeaning{}
 	for _, block := range doc.Blocks() {
 		var body strings.Builder
-		for _, line := range block.lines {
+		for _, line := range block.lines() {
 			body.WriteString(line.String())
 			body.WriteByte('\n')
 		}
 		var tableBody strings.Builder
-		if block.table != nil {
-			for _, tableRow := range block.table.rows {
+		if table := block.table(); table != nil {
+			for _, tableRow := range table.rows {
 				for _, cell := range tableRow {
 					tableBody.WriteString(cell.String())
 					tableBody.WriteByte('\t')
@@ -201,8 +201,8 @@ func meaningOfDoc(doc *Doc) docMeaning {
 			}
 		}
 		var rule text.Span
-		if block.rule != nil {
-			rule = *block.rule
+		if glyph := block.rule(); glyph != nil {
+			rule = *glyph
 		}
 		value := blockMeaning{
 			text:   body.String(),
@@ -212,7 +212,7 @@ func meaningOfDoc(doc *Doc) docMeaning {
 			rule:   rule,
 			gap:    block.blankBefore,
 		}
-		if item := block.item; item != nil {
+		if item := block.item(); item != nil {
 			value.marker = markText(item.marker)
 			value.rail = markText(item.prefix.rails)
 			value.indent = item.prefix.indent
@@ -234,7 +234,7 @@ func markText(mark *prefixMark) string {
 func plain(s string) text.Line { return text.Of(s, grid.Style{}) }
 
 func markdownDrawPurityCases() []drawPurityCase {
-	block := Block{lines: []text.Line{plain("passive block")}}
+	block := Block{body: textBody{plain("passive block")}}
 	cases := []drawPurityCase{{
 		name: "Block", width: 14, height: 2, draw: block.Draw, measure: block.HeightForWidth,
 	}}
@@ -247,22 +247,22 @@ func markdownDrawPurityCases() []drawPurityCase {
 	doc := &Doc{}
 	item := &listItem{
 		body: Snapshot{blocks: []Block{{
-			lines:  []text.Line{plain("an item long enough to wrap twice over")},
+			body:   textBody{plain("an item long enough to wrap twice over")},
 			prefix: blockPrefix{indent: 2},
 		}}},
 		prefix: blockPrefix{indent: 2},
 		marker: &prefixMark{span: text.Span{Text: "- "}},
 	}
 	doc.SetBlocks([]Block{
-		{lines: []text.Line{plain("a heading")}},
-		{item: item, blankBefore: true},
+		{body: textBody{plain("a heading")}},
+		{body: item, blankBefore: true},
 		{
-			lines:  []text.Line{plain("a quotation that also wraps")},
+			body:   textBody{plain("a quotation that also wraps")},
 			prefix: blockPrefix{indent: 2, rails: &prefixMark{span: text.Span{Text: "| "}}}, blankBefore: true,
 		},
-		{rule: &text.Span{Text: "-"}, blankBefore: true},
+		{body: ruleBody{glyph: text.Span{Text: "-"}}, blankBefore: true},
 		{
-			table: &table{
+			body: &table{
 				rows: [][]text.Line{
 					{plain("name"), plain("description")},
 					{plain("one"), plain("a value long enough to wrap")},
@@ -271,7 +271,7 @@ func markdownDrawPurityCases() []drawPurityCase {
 			},
 			blankBefore: true,
 		},
-		{lines: []text.Line{plain("after the rule")}, blankBefore: true},
+		{body: textBody{plain("after the rule")}, blankBefore: true},
 	})
 	prepared := &Snapshot{blocks: doc.Blocks()}
 	projection := prepared.arrange(14)

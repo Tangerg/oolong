@@ -185,27 +185,12 @@ type Completion struct {
 	element scene.Element
 	noCopy  noCopy
 
-	look Look
-	// CurrentToken ties an offer to a live editing position. Cursor movement alone
-	// can invalidate it without an edit-session notification. The query must be pure.
+	look         Look
 	currentToken func() (Token, bool)
-	// Renderer owns the one-row layout and its intrinsic width. Nil uses
-	// DefaultCompletionRenderer. Callbacks must be observationally pure.
-	renderer CompletionRenderer
-	// MaxRows caps how tall the list gets, so a thousand files do not become a
-	// thousand rows. Zero uses [DefaultCompletionRows].
-	maxRows int
-	// Keys say which keystrokes produce which of the actions a completion answers to —
-	// its own two, and the list movement inside it. Nil reads through
-	// [DefaultCompletionKeys].
-	keys keyBinding
-	// Accept is called when the user takes a candidate, with the token it replaces.
-	// The completion has closed itself by then, so this is free to change the text the
-	// token came from.
-	//
-	// Without it there is nothing accepting could do, and the keystroke is left for
-	// whatever else might want it rather than swallowed.
-	accept func(c Candidate, t Token)
+	renderer     CompletionRenderer
+	maxRows      int
+	keys         keyBinding
+	accept       func(c Candidate, t Token)
 
 	list    List[Candidate]
 	token   Token
@@ -217,19 +202,30 @@ type Completion struct {
 const DefaultCompletionRows = 8
 
 type CompletionConfig struct {
-	Look         Look
+	Look Look
+	// CurrentToken ties an offer to a live editing position. Cursor movement alone
+	// can invalidate it without an edit-session notification. The query must be pure.
 	CurrentToken func() (Token, bool)
-	Renderer     CompletionRenderer
-	MaxRows      int
-	Keys         *keymap.Map
-	Accept       func(Candidate, Token)
+	// Renderer owns the one-row layout and its intrinsic width. Nil uses
+	// DefaultCompletionRenderer. Callbacks must be observationally pure.
+	Renderer CompletionRenderer
+	// MaxRows caps how tall the list gets, so a thousand files do not become a
+	// thousand rows. Zero uses [DefaultCompletionRows].
+	MaxRows int
+	// Keys say which keystrokes produce which of the actions a completion answers to:
+	// its own two, and the list movement inside it. Nil reads through
+	// [DefaultCompletionKeys].
+	Keys *keymap.Map
+	// Accept is called when the user takes a candidate, with the token it replaces.
+	// The completion has closed itself by then, so this is free to change the text
+	// the token came from. Without it there is nothing accepting could do, and the
+	// keystroke is left for whatever else might want it rather than swallowed.
+	Accept func(Candidate, Token)
 }
 
 // NewCompletion panics for negative MaxRows; zero selects DefaultCompletionRows.
 func NewCompletion(config CompletionConfig) *Completion {
-	if config.MaxRows < 0 {
-		panic("base: completion MaxRows cannot be negative")
-	}
+	requireNonNegative("completion MaxRows", config.MaxRows)
 	return &Completion{
 		look: config.Look, currentToken: config.CurrentToken, renderer: config.Renderer,
 		maxRows: config.MaxRows, keys: keyBinding{current: config.Keys}, accept: config.Accept,
@@ -480,12 +476,7 @@ func (c *Completion) rows() int {
 	return DefaultCompletionRows
 }
 
-func (c *Completion) resolvedKeys() *keymap.Map {
-	if c.keys.current != nil {
-		return c.keys.current
-	}
-	return completionKeys()
-}
+func (c *Completion) resolvedKeys() *keymap.Map { return c.keys.resolve(completionKeys) }
 
 func (c *Completion) Look() Look { return c.look }
 
@@ -533,9 +524,7 @@ func (c *Completion) MaxRows() int { return c.maxRows }
 func (c *Completion) SetMaxRows(value int) {
 	element := c.Element()
 	requireMutable(element)
-	if value < 0 {
-		panic("base: MaxRows cannot be negative")
-	}
+	requireNonNegative("completion MaxRows", value)
 	if c.maxRows == value {
 		return
 	}

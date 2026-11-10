@@ -8,20 +8,11 @@ import (
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
-func rowsMeasure(height func(int) int) func(layout.Axis, int) int {
-	return func(axis layout.Axis, across int) int {
-		if axis == layout.Down {
-			return height(across)
-		}
-		return 0
-	}
-}
-
 func (t *Text) Element() scene.Element {
 	if t.element.IsZero() {
-		t.editor.SetSingleLine(true)
+		t.line()
 		t.element = scene.NewElement(scene.ElementConfig{
-			Key: t.key, Measure: rowsMeasure(t.HeightForWidth), Paint: t.Draw,
+			Key: t.key, Measure: scene.MeasureRows(t.HeightForWidth), Paint: t.Draw,
 			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, t.Handle, &t.geometry, &t.editor.geometry) }, Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
 			Semantics: func() scene.Semantic {
 				return scene.Semantic{Role: scene.RoleTextBox, Name: t.label, Value: t.editor.semanticValue(), Sensitive: t.Mask() != "", ContentRevision: t.Revision(), State: t.semanticState()}
@@ -49,7 +40,7 @@ func (c *Confirm) Element() scene.Element {
 			return scene.ActionResult[bool]{State: result.State, Value: result.Value.Value}, err
 		}})
 		c.element = scene.NewElement(scene.ElementConfig{
-			Key: c.key, Enabled: func() bool { return !c.closed }, Measure: rowsMeasure(c.HeightForWidth), Paint: c.Draw,
+			Key: c.key, Enabled: func() bool { return !c.closed }, Measure: scene.MeasureRows(c.HeightForWidth), Paint: c.Draw,
 			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, c.Handle, &c.geometry) }, Focusable: func() bool { return true }, FocusChanged: c.focusChanged,
 			Semantics: func() scene.Semantic {
 				state := c.semanticState()
@@ -57,7 +48,8 @@ func (c *Confirm) Element() scene.Element {
 				if snapshot.Value {
 					state |= scene.StateChecked
 				}
-				return scene.Semantic{Role: scene.RoleCheckBox, Name: c.label, Value: strconv.FormatBool(snapshot.Value), State: state}
+				semantic := scene.Semantic{Role: scene.RoleCheckBox, Name: c.label, Value: strconv.FormatBool(snapshot.Value), State: state}
+				return withFeedback(semantic, c.ChangeError())
 			}, Actions: []scene.ActionBinding{set.Binding()},
 		})
 	}
@@ -80,8 +72,8 @@ func (s *Select[T]) Element() scene.Element {
 			selected, _ := s.Chosen()
 			return scene.ActionResult[T]{State: state, Value: selected.Value}, nil
 		}})
-		s.element = scene.NewElement(scene.ElementConfig{
-			Key: s.key, Measure: rowsMeasure(s.HeightForWidth), Paint: s.Draw,
+		s.adopt(scene.NewElement(scene.ElementConfig{
+			Key: s.key, Measure: scene.MeasureRows(s.HeightForWidth), Paint: s.Draw,
 			Handle: func(e scene.Event) scene.EventResult {
 				return partEvent(e, s.Handle, &s.geometry, &s.list.geometry, &s.list.pointer.geometry)
 			}, Focusable: func() bool { return true }, FocusChanged: s.focusChanged,
@@ -89,36 +81,30 @@ func (s *Select[T]) Element() scene.Element {
 				choice, _ := s.Chosen()
 				return scene.Semantic{Role: scene.RoleList, Name: s.label, Value: choice.Label, ContentRevision: s.list.contentRevision, State: s.semanticState()}
 			}, Actions: []scene.ActionBinding{selectValue.Binding(), collectionReadAction(&s.list, unchangedItem[Option[T]])},
-		})
+		}))
 	}
-	s.list.element = s.element
-	s.list.scroll.element = s.element
-	s.keys.attach(s.element, &s.matcher)
 	return s.element
 }
 
 func (m *MultiSelect[T]) Element() scene.Element {
 	if m.element.IsZero() {
-		m.element = scene.NewElement(scene.ElementConfig{
-			Key: m.key, Measure: rowsMeasure(m.HeightForWidth), Paint: m.Draw,
+		m.adopt(scene.NewElement(scene.ElementConfig{
+			Key: m.key, Measure: scene.MeasureRows(m.HeightForWidth), Paint: m.Draw,
 			Handle: func(e scene.Event) scene.EventResult {
 				return partEvent(e, m.Handle, &m.geometry, &m.list.geometry, &m.list.pointer.geometry)
 			}, Focusable: func() bool { return true }, FocusChanged: m.focusChanged,
 			Semantics: func() scene.Semantic {
 				return scene.Semantic{Role: scene.RoleList, Name: m.label, Value: m.takenLabels(), ContentRevision: m.list.contentRevision, State: m.semanticState()}
 			}, Actions: append(collectionActions(&m.list, m.choiceState), m.setTakenAction()),
-		})
+		}))
 	}
-	m.list.element = m.element
-	m.list.scroll.element = m.element
-	m.keys.attach(m.element, &m.matcher)
 	return m.element
 }
 
 func (e *Editor) Element() scene.Element {
 	if e.element.IsZero() {
 		e.element = scene.NewElement(scene.ElementConfig{
-			Measure: rowsMeasure(e.HeightForWidth), Paint: e.Draw,
+			Measure: scene.MeasureRows(e.HeightForWidth), Paint: e.Draw,
 			Handle: func(event scene.Event) scene.EventResult { return partEvent(event, e.Handle, &e.geometry) }, Focusable: func() bool { return true }, FocusChanged: e.focusChanged,
 			Semantics: func() scene.Semantic {
 				return scene.Semantic{Role: scene.RoleTextBox, Name: e.placeholder, Value: e.semanticValue(), Sensitive: e.Mask() != "", ContentRevision: e.Revision()}
@@ -159,7 +145,7 @@ func (e *Editor) semanticValue() string {
 func (l *List[T]) Element() scene.Element {
 	if l.element.IsZero() {
 		l.element = scene.NewElement(scene.ElementConfig{
-			Measure: rowsMeasure(l.HeightForWidth), Paint: l.Draw,
+			Measure: scene.MeasureRows(l.HeightForWidth), Paint: l.Draw,
 			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, l.Handle, &l.geometry, &l.pointer.geometry) }, Focusable: func() bool { return true }, FocusChanged: l.focusChanged,
 			Semantics: func() scene.Semantic {
 				return scene.Semantic{Role: scene.RoleList, ContentRevision: l.contentRevision, Value: strconv.Itoa(l.Selected())}
@@ -174,7 +160,7 @@ func (l *List[T]) Element() scene.Element {
 func (t *Tree[T]) Element() scene.Element {
 	if t.element.IsZero() {
 		t.element = scene.NewElement(scene.ElementConfig{
-			Measure: rowsMeasure(t.HeightForWidth), Paint: t.Draw,
+			Measure: scene.MeasureRows(t.HeightForWidth), Paint: t.Draw,
 			Handle: func(event scene.Event) scene.EventResult {
 				return partEvent(event, t.Handle, &t.list.geometry, &t.list.pointer.geometry)
 			},
@@ -192,7 +178,7 @@ func (t *Tree[T]) Element() scene.Element {
 func (f *Filter[T]) Element() scene.Element {
 	if f.element.IsZero() {
 		f.element = scene.NewElement(scene.ElementConfig{
-			Measure: rowsMeasure(f.HeightForWidth), Paint: f.Draw,
+			Measure: scene.MeasureRows(f.HeightForWidth), Paint: f.Draw,
 			Handle: func(e scene.Event) scene.EventResult {
 				return partEvent(e, f.Handle, &f.list.geometry, &f.list.pointer.geometry)
 			}, Focusable: func() bool { return true }, FocusChanged: f.focusChanged,
@@ -210,7 +196,7 @@ func (f *Filter[T]) Element() scene.Element {
 func (t *Table[T]) Element() scene.Element {
 	if t.element.IsZero() {
 		t.element = scene.NewElement(scene.ElementConfig{
-			Measure: rowsMeasure(t.HeightForWidth), Paint: t.Draw,
+			Measure: scene.MeasureRows(t.HeightForWidth), Paint: t.Draw,
 			Handle: func(event scene.Event) scene.EventResult {
 				return partEvent(event, t.Handle, &t.rows.geometry, &t.rows.pointer.geometry)
 			},
@@ -228,7 +214,7 @@ func (t *Table[T]) Element() scene.Element {
 func (s *Settings[T]) Element() scene.Element {
 	if s.list.element.IsZero() {
 		s.list.element = scene.NewElement(scene.ElementConfig{
-			Measure: rowsMeasure(s.list.HeightForWidth), Paint: s.list.Draw,
+			Measure: scene.MeasureRows(s.list.HeightForWidth), Paint: s.list.Draw,
 			Handle: func(e scene.Event) scene.EventResult {
 				return partEvent(e, s.Handle, &s.list.geometry, &s.list.pointer.geometry)
 			}, Focusable: func() bool { return true }, FocusChanged: s.focusChanged,
@@ -294,7 +280,7 @@ func (c *Completion) Element() scene.Element {
 			}
 			return scene.ActionResult[struct{}]{State: state}, nil
 		}})
-		c.element = scene.NewElement(scene.ElementConfig{Enabled: c.Open, Measure: rowsMeasure(c.HeightForWidth), Paint: c.Draw, Handle: func(event scene.Event) scene.EventResult {
+		c.element = scene.NewElement(scene.ElementConfig{Enabled: c.Open, Measure: scene.MeasureRows(c.HeightForWidth), Paint: c.Draw, Handle: func(event scene.Event) scene.EventResult {
 			return partEvent(event, c.Handle, &c.list.geometry, &c.list.pointer.geometry)
 		}, Semantics: func() scene.Semantic {
 			return scene.Semantic{Role: scene.RoleList, ContentRevision: c.list.contentRevision, Value: strconv.Itoa(c.list.Selected())}

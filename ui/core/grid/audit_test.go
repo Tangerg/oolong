@@ -73,7 +73,7 @@ func TestInvalidatedCanvasClosesExternalHyperlinkBeforeText(t *testing.T) {
 			var scanner ansi.Scanner
 			linked, seen, seenExternal := false, false, false
 			err := scanner.Feed(output.String(), func(piece ansi.Piece) error {
-				if piece.Kind == ansi.String && piece.Final == ']' && strings.HasPrefix(piece.Body, "8;") {
+				if piece.Kind == ansi.String && piece.Family == ansi.OSC && strings.HasPrefix(piece.Body, "8;") {
 					linked = piece.Body != "8;;"
 					seenExternal = seenExternal || linked
 				}

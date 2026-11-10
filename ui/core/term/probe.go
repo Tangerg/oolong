@@ -243,6 +243,9 @@ func (p *probe) graphicsResult(body string) graphicsProbeResult {
 
 func colorQuery(command int) string { return fmt.Sprintf("\x1b]%d;?\x07", command) }
 
+// sixelAttribute is the DA1 attribute a terminal reports for Sixel graphics.
+const sixelAttribute = 4
+
 // DA1 is sent last. Once it arrives, a missing Kitty reply rules out direct
 // graphics on this channel, even when TERM names the outer terminal.
 func (a answers) graphics(hint graphics.Protocol) graphics.Protocol {

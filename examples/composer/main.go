@@ -7,11 +7,8 @@ import (
 	"fmt"
 	"image"
 	"os"
-	"slices"
-	"strings"
 
 	"github.com/Tangerg/oolong/ui/base"
-	"github.com/Tangerg/oolong/ui/core/fuzzy"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -45,8 +42,6 @@ func main() {
 		os.Exit(1)
 	}
 }
-
-type reference struct{ name, detail string }
 
 type prompt struct {
 	runtime *program.Runtime
@@ -88,7 +83,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 		pastes: make(map[base.ElementID]pasteText),
 	}
 	p.composer = kit.NewComposer(kit.ComposerConfig{
-		Theme: theme, Prompt: glyphs.Marker + " ", Keys: keys,
+		Theme: theme, Glyphs: glyphs, Prompt: glyphs.Marker + " ", Keys: keys,
 		Hints: []keymap.Action{submitPrompt, previousPrompt, nextPrompt, quitPrompt}, MaxRows: 1,
 		Placeholder: "Type @ to reference something", Clipboard: runtime.Clipboard(),
 	})
@@ -99,7 +94,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 			return p.composer.Controller().TokenAtCursor(base.Trigger{Prefix: "@"})
 		},
 		Accept: func(candidate base.Candidate, token base.Token) {
-			p.composer.Controller().Replace(token.Start, token.End, candidate.Text)
+			p.composer.Controller().Replace(token.Line, token.Start, token.End, candidate.Text)
 			p.completion.Dismiss()
 		},
 	})
@@ -124,8 +119,8 @@ func newPrompt(runtime *program.Runtime) *prompt {
 		{Element: p.completion.Element(), Size: layout.Measured(0, 0)},
 		{Element: completionHelp, Size: layout.Fixed(1)},
 	}})
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{
-		Theme: theme, Glyphs: glyphs, Title: "references", Padding: layout.Symmetric(0, 1),
+	panel := kit.NewPanel(kit.PanelConfig{Theme: theme, Box: kit.Box{
+		Glyphs: glyphs, Title: "references", Padding: layout.Symmetric(0, 1),
 	}, Content: completionBody.Element()})
 	popup := scene.NewGroup(scene.GroupConfig{
 		Element: scene.ElementConfig{Enabled: p.completion.Open}, Items: []scene.Item{{Element: panel.Element()}},
@@ -170,7 +165,6 @@ func (p *prompt) Handle(event input.Event) bool {
 		return true
 	}
 	if _, isMouse := event.(input.Mouse); !isMouse && p.completion.Handle(event) {
-		p.releaseRemovedPastes()
 		return true
 	}
 	if paste, ok := event.(input.Paste); ok && pasteText(paste.Text).lineCount() >= largePasteLines {
@@ -180,7 +174,6 @@ func (p *prompt) Handle(event input.Event) bool {
 	switch action {
 	case submitPrompt:
 		p.submit()
-		return true
 	case previousPrompt:
 		p.recallBack()
 	case nextPrompt:
@@ -188,193 +181,7 @@ func (p *prompt) Handle(event input.Event) bool {
 	default:
 		return false
 	}
-	p.releaseRemovedPastes()
-	p.refreshCompletion()
 	return true
-}
-
-func (p *prompt) insertPaste(body string) {
-	paste := pasteText(body)
-	p.attach(paste)
-	p.status = fmt.Sprintf("%d-line paste attached; backspace removes it atomically", paste.lineCount())
-	p.refreshCompletion()
-}
-
-func (p *prompt) attach(body pasteText) {
-	element := p.composer.Controller().InsertElement(pasteElement, body.label())
-	if element.ID != (base.ElementID{}) {
-		if p.pastes == nil {
-			p.pastes = make(map[base.ElementID]pasteText)
-		}
-		p.pastes[element.ID] = pasteText(strings.Clone(string(body)))
-	}
-}
-
-type draft struct {
-	text  string
-	chips []chip
-}
-
-// History stores payload identity with its offset because equal visible labels
-// can refer to different original pastes.
-type chip struct {
-	at   int
-	body pasteText
-}
-
-func (d draft) clone() draft {
-	d.text = strings.Clone(d.text)
-	d.chips = slices.Clone(d.chips)
-	return d
-}
-
-func (d draft) equal(other draft) bool {
-	return d.text == other.text && slices.Equal(d.chips, other.chips)
-}
-
-func (p *prompt) current() draft {
-	editor := p.composer.Controller()
-	text := editor.Text()
-	lines := strings.Split(text, "\n")
-	starts := make([]int, len(lines))
-	at := 0
-	for i, line := range lines {
-		starts[i] = at
-		at += len(line) + 1
-	}
-	d := draft{text: text}
-	for _, element := range editor.Elements() {
-		body, ok := p.pastes[element.ID]
-		if !ok || element.Line < 0 || element.Line >= len(starts) {
-			continue
-		}
-		d.chips = append(d.chips, chip{at: starts[element.Line] + element.Start, body: body})
-	}
-	return d
-}
-
-// History must restore attachment elements, not just their labels, so each
-// recalled draft keeps the original payload and editing behavior.
-func (p *prompt) restore(d draft) {
-	editor := p.composer.Controller()
-	if len(d.chips) == 0 {
-		editor.SetText(d.text)
-		p.releaseRemovedPastes()
-		return
-	}
-	editor.SetText("")
-	p.releaseRemovedPastes()
-	at := 0
-	for _, c := range d.chips {
-		if c.at < at || c.at > len(d.text) {
-			break
-		}
-		editor.Insert(d.text[at:c.at])
-		p.attach(c.body)
-		at = c.at + len(c.body.label())
-		// InsertElement writes the separator that follows a chip. Where the recorded
-		// document has one it is that one, and where it does not — the writer deleted
-		// it and carried straight on — it is a word this draft never had.
-		if at < len(d.text) && d.text[at] == ' ' {
-			at++
-			continue
-		}
-		editor.DeleteBack()
-	}
-	if at <= len(d.text) {
-		editor.Insert(d.text[at:])
-	}
-}
-
-func (p *prompt) recallBack() {
-	if value, moved := p.history.Back(p.current()); moved {
-		p.restore(value)
-	}
-}
-
-func (p *prompt) recallForward() {
-	if value, moved := p.history.Forward(); moved {
-		p.restore(value)
-	}
-}
-
-type pasteText string
-
-func (p pasteText) lineCount() int {
-	lines := 1
-	for i := 0; i < len(p); i++ {
-		switch p[i] {
-		case '\n':
-			lines++
-		case '\r':
-			lines++
-			if i+1 < len(p) && p[i+1] == '\n' {
-				i++
-			}
-		}
-	}
-	return lines
-}
-
-func (p pasteText) label() string {
-	return fmt.Sprintf("[paste %d lines]", p.lineCount())
-}
-
-func (p *prompt) releaseRemovedPastes() {
-	live := make(map[base.ElementID]struct{})
-	for _, id := range p.composer.Controller().RetainedElementIDs() {
-		live[id] = struct{}{}
-	}
-	for id := range p.pastes {
-		if _, ok := live[id]; !ok {
-			delete(p.pastes, id)
-		}
-	}
-}
-
-func (p *prompt) submit() {
-	body := strings.TrimSpace(p.composer.Controller().Text())
-	if body == "" {
-		return
-	}
-	sent := p.current()
-	// The offsets were taken against the whole document and the entry is what is
-	// left of it once the surrounding blank space is gone.
-	lead := strings.Index(sent.text, body)
-	var chips []chip
-	for _, c := range sent.chips {
-		if at := c.at - lead; at >= 0 && at <= len(body) {
-			chips = append(chips, chip{at: at, body: c.body})
-		}
-	}
-	attached := len(chips)
-	p.history.Add(draft{text: body, chips: chips})
-	p.output.SetText([]text.Line{
-		text.Of("sent: "+body, p.theme.Text),
-		text.Of(fmt.Sprintf("%d attached paste(s); the application still owns their original bytes", attached), p.theme.Muted),
-	})
-	p.status = "submitted; recall history without losing the current draft"
-	p.composer.Controller().Clear()
-	p.composer.Controller().ForgetHistory()
-	p.completion.Dismiss()
-	clear(p.pastes)
-}
-
-func (p *prompt) refreshCompletion() {
-	token, ok := p.completion.CurrentToken()
-	if !ok {
-		p.completion.Dismiss()
-		return
-	}
-	matches := fuzzy.FilterFunc(token.Query, p.references, func(r reference) string { return r.name })
-	candidates := make([]base.Candidate, 0, len(matches))
-	for _, match := range matches {
-		item := p.references[match.Index]
-		candidates = append(candidates, base.Candidate{
-			Text: item.name, Label: item.name, Detail: item.detail, Matched: match.Match.At,
-		})
-	}
-	p.completion.Offer(token, candidates)
 }
 
 func (p *prompt) Element() scene.Element { return p.element }

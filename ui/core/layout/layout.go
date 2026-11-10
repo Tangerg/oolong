@@ -205,9 +205,10 @@ func (s Sizing) AtLeast(minimum int) Sizing {
 
 type Slot struct {
 	Size Sizing
-	// Of is asked how much of the divided axis this slot wants, and is only
-	// consulted when Size says the slot is measured. A measured slot with nothing to
-	// ask gets its floor, which is zero unless one was set.
+	// Of is asked how much of the divided axis a measured slot wants, and how much
+	// of the cross axis any slot wants when the flow measures its own extent. A
+	// measured slot with nothing to ask gets its floor, which is zero unless one was
+	// set.
 	Of Measurer
 	// Cross is where the slot's item sits across the other axis. The zero value
 	// fills it.

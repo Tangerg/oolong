@@ -111,17 +111,16 @@ func detectURLs(s string) []Link {
 	var found []Link
 	scanner := urlScanner{source: s}
 	for {
-		from, to, quoted, ok := scanner.next()
+		from, to, delimited, ok := scanner.next()
 		if !ok {
 			return found
 		}
-		text := trimTrailing(s[from:to], quoted)
+		text := trimTrailing(s[from:to], delimited)
 		scheme, ok := prefixOf(text)
 		if !ok || len(text) == len(scheme) {
 			continue
 		}
-		kind, target := destination(text)
-		found = append(found, Link{Start: from, End: from + len(text), Kind: kind, Target: target})
+		found = append(found, Link{Start: from, End: from + len(text), Kind: URL, Target: urlTarget(text, scheme)})
 	}
 }
 
@@ -133,24 +132,28 @@ type urlScanner struct {
 	quote  byte
 }
 
-func (s *urlScanner) next() (from, to int, quoted, ok bool) {
+// next reports whether the candidate is delimited: quoted on both sides, so its
+// final punctuation is part of it. A URL inside a quoted sentence is not; the
+// sentence's closing punctuation still belongs to the sentence.
+func (s *urlScanner) next() (from, to int, delimited, ok bool) {
 	match := urlPrefixPattern.FindStringIndex(s.source[s.offset:])
 	if match == nil {
 		return 0, 0, false, false
 	}
 	from, to = s.offset+match[0], s.offset+match[1]
 	s.quotationBefore(from)
+	opened := s.quote != 0 && from > 0 && s.source[from-1] == s.quote
 	for to < len(s.source) && uriByte(s.source[to]) {
 		if s.quote == '\'' && s.source[to] == '\'' && !wordApostrophe(s.source, to) {
 			s.offset, s.quote = to+1, 0
-			return from, to, true, true
+			return from, to, opened, true
 		}
 		to++
 	}
 	s.offset = to
 	if s.quote == '"' && to < len(s.source) && s.source[to] == '"' {
 		s.offset, s.quote = to+1, 0
-		return from, to, true, true
+		return from, to, opened, true
 	}
 	return from, to, false, true
 }
@@ -192,20 +195,12 @@ func uriByte(b byte) bool {
 	return wordByte(b) || strings.IndexByte(uriPunctuation, b) >= 0
 }
 
-func destination(target string) (Kind, string) {
-	scheme, ok := prefixOf(target)
-	if !ok || len(target) == len(scheme) {
-		return File, target
-	}
-	for at := len(scheme); at < len(target); at++ {
-		if !uriByte(target[at]) {
-			return File, target
-		}
-	}
+// urlTarget completes a scheme-less www address; every other URL is its own target.
+func urlTarget(text, scheme string) string {
 	if scheme == wwwPrefix {
-		target = httpsPrefix + target
+		return httpsPrefix + text
 	}
-	return URL, target
+	return text
 }
 
 // Overlap is possible because the shapes are looked for separately, and two links over
@@ -238,9 +233,9 @@ func inOrder(found []Link, exists func(string) bool) Links {
 // Keep a closing delimiter that belongs to the URL, including an IPv6 host's
 // final bracket. Count surplus closers once so removing a run of punctuation
 // does not repeatedly rescan the entire candidate.
-func trimTrailing(text string, quoted bool) string {
+func trimTrailing(text string, delimited bool) string {
 	punctuation := trailing
-	if quoted {
+	if delimited {
 		punctuation = closingDelimiters
 	}
 	if text == "" || !strings.ContainsRune(punctuation, rune(text[len(text)-1])) {

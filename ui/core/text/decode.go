@@ -12,7 +12,8 @@ import (
 // It belongs to one interface goroutine and must not be copied after first use;
 // background producers post bytes rather than writing into it directly. Supported
 // styles and links become [Span]s; other escapes and carriage returns are discarded
-// so output cannot issue commands when repainted. Named colors use [grid.PaletteRGB].
+// so output cannot issue commands when repainted. Named and indexed colors stay
+// palette entries ([grid.PaletteColor]), so they keep the colours of the user's theme.
 type Decoder struct {
 	noCopy noCopy
 
@@ -117,7 +118,7 @@ func (d *Decoder) piece(p ansi.Piece) []Line {
 			}
 		}
 	case ansi.String:
-		if p.Final == ']' {
+		if p.Family == ansi.OSC {
 			d.osc(p.Body)
 		}
 	case ansi.Other, ansi.Malformed:
@@ -258,7 +259,7 @@ func colourOf(args []int) (grid.Color, int, bool) {
 		if index < 0 || index > 255 {
 			return grid.Color{}, 2, false
 		}
-		return rgb(grid.PaletteRGB(uint8(index))), 2, true
+		return grid.PaletteColor(uint8(index)), 2, true
 	case ansi.SGRColorRGB:
 		channels, used := args[1:], 1
 		if len(channels) == 4 {
@@ -346,20 +347,11 @@ func channel(v int) (uint8, bool) {
 	}
 }
 
+// ansiColor is a named colour: one of the terminal's sixteen palette entries, so
+// output keeps the colours of the user's theme.
 func ansiColor(index int) grid.Color {
-	if index < 0 || index >= len(ansiColors) {
+	if index < 0 || index >= 2*ansi.ColorsPerIntensity {
 		return grid.Color{}
 	}
-	return ansiColors[index]
+	return grid.PaletteColor(uint8(index))
 }
-
-// Resolve the named palette once through grid's color authority.
-var ansiColors = func() [16]grid.Color {
-	var out [16]grid.Color
-	for i := range uint8(len(out)) {
-		out[i] = rgb(grid.PaletteRGB(i))
-	}
-	return out
-}()
-
-func rgb(c grid.RGB) grid.Color { return grid.RGBColor(c.R, c.G, c.B) }

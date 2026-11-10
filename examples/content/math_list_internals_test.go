@@ -9,7 +9,10 @@ import (
 )
 
 func TestEmptyLaTeXKeepsTheEnclosingListItem(t *testing.T) {
-	screen := newContent(nil)
+	screen, err := newContent(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	screen.show(markdownFormat, "1. ```math\n   ```\n\n   visible")
 	if screen.renderErr != nil {
 		t.Fatal(screen.renderErr)

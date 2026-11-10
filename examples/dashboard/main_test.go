@@ -28,7 +28,10 @@ func TestCompletedDashboardStopsPainting(t *testing.T) {
 			finished := make(chan error, 1)
 			go func() {
 				app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) { //nolint:contextcheck // Runtime scopes inherit Run(ctx); the builder has no separate context parameter.
-					d := newDashboard(runtime)
+					d, err := newDashboard(runtime)
+					if err != nil {
+						return scene.Element{}, err
+					}
 					d.motion = motion
 					d.work.rows.SetItems([]task{{name: "last task", total: 1}})
 					return d.Element(), d.Element().SetPaint(func(scene.Frame) { paints.Add(1) })
@@ -61,7 +64,11 @@ func TestThePanesAndTheOrderAreBothTheReadersToChoose(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
-			return newDashboard(runtime).Element(), nil
+			d, err := newDashboard(runtime)
+			if err != nil {
+				return scene.Element{}, err
+			}
+			return d.Element(), nil
 		}})
 		if err == nil {
 			err = app.Run(t.Context())
@@ -128,7 +135,11 @@ func TestTheSliderAnswersThePressThatLandedOnIt(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
-			return newDashboard(runtime).Element(), nil
+			d, err := newDashboard(runtime)
+			if err != nil {
+				return scene.Element{}, err
+			}
+			return d.Element(), nil
 		}})
 		if err == nil {
 			err = app.Run(t.Context())
@@ -167,12 +178,12 @@ func TestTaskStatusIsDerivedFromCompletedWork(t *testing.T) {
 		work.cell(row, 1).Draw(surface.View(), grid.Style{})
 		return strings.TrimSpace(surface.Rows()[0])
 	}
-	if state(0) != running || state(2) != waiting {
+	if state(0) != taskRunning.String() || state(2) != taskWaiting.String() {
 		t.Fatalf("initial build=%q vet=%q", state(0), state(2))
 	}
 	work.advance(100)
 	for row := range work.rows.Len() {
-		if got := state(row); got != done {
+		if got := state(row); got != taskDone.String() {
 			t.Errorf("finished row %d: %q", row, got)
 		}
 	}

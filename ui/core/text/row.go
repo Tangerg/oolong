@@ -1,5 +1,9 @@
 package text
 
+// Projector supplies a drawable's text as safe rendered rows with soft-wrap
+// metadata at a width. It does not promise a map back to a format's source.
+type Projector interface{ Rows(width int) []Row }
+
 // Row is the meaningful text of one visual row and where that text begins.
 //
 // Text excludes gutters, markers and other decoration. Offset keeps its columns

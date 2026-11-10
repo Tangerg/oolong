@@ -54,11 +54,13 @@ func (e Edit) delta() int { return len(e.Text) - (e.End - e.Start) }
 func (e Edit) empty() bool { return e.Start == e.End && e.Text == "" }
 
 // Mark keeps external metadata attached to a byte range as edits move it.
-// The caller owns ID and meaning; Edit.Shift owns only the range projection.
-type Mark struct {
+// The caller owns ID, Kind and their meaning; Edit.Shift owns only the range
+// projection. Kind is typed by the caller so a label never needs narrowing back.
+type Mark[K any] struct {
 	// ID is the caller's handle on the mark. Nothing here reads it.
-	ID   uint64
-	Kind int
+	ID uint64
+	// Kind is the caller's label for what the mark stands for. Nothing here reads it.
+	Kind K
 	// Start and End are the byte range, the end exclusive.
 	Start, End int
 	// Atomic marks lose their meaning if edited internally, so they are removed
@@ -66,15 +68,15 @@ type Mark struct {
 	Atomic bool
 }
 
-func (m Mark) Empty() bool { return m.Start >= m.End }
+func (m Mark[K]) Empty() bool { return m.Start >= m.End }
 
 // Covers reports whether a byte offset is inside the mark. The end is exclusive, so
 // the offset just after a mark is outside it.
-func (m Mark) Covers(at int) bool { return at >= m.Start && at < m.End }
+func (m Mark[K]) Covers(at int) bool { return at >= m.Start && at < m.End }
 
 // Within excludes both endpoints so a cursor can stop before or after an
 // atomic mark without being forced to skip it.
-func (m Mark) Within(at int) bool { return at > m.Start && at < m.End }
+func (m Mark[K]) Within(at int) bool { return at > m.Start && at < m.End }
 
 // Shift moves marks over the edit in a document of length n, in order, dropping the
 // ones it destroyed.
@@ -95,14 +97,14 @@ func (m Mark) Within(at int) bool { return at > m.Start && at < m.End }
 //
 // Marks are shifted in place and the result is the slice with the destroyed ones
 // removed, so a caller holding a mark by value has to find it again by identity.
-func (e Edit) Shift(marks []Mark, n int) []Mark {
+func (e Edit) Shift[K any](marks []Mark[K], n int) []Mark[K] {
 	e = e.within(n)
 	if e.empty() {
 		return marks
 	}
 	kept := marks[:0]
 	for _, m := range marks {
-		if e.Start < e.End && e.Start <= m.Start && e.End >= m.End || m.Atomic && e.reaches(m) {
+		if e.Start < e.End && e.Start <= m.Start && e.End >= m.End || m.Atomic && e.reaches(m.Start, m.End) {
 			continue
 		}
 		m.Start, m.End = e.opens(m.Start), e.closes(m.End)
@@ -118,8 +120,8 @@ func (e Edit) Shift(marks []Mark, n int) []Mark {
 //
 // Strictly: an edit that only meets a mark at one of its ends took none of it, which
 // is what makes deleting the character before a chip leave the chip alone.
-func (e Edit) reaches(m Mark) bool {
-	return e.Start < m.End && e.End > m.Start
+func (e Edit) reaches(start, end int) bool {
+	return e.Start < end && e.End > start
 }
 
 // opens maps an offset that begins something: text inserted exactly there goes

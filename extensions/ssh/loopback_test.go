@@ -279,7 +279,10 @@ func TestAFrameReachesTheClientAsTheBytesItWasWritten(t *testing.T) {
 	if err := client.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	modes := cfg.Modes(nil)
+	modes, err := cfg.Modes(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got, want := output.String(), modes.Enter()+frame+modes.Leave(); got != want {
 		t.Fatalf("client received %q, want %q", got, want)
 	}
@@ -296,7 +299,10 @@ func TestAFrameTheSessionCannotCarryIsRefusedRatherThanRewritten(t *testing.T) {
 	// modes it entered have to be left on the way out of a refusal exactly as they
 	// are on the way out of a normal exit.
 	features := term.Features{Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible}
-	modes := term.Config{AltScreen: true, Features: features}.Modes(nil)
+	modes, err := term.Config{AltScreen: true, Features: features}.Modes(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, test := range []struct {
 		name    string

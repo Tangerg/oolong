@@ -144,11 +144,4 @@ func (t *Transcript) Glyphs() Glyphs { return t.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (t *Transcript) SetGlyphs(value Glyphs) {
-	element := t.Element()
-	if err := element.CheckMutation(); err != nil {
-		panic(err)
-	}
-	t.glyphs = value.clone()
-	element.Invalidate()
-}
+func (t *Transcript) SetGlyphs(value Glyphs) { replaceGlyphs(t.Element(), &t.glyphs, value) }

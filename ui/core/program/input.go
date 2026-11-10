@@ -18,10 +18,15 @@ var ErrInputTooLarge = errors.New("program: input event exceeds queue byte budge
 
 const defaultInputEventCapacity = 256
 
+// A repaint request carries no event bytes but still occupies queue budget, so a
+// flood of requests is bounded like any other input.
+const repaintRequestBytes = 1
+
+// ownerInput is either one captured event or, when repaint is non-nil, one
+// repaint request ordered among them.
 type ownerInput struct {
 	event   scene.CapturedInput
-	repaint bool
-	reply   func(int, int, error)
+	repaint *repaintRequest
 	bytes   int
 }
 
@@ -101,7 +106,7 @@ func (p *inputPipe) receive(ctx context.Context, root *scene.Root, source EventS
 				repaints = nil
 				continue
 			}
-			item = ownerInput{repaint: true, reply: reply, bytes: 1}
+			item = ownerInput{repaint: &repaintRequest{reply: reply}, bytes: repaintRequestBytes}
 		case captured, ok := <-pointers:
 			if !ok {
 				pointers = nil

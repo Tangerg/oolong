@@ -11,7 +11,9 @@ import (
 )
 
 // Owner serializes callbacks with UI input. Dispatch waits for completion and
-// leaves semantic invalidation to the scene or application that changed it.
+// leaves semantic invalidation to the scene or application that changed it. Once
+// Done closes, Dispatch refuses with the owner's own stop error; every driver
+// operation reports a stopped owner through that one error.
 type Owner interface {
 	Dispatch(ctx context.Context, fn func() error) error
 	Done() <-chan struct{}
@@ -39,9 +41,12 @@ type Driver struct {
 	owner Owner
 }
 
+// ErrInvalid refuses a driver without both a scene and its owner.
+var ErrInvalid = errors.New("automation: root and owner are required")
+
 var (
-	ErrInvalid = errors.New("automation: root and owner are required")
-	ErrStopped = errors.New("automation: owner stopped")
+	errNoPredicate   = errors.New("automation: Wait requires a ready predicate")
+	errOwnerContract = errors.New("automation: owner accepted work after Done closed")
 )
 
 // NewDriver binds automation to one session. A program.Runtime can be passed
@@ -141,7 +146,7 @@ func (d *Driver) Wait(ctx context.Context, query scene.Query, ready func(scene.O
 		return scene.Observation{}, err
 	}
 	if ready == nil {
-		return scene.Observation{}, ErrInvalid
+		return scene.Observation{}, errNoPredicate
 	}
 	for {
 		var observation scene.Observation
@@ -163,7 +168,16 @@ func (d *Driver) Wait(ctx context.Context, query scene.Query, ready func(scene.O
 		case <-ctx.Done():
 			return scene.Observation{}, context.Cause(ctx)
 		case <-d.owner.Done():
-			return scene.Observation{}, ErrStopped
+			return scene.Observation{}, d.stopped(ctx)
 		}
 	}
+}
+
+// stopped obtains the owner's own refusal, so Wait reports a stop exactly as
+// Observe and Invoke do, whichever turn happens to observe it first.
+func (d *Driver) stopped(ctx context.Context) error {
+	if err := d.owner.Dispatch(ctx, func() error { return nil }); err != nil {
+		return err
+	}
+	return errOwnerContract
 }

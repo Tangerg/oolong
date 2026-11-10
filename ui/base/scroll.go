@@ -2,6 +2,7 @@ package base
 
 import (
 	"context"
+	"math"
 
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -58,7 +59,7 @@ type Scroll struct {
 	presentation scene.Snapshot[scrollProjection]
 	// wheel turns the terminal's reports into rows, keeping the part of a row a
 	// report was worth but did not fill.
-	wheel   input.Advance
+	wheel   input.WheelAccumulator
 	matcher keymap.Matcher
 }
 
@@ -72,7 +73,7 @@ type Scroll struct {
 // half of them.
 func (s *Scroll) Wheel(w input.Wheel) {
 	requireMutable(s.element)
-	s.wheel.Wheel(w)
+	s.wheel.SetWheel(w)
 }
 
 // Offset is the current scroll position. Input may change it before another frame
@@ -213,10 +214,10 @@ func (s *Scroll) Handle(ev input.Event, keys *keymap.Map) bool {
 	if mouse, ok := ev.(input.Mouse); ok {
 		switch mouse.Action {
 		case input.WheelUp:
-			s.By(s.wheel.Rows(mouse.At, -1))
+			s.By(s.wheel.Accumulate(mouse.At, -1))
 			return true
 		case input.WheelDown:
-			s.By(s.wheel.Rows(mouse.At, 1))
+			s.By(s.wheel.Accumulate(mouse.At, 1))
 			return true
 		default:
 			return false
@@ -449,13 +450,11 @@ func scrollOffset(at, by, limit int) int {
 // before multiplication. By then clamps the result to the actual scroll range.
 func scrollPages(pages, size int) int {
 	size = max(size, 1)
-	maxInt := int(^uint(0) >> 1)
-	minInt := -maxInt - 1
 	switch {
-	case pages > maxInt/size:
-		return maxInt
-	case pages < minInt/size:
-		return minInt
+	case pages > math.MaxInt/size:
+		return math.MaxInt
+	case pages < math.MinInt/size:
+		return math.MinInt
 	default:
 		return pages * size
 	}

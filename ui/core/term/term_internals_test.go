@@ -648,14 +648,14 @@ func TestImageAdmissionNeverInventsAPhysicalIdentity(t *testing.T) {
 
 func TestUnparkedReaderRefusesHandoverAndReopensOutput(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		wake, err := newWaker(0)
+		wake, err := newInputReader(0)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer wake.close()
 		writer := NewWriter(WriterConfig{Destination: io.Discard})
 		defer func() { _ = writer.Close() }()
-		term := &Terminal{waker: wake, writer: writer, task: newTaskProgress()}
+		term := &Terminal{inputReader: wake, writer: writer, task: newTaskProgress()}
 		if !term.handed.hold() {
 			t.Fatal("cannot claim input")
 		}
@@ -688,7 +688,7 @@ func acknowledgedImage(t *testing.T, terminal *Terminal, png []byte, id uint32) 
 
 func TestClipboardTransportIsChosenIndependentlyOfEnvironment(t *testing.T) {
 	for _, passthrough := range []bool{false, true} {
-		terminal := newTerminal(nil, nil, Config{Features: Features{Clipboard: clipboard.Config{TmuxPassthrough: passthrough}}},
+		terminal := newTerminal(nil, nil, Config{Features: Features{Clipboard: clipboard.Config{TmuxPassthrough: passthrough}}}, Modes{},
 			func(name string) (string, bool) {
 				switch name {
 				case "TERM":

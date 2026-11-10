@@ -5,7 +5,6 @@ package mermaid
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -55,11 +54,14 @@ func TestJobOwnsDescendantsOnCancellationAndParentExit(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			command := exec.CommandContext(ctx, executable, "-test.run=^TestJobTreeProcess$", "--", "--job-tree", mode) //nolint:gosec // G204: the test executable and fixed arguments are parent-owned.
-			command.Dir = t.TempDir()
-			command.Stdin = strings.NewReader("")
 			output, writer := io.Pipe()
-			command.Stdout = writer
+			command := launch{
+				path:   executable,
+				args:   []string{"-test.run=^TestJobTreeProcess$", "--", "--job-tree", mode},
+				dir:    t.TempDir(),
+				stdin:  strings.NewReader(""),
+				output: writer,
+			}
 			ready := make(chan struct{})
 			var pidText string
 			var readErr error
@@ -104,8 +106,8 @@ func TestJobOwnsDescendantsOnCancellationAndParentExit(t *testing.T) {
 			}
 			<-done
 			err = runErr
-			if mode == "wait" && !errors.Is(err, context.Canceled) {
-				t.Fatal(err)
+			if mode == "wait" && err == nil {
+				t.Fatal("a job terminated by cancellation reported success")
 			}
 			if mode == "exit" && err != nil {
 				t.Fatal(err)

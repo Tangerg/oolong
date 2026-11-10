@@ -5,8 +5,7 @@ package mermaid
 import (
 	"context"
 	"errors"
-	"os/exec"
 )
 
-func platformSupported() error             { return errors.ErrUnsupported }
-func run(context.Context, *exec.Cmd) error { return errors.ErrUnsupported }
+func platformSupported() error          { return errors.ErrUnsupported }
+func run(context.Context, launch) error { return errors.ErrUnsupported }

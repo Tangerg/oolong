@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/yuin/goldmark/ast"
+	gtext "github.com/yuin/goldmark/text"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
@@ -19,9 +20,9 @@ func TestRendererDepthUsesAnExplicitStackAndPersistentRails(t *testing.T) {
 	}
 	paragraph := ast.NewParagraph()
 	parent.AppendChild(parent, paragraph)
-	paragraph.AppendChild(paragraph, ast.NewString([]byte("deep")))
+	paragraph.AppendChild(paragraph, sourceText(0, len("deep")))
 
-	rendered := renderer{look: Look{Glyphs: Glyphs{Bar: "|"}}}
+	rendered := renderer{source: []byte("deep"), look: Look{Glyphs: Glyphs{Bar: "|"}}}
 	rendered.render(root, frame{})
 	if len(rendered.blocks) != 1 {
 		t.Fatalf("blocks = %d, want 1", len(rendered.blocks))
@@ -37,7 +38,7 @@ func TestRendererDepthUsesAnExplicitStackAndPersistentRails(t *testing.T) {
 	if rails != depth {
 		t.Fatalf("rail segments = %d, want %d", rails, depth)
 	}
-	if got := block.lines[0].String(); got != "deep" {
+	if got := block.lines()[0].String(); got != "deep" {
 		t.Fatalf("text = %q, want deep", got)
 	}
 }
@@ -51,9 +52,9 @@ func TestInlineAndPlainWalkArbitraryASTDepthWithoutRecursion(t *testing.T) {
 		parent.AppendChild(parent, emphasis)
 		parent = emphasis
 	}
-	parent.AppendChild(parent, ast.NewString([]byte("deep")))
+	parent.AppendChild(parent, sourceText(0, len("deep")))
 
-	rendered := renderer{}
+	rendered := renderer{source: []byte("deep")}
 	lines := rendered.inline(root, grid.Style{})
 	if len(lines) != 1 || lines[0].String() != "deep" {
 		t.Fatalf("inline rendering = %v", lines)
@@ -69,13 +70,13 @@ func TestInlineRenderingDoesNotAllocatePerAdjacentNode(t *testing.T) {
 		paragraph := ast.NewParagraph()
 		document.AppendChild(document, paragraph)
 		for range nodes {
-			paragraph.AppendChild(paragraph, ast.NewString([]byte("x")))
+			paragraph.AppendChild(paragraph, sourceText(0, 1))
 		}
 		return document
 	}
 	allocations := func(document ast.Node) float64 {
 		return testing.AllocsPerRun(3, func() {
-			lines := (&renderer{}).inline(document, grid.Style{})
+			lines := (&renderer{source: []byte("x")}).inline(document, grid.Style{})
 			if len(lines) != 1 || len(lines[0]) != 1 {
 				panic("inline writer did not compact adjacent nodes")
 			}
@@ -87,3 +88,7 @@ func TestInlineRenderingDoesNotAllocatePerAdjacentNode(t *testing.T) {
 		t.Fatalf("doubling adjacent nodes grew allocations from %.0f to %.0f", small, large)
 	}
 }
+
+// sourceText is a text node over source[start:stop], the only kind of text node
+// the configured parser produces.
+func sourceText(start, stop int) *ast.Text { return ast.NewTextSegment(gtext.NewSegment(start, stop)) }

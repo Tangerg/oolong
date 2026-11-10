@@ -47,3 +47,11 @@ func trim[T any](items []T) []T {
 	}
 	return items
 }
+
+// requireNonNegative is the one rule for counts of rows, gaps and items: a
+// constructor and its setter refuse a negative value in the same words.
+func requireNonNegative(name string, value int) {
+	if value < 0 {
+		panic("base: " + name + " cannot be negative")
+	}
+}

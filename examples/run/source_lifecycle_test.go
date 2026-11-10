@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/uitest"
@@ -48,6 +49,7 @@ func TestCommandDescendantsStopOnCancellationAndParentExit(t *testing.T) {
 						runtime: runtime,
 						command: []string{os.Args[0], "-test.run=^TestCommandPipeHolder$", "--", pipeHolderFixture, ending, listener.Addr().String()},
 					}
+					r.element = drawn.Element("run", r)
 					scope, err := runtime.NewScope(program.ScopeConfig{})
 					if err != nil {
 						return scene.Element{}, err

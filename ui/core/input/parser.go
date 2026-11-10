@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
@@ -402,8 +403,10 @@ func (p *Parser) decode(b []byte, trigger parseTrigger) (n int, ev Event, done b
 			return 0, nil, false
 		}
 		r, size := utf8.DecodeRune(b)
-		if r == utf8.RuneError && size == 1 {
-			return 1, nil, true // not valid UTF-8: dropped
+		if r == utf8.RuneError && size == 1 || unicode.IsControl(r) {
+			// Invalid UTF-8, and the C1 controls and DEL that no key types, are
+			// dropped rather than reported as printable keys.
+			return size, nil, true
 		}
 		return size, Key{Code: Character, Rune: r}, true
 	}
@@ -426,18 +429,39 @@ func c0Rune(c byte) rune {
 	}
 }
 
-// Once the Escape wait expires, an unfinished introducer can be read as an
-// Alt chord: ESC [ names Alt+[ as well as a CSI prefix. A lone Escape is settled
-// before this path.
 func (p *Parser) decodeEscape(b []byte, trigger parseTrigger) (n int, ev Event, done bool) {
 	if len(b) == 1 {
 		return 0, nil, false
 	}
 	n, ev, done = p.decodeIntroduced(b)
-	if !done && trigger != inputAvailable {
+	if done || trigger == inputAvailable {
+		return n, ev, done
+	}
+	return p.expireIntroduced(b, trigger)
+}
+
+// expireIntroduced settles an introducer whose sequence did not complete. A bare
+// introducer is an Alt chord: ESC [ names Alt+[ as well as a CSI prefix. When the
+// Escape wait expires after body bytes arrived inside it, those bytes are part of
+// a protocol unit the transport split, not keys anybody pressed, so they are never
+// replayed as typing: a control sequence is discarded through its final byte, and
+// a string head is discarded on its own. At the end of input there is no timing
+// evidence, and the bytes are read as the Alt chord and keys they spell.
+func (p *Parser) expireIntroduced(b []byte, trigger parseTrigger) (int, Event, bool) {
+	const introducer = 2
+	switch second := b[1]; {
+	case second == esc:
+		return 1, Key{Code: Esc}, true
+	case len(b) == introducer, trigger == inputEnded:
+		return decodeAlt(b)
+	case second == '[':
+		p.dropping = droppingParams
+		return len(b), nil, true
+	case second == byte(ansi.OSC), second == byte(ansi.DCS), second == byte(ansi.APC):
+		return len(b), nil, true
+	default:
 		return decodeAlt(b)
 	}
-	return n, ev, done
 }
 
 func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
@@ -452,15 +476,9 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 	case second == byte(ansi.APC):
 		return p.introduceString(b, apcFrame, 0, graphicsHead(b))
 	case second == 'O':
-		if len(b) < 3 {
-			return 0, nil, false
-		}
-		if code, ok := finalByteKeys[b[2]]; ok {
-			return 3, Key{Code: code}, true
-		}
-		return 3, nil, true
+		return decodeSS3(b)
 	case second == esc:
-		return 1, Key{Code: Esc}, true
+		return p.decodeMetaPrefixed(b)
 	case second < 0x20, second == deleteByte:
 		consumed, event, ready := p.decode(b[1:], inputAvailable)
 		if key, ok := event.(Key); ok {
@@ -473,12 +491,63 @@ func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
 	}
 }
 
+// decodeSS3 reads ESC O <final>, and the legacy form that carries an xterm
+// modifier parameter as one digit before the final. A byte that cannot continue
+// the sequence proves ESC O was Alt+O; it is left to be read on its own terms.
+func decodeSS3(b []byte) (n int, ev Event, done bool) {
+	const introducer = 2
+	if len(b) <= introducer {
+		return 0, nil, false
+	}
+	at, mods := introducer, Mods(0)
+	if digit := b[at]; digit >= '1' && digit <= '9' {
+		if len(b) <= at+1 {
+			return 0, nil, false
+		}
+		modifiers, ok := XTermKeyboard.modifiers(int(digit - '1'))
+		if !ok {
+			return decodeAlt(b)
+		}
+		at, mods = at+1, modifiers
+	}
+	if !ansi.Final(b[at]) {
+		return decodeAlt(b)
+	}
+	code, ok := finalByteKeys[b[at]]
+	if !ok {
+		return at + 1, nil, true
+	}
+	return at + 1, Key{Code: code, Mods: mods}, true
+}
+
+// decodeMetaPrefixed reads two Escapes in a row: terminals that send Meta as an
+// Escape prefix report Alt+Up as an Escape before ESC [ A. Only a following CSI or
+// SS3 introducer makes the first Escape a modifier; otherwise it is a key of its own.
+func (p *Parser) decodeMetaPrefixed(b []byte) (n int, ev Event, done bool) {
+	const prefixed = 3
+	if len(b) < prefixed {
+		return 0, nil, false
+	}
+	if b[2] != '[' && b[2] != 'O' {
+		return 1, Key{Code: Esc}, true
+	}
+	consumed, event, ready := p.decodeIntroduced(b[1:])
+	if !ready {
+		return 0, nil, false
+	}
+	if key, ok := event.(Key); ok {
+		key.Mods |= Alt
+		event = key
+	}
+	return consumed + 1, event, true
+}
+
 func decodeAlt(b []byte) (n int, ev Event, done bool) {
 	if !utf8.FullRune(b[1:]) {
 		return 0, nil, false
 	}
 	r, size := utf8.DecodeRune(b[1:])
-	if r == utf8.RuneError && size == 1 {
+	if r == utf8.RuneError && size == 1 || unicode.IsControl(r) {
 		return 1, Key{Code: Esc}, true
 	}
 	return 1 + size, Key{Code: Character, Rune: r, Mods: Alt}, true
@@ -487,6 +556,9 @@ func decodeAlt(b []byte) (n int, ev Event, done bool) {
 func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
 	i := max(2, p.controlAt)
 	for i < len(b) && ansi.Body(b[i]) {
+		if b[i] == rxvtShifted && rxvtKeyNumber(b[2:i]) {
+			return i + 1, parseParams(string(b[2:i])).numberedKey(p.keyboard, Shift), true
+		}
 		i++
 	}
 	if i-2 > maxParameterBytes {
@@ -567,7 +639,9 @@ func (p *Parser) controlEvent(ps params, final byte) Event {
 	case 'u':
 		return ps.extendedKey()
 	case '~':
-		return ps.numberedKey(p.keyboard)
+		return ps.numberedKey(p.keyboard, 0)
+	case rxvtControl, rxvtControlShifted:
+		return ps.numberedKey(p.keyboard, rxvtModifiers(final))
 	case 'Z':
 		// Shift and tab, not a key of its own. A terminal speaking the Kitty protocol
 		// reports the same keystroke as tab with shift held, and one keystroke that
@@ -582,12 +656,40 @@ func (p *Parser) controlEvent(ps params, final byte) Event {
 	}
 }
 
-func (ps params) numberedKey(dialect KeyboardDialect) Event {
+// rxvt reports a modified numbered key by replacing its tilde: '$' adds Shift,
+// '^' Ctrl and '@' both. '$' is an intermediate byte, so without this reading the
+// sequence would never complete and its bytes would wait for an unrelated final.
+const (
+	rxvtShifted        = '$'
+	rxvtControl        = '^'
+	rxvtControlShifted = '@'
+)
+
+func rxvtModifiers(final byte) Mods {
+	if final == rxvtControlShifted {
+		return Ctrl | Shift
+	}
+	return Ctrl
+}
+
+func rxvtKeyNumber(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	for _, c := range body {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (ps params) numberedKey(dialect KeyboardDialect, extra Mods) Event {
 	code, ok := tildeKeyNumbers[ps.At(0)]
 	if !ok || ps.Group(0).Len() != 1 {
 		return nil
 	}
-	return ps.functionalKey(code, 0, dialect)
+	return ps.functionalKey(code, extra, dialect)
 }
 
 // Unknown Kitty private-use key numbers are refused so unsupported keys do not
@@ -603,7 +705,7 @@ func extendedKeyCode(num int) (Code, rune, bool) {
 	// The private use area is where a terminal puts keys that are not characters,
 	// and this function has already taken the ones it knows about.
 	r, ok := codePoint(num)
-	if !ok || (num >= kittyFunctionKeysFrom && num <= kittyFunctionKeysTo) {
+	if !ok || r != 0 && unicode.IsControl(r) || (num >= kittyFunctionKeysFrom && num <= kittyFunctionKeysTo) {
 		return 0, 0, false
 	}
 	return Character, r, true

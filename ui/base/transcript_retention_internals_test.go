@@ -46,7 +46,7 @@ func TestTranscriptCommitReleasesPayloadAndPlacement(t *testing.T) {
 		p.FlushNotifications()
 	}
 	for _, item := range items[:1023] {
-		if item.body != nil || item.document != nil || item.cancel != nil || item.State() != ContentRetired {
+		if item.source != nil || item.cancel != nil || item.State() != ContentRetired {
 			t.Fatal("retired handle retains content or subscription")
 		}
 	}
@@ -57,8 +57,8 @@ func TestTranscriptCommitReleasesPayloadAndPlacement(t *testing.T) {
 		t.Fatal("retired identity still resolves")
 	}
 	stageTranscriptForTest(transcript, 80)
-	if transcript.StartRow() != 1023 || transcript.Height() != 1 {
-		t.Fatalf("retained extent=%d+%d", transcript.StartRow(), transcript.Height())
+	if transcript.Layout().StartRow() != 1023 || transcript.Layout().Height() != 1 {
+		t.Fatalf("retained extent=%d+%d", transcript.Layout().StartRow(), transcript.Layout().Height())
 	}
 	if len(transcript.geometry.Value().blocks) != 1 {
 		t.Fatal("new projection retains retired placements")

@@ -67,18 +67,15 @@ func flattenLines(s string) string {
 	return flatLineBreaks.Replace(s)
 }
 
-// Immutable replacers are shared safely without allocating one for each edit.
-var (
-	logicalLineBreaks = strings.NewReplacer("\r\n", "\n", "\r", "\n")
-	flatLineBreaks    = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
-)
+// An immutable replacer is shared safely without allocating one for each edit.
+var flatLineBreaks = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
 
 func (s *EditSession) canonicalText(value string) string {
 	if s.oneLine() {
 		return oneLineText(value)
 	}
 	if strings.Contains(value, "\r") {
-		value = logicalLineBreaks.Replace(value)
+		value = text.NormalizeLineEndings(value)
 	}
 	if !strings.Contains(value, "\n") {
 		return text.Printable(value)

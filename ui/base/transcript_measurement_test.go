@@ -50,15 +50,15 @@ func TestTranscriptRemeasurementPublishesOneCompleteRowSpace(t *testing.T) {
 				t.Error("interrupted measurement returned")
 			}()
 			<-done
-			if top, rows, ok := transcript.Extent(a.ID()); !ok || top != 0 || rows != 1 {
+			if top, rows, ok := transcript.Layout().Extent(a.ID()); !ok || top != 0 || rows != 1 {
 				t.Fatalf("first extent=%d,%d,%v", top, rows, ok)
 			}
-			if top, rows, ok := transcript.Extent(b.ID()); !ok || top != 1 || rows != 1 || transcript.Height() != 2 {
+			if top, rows, ok := transcript.Layout().Extent(b.ID()); !ok || top != 1 || rows != 1 || transcript.Layout().Height() != 2 {
 				t.Fatalf("second extent=%d,%d,%v", top, rows, ok)
 			}
 			second.measure = nil
 			transcriptCommit(t, root, 10, 4, 2)
-			if top, rows, ok := transcript.Extent(b.ID()); !ok || top != 3 || rows != 1 || transcript.Height() != 4 {
+			if top, rows, ok := transcript.Layout().Extent(b.ID()); !ok || top != 3 || rows != 1 || transcript.Layout().Height() != 4 {
 				t.Fatalf("settled extent=%d,%d,%v", top, rows, ok)
 			}
 		})
@@ -90,12 +90,12 @@ func TestRecoveredTranscriptMeasurementCannotCommitAnEmptyLayout(t *testing.T) {
 	block.measure = func() { panic("measurement interrupted") }
 	width = 10
 	transcriptCommit(t, root, width, 2, 2)
-	if transcript.Width() != 20 || transcript.Height() != 2 || transcript.Block(item.ID()) != block {
+	if transcript.Layout().Width() != 20 || transcript.Layout().Height() != 2 || transcript.Block(item.ID()) != block {
 		t.Fatal("recovered measurement committed an empty layout")
 	}
 	block.measure = nil
 	transcriptCommit(t, root, width, 2, 3)
-	if transcript.Width() != 10 || transcript.Height() != 2 {
+	if transcript.Layout().Width() != 10 || transcript.Layout().Height() != 2 {
 		t.Fatal("failed measurement prevented later placement")
 	}
 }

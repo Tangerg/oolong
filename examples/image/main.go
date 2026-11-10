@@ -1,5 +1,6 @@
-// Command image retains its host until the final image is released so terminal
-// teardown cannot orphan a transmission.
+// Command image shows one PNG. The terminal the program opens releases its images
+// when it closes; an injected host outlives Run, so the command releases the image
+// on that host itself after Run returns, and teardown cannot orphan a transmission.
 package main
 
 import (
@@ -84,11 +85,11 @@ func run(ctx context.Context, path string, host program.Host) (err error) {
 			workers.Add(1)
 			_, startErr := runtime.Start(scope, program.Work[graphics.Resource]{
 				Run: func(context.Context) (graphics.Resource, error) { return receive() },
-				Apply: func(image graphics.Resource, uploadErr error) {
+				Apply: func(uploaded graphics.Resource, uploadErr error) {
 					if uploadErr != nil {
 						picture.Alt = "PNG upload failed: " + uploadErr.Error()
 					} else {
-						picture.Of, picture.Cell = image, cell
+						picture.Of, picture.Cell = uploaded, cell
 					}
 					element.Invalidate()
 				},

@@ -369,8 +369,9 @@ type DCS struct{ Body string }
 
 func (DCS) terminalEvent() {}
 
-// APC carries an application-program command reply. The parser recognizes Kitty
-// graphics acknowledgements beginning with Gi= and retains their complete body.
+// APC carries an application-program command reply. The parser recognizes the
+// Kitty graphics acknowledgement prefixes graphics.MatchReplyPrefix accepts and
+// retains their complete body.
 type APC struct{ Body string }
 
 func (APC) terminalEvent() {}

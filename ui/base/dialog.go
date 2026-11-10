@@ -233,12 +233,8 @@ func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
 	if !ok || !key.Down() {
 		return scene.EventResult{}
 	}
-	keys := d.keys.current
-	if keys == nil {
-		keys = dialogKeys()
-	}
 	keyboard := d.Element().KeyboardLease()
-	_, handled := d.matcher.Handle(keys, key, keyboard.Valid, func(action keymap.Action) bool {
+	_, handled := d.matcher.Handle(d.keys.resolve(dialogKeys), key, keyboard.Valid, func(action keymap.Action) bool {
 		switch action {
 		case FocusNext:
 			return keyboard.FocusNext(false)

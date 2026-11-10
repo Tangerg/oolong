@@ -1,23 +1,14 @@
 package main
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
+	"image"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/kit"
 )
-
-type diagramAction struct {
-	label  string
-	action keymap.Action
-}
-
-func diagramActions() [3]diagramAction {
-	return [3]diagramAction{{"Open Image", openDiagram}, {"Copy Image Path", copyDiagramPath}, {"Copy Source", copyDiagramSource}}
-}
 
 const (
 	openDiagram          keymap.Action = "open-image"
@@ -25,6 +16,8 @@ const (
 	copyDiagramSource    keymap.Action = "copy-source"
 	replaceDiagramSource keymap.Action = "replace-source"
 	quitDiagram          keymap.Action = "quit"
+
+	toolbarGap = 2
 )
 
 func diagramKeys() *keymap.Map {
@@ -38,30 +31,45 @@ func diagramKeys() *keymap.Map {
 	return keys
 }
 
-func (a diagramAction) text(keys *keymap.Map) string {
-	label := a.label
-	if bound := keys.Keys(a.action); len(bound) != 0 {
-		label += " (" + bound[0].String() + ")"
-	}
-	return "[" + label + "]"
+var toolbarActions = [...]struct {
+	label  string
+	action keymap.Action
+}{
+	{"Open Image", openDiagram},
+	{"Copy Image Path", copyDiagramPath},
+	{"Copy Source", copyDiagramSource},
 }
 
-// Exports are created only for an explicit open/copy-path action. They survive
-// replacement and shutdown so a copied path continues to name the same image.
-func exportPNG(data []byte) (_ string, err error) {
-	file, err := os.CreateTemp("", "oolong-diagram-*.png")
-	if err != nil {
-		return "", err
-	}
-	path := file.Name()
-	defer func() {
-		if err != nil {
-			err = errors.Join(err, os.Remove(path))
+// toolbarButton is where one action was drawn in its frame.
+type toolbarButton struct {
+	action keymap.Action
+	area   image.Rectangle
+}
+
+// drawToolbar paints one button per action on the first row of view, each
+// hinting its current first binding, and returns where the buttons landed.
+func drawToolbar(view grid.View, keys *keymap.Map, style grid.Style) []toolbarButton {
+	buttons := make([]toolbarButton, 0, len(toolbarActions))
+	x := 0
+	for _, entry := range toolbarActions {
+		label := entry.label
+		if bound := keys.Keys(entry.action); len(bound) != 0 {
+			label += " (" + bound[0].String() + ")"
 		}
-	}()
-	_, writeErr := file.Write(data)
-	if err = errors.Join(writeErr, file.Close()); err != nil {
-		return "", fmt.Errorf("export diagram: %w", err)
+		label = "[" + label + "]"
+		area := grid.Area(x, 0, text.Width(label), 1)
+		kit.Label{Text: label, Style: style}.Draw(view.Sub(area))
+		buttons = append(buttons, toolbarButton{action: entry.action, area: area})
+		x = area.Max.X + toolbarGap
 	}
-	return filepath.Abs(path)
+	return buttons
+}
+
+func buttonAt(buttons []toolbarButton, at image.Point) (keymap.Action, bool) {
+	for _, button := range buttons {
+		if at.In(button.area) {
+			return button.action, true
+		}
+	}
+	return "", false
 }

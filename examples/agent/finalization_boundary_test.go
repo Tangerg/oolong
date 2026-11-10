@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 
 	"github.com/Tangerg/oolong/examples/internal/docprep"
+	"github.com/Tangerg/oolong/extensions/markdown"
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -21,7 +22,7 @@ func TestFinalPreparationRefusalSettlesItsDocument(t *testing.T) {
 		release := sync.OnceFunc(func() { close(gate) })
 		defer release()
 		if err := fixture.runtime.Dispatcher().Invoke(t.Context(), func() error {
-			document, err := content.NewStreamDocument(content.StreamConfig{Format: "markdown"})
+			document, err := content.NewStreamDocument(content.StreamConfig{Format: markdown.Format})
 			if err != nil {
 				return err
 			}
@@ -40,7 +41,7 @@ func TestFinalPreparationRefusalSettlesItsDocument(t *testing.T) {
 			c := fixture.conversation
 			full := false
 			for range 256 {
-				document, err := content.NewStreamDocument(content.StreamConfig{Format: "markdown"})
+				document, err := content.NewStreamDocument(content.StreamConfig{Format: markdown.Format})
 				if err != nil {
 					return err
 				}
@@ -134,13 +135,13 @@ func TestCancelSourceDoesNotMisreportFinalPreparation(t *testing.T) {
 		synctest.Wait()
 		if err := bridge.dispatch.Invoke(t.Context(), func() error {
 			a := bridge.owner
-			if a.run != bridge.run || !a.run.finishing || a.run.task.Snapshot().State != program.TaskSucceeded || a.status.Doing != "preparing final answer" {
-				t.Errorf("source EOF did not enter final preparation: run=%+v status=%q", a.run, a.status.Doing)
+			if a.run != bridge.run || a.run.phase != runFinishing || a.run.task.Snapshot().State != program.TaskSucceeded || a.run.status.Doing != "preparing final answer" {
+				t.Errorf("source EOF did not enter final preparation: run=%+v", a.run)
 			}
-			before := a.status.Doing
+			before := a.run.status.Doing
 			a.stopSource()
-			if a.status.Doing != before || a.run != bridge.run || a.outcome != (sessionOutcome{}) {
-				t.Errorf("cancel-source changed finished source: run=%+v status=%q outcome=%+v", a.run, a.status.Doing, a.outcome)
+			if a.run != bridge.run || a.run.status.Doing != before || a.outcome != (sessionOutcome{}) {
+				t.Errorf("cancel-source changed finished source: run=%+v outcome=%+v", a.run, a.outcome)
 			}
 			return nil
 		}); err != nil {
@@ -150,8 +151,8 @@ func TestCancelSourceDoesNotMisreportFinalPreparation(t *testing.T) {
 		synctest.Wait()
 		if err := bridge.dispatch.Invoke(t.Context(), func() error {
 			a := bridge.owner
-			if a.run != nil || a.outcome.kind != outcomeCompleted || a.status.Doing != "" {
-				t.Errorf("prepared final answer did not complete: run=%+v status=%q outcome=%+v", a.run, a.status.Doing, a.outcome)
+			if a.run != nil || a.outcome.kind != outcomeCompleted {
+				t.Errorf("prepared final answer did not complete: run=%+v outcome=%+v", a.run, a.outcome)
 			}
 			return nil
 		}); err != nil {

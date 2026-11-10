@@ -11,6 +11,17 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
+// KeyBindings is the read side of a key map that a hint needs. *keymap.Map
+// satisfies it, and KeysFunc adapts a controller's effective-key query.
+type KeyBindings interface {
+	Keys(action keymap.Action) []input.Keys
+}
+
+// KeysFunc adapts a function such as base.(*Editor).KeysFor to KeyBindings.
+type KeysFunc func(action keymap.Action) []input.Keys
+
+func (f KeysFunc) Keys(action keymap.Action) []input.Keys { return f(action) }
+
 // Help is a row of key hints.
 //
 // The keystrokes are read out of the same map the handlers read, so a hint cannot
@@ -19,7 +30,10 @@ import (
 // worse than no hint.
 type Help struct {
 	Theme Theme
-	Keys  *keymap.Map
+	// Keys is read for the chords bound to each shown action. Pass the map the
+	// handlers use, or the controller's effective-key query, so a hint can never
+	// describe a binding that does not work.
+	Keys KeyBindings
 	// Show are the actions to show, in the order they matter. Hiding one is leaving it
 	// out: an action that works and that nobody needs told about is simply not listed.
 	//
@@ -41,6 +55,9 @@ func (h Help) HeightForWidth(int) int {
 
 func (h Help) hints() iter.Seq2[keymap.Action, input.Keys] {
 	return func(yield func(keymap.Action, input.Keys) bool) {
+		if h.Keys == nil {
+			return
+		}
 		for _, action := range h.Show {
 			bound := h.Keys.Keys(action)
 			if len(bound) > 0 && !yield(action, bound[0]) {

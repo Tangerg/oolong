@@ -37,7 +37,7 @@ func (p *Viewport) ensure() {
 		return
 	}
 	p.group = scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{
-		Measure: rowsMeasure(p.HeightForWidth), Focusable: func() bool { return !p.Content().IsZero() },
+		Measure: scene.MeasureRows(p.HeightForWidth), Focusable: func() bool { return !p.Content().IsZero() },
 		Semantics: func() scene.Semantic { return scene.Semantic{Role: scene.RoleDocument} },
 		Actions: []scene.ActionBinding{p.scroll.action("Scroll content", func(ScrollRequest) scene.Availability {
 			if p.Content().IsZero() {

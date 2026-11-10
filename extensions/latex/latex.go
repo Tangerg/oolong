@@ -144,7 +144,7 @@ func Render(source string, look Look) *Formula {
 	}
 
 	// Keep exact source for callers while parsing and fallback share physical line boundaries.
-	source = strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
+	source = text.NormalizeLineEndings(source)
 	laidOut, err := render(source, look)
 	if err == nil {
 		f.lines, err = laidOut.lines()

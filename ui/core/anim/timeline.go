@@ -34,9 +34,6 @@ func NewTimeline(frames ...Keyframe) *Timeline {
 // and panics here rather than producing an unsigned interpolation span later.
 // Values must be finite; invalid input leaves the previous timeline intact.
 func (t *Timeline) SetFrames(frames []Keyframe) {
-	if t == nil {
-		return
-	}
 	for i, frame := range frames {
 		requireFinite(frame.Value)
 		if i > 0 && frame.At <= frames[i-1].At {

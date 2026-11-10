@@ -2,7 +2,6 @@ package base
 
 import (
 	"context"
-	"errors"
 	"image"
 	"slices"
 	"strings"
@@ -14,299 +13,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
-	"github.com/Tangerg/oolong/ui/internal/focus"
-)
-
-// ErrValidationSuperseded reports a Validate or Reply whose callback started a
-// newer validation, changed its rule, or replaced the answer being checked.
-// The interrupted call cannot publish or report success.
-var ErrValidationSuperseded = errors.New("base: validation superseded")
-
-// ErrInvalidValue reports an answer outside the field's available values.
-var ErrInvalidValue = errors.New("base: invalid field value")
-
-// Field is one thing a [Form] collects.
-//
-// It draws itself, including what it is asking for and what was wrong with the answer.
-// That is not the division this package usually makes, and the reason is that a field
-// is generic over what it holds: a renderer that drew every kind of field would have to
-// name every kind, and there is no way to write down "a select of something". So the
-// look travels the other way, as a [Look] the form hands down.
-type Field interface {
-	Element() scene.Element
-	Draw(frame scene.Frame)
-
-	Prompt() string
-	// Validate checks what has been entered, remembers what was wrong with it, and
-	// reports that. It is called when the field loses the keyboard and again when the
-	// form is submitted. Built-in fields return ErrValidationSuperseded if a callback
-	// starts a newer Validate or Reply, invalidates the rule, or replaces the checked
-	// answer. An obsolete check cannot publish Error.
-	Validate() error
-	// Validation returns a read-only receipt for the last completed answer check, or
-	// nil when none is current. The receipt reports false when another Validate or
-	// Reply has begun, its rule was invalidated, or the checked answer is no longer
-	// current. Reading it must be pure; it cannot validate again or advance the
-	// answer. Form retains it across later callbacks.
-	Validation() func() bool
-	Error() error
-	// Revision identifies the complete answer snapshot. Owners may advance it
-	// conservatively when replacing opaque values whose equality cannot be proved.
-	Revision() uint64
-}
-
-// Look supplies semantic styles and choice marks to the default field, editor and
-// completion renderers. Its zero value uses terminal colors. Custom choice rows and
-// completion renderers receive the same roles while owning their own row layout.
-type Look struct {
-	Text, Label, Subtle grid.Style
-	Selection, Accent   grid.Style
-	Danger              grid.Style
-	// Taken and Free are the marks beside a choice that has been made and one that is
-	// still on offer. They are drawn in the same column, so they are the same width or
-	// nothing beside them lines up.
-	Taken, Free string
-	// Ellipsis is the truncation marker. Empty clips without a marker.
-	Ellipsis string
-}
-
-// mark is the mark for a choice, and how many columns the pair of them takes. The pair
-// is measured rather than the one being drawn, so that a row with a mark and a row
-// without line up.
-func (l Look) mark(taken bool) (string, int) {
-	width := max(text.Width(l.Taken), text.Width(l.Free))
-	if width == 0 {
-		return "", 0
-	}
-	if taken {
-		return l.Taken, layout.Sum(width, 1)
-	}
-	return l.Free, layout.Sum(width, 1)
-}
-
-// Cursor focus and accepted choice are distinct in MultiSelect, so their appearances must remain separate.
-func (l Look) choice(v grid.View, label string, under, taken bool) {
-	w, _ := v.Size()
-	style := l.Text
-	if under {
-		style = l.Selection
-		v.Fill(v.Bounds(), style)
-	}
-	x := 0
-	if mark, width := l.mark(taken); width > 0 {
-		marked := style
-		if taken {
-			marked = style.Merge(l.Accent)
-		}
-		v.Text(x, 0, mark, marked)
-		x = width
-	}
-	v.Text(x, 0, text.Truncate(label, layout.Remaining(w, x), l.Ellipsis), style)
-}
-
-// ThemedField optionally receives a Form look for one frame. Built-in and external
-// fields use the same capability; the look must not replace stored configuration.
-type ThemedField interface {
-	DrawWith(frame scene.Frame, look Look)
-}
-
-// field is what every field in this package has in common: whether it has the
-// keyboard, what was wrong with the answer, and the committed geometry used by
-// pointer input. Appearance is deliberately absent; a Form passes it as a projection
-// argument while drawing.
-type field struct {
-	key        string
-	geometry   eventGeometry
-	element    scene.Element
-	checked    fieldCheck
-	validation uint64
-	// keyboard receives the parent's focus before answer or resolver callbacks.
-	// Answer operations cannot refuse that notification or revoke its lifetime.
-	keyboard focus.State
-	// presentation is the label offset and visible answer area from the complete root
-	// frame. Field drawing stages it; pointer handling never observes a partial tree.
-	presentation scene.Snapshot[fieldPresentation]
-}
-
-// Error describes the current answer, not a replacement for the one that failed validation.
-func (f *field) Error() error {
-	c := f.checked
-	if c.err == nil || c.validation != f.validation || c.current != nil && !c.current() {
-		return nil
-	}
-	return c.err
-}
-
-// Validation returns a receipt whose validity belongs to this field's checked answer.
-func (f *field) Validation() func() bool {
-	checked := f.checked
-	if !checked.validated || checked.validation != f.validation || !checked.current() {
-		return nil
-	}
-	return func() bool { return checked.validation == f.validation && checked.current() }
-}
-
-type fieldCheck struct {
-	validated  bool
-	err        error
-	current    func() bool
-	validation uint64
-}
-
-func (f *field) invalidateValidation() {
-	f.validation++
-	f.checked = fieldCheck{}
-}
-
-// InvalidateValidation revokes results when a check's domain dependencies change
-// without replacing the callback or answer. The dependency owner must call it
-// before publishing that change; it does not run a check or advance Revision.
-func (f *field) InvalidateValidation() {
-	requireMutable(f.element)
-	f.invalidateValidation()
-	f.element.Invalidate()
-}
-
-func (f *field) rows(label string) int {
-	extra := 0
-	if label != "" {
-		extra++
-	}
-	if f.Error() != nil {
-		extra++
-	}
-	return extra
-}
-
-func (f *field) frame(v scene.Frame, label string, look Look) scene.Frame {
-	requireProjection(f.element, v)
-	w, h := v.Size()
-	if w <= 0 || h <= 0 {
-		f.presentation.Stage(v, fieldPresentation{})
-		return v.Sub(grid.Area(0, 0, 0, 0))
-	}
-	top, bottom := 0, 0
-	if label != "" {
-		v.Text(0, 0, text.Truncate(label, w, look.Ellipsis), look.Label)
-		top = 1
-	}
-	if f.Error() != nil && h > top {
-		bottom = 1
-		v.Text(0, h-1, text.Truncate(f.Error().Error(), w, look.Ellipsis), look.Danger)
-	}
-	inner := v.Sub(grid.Area(0, top, w, max(h-top-bottom, 0)))
-	f.presentation.Stage(v, fieldPresentation{top: top, visible: inner.Visible()})
-	return inner
-}
-
-// The label occupies a row outside the value; translate pointer coordinates before value hit testing.
-func (f *field) within(ev input.Mouse) (input.Mouse, bool) {
-	ev = f.local(ev)
-	return ev, ev.Pos.In(f.geometry.read(&f.presentation).visible)
-}
-
-func (f *field) local(ev input.Mouse) input.Mouse {
-	ev.Pos.Y -= f.geometry.read(&f.presentation).top
-	return ev
-}
-
-type fieldPresentation struct {
-	top     int
-	visible image.Rectangle
-}
-
-func (f *field) validate(prepare func() error, revision func() uint64, check func() error) error {
-	requireMutable(f.element)
-	f.validation++
-	turn := f.validation
-	// Revocation is observable even when a callback aborts or another request
-	// makes the rest of this validation obsolete.
-	f.element.Invalidate()
-	var err error
-	if prepare != nil {
-		err = prepare()
-	}
-	if turn != f.validation || errors.Is(err, ErrValidationSuperseded) {
-		return ErrValidationSuperseded
-	}
-	if errors.Is(err, ErrReplyUnavailable) {
-		return err
-	}
-	version := revision()
-	checked := fieldCheck{
-		err: err, validated: err == nil, validation: turn,
-		current: func() bool { return revision() == version },
-	}
-	if checked.validated {
-		checked.err = check()
-	}
-	if turn != f.validation || errors.Is(checked.err, ErrValidationSuperseded) || !checked.current() {
-		return ErrValidationSuperseded
-	}
-	f.checked = checked
-	f.element.Invalidate()
-	return checked.err
-}
-
-func (f *field) focus(has bool, forward func(bool), validate func() error) {
-	turn, leaving := f.keyboard.Receive(has)
-	if forward != nil {
-		forward(has)
-	}
-	if f.keyboard.Superseded(turn) {
-		return
-	}
-	if leaving {
-		_ = validate()
-	}
-}
-
-// SubmissionID identifies one validated attempt, independently of the worker
-// carrying it out. A later attempt revokes settlement of an earlier one.
-type SubmissionID struct{ identity *byte }
-
-const (
-	ActionCancel         scene.ActionID = "cancel"
-	ActionReadSubmission scene.ActionID = "read-submission"
-)
-
-// SubmissionState distinguishes a pending attempt from its terminal outcome.
-type SubmissionState uint8
-
-const (
-	SubmissionIdle SubmissionState = iota
-	SubmissionPending
-	SubmissionSucceeded
-	SubmissionFailed
-	SubmissionCancelled
-)
-
-// SubmissionOutcome settles one asynchronous attempt. Cancellation and failure do not imply successful submission.
-type SubmissionOutcome struct {
-	Err       error
-	Cancelled bool
-}
-
-// Submission is a snapshot. Current is true only while the submitted field
-// revisions still describe the form's draft at observation time.
-type Submission struct {
-	ID      SubmissionID
-	State   SubmissionState
-	Err     error
-	Current bool
-}
-type fieldVersion struct {
-	field    Field
-	revision uint64
-}
-
-var (
-	// ErrSubmissionAborted reports that the submit callback exited without accepting work.
-	ErrSubmissionAborted = errors.New("base: submission callback did not return")
-	// ErrSubmissionStale reports a request superseded by a newer submission or field relation.
-	ErrSubmissionStale = errors.New("base: submission is no longer current")
-	// ErrNotCancellable reports that no active attempt accepts a cancellation request.
-	ErrNotCancellable = errors.New("base: submission cannot be cancelled")
 )
 
 // FormConfig keeps Submit's accepted effects independent of an accompanying error. Started
@@ -322,7 +28,10 @@ type FormConfig struct {
 	// Cancel receives a cancellation request for the pending attempt with that ID; it is never called
 	// while the form is idle. It does not settle the attempt; the attempt's owner still delivers Settle.
 	// Leaving an unsubmitted form is application navigation: the Cancel key is left unhandled when no
-	// attempt is pending, so an enclosing handler receives it.
+	// attempt is pending, so an enclosing handler receives it. A pending attempt that a newer
+	// submission or a field replacement supersedes is cancelled through it too, since Settle can no
+	// longer reach that attempt; the newer attempt owns the form's feedback, so that call's error is
+	// not shown.
 	Cancel     func(SubmissionID) error
 	PaintField func(scene.Frame, Field)
 }
@@ -352,9 +61,7 @@ type Form struct {
 // NewForm panics for negative Gap, nil or duplicate fields, or fields already
 // owned by an incompatible scene relation.
 func NewForm(config FormConfig) *Form {
-	if config.Gap < 0 {
-		panic("base: form gap cannot be negative")
-	}
+	requireNonNegative("form Gap", config.Gap)
 	f := &Form{key: strings.Clone(config.Key), title: strings.Clone(config.Title), keys: keyBinding{current: config.Keys}, gap: config.Gap, check: config.Check, submit: config.Submit, cancel: config.Cancel, paintField: config.PaintField}
 	f.Set(config.Fields...)
 	return f
@@ -385,7 +92,7 @@ func (f *Form) ensure() {
 	}})}
 	f.group = scene.NewGroup(scene.GroupConfig{
 		Items: []scene.Item{f.status},
-		Element: scene.ElementConfig{Key: f.key, Measure: rowsMeasure(f.HeightForWidth), Handle: f.handleEvent, Semantics: func() scene.Semantic {
+		Element: scene.ElementConfig{Key: f.key, Measure: scene.MeasureRows(f.HeightForWidth), Handle: f.handleEvent, Semantics: func() scene.Semantic {
 			state := scene.SemanticState(0)
 			if f.attempt.State == SubmissionPending {
 				state |= scene.StateBusy
@@ -424,6 +131,7 @@ func (f *Form) Set(fields ...Field) {
 	if err := f.group.CheckSet(items...); err != nil {
 		panic(err)
 	}
+	superseded := f.attempt
 	f.matcher.Reset(func() {
 		f.fields = own(f.fields, fields)
 		f.attempt = Submission{}
@@ -434,6 +142,17 @@ func (f *Form) Set(fields ...Field) {
 			panic(err)
 		}
 	})
+	f.revoke(superseded)
+}
+
+// revoke tells the owner of a pending attempt that a newer one superseded it.
+// Settle can no longer reach that attempt, so the Cancel callback is the only
+// notice its work receives. Its error has no attempt left to report into.
+func (f *Form) revoke(superseded Submission) {
+	if superseded.State != SubmissionPending || f.cancel == nil {
+		return
+	}
+	_ = f.cancel(superseded.ID)
 }
 
 // Add appends fields using the same validation and ownership rules as Set.
@@ -467,164 +186,6 @@ func (f *Form) Focused() Field {
 		}
 	}
 	return nil
-}
-
-// Submit validates every field, captures their revisions and starts one identified attempt. Started is not completion. It panics during presentation or observation.
-func (f *Form) Submit() (scene.ActionResult[SubmissionID], error) {
-	return f.SubmitWith(nil)
-}
-
-// SubmitWith collects and validates each field through collect before submitting.
-// A successful collector must leave a current Validation receipt on that field;
-// a collection error stops immediately. A nil collector validates all fields.
-// Changing the field relation or starting another attempt supersedes this call.
-func (f *Form) SubmitWith(collect func(Field) error) (scene.ActionResult[SubmissionID], error) {
-	requireMutable(f.Element())
-	id := SubmissionID{identity: new(byte)}
-	f.problem = nil
-	f.cancelFeedback.clear()
-	f.attempt = Submission{ID: id, State: SubmissionIdle}
-	f.submitted = nil
-	// Validation may exit without returning after the previous attempt was revoked.
-	f.Element().Invalidate()
-	versions, validationErr := f.validateSubmission(id, collect)
-	if validationErr != nil {
-		if f.attempt.ID == id {
-			f.Element().Invalidate()
-		}
-		return scene.ActionResult[SubmissionID]{}, validationErr
-	}
-	f.submitted = versions
-	state, err := f.start(id)
-	if state != scene.Started && state != scene.Applied && state != scene.Unchanged {
-		err = errors.Join(err, errors.New("base: submission callback returned an invalid action state"))
-		if f.attempt.ID == id {
-			f.complete(SubmissionOutcome{Err: err})
-		}
-		return scene.ActionResult[SubmissionID]{}, err
-	}
-	result := scene.ActionResult[SubmissionID]{State: state, Value: id}
-	if f.attempt.ID != id {
-		return result, errors.Join(err, ErrSubmissionStale)
-	}
-	if state == scene.Started {
-		f.attempt.State, f.attempt.Err = SubmissionPending, err
-		f.Element().Invalidate()
-	} else {
-		f.complete(SubmissionOutcome{Err: err})
-	}
-	return result, err
-}
-
-// The callback decides admission. Only work it actually accepted may be settled
-// later; an abnormal exit propagates after recording failure on its own attempt.
-func (f *Form) start(id SubmissionID) (scene.ActionState, error) {
-	if f.submit == nil {
-		return scene.Applied, nil
-	}
-	returned := false
-	defer func() {
-		if !returned && f.attempt.ID == id {
-			f.complete(SubmissionOutcome{Err: ErrSubmissionAborted})
-		}
-	}()
-	state, err := f.submit(id)
-	returned = true
-	return state, err
-}
-
-func (f *Form) currentValidations(validations []func() bool) bool {
-	return readProjection(f.group.Element(), func() bool {
-		for _, current := range validations {
-			if current == nil || !current() {
-				return false
-			}
-		}
-		return true
-	})
-}
-
-// Settle accepts only the active attempt. Success describes the submitted snapshot;
-// Current reports whether it still describes the draft now visible to the user.
-func (f *Form) Settle(id SubmissionID, outcome SubmissionOutcome) bool {
-	requireMutable(f.Element())
-	if f.attempt.ID != id || f.attempt.State != SubmissionPending {
-		return false
-	}
-	f.complete(outcome)
-	return true
-}
-
-func (f *Form) complete(outcome SubmissionOutcome) {
-	state := SubmissionSucceeded
-	if outcome.Cancelled {
-		state = SubmissionCancelled
-	} else if outcome.Err != nil {
-		state = SubmissionFailed
-	}
-	f.attempt.State, f.attempt.Err = state, outcome.Err
-	f.problem = nil
-	f.cancelFeedback.clear()
-	f.Element().Invalidate()
-}
-
-// Submission returns the current attempt, with Current computed from the exact submitted field revisions.
-func (f *Form) Submission() Submission {
-	result := f.attempt
-	result.Current = result.State != SubmissionIdle
-	if len(f.submitted) > 0 {
-		f.group.Element().ReadOnly(func() {
-			for _, field := range f.submitted {
-				if field.field.Revision() != field.revision {
-					result.Current = false
-					break
-				}
-			}
-		})
-	}
-	return result
-}
-
-// Cancel requests cancellation of the pending attempt. It does not settle the attempt; the worker or application must deliver Settle.
-func (f *Form) Cancel() error {
-	requireMutable(f.Element())
-	if !f.canCancel() {
-		return ErrNotCancellable
-	}
-	return f.cancel(f.attempt.ID)
-}
-
-func (f *Form) canCancel() bool { return f.cancel != nil && f.attempt.State == SubmissionPending }
-
-func (f *Form) submissionAction() scene.ActionBinding {
-	return scene.NewAction(scene.ActionConfig[struct{}, Submission]{
-		ID: ActionReadSubmission, Label: "Read submission",
-		Run: func(context.Context, struct{}) (scene.ActionResult[Submission], error) {
-			return scene.ActionResult[Submission]{Value: f.Submission()}, nil
-		},
-	}).Binding()
-}
-
-func (f *Form) cancelAction() scene.ActionBinding {
-	return scene.NewAction(scene.ActionConfig[SubmissionID, Submission]{
-		ID: ActionCancel, Label: "Cancel submission",
-		Availability: func(id SubmissionID) scene.Availability {
-			if !f.canCancel() || id != f.attempt.ID {
-				return scene.Availability{Disabled: true, Reason: "submission is not current or cancellable"}
-			}
-			return scene.Availability{}
-		},
-		Run: func(_ context.Context, id SubmissionID) (scene.ActionResult[Submission], error) {
-			err := f.Cancel()
-			state := scene.Unchanged
-			if f.attempt.ID != id || f.attempt.State != SubmissionPending {
-				state = scene.Applied
-			} else if err == nil {
-				state = scene.Started
-			}
-			return scene.ActionResult[Submission]{State: state, Value: f.Submission()}, err
-		},
-	}).Binding()
 }
 
 func (f *Form) HeightForWidth(width int) int {
@@ -690,88 +251,12 @@ func (f *Form) Do(action keymap.Action) bool {
 	return true
 }
 
-func (f *Form) resolvedKeys() *keymap.Map {
-	if f.keys.current != nil {
-		return f.keys.current
-	}
-	return formKeys()
-}
+func (f *Form) resolvedKeys() *keymap.Map { return f.keys.resolve(formKeys) }
 
-func (f *Form) checkSubmissionField(field Field, collect func(Field) error) error {
-	if collect == nil {
-		return field.Validate()
-	}
-	if err := collect(field); err != nil {
-		return err
-	}
-	return readProjection(f.group.Element(), field.Error)
-}
-
-func (f *Form) fieldProblem() error {
-	for _, field := range f.fields {
-		if err := field.Error(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (f *Form) validateSubmission(id SubmissionID, collect func(Field) error) ([]fieldVersion, error) {
-	var validations []func() bool
-	var versions []fieldVersion
-	var firstInvalid Field
-	var problem error
-	for _, field := range f.fields {
-		err := f.checkSubmissionField(field, collect)
-		if f.attempt.ID != id {
-			return nil, ErrSubmissionStale
-		}
-		if err != nil && (collect != nil || errors.Is(err, ErrValidationSuperseded)) {
-			return nil, err
-		}
-		if err != nil && firstInvalid == nil {
-			firstInvalid, problem = field, err
-		}
-		f.group.Element().ReadOnly(func() {
-			validations = append(validations, field.Validation())
-			versions = append(versions, fieldVersion{field: field, revision: field.Revision()})
-		})
-	}
-	if !f.currentValidations(validations) {
-		return nil, ErrValidationSuperseded
-	}
-	if firstInvalid != nil {
-		f.problem = f.fieldProblem
-		_ = firstInvalid.Element().RequestFocusFirst()
-		return nil, problem
-	}
-	if err := f.checkDraft(id, validations); err != nil {
-		return nil, err
-	}
-	return versions, nil
-}
-
-func (f *Form) checkDraft(id SubmissionID, validations []func() bool) error {
-	if f.check == nil {
-		return nil
-	}
-	err := f.check()
-	if f.attempt.ID != id {
-		return ErrSubmissionStale
-	}
-	if !f.currentValidations(validations) {
-		return ErrValidationSuperseded
-	}
-	if err != nil {
-		f.problem = func() error {
-			if f.currentValidations(validations) {
-				return err
-			}
-			return nil
-		}
-	}
-	return err
-}
+// KeysFor returns the sequences bound to action in the map this form handles keys
+// with, including its defaults when no map is set, so help text can never describe
+// bindings the form does not use.
+func (f *Form) KeysFor(action keymap.Action) []input.Keys { return f.resolvedKeys().Keys(action) }
 
 func (f *Form) Title() string { return f.title }
 
@@ -789,9 +274,7 @@ func (f *Form) Gap() int { return f.gap }
 func (f *Form) SetGap(value int) {
 	element := f.Element()
 	requireMutable(element)
-	if value < 0 {
-		panic("base: Gap cannot be negative")
-	}
+	requireNonNegative("form Gap", value)
 	if f.gap == value {
 		return
 	}

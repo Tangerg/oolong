@@ -5,9 +5,11 @@ import (
 	"fmt"
 )
 
-// Depth is applied only when truecolor cells cross the wire so themes and
-// drawing operations remain independent of terminal palettes. Auto delegates
-// selection to the host; encoding treats unresolved Auto as TrueColor.
+// Depth is applied only when cells cross the wire, so themes and drawing
+// operations remain independent of terminal capabilities. A truecolor value is
+// approximated to fit it; a palette entry keeps its index wherever the depth has
+// one. Auto delegates selection to the host; encoding treats unresolved Auto as
+// TrueColor.
 type Depth uint8
 
 const (

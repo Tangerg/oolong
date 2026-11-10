@@ -12,7 +12,7 @@ import (
 
 func TestWrappingReleasesRowsRemovedFromTheDocument(t *testing.T) {
 	doc := &Snapshot{}
-	doc.layout.Store(&documentLayout{width: 8, places: []placedBlock{{layout: blockLayout{rows: []text.Wrapped{{Line: text.Of("old", grid.Style{})}}}}}})
+	doc.layout.Store(&documentLayout{width: 8, places: []placedBlock{{layout: blockLayout{body: wrappedRows{{Line: text.Of("old", grid.Style{})}}, height: 1}}}})
 	if len(doc.arrange(10).places) != 0 {
 		t.Fatal("removed block still retained")
 	}
@@ -55,10 +55,10 @@ func TestDocCopyOwnsSubsequentAppends(t *testing.T) {
 
 	copyBlocks := copied.Blocks()
 	originalBlocks := original.Blocks()
-	if got := copyBlocks[len(copyBlocks)-1].lines[0].String(); got != "copied" {
+	if got := copyBlocks[len(copyBlocks)-1].lines()[0].String(); got != "copied" {
 		t.Fatalf("copy's last block after original append = %q, want copied", got)
 	}
-	if got := originalBlocks[len(originalBlocks)-1].lines[0].String(); got != "original" {
+	if got := originalBlocks[len(originalBlocks)-1].lines()[0].String(); got != "original" {
 		t.Fatalf("original's last block after copy append = %q, want original", got)
 	}
 }
@@ -66,7 +66,7 @@ func TestDocCopyOwnsSubsequentAppends(t *testing.T) {
 func TestWrappingReleasesOversizedRowStorage(t *testing.T) {
 	blocks := make([]Block, 1024)
 	for i := range blocks {
-		blocks[i].lines = []text.Line{text.Of("row", grid.Style{})}
+		blocks[i].body = textBody{text.Of("row", grid.Style{})}
 	}
 	var doc Doc
 	doc.SetBlocks(blocks)
@@ -90,7 +90,7 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	rule := mustRender(t, "---", look)
 	code := mustRender(t, "```go\nx\n```", look)
 	provided[0][0].Text = "changed"
-	if got := rule[0].rule.Text; got != "kept" {
+	if got := rule[0].rule().Text; got != "kept" {
 		t.Fatalf("rule glyph = %q, want owned kept", got)
 	}
 	if got := code[0].Rows(20)[0].Text; got != "kept" {
@@ -100,7 +100,7 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(source))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	sourceEnd := sourceStart + uintptr(len(source))
 	for name, value := range map[string]string{
-		"rule": rule[0].rule.Text,
+		"rule": rule[0].rule().Text,
 		"code": code[0].Rows(20)[0].Text,
 	} {
 		at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
@@ -120,7 +120,7 @@ func TestNestedListItemsOwnMarkersAndShareQuotationRails(t *testing.T) {
 		if len(blocks) != 1 {
 			t.Fatalf("level %d has %d blocks, want one nested item", level, len(blocks))
 		}
-		item := blocks[0].item
+		item := blocks[0].item()
 		if item == nil || item.marker == nil || item.marker.next != nil {
 			t.Fatalf("level %d does not own exactly its marker", level)
 		}
@@ -131,7 +131,7 @@ func TestNestedListItemsOwnMarkersAndShareQuotationRails(t *testing.T) {
 	}
 	for i, block := range blocks {
 		prefix := block.prefix
-		if item := block.item; item != nil {
+		if item := block.item(); item != nil {
 			prefix = item.prefix
 			if item.marker == nil || item.marker.next != nil {
 				t.Fatalf("quoted item %d retained another item's marker", i)

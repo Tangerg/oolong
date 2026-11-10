@@ -35,14 +35,14 @@ func TestTranscriptStageRequiresItsOwnMountedSceneBeforeMeasurement(t *testing.T
 				}()
 				_, _ = foreign.Prepare(grid.NewSurface(20, 1).View())
 			}()
-			if measurements != 0 || model.Width() != 0 || model.Height() != 0 {
+			if measurements != 0 || model.Layout().Width() != 0 || model.Layout().Height() != 0 {
 				t.Fatal("invalid producer read content or changed geometry before refusal")
 			}
 			if owner == nil {
 				owner = transcriptScene(t, model)
 			}
 			transcriptCommit(t, owner, 20, 1, 1)
-			if measurements != 1 || model.Width() != 20 || model.Height() != 1 {
+			if measurements != 1 || model.Layout().Width() != 20 || model.Layout().Height() != 1 {
 				t.Fatal("refused producer prevented its owner's valid frame")
 			}
 		})
@@ -96,12 +96,12 @@ func TestTranscriptPlacementRequiresOneLiveFrameOwner(t *testing.T) {
 				}()
 				_, _ = root.Prepare(grid.NewSurface(10, 1).View())
 			}()
-			if transcript.Width() != 20 {
+			if transcript.Layout().Width() != 20 {
 				t.Fatal("rejected frame advanced width")
 			}
 			run = func(frame scene.Frame) { transcript.Stage(frame, 10) }
 			transcriptCommit(t, root, 10, 1, 2)
-			if transcript.Width() != 10 {
+			if transcript.Layout().Width() != 10 {
 				t.Fatal("aborted frame retained ownership")
 			}
 		})

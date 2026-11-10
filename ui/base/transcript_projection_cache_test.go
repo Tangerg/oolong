@@ -36,7 +36,7 @@ func TestTranscriptUnchangedFramesReuseTextProjection(t *testing.T) {
 	root := transcriptScene(t, model)
 	for sequence := uint64(1); sequence <= 3; sequence++ {
 		transcriptCommit(t, root, 20, 2, sequence)
-		if rows := model.Rows(0, 1); len(rows) != 1 || rows[0].Text != "alpha beta" {
+		if rows := model.Layout().Rows(0, 1); len(rows) != 1 || rows[0].Text != "alpha beta" {
 			t.Fatalf("unchanged projection returned %v", rows)
 		}
 	}
@@ -67,7 +67,7 @@ func TestTranscriptDocumentChangeReplacesCachedProjection(t *testing.T) {
 	}
 	for sequence := uint64(2); sequence <= 3; sequence++ {
 		transcriptCommit(t, root, 20, 2, sequence)
-		if rows := model.Rows(0, 1); len(rows) != 1 || rows[0].Text != "new text" {
+		if rows := model.Layout().Rows(0, 1); len(rows) != 1 || rows[0].Text != "new text" {
 			t.Fatalf("changed document kept old projection: %v", rows)
 		}
 	}
@@ -89,7 +89,7 @@ func TestTranscriptAbortedResizeKeepsCommittedProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidate.Abort()
-	if model.Width() != 20 || model.Height() != 1 {
+	if model.Layout().Width() != 20 || model.Layout().Height() != 1 {
 		t.Fatal("aborted width replaced the committed text projection")
 	}
 	transcriptCommit(t, root, 20, 3, 2)
@@ -101,8 +101,8 @@ func TestTranscriptAbortedResizeKeepsCommittedProjection(t *testing.T) {
 	if model.ContentRevision() != contentRevision {
 		t.Fatal("a layout width advanced the content revision")
 	}
-	if model.Width() != 4 || model.Height() != 3 || body.measurements != 3 || body.projections != 3 {
-		t.Fatalf("resize projection: width=%d height=%d measurements=%d projections=%d", model.Width(), model.Height(), body.measurements, body.projections)
+	if model.Layout().Width() != 4 || model.Layout().Height() != 3 || body.measurements != 3 || body.projections != 3 {
+		t.Fatalf("resize projection: width=%d height=%d measurements=%d projections=%d", model.Layout().Width(), model.Layout().Height(), body.measurements, body.projections)
 	}
 	if rows := before.Rows(0, 1); len(rows) != 1 || rows[0].Text != "abcdefghij" {
 		t.Fatal("new width mutated the earlier immutable projection")
@@ -131,7 +131,7 @@ func TestTranscriptRetirementRemovesReusableProjection(t *testing.T) {
 		t.Fatal("publication did not retire content")
 	}
 	transcriptCommit(t, root, 20, 2, 3)
-	if model.Layout().Block(item.ID()) != nil || model.Height() != 0 || len(model.Rows(0, 2)) != 0 {
+	if model.Layout().Block(item.ID()) != nil || model.Layout().Height() != 0 || len(model.Layout().Rows(0, 2)) != 0 {
 		t.Fatal("retirement left content in the reusable projection")
 	}
 	if before.Block(item.ID()) == nil {

@@ -32,7 +32,7 @@ const maximumSelectedTools = 2
 const quitSession keymap.Action = "quit"
 
 func main() {
-	var got answers
+	var got *answers
 	form := ask(&got)
 	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.Runtime) (scene.Element, error) { return dress(runtime, form), nil }})
 	if err == nil {
@@ -58,7 +58,9 @@ type sessionForm struct {
 	done  func()
 }
 
-func ask(into *answers) *sessionForm {
+// ask stores the submitted answers through into. A form left without submitting
+// leaves it nil, which is what reports that nothing was asked for.
+func ask(into **answers) *sessionForm {
 	name := base.NewText(base.TextConfig{
 		Label: "What is this session called?", Placeholder: "a name",
 		Check: func(value string) error {
@@ -74,9 +76,8 @@ func ask(into *answers) *sessionForm {
 	})
 	tools := base.NewMultiSelect(base.MultiSelectConfig[string]{
 		Same: base.Equal[string], Label: "Which tools may it use?",
-		Options: base.Options("read", "write", "run"),
+		Options: base.Options("read", "write", "run"), Limit: maximumSelectedTools,
 	})
-	tools.SetLimit(maximumSelectedTools)
 	stream := base.NewConfirm(base.ConfirmConfig{Label: "Stream the answer?"})
 	form := &sessionForm{theme: kit.NewThemeOwner(kit.Theme{})}
 	form.view = kit.NewForm(kit.FormConfig{
@@ -87,17 +88,11 @@ func ask(into *answers) *sessionForm {
 		Fields: []base.Field{name, model, tools, stream},
 		Submit: func(base.SubmissionID) (scene.ActionState, error) {
 			chosen, _ := model.Chosen()
-			*into = answers{name: name.Text(), model: chosen.Value, tools: tools.Taken(), stream: stream.Answer()}
+			*into = &answers{name: name.Text(), model: chosen.Value, tools: tools.Taken(), stream: stream.Answer()}
 			if form.done != nil {
 				form.done()
 			}
 			return scene.Applied, nil
-		},
-		Cancel: func(base.SubmissionID) error {
-			if form.done != nil {
-				form.done()
-			}
-			return nil
 		},
 	})
 	return form
@@ -120,9 +115,12 @@ func dress(runtime *program.Runtime, form *sessionForm) scene.Element {
 	var keys keymap.Map
 	keys.Bind(quitSession, input.Chord{Code: input.Esc})
 	keys.Bind(quitSession, input.Ctrl.Rune('c'))
+	// Quitting bubbles from the focused field: the form answers Cancel while a
+	// submission is pending, and leaving an unsubmitted form is this enclosing
+	// handler's navigation.
 	return scene.NewGroup(scene.GroupConfig{
 		Overlay: true,
-		Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
+		Element: scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
 			key, ok := event.Input().(input.Key)
 			if !ok {
 				return scene.EventResult{}
@@ -136,8 +134,8 @@ func dress(runtime *program.Runtime, form *sessionForm) scene.Element {
 	}).Element()
 }
 
-func report(got answers) {
-	if got.name == "" {
+func report(got *answers) {
+	if got == nil {
 		fmt.Println("nothing was asked for")
 		return
 	}

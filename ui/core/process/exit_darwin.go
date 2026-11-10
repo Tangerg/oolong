@@ -25,10 +25,11 @@ type childSiginfo struct {
 }
 
 func observeExit(pid int) (int, os.Signal, error) {
-	const processID = 1
+	// waitid's idtype selecting one process by its ID; Darwin's P_PID is 1.
+	const idTypePID = 1
 	var info childSiginfo
 	//nolint:staticcheck,gosec // SA1019/G103: x/sys has no waitid wrapper; this exact Darwin ABI buffer stays live for the synchronous syscall.
-	_, _, errno := unix.Syscall6(unix.SYS_WAITID, processID, uintptr(pid), uintptr(unsafe.Pointer(&info)), unix.WEXITED|unix.WNOWAIT, 0, 0)
+	_, _, errno := unix.Syscall6(unix.SYS_WAITID, idTypePID, uintptr(pid), uintptr(unsafe.Pointer(&info)), unix.WEXITED|unix.WNOWAIT, 0, 0)
 	if errno != 0 {
 		return 0, nil, errno
 	}

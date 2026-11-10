@@ -90,29 +90,29 @@ func TestTranscriptFrameAbortPreservesGeometryWithoutRollingBackContent(t *testi
 	first := transcriptAdd(t, m, transcriptBody("one\ntwo"))
 	r := transcriptScene(t, m)
 	transcriptCommit(t, r, 20, 4, 1)
-	if m.Height() != 2 {
-		t.Fatal(m.Height())
+	if m.Layout().Height() != 2 {
+		t.Fatal(m.Layout().Height())
 	}
 	second := transcriptAdd(t, m, transcriptBody("three\nfour"))
 	candidate, err := r.Prepare(grid.NewSurface(8, 4).View())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Height() != 2 || m.Width() != 20 {
+	if m.Layout().Height() != 2 || m.Layout().Width() != 20 {
 		t.Fatal("candidate advanced geometry")
 	}
 	candidate.Abort()
 	if m.Len() != 2 || m.Block(second.ID()) == nil {
 		t.Fatal("abort rolled back model facts")
 	}
-	if m.Height() != 2 || m.Width() != 20 {
+	if m.Layout().Height() != 2 || m.Layout().Width() != 20 {
 		t.Fatal("abort changed committed geometry")
 	}
 	transcriptCommit(t, r, 8, 4, 2)
-	if m.Height() != 4 || m.Width() != 8 {
+	if m.Layout().Height() != 4 || m.Layout().Width() != 8 {
 		t.Fatal("complete frame did not settle geometry")
 	}
-	if top, rows, ok := m.Extent(first.ID()); !ok || top != 0 || rows != 2 {
+	if top, rows, ok := m.Layout().Extent(first.ID()); !ok || top != 0 || rows != 2 {
 		t.Fatalf("extent=%d,%d,%v", top, rows, ok)
 	}
 }
@@ -240,7 +240,7 @@ func TestTranscriptOverflowCannotPublishPartialGeometry(t *testing.T) {
 		}()
 		_, _ = r.Prepare(grid.NewSurface(20, 1).View())
 	}()
-	if m.Height() != 1 || m.Len() != 2 {
+	if m.Layout().Height() != 1 || m.Len() != 2 {
 		t.Fatal("failed layout changed committed coordinates or source")
 	}
 }
@@ -430,7 +430,7 @@ func TestTranscriptRowsPreserveSlotsForNontextContent(t *testing.T) {
 	transcriptAdd(t, model, transcriptBody("after"))
 	root := transcriptScene(t, model)
 	surface := transcriptCommit(t, root, 20, 4, 1)
-	if got, want := rowTexts(model.Rows(0, 4)), []string{"before", "", "", "after"}; !reflect.DeepEqual(got, want) {
+	if got, want := rowTexts(model.Layout().Rows(0, 4)), []string{"before", "", "", "after"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("text projection=%q want=%q", got, want)
 	}
 	if rowText(surface.View(), 3) != "after" {
@@ -529,9 +529,9 @@ func TestVisibleIdentityWindowBelongsToAdmittedLayout(t *testing.T) {
 	transcriptAdd(t, m, transcriptBody("first"))
 	root := transcriptScene(t, m)
 	transcriptCommit(t, root, 10, 1, 1)
-	first, last := m.Visible(20, 1)
+	first, last := m.Layout().Visible(20, 1)
 	transcriptAdd(t, m, transcriptBody("unpainted"))
-	if a, b := m.Visible(20, 1); a != first || b != last {
+	if a, b := m.Layout().Visible(20, 1); a != first || b != last {
 		t.Fatalf("unpainted model changed empty frame span from [%d,%d) to [%d,%d)", first, last, a, b)
 	}
 }

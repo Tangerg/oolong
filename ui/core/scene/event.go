@@ -1,6 +1,7 @@
 package scene
 
 import (
+	"errors"
 	"image"
 	"slices"
 	"time"
@@ -90,7 +91,7 @@ func (e Event) Read[T any](snapshot *Snapshot[T]) (T, bool) {
 	layout := e.route.layout
 	if _, pointer := e.input.(input.Mouse); !pointer {
 		r := e.route.root
-		if r == nil || r.layout == nil || r.layout.epoch != r.geometryEpoch {
+		if r == nil || !r.current(r.layout) {
 			return zero, false
 		}
 		layout = r.layout
@@ -107,15 +108,17 @@ func (e Event) Read[T any](snapshot *Snapshot[T]) (T, bool) {
 }
 
 // CurrentLayout reports whether this input belongs to the latest admitted geometry.
+// It agrees with Read: input that is not a pointer belongs to the latest frame
+// while that frame's geometry is current.
 func (e Event) CurrentLayout() bool {
 	r := e.route.root
 	if r == nil || r.closed {
 		return false
 	}
 	if !e.route.pointer {
-		return true
+		return r.current(r.layout)
 	}
-	return e.route.layout != nil && r.layout == e.route.layout && e.route.layout.epoch == r.geometryEpoch
+	return r.layout == e.route.layout && r.current(e.route.layout)
 }
 
 func (e Event) checkDelivery() error {
@@ -271,7 +274,7 @@ func (r *Root) Handle(event input.Event) bool {
 	if r == nil || input.Validate(event) != nil {
 		return false
 	}
-	return r.HandleInput(CapturedInput{input: event, root: r, layout: r.written})
+	return r.HandleInput(CapturedInput{input: event, root: r, layout: r.frames.written})
 }
 
 // HandleInput routes an arrival snapshot while checking current attachment and interaction eligibility.
@@ -294,7 +297,7 @@ func (r *Root) HandleInput(event CapturedInput) bool {
 	}
 	var consumed bool
 	if mouse, ok := event.input.(input.Mouse); ok {
-		if event.layout != nil && event.layout.epoch != r.geometryEpoch {
+		if !r.current(event.layout) {
 			event.layout = nil
 		}
 		consumed = r.mouse(mouse, event.layout)
@@ -378,16 +381,24 @@ func (r *Root) capturedMouse(mouse input.Mouse, snapshot *layoutSnapshot) (consu
 }
 
 // Routing can exit before the release reaches its handler. Only the original
-// gesture still awaiting an end needs cancellation; a new press owns itself.
+// gesture still awaiting an end needs cancellation; a new press owns itself. A
+// notification may have prepared a frame while the release was routed; the model
+// must then stay unchanged until it settles, so the cancellation waits in the
+// notification queue like every other callback in that phase.
 func (r *Root) finishCapture(held capture, n *node) {
 	if r.capture.press != held.press {
 		return
 	}
 	cancel := r.capture.phase != captureRevoked
 	r.capture = capture{}
-	if cancel {
-		held.cancel(n)
+	if !cancel {
+		return
 	}
+	if errors.Is(r.mutable(), ErrBusy) && n != nil {
+		r.notify(n, func() { held.cancel(n) })
+		return
+	}
+	held.cancel(n)
 }
 
 func (r *Root) revokeCapture(mouse input.Mouse, held capture, n *node) {
@@ -432,16 +443,24 @@ func (r *Root) hitMouse(mouse input.Mouse, snapshot *layoutSnapshot) bool {
 	return false
 }
 
+// modalPointer gives a pointer blocked by a modal layer to that layer through the
+// ordinary route: it becomes the hovered target, so what it covers is left, and
+// its Preview sees the event before its Handle, as for any other delivery.
 func (r *Root) modalPointer(mouse input.Mouse, snapshot *layoutSnapshot) bool {
 	modal := r.modal()
 	if modal == nil {
 		return false
 	}
-	placement, ok := snapshot.lookup(modal.target())
-	if !ok {
+	if _, ok := snapshot.lookup(modal.target()); !ok {
 		return false
 	}
-	return r.route(modal, mouse, snapshot).dispatch(modal, modal.config.Handle, mouse, placement.area).Consumed
+	turn := r.inputTurn
+	q := r.route(modal, mouse, snapshot)
+	r.hoverTo(modal.target(), mouse, snapshot)
+	if r.inputTurn != turn || r.hover != modal.target() {
+		return true
+	}
+	return q.bubble(mouse)
 }
 
 func (q inputRoute) preview(start *node, event input.Event) bool {
@@ -465,7 +484,7 @@ func (q inputRoute) preview(start *node, event input.Event) bool {
 }
 
 func (r *Root) currentGeometry(n *node, snapshot *layoutSnapshot) bool {
-	if snapshot == nil || snapshot.epoch != r.geometryEpoch {
+	if !r.current(snapshot) {
 		return false
 	}
 	p, ok := snapshot.lookup(n.target())
@@ -530,7 +549,9 @@ func (q inputRoute) dispatch(n *node, handle func(Event) EventResult, event inpu
 			return EventResult{Consumed: true}
 		}
 	}
-	if result.Consumed && result.Capture {
+	// Capturing a gesture claims it, so a capture implies consumption.
+	if result.Capture {
+		result.Consumed = true
 		_ = delivery.Capture()
 	}
 	if mouse, ok := event.(input.Mouse); ok && mouse.Action == input.MouseDown && r.capture.target == target && r.capture.phase == captureActive {
@@ -553,7 +574,7 @@ func (r *Root) hoverTo(target Target, mouse input.Mouse, snapshot *layoutSnapsho
 	}
 }
 
-func (r *Root) leave(mouse input.Mouse) { r.hoverTo(Target{}, mouse, r.written) }
+func (r *Root) leave(mouse input.Mouse) { r.hoverTo(Target{}, mouse, r.frames.written) }
 
 // Geometry loss and detachment revoke the hit before user code can reenter.
 // A newer hit on the same attachment supersedes its queued leave.

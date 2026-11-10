@@ -235,12 +235,12 @@ func (s *Slider) Do(action keymap.Action) bool {
 
 func (s *Slider) mouse(mouse input.Mouse) bool {
 	handled := s.pointer.Handle(mouse)
-	if !handled || s.pointer.button != input.ButtonLeft {
+	if !handled || s.pointer.pressedWith() != input.ButtonLeft {
 		return false
 	}
 	switch mouse.Action {
 	case input.MouseDown, input.MouseDrag, input.MouseUp:
-		s.setAt(mouse.Pos.X, s.pointer.geometry.read(&s.pointer.presentation).track)
+		s.setAt(mouse.Pos.X, s.pointer.track())
 		return true
 	default:
 		return false
@@ -266,12 +266,7 @@ func (s *Slider) focusChanged(has bool) {
 
 func (s *Slider) Focused() bool { return s != nil && s.element.Focused() }
 
-func (s *Slider) resolvedKeys() *keymap.Map {
-	if s.keys.current != nil {
-		return s.keys.current
-	}
-	return sliderKeys()
-}
+func (s *Slider) resolvedKeys() *keymap.Map { return s.keys.resolve(sliderKeys) }
 
 func (s *Slider) Keys() *keymap.Map { return s.keys.current }
 

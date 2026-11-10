@@ -4,18 +4,17 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/program"
-	"github.com/Tangerg/oolong/ui/core/publication"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/term"
 	"github.com/Tangerg/oolong/ui/core/text"
@@ -59,16 +58,27 @@ type runner struct {
 
 	// Escape sequences may span command chunks, so one decoder must retain colour
 	// and partial-sequence state for the whole output stream.
-	out       text.Decoder
-	spinner   kit.Spinner
-	result    string
+	out     text.Decoder
+	spinner kit.Spinner
+	// outcome is nil while the command runs and set once when it settles.
+	outcome   *runOutcome
 	actionErr error
+}
+
+type runOutcome struct{ err error }
+
+func (o runOutcome) String() string {
+	if o.err != nil {
+		return "failed: " + o.err.Error()
+	}
+	return "done"
 }
 
 func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	r := &runner{runtime: runtime, theme: theme, command: command, keys: runnerKeys()}
+	r.element = drawn.Element("run", r)
 	r.out.Base = theme.Text
 	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs}
 
@@ -115,8 +125,9 @@ func (r *runner) start(scope *program.Scope) (*program.Task, error) {
 		default:
 		}
 	})
+	pump := r.pump(progress)
 	task, err := r.runtime.Start(scope, program.Work[struct{}]{
-		Run: func(ctx context.Context) (struct{}, error) { return struct{}{}, r.run(ctx, progress) },
+		Run: func(ctx context.Context) (struct{}, error) { return struct{}{}, pump.run(ctx) },
 		Apply: func(_ struct{}, err error) {
 			unsubscribe()
 			scope.Close()
@@ -130,72 +141,36 @@ func (r *runner) start(scope *program.Scope) (*program.Task, error) {
 	return task, err
 }
 
-type commandWriter struct{ write func([]byte) error }
-
-func (w *commandWriter) Write(data []byte) (int, error) {
-	if err := w.write(data); err != nil {
-		return 0, err
+func (r *runner) pump(progress <-chan struct{}) *outputPump {
+	return &outputPump{
+		command:  r.command,
+		owner:    r.runtime.Dispatcher(),
+		progress: progress,
+		feed:     r.out.Feed,
+		flush:    r.out.Flush,
+		offer:    r.offer,
 	}
-	return len(data), nil
 }
 
-func (r *runner) run(ctx context.Context, progress <-chan struct{}) error {
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
-	output := &commandWriter{write: func(data []byte) error {
-		err := r.publish(ctx, progress, func() []text.Line { return r.out.Feed(string(data)) })
-		if err != nil {
-			cancel(err)
+// offer publishes lines into scrollback until publication runs out of room and
+// returns the lines it could not take yet.
+func (r *runner) offer(lines []text.Line) ([]text.Line, error) {
+	for len(lines) != 0 {
+		paragraph := &kit.Paragraph{}
+		paragraph.SetText(lines[:1])
+		if _, err := r.runtime.Publisher().TryPublish(paragraph); err != nil {
+			return lines, err
 		}
-		return err
-	}}
-	result := runCommand(ctx, r.command, output)
-	if cause := context.Cause(ctx); cause != nil {
-		return errors.Join(result, cause)
+		lines = lines[1:]
 	}
-	return errors.Join(result, r.publish(ctx, progress, r.out.Flush))
-}
-
-// The worker retains at most one command read while waiting for publication.
-// Only the UI owner advances the decoder and offers lines. An accepted prefix is
-// never replayed; the worker waits for a capacity notification before retrying.
-func (r *runner) publish(ctx context.Context, progress <-chan struct{}, decode func() []text.Line) error {
-	var lines []text.Line
-	for {
-		err := r.runtime.Dispatcher().Invoke(ctx, func() error {
-			if decode != nil {
-				lines = decode()
-				decode = nil
-			}
-			for len(lines) != 0 {
-				paragraph := &kit.Paragraph{}
-				paragraph.SetText(lines[:1])
-				if _, err := r.runtime.Publisher().TryPublish(paragraph); err != nil {
-					return err
-				}
-				lines = lines[1:]
-			}
-			return nil
-		})
-		if !errors.Is(err, publication.ErrCapacity) {
-			return err
-		}
-		select {
-		case <-progress:
-		case <-ctx.Done():
-			return context.Cause(ctx)
-		}
-	}
+	return nil, nil
 }
 
 func (r *runner) finish(err error) {
-	r.result = "done"
-	if err != nil {
-		r.result = "failed: " + err.Error()
-	}
+	r.outcome = &runOutcome{err: err}
 	_ = r.runtime.Session().SetTitle("")
 	_ = r.runtime.Session().Bell()
-	_ = r.runtime.Session().Notify(strings.Join(r.command, " ") + ": " + r.result)
+	_ = r.runtime.Session().Notify(strings.Join(r.command, " ") + ": " + r.outcome.String())
 }
 
 func (r *runner) Draw(v grid.View) {
@@ -214,22 +189,29 @@ func (r *runner) Draw(v grid.View) {
 	// printed is finished for good.
 	r.out.Open().Draw(rows[0], 0, 0)
 
-	if r.result != "" {
-		kit.Label{Text: r.result + "   " + r.hint(leaveRunner), Style: r.theme.Muted}.Draw(rows[1])
+	if r.outcome != nil {
+		// The editor and suspension stay available after the command settles, so
+		// their hints stay too: what is shown is what the keys do.
+		label := r.outcome.String() + "   " + r.hints(leaveRunner, openEditor, suspendRunner)
+		kit.Label{Text: label, Style: r.theme.Muted}.Draw(rows[1])
 		return
 	}
 	spinner := r.spinner
+	spinner.Label = strings.Join(r.command, " ")
+	if hints := r.hints(openEditor, suspendRunner); hints != "" {
+		spinner.Label += " — " + hints
+	}
+	spinner.Draw(rows[1])
+}
+
+func (r *runner) hints(actions ...keymap.Action) string {
 	var hints []string
-	for _, action := range []keymap.Action{openEditor, suspendRunner} {
+	for _, action := range actions {
 		if hint := r.hint(action); hint != "" {
 			hints = append(hints, hint)
 		}
 	}
-	spinner.Label = strings.Join(r.command, " ")
-	if len(hints) != 0 {
-		spinner.Label += " — " + strings.Join(hints, ", ")
-	}
-	spinner.Draw(rows[1])
+	return strings.Join(hints, ", ")
 }
 
 func (r *runner) Handle(ev input.Event) bool {
@@ -245,9 +227,6 @@ func (r *runner) Handle(ev input.Event) bool {
 	case leaveRunner:
 		r.runtime.Quit()
 	case openEditor:
-		// The terminal is given away and taken back: the modes this session turned on
-		// go off in the opposite order, the child gets a terminal with no idea a
-		// program was using it, and the whole of that happens again in reverse.
 		r.actionErr = r.runtime.Session().Hand(edit)
 	case suspendRunner:
 		r.actionErr = r.runtime.Session().Suspend()
@@ -279,16 +258,4 @@ func edit() error {
 	return cmd.Run()
 }
 
-func (r *runner) Element() scene.Element {
-	if r.element.IsZero() {
-		r.element = scene.NewElement(scene.ElementConfig{
-			Key:       "run",
-			Focusable: func() bool { return true },
-			Paint:     func(frame scene.Frame) { r.Draw(frame.View) },
-			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: r.Handle(event.Input())}
-			},
-		})
-	}
-	return r.element
-}
+func (r *runner) Element() scene.Element { return r.element }

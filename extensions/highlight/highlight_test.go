@@ -45,7 +45,7 @@ func TestCodeNobodyCouldNameIsStillCode(t *testing.T) {
 	// An unknown language is guessed at, and a guess that fails is plain text. The
 	// whole cost of going wrong here is code that is not coloured.
 	for _, language := range []string{"", "not-a-language", "COBOL"} {
-		lines := highlight.New(highlight.Style(language)).Lines(language, "one\ntwo")
+		lines := highlight.New(highlight.Scheme(language)).Lines(language, "one\ntwo")
 		if len(lines) != 2 || lines[0].String() != "one" || lines[1].String() != "two" {
 			t.Fatalf("%q came out as %v", language, lines)
 		}
@@ -79,7 +79,7 @@ func TestASchemeSaysWhatItExpectsToSitOn(t *testing.T) {
 }
 
 func TestTheSchemesOnOfferAreTheOnesThatWork(t *testing.T) {
-	names := highlight.Styles()
+	names := highlight.Schemes()
 	if len(names) < 10 {
 		t.Fatalf("%d schemes on offer", len(names))
 	}

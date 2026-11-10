@@ -263,7 +263,7 @@ func TestTypingIntoAnElementDropsIt(t *testing.T) {
 	e.InsertElement(fileChip, "@main.go")
 	// SetCursor snaps out of an element, so the text goes in through the API that
 	// does not.
-	e.Replace(3, 3, "XX")
+	e.Replace(0, 3, 3, "XX")
 
 	if got := e.Elements(); len(got) != 0 {
 		t.Errorf("the editor still holds %+v after being typed into", got)

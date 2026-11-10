@@ -128,19 +128,12 @@ const (
 // that has one.
 func DefaultEditorKeys() *keymap.Map {
 	m := &keymap.Map{}
-	bindMovement := func(move, extend keymap.Action, chord input.Chord) {
-		m.Bind(move, chord)
-		chord.Mods |= input.Shift
-		m.Bind(extend, chord)
+	for _, movement := range editorMovements {
+		m.Bind(movement.move, movement.chord)
+		extend := movement.chord
+		extend.Mods |= input.Shift
+		m.Bind(movement.extend, extend)
 	}
-	bindMovement(MoveLeft, ExtendLeft, input.Chord{Code: input.Left})
-	bindMovement(MoveRight, ExtendRight, input.Chord{Code: input.Right})
-	bindMovement(MoveUp, ExtendUp, input.Chord{Code: input.Up})
-	bindMovement(MoveDown, ExtendDown, input.Chord{Code: input.Down})
-	bindMovement(MoveWordLeft, ExtendWordLeft, input.Alt.Rune('b'))
-	bindMovement(MoveWordRight, ExtendWordRight, input.Alt.Rune('f'))
-	bindMovement(MoveLineStart, ExtendLineStart, input.Ctrl.Rune('a'))
-	bindMovement(MoveLineEnd, ExtendLineEnd, input.Ctrl.Rune('e'))
 
 	m.Bind(DeleteBack, input.Chord{Code: input.Backspace})
 	m.Bind(DeleteForward, input.Chord{Code: input.Delete})

@@ -1,8 +1,6 @@
 package grid
 
 import (
-	"errors"
-	"fmt"
 	"image"
 	"io"
 
@@ -325,10 +323,7 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	if i.at.Y > 0 {
 		i.csi(i.at.Y, 'A')
 	}
-	advance, err := i.composePending()
-	if err != nil {
-		return i.at, err
-	}
+	advance := i.composePending()
 	// A shorter viewport can strand a prefix in scrollback. Visiting more than
 	// its height would scroll the replacement block out of reach as well.
 	_, height := i.buffers.size()
@@ -350,50 +345,20 @@ func (i *Inline) compositionNeeded(used int) bool {
 	return false
 }
 
-// composePending writes immutable output before the live block. It leaves the
-// cursor at the start of the row where the block now begins and reports how far
-// that start moved. Only this layout pass decides the rows and margins on the wire.
-func (i *Inline) composePending() (int, error) {
-	advance := 0
-	for _, cells := range i.contribution {
-		_, wrapped, err := i.composePrinted(cells, 0)
-		if err != nil {
-			return 0, err
-		}
-		i.buf = append(i.buf, "\r\n"...)
-		advance += 1 + wrapped
-	}
-	return advance, nil
-}
-
-func (i *Inline) composePrinted(cells []Cell, column int) (int, int, error) {
+// composePending writes immutable output before the live block. Frozen.Rows has
+// already reflowed every contribution to this width, so each row is exactly one
+// wire row. It leaves the cursor at the start of the row where the block now
+// begins and reports how far that start moved.
+func (i *Inline) composePending() int {
 	width, _ := i.buffers.size()
-	wrapped := 0
-	for {
-		end := 0
-		for end < len(cells) {
-			unit := paintUnitAt(cells, end, len(cells)-end)
-			if unit.width > width-column-end {
-				break
-			}
-			end += unit.width
-		}
-		if end == 0 && column == 0 && len(cells) > 0 {
-			return 0, 0, fmt.Errorf("grid: queued atom width %d exceeds terminal width %d: %w", cells[0].Width(), width, errors.ErrUnsupported)
-		}
-		i.buf = append(i.buf, encodeCells(cells[:end], i.buffers.depth)...)
-		column += end
-		if column < width {
+	for _, cells := range i.contribution {
+		i.buf = append(i.buf, encodeCells(cells, i.buffers.depth)...)
+		if len(cells) < width {
 			i.buf = append(i.buf, eraseLine...)
 		}
-		cells = cells[end:]
-		if len(cells) == 0 {
-			return column, wrapped, nil
-		}
 		i.buf = append(i.buf, "\r\n"...)
-		column = 0
-		wrapped++
 	}
+	return len(i.contribution)
 }
 
 func (i *Inline) composeRows(used, extra int, full bool) int {

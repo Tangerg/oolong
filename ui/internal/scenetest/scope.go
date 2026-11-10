@@ -8,7 +8,6 @@ import (
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
-	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
@@ -99,12 +98,7 @@ func wrap(value any) scene.Element {
 		config.Focusable = func() bool { return true }
 	}
 	if measure, ok := value.(interface{ HeightForWidth(width int) int }); ok {
-		config.Measure = func(axis layout.Axis, width int) int {
-			if axis == layout.Down {
-				return measure.HeightForWidth(width)
-			}
-			return 0
-		}
+		config.Measure = scene.MeasureRows(measure.HeightForWidth)
 	}
 	return scene.NewElement(config)
 }

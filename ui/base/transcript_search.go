@@ -114,7 +114,7 @@ func (t *Transcript) RevealMatch(index int) bool {
 	}
 	match := t.search.matches[index]
 	t.search.current = index
-	first := match.Row - t.StartRow()
+	first := match.Row - t.Layout().StartRow()
 	t.scroll.requestReveal(first, first+len(match.Spans)-1)
 	t.element.Invalidate()
 	return true

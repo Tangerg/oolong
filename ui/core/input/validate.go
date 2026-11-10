@@ -81,6 +81,11 @@ func (k Key) validateIdentity() error {
 		if !utf8.ValidRune(r) {
 			return fmt.Errorf("%w: key identity is not a Unicode scalar", ErrInvalidEvent)
 		}
+		// A control character is never a key's printed identity: the keys that send
+		// one have codes of their own, and modified letters keep their letter.
+		if r != 0 && unicode.IsControl(r) {
+			return fmt.Errorf("%w: key identity is a control character", ErrInvalidEvent)
+		}
 	}
 	if k.Code != Character && k.Rune != 0 {
 		return fmt.Errorf("%w: functional key also names a character", ErrInvalidEvent)

@@ -82,9 +82,9 @@ func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 // Sequences belong to one writer lifetime and increase with accepted output.
 // Wrote may report completion before draw returns its sequence.
 //
-// A failed draw does not satisfy the request. Its full-repaint requirement and due
-// time remain pending so a caller that can recover may try again; a caller for which
-// frame construction is fatal can return the error. A nonzero sequence still records
+// A failed draw does not satisfy the request. Its full-repaint requirement remains
+// and the retry is due at once, so a caller that can recover tries again; a caller
+// for which frame construction is fatal can return the error. A nonzero sequence still records
 // accepted output even when draw also returns an error; the next draw waits for Wrote
 // to settle that output before retrying the incomplete request.
 // Requests made by draw belong to a later frame. Present is not reentrant and panics

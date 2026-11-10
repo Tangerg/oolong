@@ -2,7 +2,6 @@ package mermaid
 
 import (
 	"bytes"
-	"context"
 	"encoding/json/v2"
 	"errors"
 	"image"
@@ -23,11 +22,11 @@ func TestOutputValidationAndOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, limits := range []struct{ bytes, pixels int64 }{{1, 100}, {10000, 11}} {
-		if _, err := readImage(t.Context(), path, limits.bytes, limits.pixels); !errors.Is(err, ErrLimit) {
+		if _, err := readImage(path, limits.bytes, limits.pixels); !errors.Is(err, ErrLimit) {
 			t.Fatal(err)
 		}
 	}
-	result, err := readImage(t.Context(), path, 10000, 12)
+	result, err := readImage(path, 10000, 12)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +41,7 @@ func TestOutputValidationAndOwnership(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not png"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readImage(t.Context(), path, 10000, 100); err == nil {
+	if _, err := readImage(path, 10000, 100); err == nil {
 		t.Fatal("accepted invalid PNG")
 	}
 }
@@ -112,22 +111,5 @@ func TestRenderOwnsBrowserProfileAndSecurityConfiguration(t *testing.T) {
 	}
 	if config.Profile != filepath.Join(directory, "browser") || config.Mermaid.Theme != ThemeDark || config.Mermaid.SecurityLevel != "strict" || config.Mermaid.MaxTextSize != 1024 || config.Mermaid.MaxEdges != 10 {
 		t.Fatalf("config=%+v", config)
-	}
-}
-
-func TestImageValidationDoesNotAcceptCancelledWork(t *testing.T) {
-	var data bytes.Buffer
-	if err := png.Encode(&data, image.NewRGBA(image.Rect(0, 0, 4, 3))); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "image.png")
-	if err := os.WriteFile(path, data.Bytes(), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	result, err := readImage(ctx, path, 10000, 100)
-	if result != nil || !errors.Is(err, context.Canceled) {
-		t.Fatalf("result=%v err=%v", result, err)
 	}
 }

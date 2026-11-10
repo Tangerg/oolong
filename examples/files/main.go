@@ -97,18 +97,13 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 	keys.Bind(quitBrowser, input.Chord{Rune: 'q'})
 	b.tree.SetKeys(keys)
 	previewElement := scene.NewElement(scene.ElementConfig{
-		Key:   "file-preview",
-		Paint: func(frame scene.Frame) { b.preview.Draw(frame.View) },
-		Measure: func(axis layout.Axis, width int) int {
-			if axis == layout.Down {
-				return b.preview.HeightForWidth(width)
-			}
-			return 0
-		},
+		Key:     "file-preview",
+		Paint:   func(frame scene.Frame) { b.preview.Draw(frame.View) },
+		Measure: scene.MeasureRows(b.preview.HeightForWidth),
 	})
 	b.window = base.NewViewport(base.ViewportConfig{Content: previewElement})
-	b.treeBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs, Title: "files"}, Content: b.dressed.Element()})
-	b.viewBox = kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: theme, Glyphs: glyphs, Title: "preview"}, Content: b.window.Element()})
+	b.treeBox = kit.NewPanel(kit.PanelConfig{Theme: theme, Box: kit.Box{Glyphs: glyphs, Title: "files"}, Content: b.dressed.Element()})
+	b.viewBox = kit.NewPanel(kit.PanelConfig{Theme: theme, Box: kit.Box{Glyphs: glyphs, Title: "preview"}, Content: b.window.Element()})
 	b.body = scene.NewGroup(scene.GroupConfig{Axis: layout.Across, Gap: 1, Items: []scene.Item{
 		{Size: layout.Part(2, 5), Element: b.treeBox.Element()},
 		{Size: layout.Flex(1), Element: b.viewBox.Element()},

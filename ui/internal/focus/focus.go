@@ -5,24 +5,25 @@ package focus
 import "math"
 
 // State remembers only the last received notification and its callback epoch.
-// A nested notification revokes validation work started by an older one.
+// A nested notification revokes validation work started by an older one. Turn
+// zero means no notification has been received.
 type State struct {
-	received bool
-	focused  bool
-	turn     uint64
+	focused bool
+	turn    uint64
 }
 
 // Receive records scene's notification before invoking dependent callbacks.
 // An implicit standalone initial focus is not a notification requiring blur validation.
 func (s *State) Receive(has bool) (turn uint64, leaving bool) {
-	if s.received && s.focused == has {
+	received := s.turn != 0
+	if received && s.focused == has {
 		return s.turn, false
 	}
 	if s.turn == math.MaxUint64 {
 		panic("focus: notification epochs exhausted")
 	}
-	leaving = s.received && s.focused && !has
-	s.received, s.focused = true, has
+	leaving = received && s.focused && !has
+	s.focused = has
 	s.turn++
 	return s.turn, leaving
 }

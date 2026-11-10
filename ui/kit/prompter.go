@@ -61,12 +61,12 @@ func (p *Prompter) Ask(form *base.Form) (scene.ActionResult[base.SubmissionID], 
 		return scene.ActionResult[base.SubmissionID]{}, ErrPromptActive
 	}
 	if form == nil {
-		return scene.ActionResult[base.SubmissionID]{}, nil
+		return scene.ActionResult[base.SubmissionID]{}, errors.New("kit: Ask requires a form")
 	}
 	p.asking = true
 	defer func() { p.asking = false }()
 	return form.SubmitWith(func(field base.Field) error {
-		spoken, ok := field.(spokenField)
+		spoken, ok := field.(base.SpokenField)
 		if !ok {
 			return fmt.Errorf("kit: %q cannot be answered in words", field.Prompt())
 		}
@@ -74,13 +74,7 @@ func (p *Prompter) Ask(form *base.Form) (scene.ActionResult[base.SubmissionID], 
 	})
 }
 
-type spokenField interface {
-	base.Field
-	Ask() string
-	Reply(said string) error
-}
-
-func (p *Prompter) ask(field spokenField) error {
+func (p *Prompter) ask(field base.SpokenField) error {
 	for {
 		if err := writeAnswerLines(p.output, field.Ask()); err != nil {
 			return err

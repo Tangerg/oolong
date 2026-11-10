@@ -50,6 +50,9 @@ const defaultSearchMatches = 10_000
 // never a silently incomplete set which could masquerade as the whole document.
 func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	result := Result{Query: config.Query, Revision: config.Revision}
+	if config.MaxMatches < 0 {
+		return result, errors.New("base: search limit must not be negative")
+	}
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -59,9 +62,6 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	limit := config.MaxMatches
 	if limit == 0 {
 		limit = defaultSearchMatches
-	}
-	if limit < 0 {
-		return result, errors.New("base: search limit must not be negative")
 	}
 	re, err := compile(config.Query, config.Regex)
 	if err != nil {

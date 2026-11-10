@@ -8,15 +8,16 @@ type editorViewUpdates struct {
 }
 
 type editorViewState struct {
-	cursor, anchor, rowEnd        Caret
-	selecting, dragging, affinity bool
-	scrollRevision                uint64
+	cursor, anchor Caret
+	selection      editorSelection
+	rowEnd         bool
+	scrollRevision uint64
 }
 
 func (e *Editor) viewState() editorViewState {
 	return editorViewState{
-		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor, rowEnd: e.rowEnd,
-		selecting: e.selecting, dragging: e.dragging, affinity: e.rowEndSet,
+		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor,
+		selection: e.selection, rowEnd: e.prefersRowEnd(),
 		scrollRevision: e.scroll.revision,
 	}
 }
@@ -56,10 +57,14 @@ func (e *Editor) replacementRange() (Caret, Caret) {
 
 // The session calls this only after every refusal boundary, so a rejected edit
 // cannot end a typing group or lose a view's drag and yank continuation.
+// prepareEdit settles interaction state before an edit. Any edit ends a pointer
+// drag: the edit replaces the selection the drag was extending, and a drag left
+// running would move the caret with no selection to extend. Only continuous typing
+// keeps the caret's row-end affinity.
 func (e *Editor) prepareEdit(continuous bool) {
+	e.endDrag()
 	if !continuous {
-		e.dragging = false
-		e.rowEndSet = false
+		e.rowEnd = nil
 	}
 	e.breakContinuation()
 }
@@ -68,7 +73,7 @@ func (e *Editor) finishReplacement(at Caret, changed bool) {
 	if changed {
 		e.layout.stale = true
 	}
-	e.selecting = false
+	e.selection = editorSelectionNone
 	e.line = min(max(at.Line, 0), len(e.document().lines)-1)
 	e.byteOffset = e.document().snapElement(e.line, at.Byte, true)
 	e.desiredColumn = editorColumn{}
@@ -77,7 +82,7 @@ func (e *Editor) finishReplacement(at Caret, changed bool) {
 
 func (e *Editor) restoreCaret(at Caret) {
 	e.line, e.byteOffset = at.Line, at.Byte
-	e.selecting = false
+	e.selection = editorSelectionNone
 }
 
 func (e *Editor) documentChanged(before []string, change ChangeMap, initiator bool) {
@@ -92,7 +97,12 @@ func (e *Editor) documentChanged(before []string, change ChangeMap, initiator bo
 	}
 	e.layout.stale = true
 	e.desiredColumn = editorColumn{}
-	e.revealCursor()
+	// A peer's edit moves this view's caret but not its reader. Only a reveal this
+	// view still owes its own cursor follows the caret to its new place; a reader
+	// who scrolled away stays where they are.
+	if initiator || e.cursorRevealPending() {
+		e.revealCursor()
+	}
 }
 
 func (e *Editor) policyChanged() {

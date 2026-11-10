@@ -264,3 +264,26 @@ func TestDarkSplitsTheRangeDownTheMiddle(t *testing.T) {
 		t.Error("the grey just above the middle was called dark")
 	}
 }
+
+func TestAPaletteEntryCrossesTheWireAsItsIndex(t *testing.T) {
+	// The terminal's theme decides what a palette entry looks like, so the entry is
+	// sent by index at every depth that has it, never as xterm's estimate of it.
+	for _, tc := range []struct {
+		style grid.Style
+		depth grid.Depth
+		want  string
+	}{
+		{grid.Style{FG: grid.PaletteColor(1)}, grid.TrueColor, ";31m"},
+		{grid.Style{FG: grid.PaletteColor(9)}, grid.TrueColor, ";91m"},
+		{grid.Style{BG: grid.PaletteColor(2)}, grid.Depth256, ";42m"},
+		{grid.Style{FG: grid.PaletteColor(200)}, grid.TrueColor, ";38;5;200m"},
+		{grid.Style{FG: grid.PaletteColor(200)}, grid.Depth256, ";38;5;200m"},
+	} {
+		if got := encode(tc.style, tc.depth); !strings.Contains(got, tc.want) || strings.Contains(got, "38;2") {
+			t.Errorf("depth %d: sgr = %q, want %q in it", tc.depth, got, tc.want)
+		}
+	}
+	if got := encode(grid.Style{FG: grid.PaletteColor(200)}, grid.Depth16); strings.Contains(got, "38;") {
+		t.Errorf("a sixteen-colour terminal was sent an extended colour: %q", got)
+	}
+}

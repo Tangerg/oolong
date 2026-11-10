@@ -162,10 +162,10 @@ func (t *Tree[T]) rebuild(selectedID uint64) {
 			stack = append(stack, pending{node: &node.children[i], depth: current.depth + 1})
 		}
 	}
-	t.list.matcher.Reset(func() {
-		t.list.replaceItems(rows, selected)
-		t.list.notifyChange()
-	})
+	// The tree routes keys through its own matcher, which every caller resets
+	// around a rebuild; the inner list never matches keys.
+	t.list.replaceItems(rows, selected)
+	t.list.notifyChange()
 }
 
 // Selected is the row the cursor is on, or -1 when the tree is showing nothing.
@@ -348,14 +348,16 @@ func (t *Tree[T]) retainOpenBranches(branches map[uint64]struct{}) {
 	}
 }
 
-// treeCopy owns one iterative transfer from caller-owned nodes into the tree. Its
-// active slice identities make a cycle an explicit state transition instead of an
-// accidental exhaustion of stack or heap.
+// treeSlice identifies one caller-owned child slice by its first element and
+// length, which is what makes revisiting it detectable.
 type treeSlice[T any] struct {
 	first  *Node[T]
 	length int
 }
 
+// treeCopy owns one iterative transfer from caller-owned nodes into the tree. Its
+// active slice identities make a cycle an explicit state transition instead of an
+// accidental exhaustion of stack or heap.
 type treeCopy[T any] struct {
 	ids      identitySequence
 	branches map[uint64]struct{}
@@ -467,12 +469,7 @@ func exportNodes[T any](nodes []treeNode[T]) []Node[T] {
 	return exported
 }
 
-func (t *Tree[T]) resolvedKeys() *keymap.Map {
-	if t.keys.current != nil {
-		return t.keys.current
-	}
-	return treeKeys()
-}
+func (t *Tree[T]) resolvedKeys() *keymap.Map { return t.keys.resolve(treeKeys) }
 
 // Subscribe observes the same completed visible collection and selection owned by List.
 func (t *Tree[T]) Subscribe(callback func()) func() { return t.list.Subscribe(callback) }

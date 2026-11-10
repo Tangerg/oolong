@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -41,6 +42,7 @@ const quitHello keymap.Action = "quit"
 
 func newHello(runtime *program.Runtime) *hello {
 	h := &hello{runtime: runtime}
+	h.element = drawn.Element("hello", h)
 	h.keys.Bind(quitHello, input.Chord{Rune: 'q'})
 	h.keys.Bind(quitHello, input.Ctrl.Rune('c'))
 	return h
@@ -67,16 +69,4 @@ func (h *hello) Handle(event input.Event) bool {
 	return true
 }
 
-func (h *hello) Element() scene.Element {
-	if h.element.IsZero() {
-		h.element = scene.NewElement(scene.ElementConfig{
-			Key:       "hello",
-			Focusable: func() bool { return true },
-			Paint:     func(frame scene.Frame) { h.Draw(frame.View) },
-			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: h.Handle(event.Input())}
-			},
-		})
-	}
-	return h.element
-}
+func (h *hello) Element() scene.Element { return h.element }

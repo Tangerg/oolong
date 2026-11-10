@@ -34,29 +34,27 @@ type Sticky struct {
 	// Only the caller knows which blocks mean anything: in a session the prompts are
 	// worth pinning and the answers are not, and nothing here can tell one from the
 	// other.
-	blocks fifo.Queue[BlockID]
-	// MinHeight is how far a header may be collapsed before it stops shrinking and
-	// starts scrolling off instead. Zero means it does not collapse.
-	//
-	// A tall prompt pinned in full eats the view it was meant to give context to.
+	blocks    fifo.Queue[BlockID]
 	minHeight int
-	// Gap is the rows kept clear between a pinned header and the content below it,
-	// so that the two do not read as one block.
-	gap int
+	gap       int
 }
 
 type StickyConfig struct {
-	Blocks    []BlockID
+	Blocks []BlockID
+	// MinHeight is how far a header may be collapsed before it stops shrinking and
+	// starts scrolling off instead. Zero means it does not collapse. A tall prompt
+	// pinned in full eats the view it was meant to give context to.
 	MinHeight int
-	Gap       int
+	// Gap is the rows kept clear between a pinned header and the content below it,
+	// so that the two do not read as one block.
+	Gap int
 }
 
 // NewSticky panics for negative dimensions or block identities that are not
 // nonzero and strictly increasing. The caller retains ownership of config.Blocks.
 func NewSticky(config StickyConfig) *Sticky {
-	if config.MinHeight < 0 || config.Gap < 0 {
-		panic("base: sticky dimensions cannot be negative")
-	}
+	requireNonNegative("sticky MinHeight", config.MinHeight)
+	requireNonNegative("sticky Gap", config.Gap)
 	s := &Sticky{minHeight: config.MinHeight, gap: config.Gap}
 	s.SetBlocks(config.Blocks)
 	return s
@@ -251,9 +249,7 @@ func (s *Sticky) MinHeight() int { return s.minHeight }
 func (s *Sticky) SetMinHeight(value int) {
 	element := s.element
 	requireMutable(element)
-	if value < 0 {
-		panic("base: MinHeight cannot be negative")
-	}
+	requireNonNegative("sticky MinHeight", value)
 	if s.minHeight == value {
 		return
 	}
@@ -267,9 +263,7 @@ func (s *Sticky) Gap() int { return s.gap }
 func (s *Sticky) SetGap(value int) {
 	element := s.element
 	requireMutable(element)
-	if value < 0 {
-		panic("base: Gap cannot be negative")
-	}
+	requireNonNegative("sticky Gap", value)
 	if s.gap == value {
 		return
 	}

@@ -78,12 +78,6 @@ func fields(values *answers, glyphs kit.Glyphs) (*stateForm, *base.Text) {
 			}
 			return scene.Applied, nil
 		},
-		Cancel: func(base.SubmissionID) error {
-			if form.done != nil {
-				form.done()
-			}
-			return nil
-		},
 	})
 	accent := grid.Style{Attr: grid.Bold}
 	buttonScope := form.theme.Scope().With(kit.ThemeOverride{Accent: &accent})
@@ -128,9 +122,12 @@ func dress(runtime *program.Runtime, form *stateForm) scene.Element {
 	var keys keymap.Map
 	keys.Bind(quitSession, input.Chord{Code: input.Esc})
 	keys.Bind(quitSession, input.Ctrl.Rune('c'))
+	// Quitting bubbles from the focused field: the form answers Cancel while a
+	// submission is pending, and leaving an unsubmitted form is this enclosing
+	// handler's navigation.
 	return scene.NewGroup(scene.GroupConfig{
 		Axis: layout.Down,
-		Element: scene.ElementConfig{Detached: form.confirm.Close, Preview: func(event scene.Event) scene.EventResult {
+		Element: scene.ElementConfig{Detached: form.confirm.Close, Handle: func(event scene.Event) scene.EventResult {
 			key, ok := event.Input().(input.Key)
 			if !ok {
 				return scene.EventResult{}

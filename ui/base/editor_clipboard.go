@@ -45,7 +45,7 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 	}
 	target := pasteTarget{
 		attachment: element.Attachment(), session: e.document(), revision: e.Revision(),
-		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor, selecting: e.selecting,
+		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor, selecting: e.selection != editorSelectionNone,
 	}
 	return e.clipboard.Read(ctx, func(value string, err error) {
 		if ctx.Err() != nil {
@@ -63,7 +63,7 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 
 func (p pasteTarget) current(e *Editor) bool {
 	if p.session != e.document() || p.revision != e.Revision() ||
-		p.cursor != (Caret{Line: e.line, Byte: e.byteOffset}) || p.anchor != e.anchor || p.selecting != e.selecting {
+		p.cursor != (Caret{Line: e.line, Byte: e.byteOffset}) || p.anchor != e.anchor || p.selecting != (e.selection != editorSelectionNone) {
 		return false
 	}
 	target := p.attachment.Target()
@@ -95,4 +95,19 @@ func (e *Editor) setPasteError(err error) {
 	if changed {
 		e.element.Invalidate()
 	}
+}
+
+// Clipboard supplies the user-facing copy and read capability.
+//
+// A runtime adapter commonly provides it, but the interface is declared here where
+// it is consumed. A caller with somewhere else to put text is equally valid.
+type Clipboard interface {
+	// Copy puts text where a paste would find it, reporting false for text it will
+	// not carry.
+	Copy(text string) bool
+	// Read accepts a directed read. receive runs on the caller's UI owner sequence,
+	// including for failure; it must never be invoked by a background worker.
+	// Caller cancellation or this provider's owner ending revokes receive; no
+	// callback is promised afterward. A returned error means no read was accepted.
+	Read(ctx context.Context, receive func(string, error)) error
 }

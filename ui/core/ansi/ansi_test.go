@@ -79,8 +79,8 @@ func TestAStringCommandEndsAtEitherOfItsTwoTerminators(t *testing.T) {
 	// The body is what is between them, and the introducer is what says which
 	// command it was.
 	p, _, _ := ansi.Next("\x1b]52;c;YWJj\x07")
-	if p.Body != "52;c;YWJj" || p.Final != ']' {
-		t.Fatalf("read the command as body %q introduced by %q", p.Body, string(p.Final))
+	if p.Body != "52;c;YWJj" || p.Family != ansi.OSC {
+		t.Fatalf("read the command as body %q of family %q", p.Body, string(p.Family))
 	}
 }
 

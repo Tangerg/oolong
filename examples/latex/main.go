@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/examples/internal/latexlook"
 	"github.com/Tangerg/oolong/extensions/latex"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -49,6 +50,7 @@ func newLatex(runtime *program.Runtime) *latexScreen {
 		theme:   theme,
 		formula: latex.Render(latexSource, look),
 	}
+	screen.element = drawn.Element("latex", screen)
 	screen.keys.Bind(quitLatex, input.Chord{Rune: 'q'})
 	screen.keys.Bind(quitLatex, input.Ctrl.Rune('c'))
 	return screen
@@ -72,7 +74,7 @@ func (s *latexScreen) Draw(view grid.View) {
 
 func (s *latexScreen) Handle(event input.Event) bool {
 	key, ok := event.(input.Key)
-	if !ok || !key.Down() {
+	if !ok {
 		return false
 	}
 	if action, bound := s.keys.ActionFor(key); !bound || action != quitLatex {
@@ -84,16 +86,4 @@ func (s *latexScreen) Handle(event input.Event) bool {
 
 const latexSource = `x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}`
 
-func (s *latexScreen) Element() scene.Element {
-	if s.element.IsZero() {
-		s.element = scene.NewElement(scene.ElementConfig{
-			Key:       "latex",
-			Focusable: func() bool { return true },
-			Paint:     func(frame scene.Frame) { s.Draw(frame.View) },
-			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: s.Handle(event.Input())}
-			},
-		})
-	}
-	return s.element
-}
+func (s *latexScreen) Element() scene.Element { return s.element }

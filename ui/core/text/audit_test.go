@@ -49,7 +49,7 @@ func TestSpanBoundariesDoNotSplitGraphemes(t *testing.T) {
 }
 
 func TestPartialMarkStartReplacementIncludesReplacement(t *testing.T) {
-	marks := text.Edit{Start: 0, End: 3, Text: "xy"}.Shift([]text.Mark{{Start: 2, End: 5}}, 6)
+	marks := text.Edit{Start: 0, End: 3, Text: "xy"}.Shift([]text.Mark[int]{{Start: 2, End: 5}}, 6)
 	if len(marks) != 1 || marks[0].Start != 0 {
 		t.Fatalf("marks: %#v", marks)
 	}
@@ -57,7 +57,7 @@ func TestPartialMarkStartReplacementIncludesReplacement(t *testing.T) {
 
 func TestCompleteReplacementDestroysMarkIdentity(t *testing.T) {
 	for _, atomic := range []bool{false, true} {
-		marks := text.Edit{Start: 4, End: 9, Text: "XYZ"}.Shift([]text.Mark{{Start: 4, End: 9, Atomic: atomic}}, 12)
+		marks := text.Edit{Start: 4, End: 9, Text: "XYZ"}.Shift([]text.Mark[int]{{Start: 4, End: 9, Atomic: atomic}}, 12)
 		if len(marks) != 0 {
 			t.Fatalf("replaced identity survived: %#v", marks)
 		}

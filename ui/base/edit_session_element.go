@@ -2,7 +2,6 @@ package base
 
 import (
 	"cmp"
-	"math"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -108,14 +107,6 @@ func offsetInLines(lines []string, c Caret) int {
 	return at + min(max(c.Byte, 0), len(lines[line]))
 }
 
-// Guard narrowing where mark labels return from the generic text model; this editor uses one byte.
-func kindOf(label int) ElementKind {
-	if label < 0 || label > math.MaxUint8 {
-		return 0
-	}
-	return ElementKind(label)
-}
-
 func (s *EditSession) joinsWhatPrecedes(at Caret, body string) bool {
 	if at.Line < 0 || at.Line >= len(s.lines) {
 		return false
@@ -163,12 +154,12 @@ func (s *EditSession) snapElementBoundary(line, byteOffset int, forward bool) in
 }
 
 func (s *EditSession) settleMarks() {
-	s.marks = slices.DeleteFunc(s.marks, func(m text.Mark) bool {
+	s.marks = slices.DeleteFunc(s.marks, func(m elementMark) bool {
 		return !s.spansWholeClusters(m)
 	})
 }
 
-func (s *EditSession) spansWholeClusters(m text.Mark) bool {
+func (s *EditSession) spansWholeClusters(m elementMark) bool {
 	start, end := s.caretAt(m.Start), s.caretAt(m.End)
 	if start.Line != end.Line {
 		return false
@@ -199,13 +190,16 @@ func (s *EditSession) caretAt(at int) Caret {
 	return s.end()
 }
 
-func (s *EditSession) elementOf(m text.Mark) Element {
+// elementMark is an element's place in the text; its Kind is the element kind.
+type elementMark = text.Mark[ElementKind]
+
+func (s *EditSession) elementOf(m elementMark) Element {
 	el := s.elementRange(m)
 	el.body = strings.Clone(s.lines[el.Line][el.Start:el.End])
 	return el
 }
 
-func (s *EditSession) elementRange(m text.Mark) Element {
+func (s *EditSession) elementRange(m elementMark) Element {
 	start := s.caretAt(m.Start)
 	end := s.caretAt(m.End)
 	if end.Line != start.Line {
@@ -216,7 +210,7 @@ func (s *EditSession) elementRange(m text.Mark) Element {
 	}
 	return Element{
 		ID:    ElementID{owner: s.elementOwner, serial: m.ID},
-		Kind:  kindOf(m.Kind),
+		Kind:  m.Kind,
 		Line:  start.Line,
 		Start: start.Byte,
 		End:   end.Byte,

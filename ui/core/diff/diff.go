@@ -157,37 +157,46 @@ func (s Script) Hunks(context int) []Hunk {
 		right := i + 1 + min(context, len(s)-1-i)
 		if end == 0 || left > end {
 			if end != 0 {
-				out = append(out, hunkOf(s[start:end]))
+				out = append(out, s.hunk(start, end))
 			}
 			start = left
 		}
 		end = right
 	}
 	if end != 0 {
-		out = append(out, hunkOf(s[start:end]))
+		out = append(out, s.hunk(start, end))
 	}
 	return out
 }
 
 type Hunk struct {
 	Lines Script
-	// Old and New are where the hunk begins in each text, counting from one.
+	// Old and New are where the hunk begins in each text, counting from one. A side
+	// the hunk has no lines in, as for a pure insertion, begins one past the last
+	// line of that text before the hunk.
 	Old, New int
 }
 
 // String panics for invalid line kinds so the passage cannot misstate a change.
 func (h Hunk) String() string { return h.Lines.String() }
 
-func hunkOf(lines Script) Hunk {
-	h := Hunk{Lines: make(Script, len(lines))}
-	for i, line := range lines {
+// hunk copies s[start:end]. Its positions come from the lines before it, so a side
+// with no lines in the hunk still has a place in its text.
+func (s Script) hunk(start, end int) Hunk {
+	h := Hunk{Lines: make(Script, end-start), Old: 1, New: 1}
+	for i, line := range s[start:end] {
 		line.Text = strings.Clone(line.Text)
 		h.Lines[i] = line
-		if h.Old == 0 && line.Old > 0 {
-			h.Old = line.Old
+	}
+	for _, line := range slices.Backward(s[:start]) {
+		if h.Old == 1 && line.Old > 0 {
+			h.Old = line.Old + 1
 		}
-		if h.New == 0 && line.New > 0 {
-			h.New = line.New
+		if h.New == 1 && line.New > 0 {
+			h.New = line.New + 1
+		}
+		if h.Old > 1 && h.New > 1 {
+			break
 		}
 	}
 	return h

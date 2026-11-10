@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/examples/internal/markdownlook"
 	"github.com/Tangerg/oolong/extensions/markdown"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -45,6 +46,7 @@ func newMarkdown(runtime *program.Runtime) *markdownScreen {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	screen := &markdownScreen{runtime: runtime, theme: theme}
+	screen.element = drawn.Element("markdown", screen)
 	screen.keys.Bind(quitMarkdown, input.Chord{Rune: 'q'})
 	screen.keys.Bind(quitMarkdown, input.Ctrl.Rune('c'))
 	blocks, err := markdown.Render(markdownSource, markdownlook.New(theme, glyphs))
@@ -70,7 +72,7 @@ func (s *markdownScreen) Draw(view grid.View) {
 
 func (s *markdownScreen) Handle(event input.Event) bool {
 	key, ok := event.(input.Key)
-	if !ok || !key.Down() {
+	if !ok {
 		return false
 	}
 	if action, bound := s.keys.ActionFor(key); !bound || action != quitMarkdown {
@@ -96,16 +98,4 @@ themselves out at the width they finally receive.
 | syntax | Markdown |
 | cells | final grid |`
 
-func (s *markdownScreen) Element() scene.Element {
-	if s.element.IsZero() {
-		s.element = scene.NewElement(scene.ElementConfig{
-			Key:       "markdown",
-			Focusable: func() bool { return true },
-			Paint:     func(frame scene.Frame) { s.Draw(frame.View) },
-			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: s.Handle(event.Input())}
-			},
-		})
-	}
-	return s.element
-}
+func (s *markdownScreen) Element() scene.Element { return s.element }

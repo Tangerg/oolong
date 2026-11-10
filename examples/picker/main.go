@@ -67,6 +67,7 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 	p := &picker{runtime: runtime, theme: theme, chosen: chosen}
 	p.query = kit.NewComposer(kit.ComposerConfig{
 		Theme:       theme,
+		Glyphs:      glyphs,
 		Prompt:      glyphs.Marker + " ",
 		Placeholder: "type to narrow",
 		Keys:        keys,
@@ -98,19 +99,19 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 func (p *picker) Element() scene.Element { return p.element }
 
 func (p *picker) row(v grid.View, _ int, item string, match fuzzy.Match, selected bool) {
-	base := p.theme.Text
+	style := p.theme.Text
 	if selected {
-		base = base.Merge(p.theme.Selection)
+		style = style.Merge(p.theme.Selection)
 		v.Fill(v.Bounds(), p.theme.Selection)
 	}
-	text.Highlight(item, match.At, base, base.Merge(p.theme.Accent)).Draw(v, 0, 0)
+	text.Highlight(item, match.At, style, style.Merge(p.theme.Accent)).Draw(v, 0, 0)
 }
 
 // Preview keeps navigation policy on the composition. The query's own scene
 // element receives editing and paste; the filter's element receives pointer input.
 func (p *picker) Handle(event input.Event) bool {
 	key, ok := event.(input.Key)
-	if !ok || !key.Down() {
+	if !ok {
 		return false
 	}
 	action, _ := p.query.Controller().Keys().ActionFor(key)

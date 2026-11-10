@@ -43,11 +43,23 @@ var ErrStaleSelection = errors.New("base: selected content revision is unavailab
 // projections, so a resize cannot silently select a different word.
 // Unknown position affinities panic before changing the anchors or gesture.
 type Selection struct {
-	element          scene.Element
-	clicks           Clicks
-	anchor, extent   TextPoint
-	active, dragging bool
+	element scene.Element
+	clicks  Clicks
+	// clickRevision is the layout revision the current click run was counted in.
+	clickRevision  uint64
+	anchor, extent TextPoint
+	phase          selectionPhase
 }
+
+// selectionPhase is where the selection stands; only a selected range can be
+// dragged, so a drag without one is not representable.
+type selectionPhase uint8
+
+const (
+	selectionNone     selectionPhase = iota
+	selectionHeld                    // a range is selected
+	selectionDragging                // a range is selected and a drag is extending it
+)
 
 // Begin starts a directional selection anchored to one content revision.
 // It panics for an unknown affinity or during a read-only projection, before changing the selection.
@@ -66,7 +78,7 @@ func (s *Selection) Extend(p TextPoint) {
 		panic(err)
 	}
 
-	if s.dragging && s.extent != p {
+	if s.phase == selectionDragging && s.extent != p {
 		s.extent = p
 		s.element.Invalidate()
 	}
@@ -77,10 +89,28 @@ func (s *Selection) Anchor() TextPoint { return s.anchor }
 // Done ends dragging while retaining the selected logical range.
 func (s *Selection) Done() {
 	requireMutable(s.element)
-	if s.dragging {
-		s.dragging = false
+	if s.phase == selectionDragging {
+		s.phase = selectionHeld
 		s.element.Invalidate()
 	}
+}
+
+// press counts a press in the layout revision it landed on. Presses counted in
+// an earlier revision landed on text that may have moved, so they start a new run.
+func (s *Selection) press(mouse input.Mouse, revision uint64) int {
+	requireMutable(s.element)
+	if s.clickRevision != revision {
+		s.clicks.Reset()
+		s.clickRevision = revision
+	}
+	return s.clicks.Press(mouse)
+}
+
+// cancel ends the gesture together with its click run.
+func (s *Selection) cancel() {
+	requireMutable(s.element)
+	s.clicks.Reset()
+	s.Done()
 }
 
 func (s *Selection) Clear() {
@@ -91,9 +121,9 @@ func (s *Selection) Clear() {
 
 func (s *Selection) clear() bool {
 	requireMutable(s.element)
-	changed := s.active || s.dragging || s.anchor != (TextPoint{}) || s.extent != (TextPoint{})
+	changed := s.phase != selectionNone || s.anchor != (TextPoint{}) || s.extent != (TextPoint{})
 	s.anchor, s.extent = TextPoint{}, TextPoint{}
-	s.active, s.dragging = false, false
+	s.phase = selectionNone
 	s.clicks.Reset()
 	return changed
 }
@@ -106,9 +136,9 @@ func (s *Selection) SetClickInterval(interval time.Duration) {
 }
 
 // Active reports whether a logical range is selected, including an empty range.
-func (s *Selection) Active() bool { return s.active }
+func (s *Selection) Active() bool { return s.phase != selectionNone }
 
-func (s *Selection) Dragging() bool { return s.dragging }
+func (s *Selection) Dragging() bool { return s.phase == selectionDragging }
 
 // Range returns endpoints in reading order without changing the directional anchor.
 func (s *Selection) Range() (TextPoint, TextPoint) {
@@ -133,24 +163,22 @@ func (s *Selection) setRange(selected TextRange, dragging bool) bool {
 			panic(err)
 		}
 	}
-	changed := !s.active || s.anchor != selected.Start || s.extent != selected.End || s.dragging != dragging
-	s.anchor, s.extent = selected.Start, selected.End
-	s.active, s.dragging = true, dragging
+	phase := selectionHeld
+	if dragging {
+		phase = selectionDragging
+	}
+	changed := s.phase != phase || s.anchor != selected.Start || s.extent != selected.End
+	s.anchor, s.extent, s.phase = selected.Start, selected.End, phase
 	return changed
 }
 
-// ContentChanged invalidates a range touching replaced semantic content. There is
-// no guessed byte adjustment across arbitrary renderer revisions.
-func (s *Selection) ContentChanged(id BlockID, revision uint64) {
-	if s.contentChanged(id, revision) {
-		s.element.Invalidate()
-	}
-}
-
+// contentChanged clears a range touching replaced semantic content. There is
+// no guessed byte adjustment across arbitrary renderer revisions. Only the
+// transcript that owns the content identities retires them.
 func (s *Selection) contentChanged(id BlockID, revision uint64) bool {
 	requireMutable(s.element)
 
-	if !s.active {
+	if s.phase == selectionNone {
 		return false
 	}
 	first, last := s.Range()
@@ -160,17 +188,11 @@ func (s *Selection) contentChanged(id BlockID, revision uint64) bool {
 	return false
 }
 
-// DiscardBefore invalidates a selection that touches retired content identities.
-func (s *Selection) DiscardBefore(id BlockID) {
-	if s.discardBefore(id) {
-		s.element.Invalidate()
-	}
-}
-
+// discardBefore clears a selection that touches retired content identities.
 func (s *Selection) discardBefore(id BlockID) bool {
 	requireMutable(s.element)
 
-	if !s.active {
+	if s.phase == selectionNone {
 		return false
 	}
 	first, _ := s.Range()
@@ -182,7 +204,7 @@ func (s *Selection) discardBefore(id BlockID) bool {
 
 // Text copies safe logical text from the supplied projection, joining soft wraps without inventing source syntax.
 func (s *Selection) Text(layout TranscriptLayout) (string, error) {
-	if !s.active {
+	if s.phase == selectionNone {
 		return "", nil
 	}
 	first, last := s.Range()
@@ -213,7 +235,7 @@ func (s *Selection) Text(layout TranscriptLayout) (string, error) {
 
 // Rects projects the logical range into cells for this layout and refuses stale interpretations.
 func (s *Selection) Rects(layout TranscriptLayout) ([]image.Rectangle, error) {
-	if !s.active {
+	if s.phase == selectionNone {
 		return nil, nil
 	}
 	first, last := s.Range()

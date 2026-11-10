@@ -14,6 +14,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"strconv"
 	"strings"
 )
 
@@ -45,12 +46,13 @@ func (p Protocol) String() string {
 	}
 }
 
-type Placement uint8
+// Persistence is how long an image must stay addressable after it is drawn.
+type Persistence uint8
 
 const (
-	// Printed output needs no later erasure, so it is the weaker placement
-	// requirement and the zero value.
-	Printed Placement = iota
+	// Printed output needs no later erasure, so it is the weaker requirement and
+	// the zero value.
+	Printed Persistence = iota
 	// Live is a region the interface redraws. An image there has to be placeable
 	// again on the next frame and removable on the frame after, which takes a
 	// protocol that lets an image be named.
@@ -58,18 +60,14 @@ const (
 )
 
 // Supports separates live placement from printed output because image support
-// without reusable handles cannot safely redraw an interactive region.
-func (p Protocol) Supports(where Placement) bool {
+// without reusable handles cannot safely redraw an interactive region. It answers
+// for what this package can write: Sixel is detected, but nothing here encodes it.
+func (p Protocol) Supports(where Persistence) bool {
 	switch where {
 	case Live:
 		return p == Kitty
 	case Printed:
-		switch p {
-		case Kitty, ITerm2, Sixel:
-			return true
-		default:
-			return false
-		}
+		return p == Kitty || p == ITerm2
 	default:
 		return false
 	}
@@ -247,7 +245,8 @@ func (i Image) Release(w io.Writer) error {
 
 // Inline is limited to Printed output because iTerm2 supplies no reusable
 // placement identity or erasure. Box dimensions are cells; the protocol fits
-// the image inside them while preserving its aspect ratio.
+// the image inside them while preserving its aspect ratio. As for Paint, a zero
+// dimension keeps the protocol's automatic sizing.
 func Inline(w io.Writer, data []byte, size image.Point) error {
 	if _, err := pngSize(data); err != nil {
 		return err
@@ -255,9 +254,18 @@ func Inline(w io.Writer, data []byte, size image.Point) error {
 	// The payload is base64 for the same reason a clipboard's is: the alphabet holds
 	// neither the escape byte nor the terminator, so image data cannot end the
 	// sequence early and have the rest of itself read as commands.
-	sequence := fmt.Sprintf("\x1b]1337;File=inline=1;size=%d;width=%d;height=%d;preserveAspectRatio=1:%s\x07",
-		len(data), max(size.X, 1), max(size.Y, 1), base64.StdEncoding.EncodeToString(data))
+	sequence := fmt.Sprintf("\x1b]1337;File=inline=1;size=%d;width=%s;height=%s;preserveAspectRatio=1:%s\x07",
+		len(data), inlineExtent(size.X), inlineExtent(size.Y), base64.StdEncoding.EncodeToString(data))
 	return writeString(w, sequence)
+}
+
+// inlineExtent spells one box dimension in cells, or "auto" for iTerm2 to size it
+// from the image.
+func inlineExtent(cells int) string {
+	if cells <= 0 {
+		return "auto"
+	}
+	return strconv.Itoa(cells)
 }
 
 // writeString gives every graphics sequence io.Writer's complete-write semantics.

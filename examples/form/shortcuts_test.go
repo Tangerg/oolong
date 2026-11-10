@@ -26,7 +26,7 @@ func TestQuitUsesCanonicalShortcuts(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				form := ask(new(answers))
+				form := ask(new(*answers))
 				host := uitest.New(t, uitest.Config{Width: 50, Height: 20})
 				done := make(chan error, 1)
 				go func() {

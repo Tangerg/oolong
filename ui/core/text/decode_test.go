@@ -405,3 +405,19 @@ func TestInvalidOSC8DestinationClearsPreviousLinkWithoutRewriting(t *testing.T) 
 		}
 	}
 }
+
+func TestNamedAndIndexedColoursStayPaletteEntries(t *testing.T) {
+	for _, tc := range []struct {
+		seq   string
+		index uint8
+	}{{"\x1b[31m", 1}, {"\x1b[91m", 9}, {"\x1b[38;5;200m", 200}} {
+		lines := text.Decode(tc.seq+"x", grid.Style{})
+		if index, ok := lines[0][0].Style.FG.Palette(); !ok || index != tc.index {
+			t.Errorf("%q read as %v, want palette entry %d", tc.seq, colour(lines[0][0].Style.FG), tc.index)
+		}
+	}
+	lines := text.Decode("\x1b[38;2;255;0;0mx", grid.Style{})
+	if _, ok := lines[0][0].Style.FG.Palette(); ok {
+		t.Error("a truecolor value became a palette entry")
+	}
+}

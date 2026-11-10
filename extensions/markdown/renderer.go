@@ -2,6 +2,7 @@ package markdown
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -9,6 +10,11 @@ import (
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
+
+// Format is the content label for Markdown source. A content.Registry binds it to
+// NewRenderer, and a StreamDocument carrying Markdown names it, so neither has to
+// spell the label again.
+const Format content.Format = "markdown"
 
 // RendererConfig is snapshotted so later caller edits cannot change retained
 // source projections.
@@ -26,7 +32,7 @@ func NewRenderer(cfg RendererConfig) content.Renderer {
 			return nil, err
 		}
 		blocks, err := Render(source, look)
-		if err != nil && blocks == nil {
+		if errors.Is(err, ErrBlockNestingLimit) {
 			return nil, err
 		}
 		return &Snapshot{blocks: blocks}, err

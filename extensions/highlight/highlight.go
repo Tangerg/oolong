@@ -13,15 +13,16 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
-// Style uses the fallback scheme for unknown names so source remains readable.
-type Style string
+// Scheme names a color scheme. An unknown name selects the fallback scheme so
+// source remains readable.
+type Scheme string
 
-// Styles sorts scheme names so application selection lists remain deterministic.
-func Styles() []Style {
+// Schemes sorts scheme names so application selection lists remain deterministic.
+func Schemes() []Scheme {
 	names := styles.Names()
-	available := make([]Style, len(names))
+	available := make([]Scheme, len(names))
 	for i, name := range names {
-		available[i] = Style(name)
+		available[i] = Scheme(name)
 	}
 	return available
 }
@@ -31,7 +32,7 @@ func Styles() []Style {
 type Renderer struct{ scheme *chroma.Style }
 
 // New uses a fallback scheme for unknown names so highlighting never hides source.
-func New(style Style) Renderer { return Renderer{scheme: styles.Get(string(style))} }
+func New(scheme Scheme) Renderer { return Renderer{scheme: styles.Get(string(scheme))} }
 
 // Lines keeps source readable when classification fails by falling back to plain text.
 func (r Renderer) Lines(language, source string) []text.Line {
@@ -56,7 +57,7 @@ func (r Renderer) resolved() *chroma.Style {
 }
 
 func highlight(lexer chroma.Lexer, source string, scheme *chroma.Style) []text.Line {
-	source = strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
+	source = text.NormalizeLineEndings(source)
 	tokens := tokenize(lexer, source)
 	if len(tokens) == 0 {
 		return plain(source)

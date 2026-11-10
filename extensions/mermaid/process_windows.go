@@ -17,22 +17,20 @@ const terminatedProcessExitCode = 1
 func platformSupported() error { return nil }
 
 // Job membership precedes application code, so ordinary browser descendants
-// remain supervised even when they detach or create nested jobs.
-func run(ctx context.Context, cmd *exec.Cmd) (err error) {
-	if cause := context.Cause(ctx); cause != nil {
-		return cause
-	}
+// remain supervised even when they detach or create nested jobs. run reports
+// what happened to the job; the caller owns ctx and therefore reports its cause.
+func run(ctx context.Context, backend launch) (err error) {
 	job, err := process.NewJob()
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, job.Close()) }()
-	input, err := os.CreateTemp(cmd.Dir, "stdin-")
+	input, err := os.CreateTemp(backend.dir, "stdin-")
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, input.Close(), os.Remove(input.Name())) }()
-	if err = fill(input, cmd.Stdin); err != nil {
+	if err = fill(input, backend.stdin); err != nil {
 		return err
 	}
 	output, writer, err := os.Pipe()
@@ -41,7 +39,7 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 	}
 	defer func() { _ = output.Close(); _ = writer.Close() }()
 	child, err := job.Start(process.JobStartConfig{
-		Path: cmd.Path, Args: cmd.Args, Dir: cmd.Dir,
+		Path: backend.path, Args: append([]string{backend.path}, backend.args...), Dir: backend.dir,
 		Stdin: input, Stdout: writer, Stderr: writer,
 	})
 	if err != nil {
@@ -53,7 +51,7 @@ func run(ctx context.Context, cmd *exec.Cmd) (err error) {
 		return errors.Join(err, closeErr, waitErr)
 	}
 	copied := make(chan error, 1)
-	go func() { _, copyErr := io.Copy(cmd.Stdout, output); copied <- copyErr }()
+	go func() { _, copyErr := io.Copy(backend.output, output); copied <- copyErr }()
 	return supervise(ctx, job, child, output, copied)
 }
 
@@ -90,7 +88,7 @@ func supervise(
 	if waitErr == nil && !state.Success() {
 		waitErr = &exec.ExitError{ProcessState: state}
 	}
-	return errors.Join(context.Cause(ctx), waitErr, cancelErr, terminateErr, settledErr, copyErr)
+	return errors.Join(waitErr, cancelErr, terminateErr, settledErr, copyErr)
 }
 
 // An inherited handle starts at the file's current position, so prepared stdin

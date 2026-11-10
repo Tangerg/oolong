@@ -32,8 +32,7 @@ func NewText(config TextConfig) *Text {
 	}
 	t.editor.cursorStyle = config.CursorStyle
 	t.key = strings.Clone(config.Key)
-	t.editor.SetSingleLine(true)
-	t.editor.SetText(config.Initial)
+	t.line().SetText(config.Initial)
 	t.editor.ForgetHistory()
 	return t
 }
@@ -57,10 +56,9 @@ type SelectConfig[T any] struct {
 // NewSelect panics for negative Rows or non-empty Options without Same.
 // An unavailable Initial leaves the first available option selected.
 func NewSelect[T any](config SelectConfig[T]) *Select[T] {
-	if config.Rows < 0 {
-		panic("base: select rows cannot be negative")
-	}
-	s := &Select[T]{label: strings.Clone(config.Label), sameIdentity: config.Same, check: config.Check, rowLimit: config.Rows, keys: keyBinding{current: config.Keys}, rowPainter: config.Row}
+	requireNonNegative("choice Rows", config.Rows)
+	s := &Select[T]{check: config.Check}
+	s.initialize(config.Label, config.Same, config.Rows, config.Keys, config.Row)
 	s.key = strings.Clone(config.Key)
 	s.SetOptions(config.Options)
 	s.Choose(config.Initial)
@@ -77,19 +75,26 @@ type MultiSelectConfig[T any] struct {
 	Same  func(T, T) bool
 	Check func([]T) error
 	Rows  int
+	// Limit is how many choices may be taken at once; zero allows every option.
+	// It applies before Initial, which must respect it.
+	Limit int
 	Keys  *keymap.Map
 	Row   func(grid.View, Option[T], bool, bool, Look)
 }
 
-// NewMultiSelect panics for negative Rows or non-empty Options without Same.
-// Its chosen set is canonical; returned slices are detached observations.
+// NewMultiSelect panics for negative Rows or Limit, an Initial set larger than
+// Limit, or non-empty Options without Same. Its chosen set is canonical; returned
+// slices are detached observations.
 func NewMultiSelect[T any](config MultiSelectConfig[T]) *MultiSelect[T] {
-	if config.Rows < 0 {
-		panic("base: multi-select rows cannot be negative")
-	}
-	m := &MultiSelect[T]{label: strings.Clone(config.Label), sameIdentity: config.Same, check: config.Check, rowLimit: config.Rows, keys: keyBinding{current: config.Keys}, rowPainter: config.Row}
+	requireNonNegative("choice Rows", config.Rows)
+	requireNonNegative("multi-select Limit", config.Limit)
+	m := &MultiSelect[T]{check: config.Check, limit: config.Limit}
+	m.initialize(config.Label, config.Same, config.Rows, config.Keys, config.Row)
 	m.key = strings.Clone(config.Key)
 	m.SetOptions(config.Options)
+	if taken, _ := m.indices(m.list.items, config.Initial); !m.admits(len(taken)) {
+		panic("base: multi-select Initial exceeds its Limit")
+	}
 	m.SetTaken(config.Initial)
 	return m
 }
@@ -112,9 +117,13 @@ func NewConfirm(config ConfirmConfig) *Confirm {
 	if config.Control != nil && config.Initial {
 		panic("base: Confirm Initial and Control are mutually exclusive")
 	}
-	c := &Confirm{answer: newOwnedValue(config.Initial), label: strings.Clone(config.Label), yes: strings.Clone(config.Yes), no: strings.Clone(config.No), check: config.Check, keys: keyBinding{current: config.Keys}, control: config.Control}
+	control := config.Control
+	if control == nil {
+		control = &localConfirm{answer: newOwnedValue(config.Initial)}
+	}
+	c := &Confirm{label: strings.Clone(config.Label), yes: strings.Clone(config.Yes), no: strings.Clone(config.No), check: config.Check, keys: keyBinding{current: config.Keys}, control: control}
 	c.key = strings.Clone(config.Key)
-	if c.control != nil {
+	if config.Control != nil {
 		ref := weak.Make(c)
 		c.unsubscribe = c.control.Subscribe(func() {
 			if owner := ref.Value(); owner != nil && !owner.closed {

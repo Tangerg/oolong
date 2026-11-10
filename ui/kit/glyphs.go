@@ -3,6 +3,7 @@ package kit
 import (
 	"slices"
 
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -146,6 +147,17 @@ func (g Glyphs) Square() Border {
 }
 
 func (b Border) drawn() bool { return b != Border{} }
+
+// replaceGlyphs installs a live skin's glyph repertoire. It panics with
+// scene.ErrBusy outside owner mutation: retained presentation must stay stable
+// during observation and frame preparation.
+func replaceGlyphs(element scene.Element, retained *Glyphs, value Glyphs) {
+	if err := element.CheckMutation(); err != nil {
+		panic(err)
+	}
+	*retained = value.clone()
+	element.Invalidate()
+}
 
 // There is no package-level rounded or square border, on purpose. One would be built
 // from the glyphs this machine happens to be able to draw, and would be the wrong

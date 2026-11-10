@@ -16,7 +16,7 @@ import (
 //
 // The zero value answers no and is ready. A Confirm must not be copied after first
 // use: its answer, matcher and committed pointer split are one mutable field.
-// NewConfirm selects the answer owner; all input shares one revision-checked request path.
+// All input shares one revision-checked request path to the answer's owner.
 type Confirm struct {
 	noCopy noCopy
 
@@ -27,6 +27,8 @@ type Confirm struct {
 	// Keys say which keystrokes answer. Nil reads through [DefaultConfirmKeys].
 	keys keyBinding
 
+	// control is the answer's only owner: a domain owner, or a local answer
+	// installed on first use when none was configured.
 	control       ConfirmControl
 	check         func(bool) error
 	unsubscribe   func()
@@ -34,7 +36,6 @@ type Confirm struct {
 	feedback      requestFeedback
 	requestDepth  int
 	pendingChange bool
-	answer        ownedValue[bool]
 	matcher       keymap.Matcher
 	// split is the committed column where the second answer begins.
 	split scene.Snapshot[int]
@@ -169,12 +170,7 @@ func (c *Confirm) word(yes bool) string {
 	}
 }
 
-func (c *Confirm) resolvedKeys() *keymap.Map {
-	if c.keys.current != nil {
-		return c.keys.current
-	}
-	return confirmKeys()
-}
+func (c *Confirm) resolvedKeys() *keymap.Map { return c.keys.resolve(confirmKeys) }
 
 func (c *Confirm) Ask() string {
 	return c.label + " (" + c.word(true) + "/" + c.word(false) + ")"

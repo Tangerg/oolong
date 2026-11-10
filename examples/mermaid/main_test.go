@@ -132,14 +132,6 @@ func TestBackendDiagnosticIsVisible(t *testing.T) {
 	}
 }
 
-func TestClosedPreparationCannotAdvanceContentState(t *testing.T) {
-	screen := &diagramScreen{closed: true, pending: true, source: "current source"}
-	screen.accept(new(mermaid.Image), nil)
-	if !screen.pending || screen.err != nil || len(screen.imageResources) != 0 || screen.doc.Len() != 0 {
-		t.Fatal("closed content accepted a preparation result")
-	}
-}
-
 func (h *imageHost) Copy(value string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -210,19 +202,19 @@ func TestExportPreservesBytes(t *testing.T) {
 
 func TestImageOpenActionUsesAcceptedExport(t *testing.T) {
 	host := uitest.New(t, uitest.Config{Width: 100, Height: 20})
-	screen := &diagramScreen{source: flowchart, prepared: new(mermaid.Image), keys: diagramKeys()}
 	opened := make(chan string, 1)
-	screen.open = func(_ context.Context, path string) error { opened <- path; return nil }
+	var screen *diagramScreen
 	done := make(chan error, 1)
 	go func() {
 		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(r *program.Runtime) (scene.Element, error) {
-			screen.runtime = r
-			scope, scopeErr := r.NewScope(program.ScopeConfig{Context: t.Context()})
+			screen = newDiagramScreen(r, nil, nil)
+			screen.open = func(_ context.Context, path string) error { opened <- path; return nil }
+			work, scopeErr := r.NewScope(program.ScopeConfig{})
 			if scopeErr != nil {
 				return scene.Element{}, scopeErr
 			}
-			screen.scope, screen.lifetime = scope, scope
-			screen.setDocument(nil)
+			screen.current = diagram{source: flowchart, phase: diagramShown, image: new(mermaid.Image), work: work}
+			screen.present(nil)
 			return screen.Element(), nil
 		}})
 		if err == nil {
@@ -241,7 +233,7 @@ func TestImageOpenActionUsesAcceptedExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := <-opened
-	if path != screen.exported {
+	if path != screen.current.exported {
 		t.Fatal("viewer opened a different generation")
 	}
 	if err := os.Remove(path); err != nil {
@@ -249,52 +241,80 @@ func TestImageOpenActionUsesAcceptedExport(t *testing.T) {
 	}
 }
 
-func TestDiagramHintsAndMouseTargetsFollowReboundKeys(t *testing.T) {
-	screen := &diagramScreen{keys: diagramKeys(), source: flowchart}
-	screen.keys.Unbind(input.Chord{Rune: 'o'})
-	screen.keys.Unbind(input.Chord{Rune: 'c'})
-	screen.keys.Bind(openDiagram, input.Ctrl.Rune('o'))
-	screen.keys.Bind(copyDiagramSource, input.Alt.Rune('y'))
-	surface := grid.NewSurface(120, 1)
-	screen.drawActions(surface.View())
-	row := surface.Rows()[0]
-	if !strings.Contains(row, "[Open Image (ctrl+o)]") || strings.Contains(row, "(c)") {
-		t.Fatalf("stale button hints: %q", row)
+func TestToolbarHintsAndClicksFollowReboundKeys(t *testing.T) {
+	host := &imageHost{Host: uitest.New(t, uitest.Config{Width: 120, Height: 10}), protocol: graphics.None}
+	copied := func() string { host.mu.Lock(); defer host.mu.Unlock(); return host.copied }
+	var screen *diagramScreen
+	done := make(chan error, 1)
+	go func() {
+		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(r *program.Runtime) (scene.Element, error) {
+			screen = newDiagramScreen(r, host, func(context.Context, string) (*mermaid.Image, error) { return new(mermaid.Image), nil })
+			screen.keys.Unbind(input.Chord{Rune: 'o'})
+			screen.keys.Unbind(input.Chord{Rune: 'c'})
+			screen.keys.Bind(openDiagram, input.Ctrl.Rune('o'))
+			screen.keys.Bind(copyDiagramSource, input.Alt.Rune('y'))
+			screen.show(flowchart)
+			return screen.Element(), nil
+		}})
+		if err == nil {
+			err = app.Run(t.Context())
+		}
+		done <- err
+	}()
+	host.Shows(t, "Inline images unavailable")
+	if frame := host.Frame(); !strings.Contains(frame, "[Open Image (ctrl+o)]") || strings.Contains(frame, "(c)") {
+		t.Fatalf("stale button hints: %q", frame)
 	}
-	if screen.Handle(input.Key{Rune: 'c'}) {
-		t.Fatal("removed shortcut still copies source")
+	host.Type("c")
+	host.Type("r")
+	host.Shows(t, "sequenceDiagram")
+	host.Shows(t, "Inline images unavailable")
+	if got := copied(); got != "" {
+		t.Fatalf("removed shortcut still copied %q", got)
 	}
-	if !screen.Handle(input.Key{Rune: 'y', Mods: input.Alt}) || screen.notice != "Clipboard unavailable" {
-		t.Fatalf("rebound shortcut did not reach source copy: %q", screen.notice)
+	host.Send(input.Key{Rune: 'y', Mods: input.Alt})
+	host.Shows(t, "Source copied")
+	if got := copied(); got != sequence {
+		t.Fatalf("rebound shortcut copied %q", got)
 	}
-	screen.notice = ""
-	column := strings.Index(row, "[Copy Source (alt+y)]")
-	if column < 0 || !screen.clickAction(column) || screen.notice != "Clipboard unavailable" {
-		t.Fatalf("resized button row routed source click incorrectly: %q, %q", row, screen.notice)
+	host.Type("r")
+	host.Shows(t, "flowchart TD")
+	host.Shows(t, "Inline images unavailable")
+	column := len("[Open Image (ctrl+o)]") + toolbarGap + len("[Copy Image Path (p)]") + toolbarGap
+	host.Pointer(input.Mouse{Pos: image.Pt(column, 0), Action: input.MouseDown, Button: input.ButtonLeft})
+	host.Shows(t, "Source copied")
+	if got := copied(); got != flowchart {
+		t.Fatalf("toolbar click copied %q", got)
+	}
+	host.Type("q")
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if err := screen.close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestRevokedImageDeliveryRetainsARefusedCleanupForClose(t *testing.T) {
+func TestRevokedUploadKeepsARefusedReleaseForLater(t *testing.T) {
 	host := &refusingImageHost{imageHost: &imageHost{protocol: graphics.Kitty}}
 	resource := host.images.Bind(graphics.Image{ID: 41, Size: image.Pt(80, 32)})
 	result := make(chan graphics.UploadResult, 1)
 	result <- graphics.UploadResult{Resource: resource}
 	close(result)
-	screen := &diagramScreen{images: host}
+	ledger := &imageLedger{host: host}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	screen.workers.Add(1)
-	if _, err := screen.receiveImage(ctx, result); !errors.Is(err, term.ErrQueueFull) || !errors.Is(err, context.Canceled) {
-		t.Fatalf("revoked cleanup outcome = %v", err)
+	if _, err := ledger.receive(ctx, result); !errors.Is(err, term.ErrQueueFull) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("revoked release outcome = %v", err)
 	}
-	if !resource.Live() || len(screen.imageResources) != 1 {
-		t.Fatal("refused cleanup discarded its resource owner")
+	if !resource.Live() || len(ledger.live) != 1 {
+		t.Fatal("refused release discarded its resource owner")
 	}
-	if err := screen.close(); err != nil {
+	if err := ledger.releaseAll(); err != nil {
 		t.Fatal(err)
 	}
-	if resource.Live() || len(screen.imageResources) != 0 {
-		t.Fatal("screen close did not retry the retained cleanup")
+	if resource.Live() || len(ledger.live) != 0 {
+		t.Fatal("a later release did not retry the retained image")
 	}
 }
 

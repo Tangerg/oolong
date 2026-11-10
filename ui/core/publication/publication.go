@@ -112,15 +112,18 @@ type entry struct {
 // FlushNotifications after the compositor has settled all owners.
 // A Publisher must not be copied after first use.
 type Publisher struct {
-	noCopy       noCopy
-	cfg          Config
-	next         ID
-	bytes        int64
-	pending      []*entry
-	inflight     []*entry
-	preparing    bool
-	closed       error
-	admissionErr error
+	noCopy    noCopy
+	cfg       Config
+	next      ID
+	bytes     int64
+	pending   []*entry
+	inflight  []*entry
+	preparing bool
+	phase     phase
+	// refusal is why new content is refused. It is nil exactly while the phase
+	// is accepting; closing replaces a draining cause because settlement, not
+	// the earlier admission stop, then explains every refusal.
+	refusal      error
 	lastSequence uint64
 	written      uint64
 	dirty        bool
@@ -130,6 +133,17 @@ type Publisher struct {
 }
 
 type listener struct{ fn func() }
+
+// phase orders a publisher's lifetime. Draining refuses new content while the
+// compositor still writes and settles what was accepted; closed has settled
+// every accepted responsibility.
+type phase uint8
+
+const (
+	accepting phase = iota
+	draining
+	closed
+)
 
 type noCopy struct{}
 
@@ -181,8 +195,8 @@ func (p *Publisher) assertIdle() {
 // SetGeometry affects future captures; already accepted cells remain immutable and reflow at composition.
 func (p *Publisher) SetGeometry(width int, ground grid.Ground) error {
 	p.assertIdle()
-	if p == nil || p.closed != nil {
-		return p.closedError()
+	if p == nil || p.phase == closed {
+		return p.refusalError()
 	}
 	if width <= 0 {
 		return errors.New("publication: width must be positive")
@@ -194,8 +208,8 @@ func (p *Publisher) SetGeometry(width int, ground grid.Ground) error {
 // TryPublish freezes a complete drawable before accepting responsibility; refusals leave it with the caller.
 func (p *Publisher) TryPublish(body grid.Drawable) (Receipt, error) {
 	p.assertIdle()
-	if p == nil || p.closed != nil || p.admissionErr != nil {
-		return Receipt{}, p.closedError()
+	if p == nil || p.phase != accepting {
+		return Receipt{}, p.refusalError()
 	}
 	if p.next == ID(math.MaxUint64) {
 		return Receipt{}, errors.New("publication: identities exhausted")
@@ -225,18 +239,11 @@ func (p *Publisher) TryPublish(body grid.Drawable) (Receipt, error) {
 	return Receipt{record: r}, nil
 }
 
-func (p *Publisher) closedError() error {
-	if p == nil {
+func (p *Publisher) refusalError() error {
+	if p == nil || p.refusal == nil {
 		return ErrClosed
 	}
-	cause := p.closed
-	if cause == nil {
-		cause = p.admissionErr
-	}
-	if cause == nil {
-		return ErrClosed
-	}
-	return cause
+	return p.refusal
 }
 
 // A refusal belongs to its closing transition; reading it must not manufacture a
@@ -256,10 +263,10 @@ func closedRefusal(cause error) error {
 // which settles the accepted responsibilities themselves.
 func (p *Publisher) CloseAdmission(err error) {
 	p.assertIdle()
-	if p == nil || p.admissionErr != nil || p.closed != nil {
+	if p == nil || p.phase != accepting {
 		return
 	}
-	p.admissionErr = closedRefusal(err)
+	p.phase, p.refusal = draining, closedRefusal(err)
 	p.dirty = true
 }
 
@@ -273,7 +280,7 @@ type Batch struct {
 // Prepare snapshots the pending prefix without removing it or advancing any receipt.
 func (p *Publisher) Prepare() Batch {
 	p.assertIdle()
-	if p == nil || p.closed != nil {
+	if p == nil || p.phase == closed {
 		return Batch{}
 	}
 	return Batch{owner: p, entries: append([]*entry(nil), p.pending...)}
@@ -297,7 +304,7 @@ func (p *Publisher) Commit(b Batch, sequence uint64) {
 	if len(b.entries) == 0 {
 		return
 	}
-	if p == nil || p.closed != nil || sequence == 0 || sequence <= p.lastSequence {
+	if p == nil || p.phase == closed || sequence == 0 || sequence <= p.lastSequence {
 		panic("publication: invalid batch commit")
 	}
 	p.checkPrefix(b)
@@ -369,7 +376,7 @@ func (p *Publisher) FailAdmission(b Batch, err error) {
 
 func (p *Publisher) fail(err error, unknownPartial bool, attempted Batch) {
 	p.assertIdle()
-	if p == nil || p.closed != nil {
+	if p == nil || p.phase == closed {
 		return
 	}
 	if err == nil {
@@ -378,7 +385,7 @@ func (p *Publisher) fail(err error, unknownPartial bool, attempted Batch) {
 	if len(attempted.entries) > 0 {
 		p.checkPrefix(attempted)
 	}
-	p.closed = closedRefusal(err)
+	p.phase, p.refusal = closed, closedRefusal(err)
 	for _, e := range attempted.entries {
 		e.receipt.settle(UnknownPartial, err)
 	}
@@ -419,7 +426,7 @@ func (p *Publisher) Pending() (items int, bytes int64) {
 // FlushNotifications after all owners have settled.
 func (p *Publisher) Subscribe(fn func()) func() {
 	p.assertIdle()
-	if p == nil || p.closed != nil || fn == nil {
+	if p == nil || p.phase == closed || fn == nil {
 		return func() {}
 	}
 	l := &listener{fn: fn}
@@ -452,7 +459,7 @@ func (p *Publisher) FlushNotifications() bool {
 			return false
 		}
 		p.dirty = false
-		if p.closed != nil {
+		if p.phase == closed {
 			// The terminal turn takes the registry itself. A Close during an
 			// earlier callback instead schedules this turn after its delivery.
 			p.delivery, p.listeners = p.listeners, nil
@@ -460,7 +467,7 @@ func (p *Publisher) FlushNotifications() bool {
 			p.delivery = slices.Clone(p.listeners)
 		}
 	}
-	final := p.closed != nil && !p.dirty
+	final := p.phase == closed && !p.dirty
 	p.notifying = true
 	defer func() { p.notifying = false }()
 	for len(p.delivery) != 0 {

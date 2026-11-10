@@ -86,9 +86,10 @@ func (t *Table[T]) SortBy(column int) bool {
 }
 
 // SetSort keeps retries idempotent; interactive direction toggles belong to SortBy.
+// An empty table records the order, which applies to the rows it later receives.
 func (t *Table[T]) SetSort(order SortOrder) bool {
 	requireMutable(t.element)
-	if t.rows.Len() == 0 || t.order != nil && *t.order == order {
+	if t.order != nil && *t.order == order {
 		return false
 	}
 	compare := t.columnComparator(t.sortColumns, order.Column)
@@ -104,7 +105,7 @@ func (t *Table[T]) SetSort(order SortOrder) bool {
 }
 
 func (t *Table[T]) canSort(column int) bool {
-	return t.rows.Len() > 0 && t.columnComparator(t.sortColumns, column) != nil
+	return t.columnComparator(t.sortColumns, column) != nil
 }
 
 func (t *Table[T]) columnComparator(columns func(int) func(T, T) int, column int) func(T, T) int {

@@ -6,10 +6,8 @@ import (
 
 	"github.com/Tangerg/oolong/ui/core/scene"
 
-	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
-	"github.com/Tangerg/oolong/ui/core/layout"
 )
 
 // Option values may contain references; copying an option does not copy its domain data.
@@ -44,25 +42,9 @@ func Options[T ~string](values ...T) []Option[T] {
 type Select[T any] struct {
 	noCopy noCopy
 
-	field
-	label string
-	// Rows caps how many options are shown at once. Zero shows them all.
-	rowLimit int
-	// Keys say which keystrokes move the cursor. Nil reads through [DefaultListKeys].
-	keys keyBinding
-
-	// Row optionally draws a one-row choice with its cursor and taken states.
-	// Nil uses Look's default choice row. Like Draw, the callback must be pure.
-	rowPainter func(grid.View, Option[T], bool, bool, Look)
-
-	list         List[Option[T]]
-	matcher      keymap.Matcher
-	sameIdentity func(T, T) bool
-	check        func(T) error
-	revision     uint64
+	choiceList[T]
+	check func(T) error
 }
-
-func (s *Select[T]) Prompt() string { return s.label }
 
 // SetOptions replaces what is on offer. Select owns the slice. If the selected
 // choice still exists under Same, the cursor follows it to its new position.
@@ -99,35 +81,18 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 	})
 }
 
-// Options returns a copy of what is on offer.
-func (s *Select[T]) Options() []Option[T] { return slices.Clone(s.list.items) }
-
 func (s *Select[T]) Chosen() (Option[T], bool) {
 	return s.list.At(s.selected())
 }
 
 func (s *Select[T]) selected() int { return s.list.Selected() }
 
-func (s *Select[T]) HeightForWidth(int) int {
-	rows := len(s.list.items)
-	if s.rowLimit > 0 {
-		rows = min(rows, s.rowLimit)
-	}
-	return layout.Sum(max(rows, 1), s.rows(s.label))
-}
-
 func (s *Select[T]) Draw(v scene.Frame) {
 	s.DrawWith(v, Look{})
 }
 
 func (s *Select[T]) DrawWith(v scene.Frame, look Look) {
-	s.list.DrawRows(s.frame(v, s.label, look), func(v grid.View, _ int, option Option[T], under bool) {
-		if s.rowPainter != nil {
-			s.rowPainter(v, option, under, under, look)
-		} else {
-			look.choice(v, option.Label, under, under)
-		}
-	})
+	s.drawRows(v, look, func(_ Option[T], under bool) bool { return under })
 }
 
 func optionIndex[T any](options []Option[T], value T, sameIdentity func(T, T) bool) int {
@@ -179,16 +144,7 @@ func (s *Select[T]) checkAnswer() error {
 	return s.check(chosen.Value)
 }
 
-func (s *Select[T]) focusChanged(has bool) {
-	change := func() {
-		s.focus(has, s.list.focusChanged, s.Validate)
-	}
-	if has {
-		change()
-	} else {
-		s.matcher.Reset(change)
-	}
-}
+func (s *Select[T]) focusChanged(has bool) { s.choiceList.focusChanged(has, s.Validate) }
 
 // Choose selects an available value using the configured identity rule.
 func (s *Select[T]) Choose(value T) bool {
@@ -206,52 +162,4 @@ func (s *Select[T]) selectAt(at int) {
 		s.revision++
 	}
 	s.list.Select(at)
-}
-
-// Revision identifies the selected option's answer snapshot. A different option or
-// a replacement collection with an available answer advances it conservatively;
-// Same cannot establish equality of arbitrary payloads.
-func (s *Select[T]) Revision() uint64 { return s.revision }
-
-func (s *Select[T]) Label() string { return s.label }
-
-func (s *Select[T]) SetLabel(value string) {
-	element := s.Element()
-	requireMutable(element)
-	if s.label == value {
-		return
-	}
-	s.label = strings.Clone(value)
-	element.Invalidate()
-}
-
-func (s *Select[T]) Rows() int { return s.rowLimit }
-
-// SetRows panics for a negative limit. Zero permits all options to contribute to height.
-func (s *Select[T]) SetRows(value int) {
-	element := s.Element()
-	requireMutable(element)
-	if value < 0 {
-		panic("base: Rows cannot be negative")
-	}
-	if s.rowLimit == value {
-		return
-	}
-	s.rowLimit = value
-	element.Invalidate()
-}
-
-func (s *Select[T]) Row() func(grid.View, Option[T], bool, bool, Look) { return s.rowPainter }
-
-func (s *Select[T]) SetRow(value func(grid.View, Option[T], bool, bool, Look)) {
-	element := s.Element()
-	requireMutable(element)
-	s.rowPainter = value
-	element.Invalidate()
-}
-
-func (s *Select[T]) Keys() *keymap.Map { return s.keys.current }
-
-func (s *Select[T]) SetKeys(keys *keymap.Map) {
-	s.keys.set(s.Element(), &s.matcher, keys)
 }

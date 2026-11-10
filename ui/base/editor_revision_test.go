@@ -47,7 +47,7 @@ func TestEveryEditorContentOperationAdvancesRevisionOnce(t *testing.T) {
 		{"clear", func(e *base.Editor) { e.SetText("text") }, func(e *base.Editor) { e.Clear() }},
 		{"insert", nil, func(e *base.Editor) { e.Insert("text") }},
 		{"selection replacement", func(e *base.Editor) { e.SetText("old"); e.SelectAll() }, func(e *base.Editor) { e.Insert("new") }},
-		{"replace", func(e *base.Editor) { e.SetText("old") }, func(e *base.Editor) { e.Replace(0, 3, "new") }},
+		{"replace", func(e *base.Editor) { e.SetText("old") }, func(e *base.Editor) { e.Replace(0, 0, 3, "new") }},
 		{"rune", nil, func(e *base.Editor) { e.InsertRune('x') }},
 		{"newline", nil, func(e *base.Editor) { e.Newline() }},
 		{"backspace", func(e *base.Editor) { e.SetText("x") }, func(e *base.Editor) { e.DeleteBack() }},
@@ -128,7 +128,7 @@ func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
 		{"empty insert", func(e *base.Editor) { e.Insert("") }},
 		{"empty clear", func(e *base.Editor) { e.Clear() }},
 		{"same text", func(e *base.Editor) { e.SetText("") }},
-		{"empty replace", func(e *base.Editor) { e.Replace(0, 0, "") }},
+		{"empty replace", func(e *base.Editor) { e.Replace(0, 0, 0, "") }},
 		{"control character", func(e *base.Editor) { e.InsertRune('\x1b') }},
 		{"single-line newline", func(e *base.Editor) { e.Newline() }},
 		{"backspace", func(e *base.Editor) { e.DeleteBack() }},
@@ -322,7 +322,7 @@ func TestEmptyReplacementInsideAnElementIsANoOp(t *testing.T) {
 	element := editor.InsertElement(fileChip, "@main.go")
 	before := editor.Revision()
 
-	editor.Replace(3, 3, "")
+	editor.Replace(0, 3, 3, "")
 	if got := editor.Revision(); got != before {
 		t.Fatalf("empty replacement advanced revision from %d to %d", before, got)
 	}

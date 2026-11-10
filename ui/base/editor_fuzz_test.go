@@ -47,7 +47,8 @@ func FuzzEditorStateTransitions(f *testing.F) {
 			case 1:
 				editor.InsertRune(rune(b))
 			case 2:
-				editor.Replace(int(b)%5-2, int(b)%9, fragment)
+				line, _ := editor.Cursor()
+				editor.Replace(line, int(b)%5-2, int(b)%9, fragment)
 			case 3:
 				editor.DeleteBack()
 			case 4:

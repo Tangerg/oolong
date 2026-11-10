@@ -22,10 +22,13 @@ func platformSupported() error {
 	return nil
 }
 
-func run(ctx context.Context, cmd *exec.Cmd) error {
-	if err := context.Cause(ctx); err != nil {
-		return err
-	}
+// run reports what happened to the process group; the caller owns ctx and
+// therefore reports its cause.
+func run(ctx context.Context, backend launch) error {
+	cmd := exec.Command(backend.path, backend.args...) //nolint:noctx,gosec // The group owner below controls cancellation and joins it before reaping; the backend is trusted configuration.
+	cmd.Dir = backend.dir
+	cmd.Stdin = backend.stdin
+	cmd.Stdout, cmd.Stderr = backend.output, backend.output
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = gracefulExitTimeout
 	if err := cmd.Start(); err != nil {
@@ -38,7 +41,7 @@ func run(ctx context.Context, cmd *exec.Cmd) error {
 	close(finished)
 	// Every group signal finishes before reaping can release its numeric identity.
 	cancelErr := <-cancelled
-	return errors.Join(context.Cause(ctx), cancelErr, finishGroup(cmd, observed))
+	return errors.Join(cancelErr, finishGroup(cmd, observed))
 }
 
 func cancelGroup(ctx context.Context, leader *os.Process, finished <-chan struct{}) error {

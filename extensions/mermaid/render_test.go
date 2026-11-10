@@ -72,11 +72,11 @@ func backendConfig(t *testing.T, startupDelay time.Duration) mermaid.Config {
 	write("node_modules/puppeteer/package.json", `{"name":"puppeteer","type":"module","exports":"./index.js"}`)
 	write("node_modules/puppeteer/index.js", `export default {
  executablePath: options => {
-   if (options.headless !== 'shell') throw Error('wrong browser mode');
+   if (options.browser !== 'chrome' || options.headless !== 'shell') throw Error('wrong browser mode');
    return process.execPath;
  },
  defaultArgs: options => {
-   if (options.headless !== 'shell' || !options.userDataDir) throw Error('wrong browser arguments');
+   if (options.browser !== 'chrome' || options.headless !== 'shell' || !options.userDataDir) throw Error('wrong browser arguments');
    return [];
  },
  connect: async () => ({on: () => {}, close: async () => {}}),
@@ -194,8 +194,12 @@ func TestRenderTimeoutIncludesBackendStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := timed.Render(t.Context(), "png"); !errors.Is(err, context.DeadlineExceeded) {
+	_, err = timed.Render(t.Context(), "png")
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
+	}
+	if reported := strings.Count(err.Error(), context.DeadlineExceeded.Error()); reported != 1 {
+		t.Fatalf("cancellation cause reported %d times: %v", reported, err)
 	}
 }
 

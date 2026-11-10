@@ -12,7 +12,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/program"
-
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/kit"
 )
@@ -20,6 +19,8 @@ import (
 const (
 	retainedCompletedItems = 8
 	maxMarkdownSourceBytes = 1 << 20
+	stickyMinRows          = 1
+	stickyGapRows          = 1
 )
 
 // conversation composes a stream document with one transcript and one publisher.
@@ -30,8 +31,7 @@ type conversation struct {
 	glyphs     kit.Glyphs
 	wheel      input.Wheel
 	publisher  base.TranscriptPublisher
-	content    *base.Transcript
-	view       *kit.Transcript
+	transcript *base.Transcript
 	group      *scene.Group
 	render     content.Renderer
 	document   *content.StreamDocument
@@ -58,33 +58,42 @@ func newConversation(cfg conversationConfig) (*conversation, error) {
 		c.publisher = c.prepare.Publisher(cfg.Publisher)
 	}
 	c.group = scene.NewGroup(scene.GroupConfig{Overlay: true})
-	c.resetView()
-	if err := cfg.Runtime.SetFramePreparation(func(width, _ int) (bool, error) { return c.prepare.Ready(width, c.content) }); err != nil {
+	if err := c.resetView(); err != nil {
+		c.prepare.Close()
+		return nil, err
+	}
+	if err := cfg.Runtime.SetFramePreparation(func(width, _ int) (bool, error) { return c.prepare.Ready(width, c.transcript) }); err != nil {
 		c.Close()
 		return nil, err
 	}
 	return c, nil
 }
 
-func (c *conversation) resetView() {
+// resetView installs a fresh transcript. The previous one stays installed when
+// construction fails, so a refused reset leaves the conversation usable.
+func (c *conversation) resetView() error {
 	retention, keep := base.Retain, 0
 	if c.publisher != nil {
 		retention, keep = base.PublishCompleted, retainedCompletedItems
 	}
 	view, err := kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: c.publisher, Retention: retention, PublishPartial: true, KeepCompleted: keep}, Theme: c.theme, Glyphs: c.glyphs})
 	if err != nil {
-		panic(err)
+		return err
 	}
-	c.view, c.content = view, view.Controller()
-	c.content.Scroll().Wheel(c.wheel)
-	c.content.Sticky().SetMinHeight(1)
-	c.content.Sticky().SetGap(1)
-	if err := c.view.Element().SetFocusable(func() bool { return false }); err != nil {
-		panic(err)
+	transcript := view.Controller()
+	transcript.Scroll().Wheel(c.wheel)
+	transcript.Sticky().SetMinHeight(stickyMinRows)
+	transcript.Sticky().SetGap(stickyGapRows)
+	if err := view.Element().SetFocusable(func() bool { return false }); err != nil {
+		transcript.Close()
+		return err
 	}
-	if err := c.group.Set(scene.Item{Element: c.view.Element()}); err != nil {
-		panic(err)
+	if err := c.group.Set(scene.Item{Element: view.Element()}); err != nil {
+		transcript.Close()
+		return err
 	}
+	c.transcript = transcript
+	return nil
 }
 
 func (c *conversation) Element() scene.Element { return c.group.Element() }
@@ -94,9 +103,9 @@ func (c *conversation) User(ctx context.Context, prompt string) error {
 		return err
 	}
 	c.prepareErr = nil
-	item, err := c.content.Add(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
+	item, err := c.transcript.Add(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
 	if err == nil && item.State() != base.ContentRetired {
-		c.content.Sticky().Add(item.ID())
+		c.transcript.Sticky().Add(item.ID())
 	}
 	return err
 }
@@ -106,7 +115,7 @@ func (c *conversation) Append(ctx context.Context, blocks ...base.Block) error {
 		return err
 	}
 	for _, block := range blocks {
-		if _, err := c.content.Add(block); err != nil {
+		if _, err := c.transcript.Add(block); err != nil {
 			return err
 		}
 	}
@@ -114,11 +123,11 @@ func (c *conversation) Append(ctx context.Context, blocks ...base.Block) error {
 }
 
 func (c *conversation) beginMarkdown() (*base.TranscriptItem, error) {
-	document, err := content.NewStreamDocument(content.StreamConfig{Format: "markdown", MaxSourceBytes: maxMarkdownSourceBytes})
+	document, err := content.NewStreamDocument(content.StreamConfig{Format: markdown.Format, MaxSourceBytes: maxMarkdownSourceBytes})
 	if err != nil {
 		return nil, err
 	}
-	item, err := c.content.AddDocument(document)
+	item, err := c.transcript.AddDocument(document)
 	if err == nil {
 		c.document = document
 	}
@@ -173,16 +182,20 @@ func (c *conversation) Settled(receive func(error)) error {
 	return c.prepare.After(func() { receive(c.prepareErr) })
 }
 
-func (c *conversation) Reset() {
+func (c *conversation) Reset() error {
+	previous := c.transcript
+	if err := c.resetView(); err != nil {
+		return err
+	}
 	c.prepare.Clear()
-	c.content.Close()
+	previous.Close()
 	c.document, c.prepareErr = nil, nil
-	c.resetView()
+	return nil
 }
 
 func (c *conversation) Close() {
 	c.prepare.Close()
-	c.content.Close()
+	c.transcript.Close()
 }
 
 func agentMarkdownLook(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {

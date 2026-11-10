@@ -18,14 +18,14 @@ func typeInto(scenes *scenetest.Scope, c *kit.Composer, s string) {
 	}
 }
 
-func TestAZeroComposerTakesText(t *testing.T) {
+func TestADefaultComposerTakesText(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	// Every widget here is a struct a caller fills in, so the zero value has to work.
+	// A composer configured with nothing but its defaults must still answer keys.
 	// One that looked finished and answered no keys would be the worse kind of broken.
-	var c kit.Composer
-	typeInto(scenes, &c, "hello")
+	c := kit.NewComposer(kit.ComposerConfig{})
+	typeInto(scenes, c, "hello")
 	if got := c.Controller().Text(); got != "hello" {
 		t.Fatalf("text = %q, want what was typed", got)
 	}
@@ -38,8 +38,8 @@ func TestComposerResetEmptiesTheField(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	var c kit.Composer
-	typeInto(scenes, &c, "sent")
+	c := kit.NewComposer(kit.ComposerConfig{})
+	typeInto(scenes, c, "sent")
 	c.Controller().Clear()
 	if !c.Controller().Empty() {
 		t.Fatalf("text = %q, want nothing left after a reset", c.Controller().Text())
@@ -52,8 +52,8 @@ func TestComposerLeavesEnterToItsInterface(t *testing.T) {
 
 	// Whether enter sends or breaks the line is the interface's decision. A composer
 	// that swallowed it would take that decision away from everything embedding one.
-	var c kit.Composer
-	if scenes.Mount(&c).Handle(input.Key{Code: input.Enter}) {
+	c := kit.NewComposer(kit.ComposerConfig{})
+	if scenes.Mount(c).Handle(input.Key{Code: input.Enter}) {
 		t.Fatal("the composer consumed enter")
 	}
 }
@@ -145,8 +145,8 @@ func TestComposerEditorOwnsTheRowLimit(t *testing.T) {
 	}
 }
 
-func TestZeroComposerSeedsTheDefaultRowLimitOnce(t *testing.T) {
-	var c kit.Composer
+func TestComposerSeedsTheDefaultRowLimitOnce(t *testing.T) {
+	c := kit.NewComposer(kit.ComposerConfig{})
 	c.HeightForWidth(20)
 	if got := c.Controller().MaxRows(); got != kit.DefaultComposerRows {
 		t.Fatalf("default editor row limit = %d, want %d", got, kit.DefaultComposerRows)

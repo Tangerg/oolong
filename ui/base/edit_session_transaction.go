@@ -21,7 +21,7 @@ type editReplacement struct {
 	history        editHistoryPolicy
 	whole          bool
 	expandClusters bool
-	mark           *text.Mark
+	mark           *elementMark
 }
 
 // Text, marks and history settle before the view callback, which may only settle
@@ -46,7 +46,9 @@ func (s *EditSession) replace(view *Editor, replacement editReplacement, settleV
 		s.requireRevision()
 	}
 	if view != nil {
-		view.prepareEdit(replacement.history == coalesceEdit)
+		// Only a coalesced edit that changes text continues the interaction; a
+		// handled no-op ends it like every other no-op path.
+		view.prepareEdit(replacement.history == coalesceEdit && changed)
 	}
 	s.prepareHistory(view, replacement.history, changed)
 	if !changed {
@@ -69,7 +71,7 @@ func (s *EditSession) replace(view *Editor, replacement editReplacement, settleV
 	}
 	if replacement.mark != nil {
 		mark := *replacement.mark
-		where, _ := slices.BinarySearchFunc(s.marks, mark, func(a, b text.Mark) int {
+		where, _ := slices.BinarySearchFunc(s.marks, mark, func(a, b elementMark) int {
 			return a.Start - b.Start
 		})
 		s.marks = slices.Insert(s.marks, where, mark)
@@ -190,7 +192,7 @@ func (s *EditSession) insertElement(view *Editor, start, end Caret, kind Element
 		lead = " "
 	}
 	at := s.offsetOf(start) + len(lead)
-	mark := text.Mark{ID: id, Kind: int(kind), Start: at, End: at + len(body), Atomic: true}
+	mark := elementMark{ID: id, Kind: kind, Start: at, End: at + len(body), Atomic: true}
 	var inserted Element
 	s.replace(view, editReplacement{start: start, end: end, text: lead + body + " ", mark: &mark}, func(caret Caret, changed bool) {
 		inserted = s.elementOf(mark)

@@ -188,7 +188,7 @@ func (c *Config) validate() error {
 // Render returns no image on failure, timeout or cancellation, while errors
 // preserve cancellation and process identities. Accepted input and output are
 // bounded; containing browser peak memory or disk usage requires an external sandbox.
-func (r *Renderer) Render(ctx context.Context, source string) (result *Image, err error) {
+func (r *Renderer) Render(ctx context.Context, source string) (*Image, error) {
 	if r == nil || r.slot == nil {
 		return nil, errors.New("mermaid: uninitialized renderer")
 	}
@@ -206,35 +206,52 @@ func (r *Renderer) Render(ctx context.Context, source string) (result *Image, er
 	case <-ctx.Done():
 		return nil, context.Cause(ctx)
 	}
+	// A ready slot and an ended context race in select, so admission is
+	// confirmed before any process starts.
 	if cause := context.Cause(ctx); cause != nil {
 		return nil, cause
 	}
+	result, err := r.render(ctx, source)
+	// The context is the only owner of cancellation: a backend that finished
+	// or failed after it ended reports that outcome beside the cause, never instead of it.
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, errors.Join(cause, err)
+	}
+	return result, err
+}
+
+func (r *Renderer) render(ctx context.Context, source string) (result *Image, err error) {
 	dir, err := os.MkdirTemp("", "oolong-mermaid-")
 	if err != nil {
 		return nil, fmt.Errorf("mermaid: temporary directory: %w", err)
 	}
 	defer func() {
-		err = errors.Join(err, os.RemoveAll(dir), context.Cause(ctx))
-		if err != nil {
-			result = nil
+		if removeErr := os.RemoveAll(dir); removeErr != nil {
+			result, err = nil, errors.Join(err, removeErr)
 		}
 	}()
 	args, output, err := r.arguments(dir)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(r.backend.node, args...) //nolint:noctx,gosec // The platform group/job owner controls cancellation and joins it before reaping; backend configuration is trusted and source is stdin only.
-	cmd.Dir = dir
-	cmd.Stdin = strings.NewReader(source)
 	diagnostics := &boundedOutput{limit: maxDiagnosticBytes}
-	cmd.Stdout, cmd.Stderr = diagnostics, diagnostics
-	if runErr := run(ctx, cmd); runErr != nil {
+	backend := launch{path: r.backend.node, args: args, dir: dir, stdin: strings.NewReader(source), output: diagnostics}
+	if runErr := run(ctx, backend); runErr != nil {
 		return nil, fmt.Errorf("mermaid: backend: %w: %q", runErr, diagnostics.buffer.String())
 	}
-	if cause := context.Cause(ctx); cause != nil {
-		return nil, cause
-	}
-	return readImage(ctx, output, r.cfg.MaxOutputBytes, r.cfg.MaxPixels)
+	return readImage(output, r.cfg.MaxOutputBytes, r.cfg.MaxPixels)
+}
+
+// launch is the whole contract between rendering and a platform supervisor:
+// the supervisor alone decides how the process is created, contained and stopped.
+type launch struct {
+	path  string
+	args  []string
+	dir   string
+	stdin io.Reader
+	// Standard output and error share one writer because both are diagnostics
+	// and a Windows job hands the child a single pipe for them.
+	output io.Writer
 }
 
 //go:embed backend.mjs
@@ -248,7 +265,6 @@ func (r *Renderer) arguments(dir string) ([]string, string, error) {
 	config := struct {
 		Browser string `json:"browser"`
 		Profile string `json:"profile"`
-		Timeout int64  `json:"timeout"`
 		Width   int    `json:"width"`
 		Height  int    `json:"height"`
 		Mermaid struct {
@@ -257,7 +273,7 @@ func (r *Renderer) arguments(dir string) ([]string, string, error) {
 			MaxEdges      int    `json:"maxEdges"`
 			Theme         Theme  `json:"theme"`
 		} `json:"mermaid"`
-	}{Browser: r.cfg.Browser, Profile: filepath.Join(dir, "browser"), Timeout: r.cfg.Timeout.Milliseconds(), Width: r.cfg.Width, Height: r.cfg.Height}
+	}{Browser: r.cfg.Browser, Profile: filepath.Join(dir, "browser"), Width: r.cfg.Width, Height: r.cfg.Height}
 	config.Mermaid.SecurityLevel = "strict"
 	config.Mermaid.MaxTextSize = r.cfg.MaxSourceBytes
 	config.Mermaid.MaxEdges = r.cfg.MaxEdges
@@ -278,16 +294,7 @@ func writeJSON(path string, value any) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
-func readImage(ctx context.Context, path string, maxBytes, maxPixels int64) (result *Image, err error) {
-	defer func() {
-		if cause := context.Cause(ctx); cause != nil {
-			result = nil
-			err = errors.Join(err, cause)
-		}
-	}()
-	if cause := context.Cause(ctx); cause != nil {
-		return nil, cause
-	}
+func readImage(path string, maxBytes, maxPixels int64) (*Image, error) {
 	data, err := readBounded(path, maxBytes)
 	if err != nil {
 		return nil, err

@@ -291,6 +291,17 @@ const (
 	DisplayMath
 )
 
+func (e Extension) String() string {
+	switch e {
+	case FencedCode:
+		return "fenced code"
+	case DisplayMath:
+		return "display math"
+	default:
+		return fmt.Sprintf("extension %d", uint8(e))
+	}
+}
+
 // Renderer results may outlive preparation, so a returned drawable must retain
 // stable semantics until every block releases it. Preparation is synchronous and
 // never runs during drawing or measurement; expensive backends supply prepared
@@ -313,7 +324,7 @@ type ExtensionError struct {
 }
 
 func (e *ExtensionError) Error() string {
-	return fmt.Sprintf("markdown: block %d extension %d (%q): %q", e.Block, e.Extension, e.Info, e.Err)
+	return fmt.Sprintf("markdown: block %d %v (%q): %q", e.Block, e.Extension, e.Info, e.Err)
 }
 
 func (e *ExtensionError) Unwrap() error { return e.Err }
@@ -326,7 +337,7 @@ func (l *Look) SetRenderer(extension Extension, renderer Renderer) {
 	switch extension {
 	case FencedCode, DisplayMath:
 	default:
-		panic(fmt.Sprintf("markdown: invalid extension %d", extension))
+		panic(fmt.Sprintf("markdown: invalid %v", extension))
 	}
 	l.extensions = maps.Clone(l.extensions)
 	if renderer == nil {

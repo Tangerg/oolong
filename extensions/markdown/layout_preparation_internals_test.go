@@ -37,7 +37,7 @@ func (p *layoutPreparationChild) Rows(int) []text.Row {
 
 func TestDocumentMeasurementDoesNotPrepareAllTextRows(t *testing.T) {
 	child := &layoutPreparationChild{height: 1 << 18}
-	doc := &Snapshot{blocks: []Block{{content: child}}}
+	doc := &Snapshot{blocks: []Block{{body: embeddedBody{child: child}}}}
 	if got := doc.HeightForWidth(20); got != child.height {
 		t.Fatalf("height = %d, want %d", got, child.height)
 	}
@@ -53,7 +53,7 @@ func TestDocumentMeasurementDoesNotPrepareAllTextRows(t *testing.T) {
 
 func TestWidthPreparationWarmsMeasurementAndRows(t *testing.T) {
 	child := &layoutPreparationChild{height: 2}
-	doc := &Snapshot{blocks: []Block{{content: child}}}
+	doc := &Snapshot{blocks: []Block{{body: embeddedBody{child: child}}}}
 	if err := doc.PrepareWidth(t.Context(), 20); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestCancelledLayoutPreparationNeverPublishesReadyRows(t *testing.T) {
 			case "rows":
 				child.onRows = cancelPreparation
 			}
-			doc := &Snapshot{blocks: []Block{{content: child}}}
+			doc := &Snapshot{blocks: []Block{{body: embeddedBody{child: child}}}}
 			if err := doc.PrepareWidth(ctx, 20); !errors.Is(err, cause) {
 				t.Fatalf("preparation lost cancellation: %v", err)
 			}

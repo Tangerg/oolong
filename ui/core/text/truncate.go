@@ -71,10 +71,17 @@ func (l Line) WithSuffix(width int, suffix string) Line {
 	return append(out, Span{Text: ending.value, Style: style})
 }
 
-// Truncate is [Line.Truncate] on unstyled text.
+// Truncate is [Line.Truncate] on unstyled text, with each tab expanded to the
+// spaces it occupies from the first column. The result is drawn by
+// [grid.View.Text], which has no tab stops; a tab left in would be dropped there
+// and every column after it would shift by the width it was measured at.
 func Truncate(s string, width int, ellipsis string) string {
-	return Of(s, grid.Style{}).Truncate(width, ellipsis).String()
+	return expandTabs(Of(s, grid.Style{}).Truncate(width, ellipsis))
 }
+
+// expandTabs spells a line with each tab replaced by the spaces it occupies from
+// the first column, which is the width Width measures it at.
+func expandTabs(l Line) string { return line(l.units()).String() }
 
 type suffix struct {
 	value, firstRune     string

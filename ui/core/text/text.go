@@ -271,6 +271,22 @@ func (w *wrapper) discardHeld(units []unit) {
 	w.clearHeld()
 }
 
+// atLineStart reports that nothing of the line has been laid out yet. Spaces held
+// there are indentation, not the separator of a break, so they must not become a
+// row's Gap: a gap is reversible only on a row that continues the one above it.
+func (w *wrapper) atLineStart() bool { return len(w.rows) == 0 && len(w.row) == 0 }
+
+// layHeld places held spaces as content, breaking where they reach the width.
+func (w *wrapper) layHeld(units []unit) {
+	for _, u := range units[w.heldFrom:w.heldTo] {
+		if len(w.row) > 0 && layout.Sum(w.rowWidth, u.width) > w.width {
+			w.breakRow()
+		}
+		w.place(u)
+	}
+	w.clearHeld()
+}
+
 func (w *wrapper) clearHeld() {
 	w.heldFrom, w.heldTo, w.hasHeld = 0, 0, false
 	w.heldW = 0
@@ -296,9 +312,16 @@ func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 			w.place(units[from])
 		}
 	case wordWidth <= w.width:
-		w.discardHeld(units)
-		if len(w.row) > 0 {
-			w.breakRow()
+		if w.atLineStart() {
+			w.layHeld(units)
+			if layout.Sum(w.rowWidth, wordWidth) > w.width {
+				w.breakRow()
+			}
+		} else {
+			w.discardHeld(units)
+			if len(w.row) > 0 {
+				w.breakRow()
+			}
 		}
 		for ; from < to; from++ {
 			w.place(units[from])
@@ -311,9 +334,12 @@ func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
 
 func (w *wrapper) hardBreak(units []unit, from, to int) int {
 	if w.hasHeld {
-		if layout.Sum(w.rowWidth, w.heldW, units[from].width) <= w.width {
+		switch {
+		case layout.Sum(w.rowWidth, w.heldW, units[from].width) <= w.width:
 			w.takeHeld(units)
-		} else {
+		case w.atLineStart():
+			w.layHeld(units)
+		default:
 			w.discardHeld(units)
 			if len(w.row) > 0 {
 				w.breakRow()
@@ -757,23 +783,26 @@ const (
 )
 
 func ClassOf(cluster string) Class {
-	for _, r := range cluster {
-		switch {
-		case unicode.IsSpace(r):
-			return Space
-		case r == '_' || unicode.IsLetter(r) && !cjk(r) || unicode.IsDigit(r) && !cjk(r):
-			return Word
-		case unicode.Is(unicode.Han, r):
-			return Han
-		case unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r):
-			return Kana
-		case unicode.Is(unicode.Hangul, r):
-			return Hangul
-		default:
-			return Punct
-		}
+	if cluster == "" {
+		return Space
 	}
-	return Space
+	// A cluster is classified by its base rune; marks joined to it do not change
+	// what kind of word it belongs to.
+	r, _ := utf8.DecodeRuneInString(cluster)
+	switch {
+	case unicode.IsSpace(r):
+		return Space
+	case r == '_' || unicode.IsLetter(r) && !cjk(r) || unicode.IsDigit(r) && !cjk(r):
+		return Word
+	case unicode.Is(unicode.Han, r):
+		return Han
+	case unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r):
+		return Kana
+	case unicode.Is(unicode.Hangul, r):
+		return Hangul
+	default:
+		return Punct
+	}
 }
 
 func cjk(r rune) bool {

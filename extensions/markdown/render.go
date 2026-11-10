@@ -115,9 +115,9 @@ func (r *renderer) scheduleChildren(stack *[]renderAction, n ast.Node, in frame)
 func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	switch node := n.(type) {
 	case *ast.Heading:
-		r.push(Block{lines: r.inline(node, r.look.heading(node.Level))}, in)
+		r.push(Block{body: textBody(r.inline(node, r.look.heading(node.Level)))}, in)
 	case *ast.Paragraph, *ast.TextBlock:
-		r.push(Block{lines: r.inline(node, in.body)}, in)
+		r.push(Block{body: textBody(r.inline(node, in.body))}, in)
 	case *ast.List:
 		r.list(node, in, stack)
 	case *ast.ListItem:
@@ -140,7 +140,7 @@ func (r *renderer) block(n ast.Node, in frame, stack *[]renderAction) {
 	case *mathBlock:
 		r.math(node, in)
 	case *ast.ThematicBreak:
-		r.push(Block{rule: &text.Span{Text: r.look.Glyphs.Divider, Style: r.look.Rule}}, in)
+		r.push(Block{body: ruleBody{glyph: text.Span{Text: r.look.Glyphs.Divider, Style: r.look.Rule}}}, in)
 	case *east.Table:
 		r.table(node, in)
 	case *ast.HTMLBlock:
@@ -172,7 +172,7 @@ func (r *renderer) listItem(n *ast.ListItem, in frame, stack *[]renderAction) {
 		marker: in.marker,
 	}
 	index := r.blockIndex(in)
-	*in.blocks = append(*in.blocks, Block{item: item, blankBefore: !in.tight})
+	*in.blocks = append(*in.blocks, Block{body: item, blankBefore: !in.tight})
 	in.blocks, in.topBlock, in.marker = &item.body.blocks, &index, nil
 	r.scheduleChildren(stack, n, in)
 }
@@ -242,7 +242,7 @@ func (r *renderer) extension(kind Extension, info, source string, in frame) {
 		}
 		child = text.NewBlock(text.BlockConfig{Lines: lines, Wrap: kind != DisplayMath})
 	}
-	r.push(Block{content: child}, in)
+	r.push(Block{body: embeddedBody{child: child}}, in)
 }
 
 func (r *renderer) sourceLines(n ast.Node) []string {
@@ -299,8 +299,6 @@ func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
 		case node.SoftLineBreak():
 			out.add(" ", action.style, link)
 		}
-	case *ast.String:
-		out.add(stringValue(node), action.style, link)
 	case *ast.CodeSpan:
 		out.add(r.codeSpan(node), action.style.Merge(r.look.Code), link)
 	case *ast.AutoLink:
@@ -310,10 +308,10 @@ func (r *renderer) writeLeaf(out *inlineWriter, action inlineAction) bool {
 		label := string(node.Label(r.source))
 		target := string(node.URL(r.source))
 		if node.AutoLinkType == ast.AutoLinkEmail {
-			// An address is not a destination. Without the scheme a terminal has
-			// nothing to hand to a mail client; with the one goldmark attaches it has
-			// "mailto://", which is not the scheme either. The address is the whole of
-			// what an email autolink says, so the destination is built from it.
+			// An address is not a destination: goldmark returns the bare address for
+			// an email autolink, and a terminal has nothing to hand a mail client
+			// without a scheme. The address is the whole of what an email autolink
+			// says, so the destination is built from it.
 			target = schemeMailto + ":" + label
 		}
 		if action.link == nil {
@@ -475,8 +473,6 @@ func (r *renderer) plain(n ast.Node) string {
 			}
 		case *ast.CodeSpan:
 			b.WriteString(r.codeSpan(node))
-		case *ast.String:
-			b.WriteString(stringValue(node))
 		case *ast.AutoLink:
 			b.Write(node.Label(r.source))
 		default:
@@ -484,14 +480,6 @@ func (r *renderer) plain(n ast.Node) string {
 		}
 	}
 	return inlineText(b.String())
-}
-
-func stringValue(node *ast.String) string {
-	value := string(node.Value)
-	if node.IsRaw() || node.IsCode() {
-		return value
-	}
-	return markdownText(value)
 }
 
 // Character references cannot introduce Markdown structure. Their whitespace must
@@ -590,7 +578,7 @@ func normalizeSource(source string) string {
 	const replacement = "�"
 	source = strings.ToValidUTF8(source, replacement)
 	source = strings.ReplaceAll(source, "\x00", replacement)
-	return strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n")
+	return text.NormalizeLineEndings(source)
 }
 
 // table retains cells until layout. A table is the one markdown block whose shape
@@ -602,7 +590,7 @@ func (r *renderer) table(n *east.Table, in frame) {
 		return
 	}
 	r.push(Block{
-		table: &table{
+		body: &table{
 			rows: rows, aligns: columnAlignments(n.Alignments), header: header,
 			separator: text.Of(r.column(), r.look.Rail).Pad(0, layout.Start).String(),
 			divider:   text.Of(r.look.Glyphs.Divider, r.look.Rule).Pad(0, layout.Start).String(),
@@ -622,14 +610,9 @@ func (r *renderer) cells(n *east.Table) (rows [][]text.Line, header bool) {
 		}
 		row := make([]text.Line, 0, 8)
 		for cell := child.FirstChild(); cell != nil; cell = cell.NextSibling() {
-			// Markdown table syntax cannot express a line break inside a cell. An
-			// empty cell can still produce no line, so make that case an empty one.
-			lines := r.inline(cell, style)
-			if len(lines) == 0 {
-				row = append(row, nil)
-				continue
-			}
-			row = append(row, lines[0].Pad(0, layout.Start))
+			// Markdown table syntax cannot express a line break inside a cell, and
+			// inline content always yields at least one, possibly empty, line.
+			row = append(row, r.inline(cell, style)[0].Pad(0, layout.Start))
 		}
 		rows = append(rows, row)
 	}

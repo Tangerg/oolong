@@ -38,25 +38,25 @@ type CursorStyle struct {
 
 // Sequence panics for an invalid Shape rather than encoding it as a protocol
 // reset with unrelated terminal-specific meaning.
-func (s CursorStyle) Sequence() string {
+func (s CursorStyle) Sequence() string { return s.selector().Sequence() }
+
+// selector is the one mapping from shape and blink to the DECSCUSR wire value.
+func (s CursorStyle) selector() ansi.CursorStyle {
+	blinking := func(blinking, steady ansi.CursorStyle) ansi.CursorStyle {
+		if s.Blink {
+			return blinking
+		}
+		return steady
+	}
 	switch s.Shape {
 	case CursorReset:
-		return ansi.CursorReset.Sequence()
+		return ansi.CursorReset
 	case CursorBlock:
-		if s.Blink {
-			return ansi.CursorBlinkingBlock.Sequence()
-		}
-		return ansi.CursorSteadyBlock.Sequence()
+		return blinking(ansi.CursorBlinkingBlock, ansi.CursorSteadyBlock)
 	case CursorUnderline:
-		if s.Blink {
-			return ansi.CursorBlinkingUnderline.Sequence()
-		}
-		return ansi.CursorSteadyUnderline.Sequence()
+		return blinking(ansi.CursorBlinkingUnderline, ansi.CursorSteadyUnderline)
 	case CursorBar:
-		if s.Blink {
-			return ansi.CursorBlinkingBar.Sequence()
-		}
-		return ansi.CursorSteadyBar.Sequence()
+		return blinking(ansi.CursorBlinkingBar, ansi.CursorSteadyBar)
 	}
 	panic(ErrInvalidCursorShape)
 }

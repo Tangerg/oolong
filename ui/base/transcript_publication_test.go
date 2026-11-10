@@ -173,11 +173,11 @@ func TestTranscriptCaptureCannotReplaceItsCommittedReadingProjection(t *testing.
 	if first.State() != base.ContentRetired || suffix.State() != base.ContentRetained || model.Len() != 1 || model.Selection().Active() {
 		t.Fatal("refusing foreign geometry prevented accepted-prefix settlement")
 	}
-	if model.Scroll().Offset() != 0 || model.Width() != 20 || model.Height() != 3 {
+	if model.Scroll().Offset() != 0 || model.Layout().Width() != 20 || model.Layout().Height() != 3 {
 		t.Fatal("retirement read a geometry owner replaced from capture")
 	}
 	transcriptCommit(t, root, 20, 1, 2)
-	if model.StartRow() != 2 || model.Height() != 1 || model.EndRow() != 3 {
+	if model.Layout().StartRow() != 2 || model.Layout().Height() != 1 || model.Layout().EndRow() != 3 {
 		t.Fatal("later valid frame lost the accepted prefix's coordinate origin")
 	}
 }
@@ -244,7 +244,7 @@ func TestTranscriptRetirementSurvivesCaptureAbnormalExit(t *testing.T) {
 			}
 			fail = false
 			transcriptCommit(t, root, 20, 1, 2)
-			if model.StartRow() != 2 || model.Height() != 2 || model.EndRow() != 4 {
+			if model.Layout().StartRow() != 2 || model.Layout().Height() != 2 || model.Layout().EndRow() != 4 {
 				t.Fatal("replacement frame lost the settled prefix origin")
 			}
 			publisher.Commit(publisher.Prepare(), 2)

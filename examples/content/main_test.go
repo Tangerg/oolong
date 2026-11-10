@@ -13,7 +13,11 @@ func TestThePeerRenderersComposeAndQuit(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
-			return newContent(runtime).Element(), nil
+			screen, err := newContent(runtime)
+			if err != nil {
+				return scene.Element{}, err
+			}
+			return screen.Element(), nil
 		}})
 		if err == nil {
 			err = app.Run(t.Context())

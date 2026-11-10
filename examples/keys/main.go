@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -40,14 +41,14 @@ func main() {
 }
 
 type keys struct {
-	element scene.Element
-	runtime *program.Runtime
-	mapKeys *keymap.Map
-	matcher keymap.Matcher
-	theme   kit.Theme
-	glyphs  kit.Glyphs
-	row     int
-	last    string
+	element  scene.Element
+	runtime  *program.Runtime
+	bindings *keymap.Map
+	matcher  keymap.Matcher
+	theme    kit.Theme
+	glyphs   kit.Glyphs
+	row      int
+	last     string
 }
 
 func newKeys(runtime *program.Runtime) (scene.Element, error) {
@@ -55,8 +56,15 @@ func newKeys(runtime *program.Runtime) (scene.Element, error) {
 	if err != nil {
 		return scene.Element{}, err
 	}
-	k := &keys{runtime: runtime}
-	bindings := new(keymap.Map)
+	k := &keys{
+		runtime:  runtime,
+		bindings: new(keymap.Map),
+		theme:    kit.Suited(runtime.Environment().Ground()),
+		glyphs:   kit.GlyphsFor(runtime.Environment().Locale()),
+		last:     "waiting for a shortcut",
+	}
+	k.element = drawn.Element("keys", k)
+	bindings := k.bindings
 	bindings.SetTimeout(sequenceTimeout)
 	bindings.SetResolver(func(delay time.Duration, resolve func()) func() {
 		timer, err := runtime.After(scope, delay, resolve)
@@ -70,13 +78,6 @@ func newKeys(runtime *program.Runtime) (scene.Element, error) {
 	bindings.Bind(top, input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
 	bindings.Bind(quit, input.Chord{Rune: 'q'})
 	bindings.Bind(quit, input.Ctrl.Rune('c'))
-	*k = keys{
-		runtime: runtime,
-		mapKeys: bindings,
-		theme:   kit.Suited(runtime.Environment().Ground()),
-		glyphs:  kit.GlyphsFor(runtime.Environment().Locale()),
-		last:    "waiting for a shortcut",
-	}
 	return k.Element(), nil
 }
 
@@ -88,8 +89,8 @@ func (k *keys) Draw(view grid.View) {
 	}
 	area := grid.Area(max((width-panelColumns)/2, 0), max((height-panelRows)/2, 0), min(width, panelColumns), min(height, panelRows))
 	inside := box.Draw(view.Sub(area))
-	kit.Help{Theme: k.theme, Keys: k.mapKeys, Show: []keymap.Action{next, top, quit}}.Draw(inside)
-	kit.Label{Text: fmt.Sprintf("prefix timeout: %s", k.mapKeys.Timeout()), Style: k.theme.Subtle}.
+	kit.Help{Theme: k.theme, Keys: k.bindings, Show: []keymap.Action{next, top, quit}}.Draw(inside)
+	kit.Label{Text: fmt.Sprintf("prefix timeout: %s", k.bindings.Timeout()), Style: k.theme.Subtle}.
 		Draw(inside.Sub(grid.Area(0, 1, inside.Bounds().Dx(), 1)))
 	kit.Label{Text: fmt.Sprintf("row %d — %s", k.row, k.last), Style: k.theme.Accent}.
 		Draw(inside.Sub(grid.Area(0, 2, inside.Bounds().Dx(), 1)))
@@ -100,7 +101,7 @@ func (k *keys) Handle(event input.Event) bool {
 	if !ok {
 		return false
 	}
-	_, handled := k.matcher.Handle(k.mapKeys, key, k.Element().KeyboardLease().Valid, k.Do)
+	_, handled := k.matcher.Handle(k.bindings, key, k.Element().KeyboardLease().Valid, k.Do)
 	return handled
 }
 
@@ -120,16 +121,4 @@ func (k *keys) Do(action keymap.Action) bool {
 	return true
 }
 
-func (k *keys) Element() scene.Element {
-	if k.element.IsZero() {
-		k.element = scene.NewElement(scene.ElementConfig{
-			Key:       "keys",
-			Focusable: func() bool { return true },
-			Paint:     func(frame scene.Frame) { k.Draw(frame.View) },
-			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: k.Handle(event.Input())}
-			},
-		})
-	}
-	return k.element
-}
+func (k *keys) Element() scene.Element { return k.element }

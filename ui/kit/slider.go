@@ -21,12 +21,7 @@ type Slider struct {
 	noCopy     noCopy
 	appearance appearance
 	glyphs     Glyphs
-	// Format turns the integer value into its right-hand label. Nil uses strconv.Itoa;
-	// returning an empty string omits the value and leaves that room to the track. A
-	// non-empty value is likewise omitted when it cannot fit in full, because clipped
-	// digits can read as another value. Format runs during drawing and must be an
-	// observationally pure projection.
-	format func(int) string
+	format     func(int) string
 
 	controller *base.Slider
 }
@@ -37,8 +32,10 @@ type SliderConfig struct {
 	Appearance ThemeOverride
 	Theme      Theme
 	Glyphs     Glyphs
-	// Format runs during drawing and must be an observationally pure projection.
-	// Nil uses strconv.Itoa; an empty result reserves no room for a value label.
+	// Format turns the value into its right-hand label. Nil uses strconv.Itoa; an
+	// empty result reserves no room for a label. A label that cannot fit in full is
+	// omitted, because clipped digits can read as another value. Format runs during
+	// drawing and must be an observationally pure projection.
 	Format func(int) string
 }
 
@@ -143,14 +140,7 @@ func (s *Slider) Glyphs() Glyphs { return s.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (s *Slider) SetGlyphs(value Glyphs) {
-	element := s.Element()
-	if err := element.CheckMutation(); err != nil {
-		panic(err)
-	}
-	s.glyphs = value.clone()
-	element.Invalidate()
-}
+func (s *Slider) SetGlyphs(value Glyphs) { replaceGlyphs(s.Element(), &s.glyphs, value) }
 
 func (s *Slider) Format() func(int) string { return s.format }
 

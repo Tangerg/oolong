@@ -4,11 +4,9 @@ import (
 	"errors"
 	"image"
 	"math"
-	"sort"
 
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/publication"
@@ -24,17 +22,11 @@ var ErrTranscriptCapacity = errors.New("base: transcript item budget exhausted")
 // BlockID is a stable, never-reused identity within one transcript; zero identifies no item.
 type BlockID uint64
 
-// Retention determines whether finalized content stays interactive or transfers to a publisher.
-type Retention uint8
-
 // Retention policies require an explicit publisher before permanent output is enabled.
 const (
 	Retain Retention = iota
 	PublishCompleted
 )
-
-// ContentState describes a transcript reference, independently of source and writer progress.
-type ContentState uint8
 
 // Content reference states distinguish revision, retention and irreversible responsibility transfer.
 const (
@@ -70,75 +62,6 @@ type TranscriptConfig struct {
 	Keys          *keymap.Map
 }
 
-// TranscriptItem is a read-only receipt for a content reference. Retirement clears
-// its document and body while preserving identity and the publication receipt.
-// Retaining this handle never retains the completed conversation's source bytes.
-type TranscriptItem struct {
-	id       BlockID
-	observed content.Revision // last preparation announced to the selection owner
-	body     Block
-	document *content.StreamDocument
-	cancel   func()
-	receipt  publication.Receipt
-	err      error
-}
-
-// ID survives retirement without keeping the document or body alive.
-func (i *TranscriptItem) ID() BlockID {
-	if i == nil {
-		return 0
-	}
-	return i.id
-}
-
-// State reports whether this reference can still revise or participate in the live transcript.
-func (i *TranscriptItem) State() ContentState {
-	if i == nil || i.document == nil && i.body == nil {
-		return ContentRetired
-	}
-	state := i.content()
-	if state.Publishable() || state.State == content.Failed {
-		return ContentRetained
-	}
-	return ContentLive
-}
-
-// Receipt reports permanent-output progress after admission; before admission its zero value is invalid.
-func (i *TranscriptItem) Receipt() publication.Receipt {
-	if i == nil {
-		return publication.Receipt{}
-	}
-	return i.receipt
-}
-
-// Err preserves source, preparation and publication refusal causes while content remains readable.
-func (i *TranscriptItem) Err() error {
-	if i == nil {
-		return nil
-	}
-	if i.document == nil {
-		return i.err
-	}
-	state := i.document.Current()
-	return errors.Join(state.SourceError, state.PrepareError, i.err)
-}
-
-func (i *TranscriptItem) content() content.DocumentChange {
-	if i.document != nil {
-		return i.document.Current()
-	}
-	return content.DocumentChange{Body: i.body, PreparedRevision: 1, State: content.Final}
-}
-
-func (i *TranscriptItem) retire() {
-	i.err = i.Err()
-	if i.cancel != nil {
-		i.cancel()
-		i.cancel = nil
-	}
-	i.body, i.document = nil, nil
-}
-
 // Transcript owns retained references and reading behavior. Content semantics
 // stay in StreamDocument; permanent-output responsibility moves only after the
 // publisher accepts an immutable capture. Layout is a scene-owned projection.
@@ -155,7 +78,7 @@ type Transcript struct {
 	closed          bool
 	entries         fifo.Queue[*TranscriptItem]
 	next            BlockID
-	start           int
+	startRow        int
 	revision        uint64
 	stopPublication func()
 	element         scene.Element
@@ -164,7 +87,14 @@ type Transcript struct {
 	sticky          Sticky
 	geometry        scene.Snapshot[TranscriptLayout]
 	presentation    scene.Snapshot[transcriptPresentation]
-	clicked         uint64
+}
+
+// maxItems is the item budget, with zero selecting the default.
+func (c TranscriptConfig) maxItems() int {
+	if c.MaxItems == 0 {
+		return defaultTranscriptItems
+	}
+	return c.MaxItems
 }
 
 // NewTranscript validates retention dependencies and creates one stable scene element.
@@ -178,14 +108,12 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 		}
 		cfg.Publisher = nil
 	}
-	maxItems := cfg.MaxItems
-	if maxItems == 0 {
-		maxItems = defaultTranscriptItems
-	}
-	if cfg.KeepCompleted >= maxItems || cfg.KeepCompleted > 0 && cfg.Retention != PublishCompleted {
+	if cfg.KeepCompleted >= cfg.maxItems() || cfg.KeepCompleted > 0 && cfg.Retention != PublishCompleted {
 		return nil, errors.New("base: recent completion retention requires publication and space for new content")
 	}
 	t := &Transcript{cfg: cfg, keys: keyBinding{current: cfg.Keys}}
+	// The key binding owns the map from here; the retained configuration must not
+	// keep a second reference that SetKeys would leave stale.
 	t.cfg.Keys = nil
 	t.initialize()
 	return t, nil
@@ -197,9 +125,7 @@ func (t *Transcript) initialize() {
 	}
 	t.initialized = true
 	t.namespace = new(byte)
-	if t.cfg.MaxItems == 0 {
-		t.cfg.MaxItems = defaultTranscriptItems
-	}
+	t.cfg.MaxItems = t.cfg.maxItems()
 	t.next = 1
 	t.scroll.ToBottom()
 	t.element = scene.NewElement(scene.ElementConfig{
@@ -277,18 +203,6 @@ func (t *Transcript) Len() int { return t.entries.Len() }
 // projections. Width changes never advance it.
 func (t *Transcript) ContentRevision() uint64 { return t.revision }
 
-// Width is the last committed layout width; preparing or aborting a frame does not advance it.
-func (t *Transcript) Width() int { return t.geometry.Value().Width() }
-
-// Height is the retained row count in the last committed layout.
-func (t *Transcript) Height() int { return t.geometry.Value().Height() }
-
-// StartRow is the retained row origin in the last committed layout.
-func (t *Transcript) StartRow() int { return t.geometry.Value().StartRow() }
-
-// EndRow is the exclusive end of the last committed row space.
-func (t *Transcript) EndRow() int { return t.geometry.Value().EndRow() }
-
 // FirstBlock is the first retained identity, or the next identity when the transcript is empty.
 func (t *Transcript) FirstBlock() BlockID {
 	if t.entries.Len() > 0 {
@@ -300,7 +214,9 @@ func (t *Transcript) FirstBlock() BlockID {
 	return t.next
 }
 
-func (t *Transcript) add(body Block, document *content.StreamDocument) (*TranscriptItem, error) {
+// add installs one item. A source that can revise supplies subscribe, through
+// which its later revisions reach the transcript; passive content has none.
+func (t *Transcript) add(source itemSource, subscribe func(func(content.DocumentChange)) func()) (*TranscriptItem, error) {
 	t.assertMutable()
 	if t.entries.Len() >= t.cfg.MaxItems {
 		return nil, ErrTranscriptCapacity
@@ -308,13 +224,13 @@ func (t *Transcript) add(body Block, document *content.StreamDocument) (*Transcr
 	if t.next == BlockID(math.MaxUint64) {
 		return nil, errors.New("base: transcript identities exhausted")
 	}
-	item := &TranscriptItem{id: t.next, body: body, document: document}
+	item := &TranscriptItem{id: t.next, source: source}
 	// Admission may immediately retire the completed prefix. Reserve every
 	// possible publication before installing a reference or transferring content.
 	t.requireRevisions(1, t.publicationCount(item))
-	if document != nil {
-		item.observed = document.Current().PreparedRevision
-		item.cancel = document.Subscribe(func(change content.DocumentChange) { t.accept(item, change) })
+	if subscribe != nil {
+		item.observed = source.Current().PreparedRevision
+		item.cancel = subscribe(func(change content.DocumentChange) { t.accept(item, change) })
 	}
 	t.next++
 	t.entries.Push(item)
@@ -331,7 +247,7 @@ func (t *Transcript) Add(body Block) (*TranscriptItem, error) {
 	if grid.IsNilDrawable(body) {
 		return nil, errors.New("base: transcript content is nil")
 	}
-	return t.add(body, nil)
+	return t.add(passiveContent{body: body}, nil)
 }
 
 // AddDocument subscribes once to source revisions, final preparation and automatic retention transitions.
@@ -342,7 +258,7 @@ func (t *Transcript) AddDocument(document *content.StreamDocument) (*TranscriptI
 	if document == nil {
 		return nil, errors.New("base: transcript document is nil")
 	}
-	return t.add(nil, document)
+	return t.add(document, document.Subscribe)
 }
 
 func (t *Transcript) accept(item *TranscriptItem, change content.DocumentChange) {
@@ -388,7 +304,7 @@ func (t *Transcript) publish() {
 	for range count {
 		item := t.entries.At(0)
 		_, rows, _ := t.geometry.Value().Extent(item.id)
-		if rows > math.MaxInt-t.start {
+		if rows > math.MaxInt-t.startRow {
 			panic("base: transcript row origin exhausted")
 		}
 		var receipt publication.Receipt
@@ -402,7 +318,7 @@ func (t *Transcript) publish() {
 			return
 		}
 		item.receipt = receipt
-		t.start += rows
+		t.startRow += rows
 		t.scroll.discard(rows)
 		t.selection.discardBefore(item.id + 1)
 		item.err = nil
@@ -475,8 +391,8 @@ func (t *Transcript) Stage(frame scene.Frame, width int) TranscriptLayout {
 		t.geometry.Stage(frame, previous)
 		return previous
 	}
-	state := TranscriptLayout{key: key, start: t.start, first: t.FirstBlock()}
-	top := t.start
+	state := TranscriptLayout{key: key, start: t.startRow, first: t.FirstBlock()}
+	top := t.startRow
 	for item := range t.entries.Values() {
 		change := item.content()
 		rows := 0
@@ -487,7 +403,7 @@ func (t *Transcript) Stage(frame scene.Frame, width int) TranscriptLayout {
 			panic("base: transcript row coordinates exhausted")
 		}
 		var mapping *transcriptTextMap
-		if projector, ok := change.Body.(TextProjector); ok && rows > 0 {
+		if projector, ok := change.Body.(text.Projector); ok && rows > 0 {
 			projected := projector.Rows(width)
 			mapping = newTranscriptTextMap(projected[:min(rows, len(projected))])
 		}
@@ -498,148 +414,6 @@ func (t *Transcript) Stage(frame scene.Frame, width int) TranscriptLayout {
 	t.geometry.Stage(frame, state)
 	return state
 }
-
-type placed struct {
-	revision    uint64
-	mapping     *transcriptTextMap
-	id          BlockID
-	block       Block
-	height, top int
-}
-
-// TranscriptLayout is immutable geometry and text mapping for one complete scene candidate.
-type TranscriptLayout struct {
-	key         transcriptLayoutKey
-	blocks      []placed
-	rows, start int
-	first       BlockID
-}
-
-type transcriptLayoutKey struct {
-	owner    *byte
-	revision uint64
-	width    int
-}
-
-// Width is the column count used by every placement in this projection.
-func (l TranscriptLayout) Width() int { return l.key.width }
-
-// Height is the total retained row span in this projection.
-func (l TranscriptLayout) Height() int { return l.rows }
-
-// StartRow is the inclusive origin shared by drawing, selection and hit testing.
-func (l TranscriptLayout) StartRow() int { return l.start }
-
-// EndRow is the exclusive end of the checked row span.
-func (l TranscriptLayout) EndRow() int { return l.start + l.rows }
-
-// FirstBlock identifies the first retained content at preparation time.
-func (l TranscriptLayout) FirstBlock() BlockID { return l.first }
-
-// Block resolves the passive content held by this immutable layout, including earlier committed frames.
-func (l TranscriptLayout) Block(id BlockID) Block {
-	b, _ := l.placed(id)
-	return b.block
-}
-
-// Extent reads the placement in this immutable frame.
-func (l TranscriptLayout) Extent(id BlockID) (top, height int, ok bool) {
-	b, ok := l.placed(id)
-	return b.top, b.height, ok
-}
-
-func (l TranscriptLayout) window(from, count int) (int, int, bool) {
-	if count <= 0 || l.rows == 0 {
-		return 0, 0, false
-	}
-	end := min(layout.Translate(from, count), l.EndRow())
-	from = max(from, l.start)
-	return from, max(end-from, 0), end > from
-}
-
-func (l TranscriptLayout) visible(from, rows int) (first, last int) {
-	from, rows, ok := l.window(from, rows)
-	if !ok {
-		return len(l.blocks), len(l.blocks)
-	}
-	first = sort.Search(len(l.blocks), func(i int) bool { return l.blocks[i].top+l.blocks[i].height > from })
-	last = first
-	end := from + rows
-	for last < len(l.blocks) && l.blocks[last].top < end {
-		last++
-	}
-	return first, last
-}
-
-// At resolves a row to its content identity and local row offset, skipping empty placements.
-func (l TranscriptLayout) At(row int) (BlockID, int, bool) {
-	first, last := l.visible(row, 1)
-	if first == last {
-		return 0, 0, false
-	}
-	b := l.blocks[first]
-	return b.id, row - b.top, true
-}
-
-func (l TranscriptLayout) Draw(view grid.View, from int) {
-	width, _ := view.Size()
-	visible := view.Visible()
-	if visible.Empty() {
-		return
-	}
-	first, last := l.visible(layout.Translate(from, visible.Min.Y), visible.Dy())
-	for _, b := range l.blocks[first:last] {
-		if b.block != nil && b.height > 0 {
-			b.block.Draw(view.Sub(grid.Area(0, b.top-from, width, b.height)))
-		}
-	}
-}
-
-// TextProjector supplies safe rendered rows and soft-wrap metadata; it does not promise a format-source map.
-type TextProjector interface{ Rows(width int) []text.Row }
-
-// Rows returns a bounded physical row window, preserving empty slots for content without text.
-func (l TranscriptLayout) Rows(from, count int) []text.Row {
-	from, count, ok := l.window(from, count)
-	if !ok {
-		return nil
-	}
-	out := make([]text.Row, count)
-	first, last := l.visible(from, count)
-	for _, b := range l.blocks[first:last] {
-		if b.mapping == nil {
-			continue
-		}
-		source := min(max(from-b.top, 0), len(b.mapping.rows))
-		destination := max(b.top-from, 0)
-		copy(out[destination:], b.mapping.rows[source:])
-	}
-	return out
-}
-
-// Extent reads the last committed placement for the requested content identity.
-func (t *Transcript) Extent(id BlockID) (int, int, bool) { return t.geometry.Value().Extent(id) }
-
-// At resolves a row against the last committed complete layout.
-func (t *Transcript) At(row int) (BlockID, int, bool) { return t.geometry.Value().At(row) }
-
-// Visible returns the half-open identity span touched by a committed row window.
-func (t *Transcript) Visible(from, rows int) (BlockID, BlockID) {
-	l := t.geometry.Value()
-	a, b := l.visible(from, rows)
-	first := l.first + BlockID(len(l.blocks))
-	if a < len(l.blocks) {
-		first = l.blocks[a].id
-	}
-	last := first
-	if b > a {
-		last = l.blocks[b-1].id + 1
-	}
-	return first, last
-}
-
-// Rows projects text from the last committed row space without advancing document state.
-func (t *Transcript) Rows(from, count int) []text.Row { return t.geometry.Value().Rows(from, count) }
 
 // TranscriptView is a single candidate shared by paint and pointer projection.
 // The borrowed Body remains writable only during its scene Prepare call.
@@ -729,176 +503,4 @@ func (t *Transcript) StageWindow(frame scene.Frame) TranscriptView {
 	}
 	t.presentation.Stage(frame, transcriptPresentation{layout: state, revision: t.revision, visible: frame.Visible(), body: body, header: view.Header, bodyFrom: view.BodyFrom, headerFrom: view.HeaderFrom})
 	return view
-}
-
-func (t *Transcript) handle(event scene.Event) scene.EventResult {
-	if t.closed {
-		return scene.EventResult{}
-	}
-	presented, valid := event.Read(&t.presentation)
-	consumed := t.handleInput(event.Input(), presented, valid)
-	mouse, ok := event.Input().(input.Mouse)
-	return scene.EventResult{Consumed: consumed, Capture: consumed && ok && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft, Focus: consumed && ok && mouse.Action == input.MouseDown}
-}
-
-// Handle changes reading intent through the same owner used by scene actions.
-// It panics if the transcript is closed or its scene forbids model mutation.
-func (t *Transcript) Handle(event input.Event) bool {
-	return t.handleInput(event, t.presentation.Value(), true)
-}
-
-func (t *Transcript) handleInput(event input.Event, presented transcriptPresentation, valid bool) bool {
-	t.assertMutable()
-	if t.scroll.Handle(event, t.keys.current) {
-		return true
-	}
-	mouse, ok := event.(input.Mouse)
-	if !ok {
-		return false
-	}
-	switch mouse.Action {
-	case input.MouseCancel:
-		t.clicked = 0
-		t.selection.Done()
-		return false
-	case input.MouseUp:
-		if mouse.Releases(input.ButtonLeft) {
-			was := t.selection.Dragging()
-			t.selection.Done()
-			return was
-		}
-		return false
-	case input.MouseDown:
-		if !valid {
-			return false
-		}
-		return t.press(mouse, presented)
-	case input.MouseDrag:
-		if !valid {
-			return false
-		}
-		return t.drag(mouse, presented)
-	default:
-		return false
-	}
-}
-
-func (t *Transcript) press(mouse input.Mouse, p transcriptPresentation) bool {
-	t.selection.Done()
-	if mouse.Button != input.ButtonLeft {
-		return false
-	}
-	if p.revision != t.revision {
-		return false
-	}
-	at, ok := p.pointAt(mouse.Pos, false)
-	if !ok {
-		return false
-	}
-	if t.clicked != p.revision {
-		t.selection.clicks.Reset()
-		t.clicked = p.revision
-	}
-	switch t.selection.clicks.Press(mouse) {
-	case 2:
-		if t.selection.SelectWord(p.layout, at) {
-			return true
-		}
-	case 3:
-		if t.selection.SelectLine(p.layout, at) {
-			return true
-		}
-	}
-	selected, ok := p.layout.hit(at, true)
-	if !ok {
-		return false
-	}
-	if t.selection.setRange(selected, true) {
-		t.element.Invalidate()
-	}
-	return true
-}
-
-func (t *Transcript) drag(mouse input.Mouse, p transcriptPresentation) bool {
-	if !t.selection.Dragging() || !mouse.Drags(input.ButtonLeft) {
-		return false
-	}
-	if p.revision != t.revision {
-		return false
-	}
-	at, ok := p.pointAt(mouse.Pos, true)
-	if !ok {
-		return false
-	}
-	selected, ok := p.layout.hit(at, true)
-	if !ok {
-		return false
-	}
-	if selected.Start.Before(t.selection.Anchor()) {
-		t.selection.Extend(selected.Start)
-	} else {
-		t.selection.Extend(selected.End)
-	}
-	return true
-}
-
-type transcriptPresentation struct {
-	layout                TranscriptLayout
-	revision              uint64
-	body, header, visible image.Rectangle
-	bodyFrom, headerFrom  int
-}
-
-func (p transcriptPresentation) pointAt(point image.Point, nearest bool) (Point, bool) {
-	if p.visible.Empty() {
-		return Point{}, false
-	}
-	if nearest {
-		point.X = min(max(point.X, p.visible.Min.X), p.visible.Max.X-1)
-		point.Y = min(max(point.Y, p.visible.Min.Y), p.visible.Max.Y-1)
-	} else if !point.In(p.visible) {
-		return Point{}, false
-	}
-	area, row, ok := p.rowAt(point)
-	if !ok && nearest {
-		area, row, ok = p.nearestRow(point.Y)
-	}
-	if !ok || area.Empty() {
-		return Point{}, false
-	}
-	col := point.X - area.Min.X
-	if nearest {
-		col = min(max(col, 0), area.Dx()-1)
-	} else if col < 0 || col >= area.Dx() {
-		return Point{}, false
-	}
-	return Point{Row: row, Col: col}, true
-}
-
-func (p transcriptPresentation) rowAt(point image.Point) (image.Rectangle, int, bool) {
-	switch {
-	case point.In(p.header):
-		return p.header, p.headerFrom + point.Y - p.header.Min.Y, true
-	case point.In(p.body):
-		return p.body, p.bodyFrom + point.Y - p.body.Min.Y, true
-	default:
-		return image.Rectangle{}, 0, false
-	}
-}
-
-func (p transcriptPresentation) nearestRow(y int) (image.Rectangle, int, bool) {
-	header, body := p.header.Intersect(p.visible), p.body.Intersect(p.visible)
-	if !header.Empty() && y < p.body.Min.Y {
-		at := min(max(y, header.Min.Y), header.Max.Y-1)
-		return p.header, p.headerFrom + at - p.header.Min.Y, true
-	}
-	if !body.Empty() {
-		at := min(max(y, body.Min.Y), body.Max.Y-1)
-		return p.body, p.bodyFrom + at - p.body.Min.Y, true
-	}
-	if !header.Empty() {
-		at := min(max(y, header.Min.Y), header.Max.Y-1)
-		return p.header, p.headerFrom + at - p.header.Min.Y, true
-	}
-	return image.Rectangle{}, 0, false
 }

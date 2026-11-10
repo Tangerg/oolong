@@ -42,7 +42,6 @@ func (*mathBlockParser) Continue(node ast.Node, reader text.Reader, _ gparser.Co
 		reader.AdvanceToEOL()
 		return gparser.Close
 	}
-	segment.ForceNewline = true
 	node.Lines().Append(segment)
 	reader.AdvanceToEOL()
 	return gparser.Continue | gparser.NoChildren

@@ -3,7 +3,6 @@ package kit
 import (
 	"image"
 	"slices"
-	"sync"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -21,6 +20,7 @@ type ComposerConfig struct {
 	Scope       *ThemeScope
 	Appearance  ThemeOverride
 	Theme       Theme
+	Glyphs      Glyphs
 	Prompt      string
 	Hints       []keymap.Action
 	MaxRows     int
@@ -36,6 +36,7 @@ type ComposerConfig struct {
 type Composer struct {
 	noCopy     noCopy
 	appearance appearance
+	glyphs     Glyphs
 	prompt     string
 	hints      []keymap.Action
 	editor     base.Editor
@@ -43,46 +44,29 @@ type Composer struct {
 }
 
 // NewComposer panics for negative MaxRows or competing Theme and Scope palette
-// sources. Zero MaxRows selects DefaultComposerRows at construction.
+// sources. Zero MaxRows selects DefaultComposerRows.
 func NewComposer(config ComposerConfig) *Composer {
 	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
 	if appearanceErr != nil {
 		panic(appearanceErr)
 	}
-	c := &Composer{appearance: look, prompt: config.Prompt, hints: slices.Clone(config.Hints)}
+	rows := config.MaxRows
+	if rows == 0 {
+		rows = DefaultComposerRows
+	}
+	c := &Composer{appearance: look, glyphs: config.Glyphs.clone(), prompt: config.Prompt, hints: slices.Clone(config.Hints)}
 	c.editor.SetText(config.Initial)
 	c.editor.ForgetHistory()
-	c.editor.SetMaxRows(config.MaxRows)
+	c.editor.SetMaxRows(rows)
 	c.editor.SetPlaceholder(config.Placeholder)
 	c.editor.SetKeys(config.Keys)
 	c.editor.SetClipboard(config.Clipboard)
-	c.ensure()
-	return c
-}
-
-func (c *Composer) Controller() *base.Editor { c.ensure(); return &c.editor }
-
-func (c *Composer) ensure() {
-	if c.appearance.scope.owner == nil {
-		c.appearance.scope.owner = NewThemeOwner(Theme{})
-	}
-	if c.group != nil {
-		return
-	}
-	if c.editor.MaxRows() <= 0 {
-		c.editor.SetMaxRows(DefaultComposerRows)
-	}
-	if err := c.editor.Element().SetPaint(func(frame scene.Frame) { c.editor.DrawWith(frame, c.appearance.palette().Look(Glyphs{})) }); err != nil {
+	if err := c.editor.Element().SetPaint(func(frame scene.Frame) { c.editor.DrawWith(frame, c.appearance.palette().Look(c.glyphs)) }); err != nil {
 		panic(err)
 	}
 	c.group = scene.NewGroup(scene.GroupConfig{
 		Items: []scene.Item{{Element: c.editor.Element(), Size: layout.Flex(1)}},
-		Element: scene.ElementConfig{Measure: func(axis layout.Axis, width int) int {
-			if axis == layout.Down {
-				return c.HeightForWidth(width)
-			}
-			return 0
-		}, Paint: func(frame scene.Frame) {
+		Element: scene.ElementConfig{Measure: scene.MeasureRows(c.HeightForWidth), Paint: func(frame scene.Frame) {
 			width, height := frame.Size()
 			if c.prompt != "" {
 				frame.Text(0, 0, c.prompt, c.appearance.palette().Accent)
@@ -99,9 +83,12 @@ func (c *Composer) ensure() {
 		},
 	})
 	c.appearance.bind(c.group.Element())
+	return c
 }
 
-func (c *Composer) Element() scene.Element { c.ensure(); return c.group.Element() }
+func (c *Composer) Controller() *base.Editor { return &c.editor }
+
+func (c *Composer) Element() scene.Element { return c.group.Element() }
 
 func (c *Composer) HeightForWidth(width int) int {
 	rows := c.editor.HeightForWidth(layout.Remaining(width, c.markerWidth()))
@@ -109,17 +96,12 @@ func (c *Composer) HeightForWidth(width int) int {
 }
 func (c *Composer) markerWidth() int { return text.Width(c.prompt) }
 func (c *Composer) help() Help {
-	return Help{Theme: c.appearance.palette(), Keys: c.keys(), Show: c.hints}
+	return Help{Theme: c.appearance.palette(), Keys: KeysFunc(c.editor.KeysFor), Show: c.hints}
 }
 
-var composerKeys = sync.OnceValue(base.DefaultEditorKeys)
+func (c *Composer) Glyphs() Glyphs { return c.glyphs.clone() }
 
-func (c *Composer) keys() *keymap.Map {
-	if c.editor.Keys() != nil {
-		return c.editor.Keys()
-	}
-	return composerKeys()
-}
+func (c *Composer) SetGlyphs(value Glyphs) { replaceGlyphs(c.Element(), &c.glyphs, value) }
 
 func (c *Composer) Prompt() string { return c.prompt }
 

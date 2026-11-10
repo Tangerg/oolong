@@ -3,7 +3,6 @@ package program
 import (
 	"errors"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -11,10 +10,9 @@ import (
 // not started; it cannot undo one already running on the UI owner.
 // A Timer must not be copied after construction.
 type Timer struct {
-	stopped atomic.Bool
-	once    sync.Once
-	done    chan struct{}
-	slot    *reservation
+	once sync.Once
+	done chan struct{}
+	slot *reservation
 }
 
 // Stop revokes callbacks that have not started and releases reserved capacity.
@@ -22,7 +20,16 @@ func (t *Timer) Stop() {
 	if t == nil {
 		return
 	}
-	t.once.Do(func() { t.stopped.Store(true); close(t.done); t.slot.close() })
+	t.once.Do(func() { close(t.done); t.slot.close() })
+}
+
+func (t *Timer) stopped() bool {
+	select {
+	case <-t.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // After reserves one delivery before starting the clock. A nonpositive delay
@@ -60,7 +67,7 @@ func (r *Runtime) schedule(scope *Scope, delay time.Duration, repeat bool, fn fu
 	}
 	timer := &Timer{done: make(chan struct{}), slot: slot}
 	deliver := func() bool {
-		if timer.stopped.Load() || !scope.eligible(p) {
+		if timer.stopped() || !scope.eligible(p) {
 			return false
 		}
 		if !repeat {

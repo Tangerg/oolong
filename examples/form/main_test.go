@@ -11,7 +11,7 @@ import (
 )
 
 func TestTheFormCollectsWhatItAsksFor(t *testing.T) {
-	var got answers
+	var got *answers
 	form := ask(&got)
 
 	host := uitest.New(t, uitest.Config{Width: 50, Height: 20})
@@ -37,7 +37,7 @@ func TestTheFormCollectsWhatItAsksFor(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("the program ended with %v", err)
 	}
-	if got.name != "nightly" || got.model != "balanced" || !got.stream {
+	if got == nil || got.name != "nightly" || got.model != "balanced" || !got.stream {
 		t.Fatalf("collected %+v", got)
 	}
 	if len(got.tools) != 1 || got.tools[0] != "read" {
@@ -48,13 +48,13 @@ func TestTheFormCollectsWhatItAsksFor(t *testing.T) {
 func TestTheSameFormCanBeAnsweredInWords(t *testing.T) {
 	// What happens when the output is a pipe. The questions are the fields' own, so
 	// there is no second description of the form anywhere.
-	var got answers
+	var got *answers
 	var out strings.Builder
 	said := strings.NewReader("nightly\ncareful\n1,3\nn\n")
 	if err := askInWords(ask(&got), said, &out); err != nil {
 		t.Fatalf("answering in words: %v", err)
 	}
-	if got.name != "nightly" || got.model != "careful" || got.stream {
+	if got == nil || got.name != "nightly" || got.model != "careful" || got.stream {
 		t.Fatalf("collected %+v", got)
 	}
 	if len(got.tools) != 2 {

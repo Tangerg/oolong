@@ -190,17 +190,18 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 }
 
 func nonPaintingString(piece ansi.Piece) bool {
-	switch piece.Final {
-	case byte(ansi.DCS):
+	switch piece.Family {
+	case ansi.DCS:
 		return piece.Raw == ansi.QueryCursorStyle
-	case byte(ansi.APC):
+	case ansi.APC:
 		return kittyQuery(piece.Body)
-	case byte(ansi.OSC):
+	case ansi.OSC:
 		command, _, _ := strings.Cut(piece.Body, ";")
 		switch command {
 		case "0", "1", "2", "7", "8", "9", "10", "11", "52":
 			return true
 		}
+	case ansi.PM, ansi.SOS:
 	}
 	return false
 }

@@ -3,6 +3,7 @@ package term
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
@@ -109,7 +110,9 @@ func (t *Terminal) imageAdmission(sourceBytes int) error {
 	if len(t.uploads) >= maxImageUploads {
 		return ErrImageUploadCapacity
 	}
-	if sourceBytes > t.writer.maxFrameBytes {
+	// The frame carries at least the base64 of the source. Refusing on that lower
+	// bound avoids encoding an image whose frame the writer could never accept.
+	if !t.writer.fits(base64.StdEncoding.EncodedLen(sourceBytes)) {
 		return ErrPayloadTooLarge
 	}
 	return nil

@@ -329,7 +329,7 @@ func TestReplaceCannotSplitAGraphemeCluster(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			editor := editorWith("a中文b")
-			editor.Replace(tc.start, tc.end, "X")
+			editor.Replace(0, tc.start, tc.end, "X")
 			if got := editor.Text(); got != tc.want {
 				t.Fatalf("replacement = %q, want %q", got, tc.want)
 			}

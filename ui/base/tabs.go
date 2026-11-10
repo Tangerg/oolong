@@ -57,9 +57,7 @@ type Tabs struct {
 
 // NewTabs constructs one selection owner. It panics for duplicate nonempty keys or an invalid initially selected content relation.
 func NewTabs(config TabsConfig) *Tabs {
-	if config.Gap < 0 {
-		panic("base: tab gap cannot be negative")
-	}
+	requireNonNegative("tab Gap", config.Gap)
 	t := &Tabs{selected: config.Initial, keys: keyBinding{current: config.Keys}, noWrap: config.NoWrap, gap: config.Gap, stripRows: config.StripRows, paintTab: config.PaintTab}
 	t.Set(config.Items...)
 	return t
@@ -270,12 +268,7 @@ func (t *Tabs) HeightForWidth(width int) int {
 	return rows
 }
 
-func (t *Tabs) resolvedKeys() *keymap.Map {
-	if t.keys.current != nil {
-		return t.keys.current
-	}
-	return tabsKeys()
-}
+func (t *Tabs) resolvedKeys() *keymap.Map { return t.keys.resolve(tabsKeys) }
 
 func (t *Tabs) reconcileParts(items []Tab) []*tabPart {
 	parts := make([]*tabPart, len(items))

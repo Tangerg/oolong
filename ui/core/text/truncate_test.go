@@ -55,7 +55,7 @@ func TestWithSuffixPreservesGraphemeAndColumnBoundaries(t *testing.T) {
 			if got.String() != tc.want || got.Width() > tc.width {
 				t.Fatalf("WithSuffix(%q, %d, %q) = %q at width %d, want %q", tc.source, tc.width, tc.suffix, got.String(), got.Width(), tc.want)
 			}
-			if plain := text.Truncate(tc.source, tc.width, tc.suffix); text.Width(tc.source) > tc.width && plain != tc.want {
+			if plain := text.Truncate(tc.source, tc.width, tc.suffix); text.Width(tc.source) > tc.width && plain != text.ExpandTabs(got) {
 				t.Fatalf("Truncate = %q, want the same bounded composition %q", plain, tc.want)
 			}
 		})

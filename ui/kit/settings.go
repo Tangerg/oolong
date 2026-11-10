@@ -19,12 +19,8 @@ type Settings[T any] struct {
 	noCopy     noCopy
 	appearance appearance
 	glyphs     Glyphs
-	// Label and Value are the two columns shown for an item. Nil returns an empty
-	// column. Both run during measurement and drawing and must be observationally
-	// pure; Change is the event-side mutation boundary.
-	label func(T) string
-	value func(T) string
-	// ValueWidth caps the fitted value column. Zero leaves it uncapped.
+	label      func(T) string
+	value      func(T) string
 	valueWidth int
 
 	controller *base.Settings[T]
@@ -46,7 +42,8 @@ type SettingsConfig[T any] struct {
 	// They run during measurement and drawing and must be observationally pure.
 	Label func(T) string
 	Value func(T) string
-	// Value reports acceptance and State reports the application owner's outcome.
+	// Change is the event-side mutation boundary: its Value reports whether the
+	// edit was accepted and its State the application owner's outcome.
 	Change func(index int, item T, action keymap.Action) scene.ActionResult[bool]
 	// Keys browse rows; EditKeys change the selected value. Nil uses the respective defaults.
 	Keys     *keymap.Map
@@ -102,12 +99,7 @@ func (s *Settings[T]) Draw(frame scene.Frame) {
 	table := s.table()
 	columns := table.Layout(width)
 	s.controller.List().DrawRows(frame, func(view grid.View, row int, _ T, selected bool) {
-		base := s.appearance.palette().Text
-		if selected && s.controller.List().Focused() {
-			base = base.Merge(s.appearance.palette().Selection)
-			view.Fill(view.Bounds(), s.appearance.palette().Selection)
-		}
-		columns.Cells(view, row, base)
+		columns.Cells(view, row, s.appearance.rowStyle(view, selected))
 	})
 }
 
@@ -153,14 +145,7 @@ func (s *Settings[T]) Glyphs() Glyphs { return s.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (s *Settings[T]) SetGlyphs(value Glyphs) {
-	element := s.Element()
-	if err := element.CheckMutation(); err != nil {
-		panic(err)
-	}
-	s.glyphs = value.clone()
-	element.Invalidate()
-}
+func (s *Settings[T]) SetGlyphs(value Glyphs) { replaceGlyphs(s.Element(), &s.glyphs, value) }
 
 func (s *Settings[T]) Label() func(T) string { return s.label }
 

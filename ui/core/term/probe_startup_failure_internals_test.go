@@ -37,8 +37,11 @@ func TestProbeStartupFailureJoinsWorkersAndRestoresRawMode(t *testing.T) {
 	}
 
 	cfg := Config{Features: Features{Probe: true}}
-	tty := newTerminal(os.Stdin, os.Stdout, cfg, nil)
-	var err error
+	modes, err := cfg.Modes(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tty := newTerminal(os.Stdin, os.Stdout, cfg, modes, nil)
 	tty.inFD, err = checkedTerminalFD(os.Stdin, "input")
 	if err != nil {
 		t.Fatal(err)

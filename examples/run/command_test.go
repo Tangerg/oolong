@@ -79,3 +79,14 @@ func TestCommandProcessFixture(_ *testing.T) {
 	}
 	os.Exit(0)
 }
+
+func TestCancelledRunReportsItsCauseOnce(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cause := errors.New("run no longer belongs to the application")
+	cancel(cause)
+	pump := &outputPump{command: []string{os.Args[0], "-test.run=^TestCommandProcessFixture$", "--", commandFixture, "success", "unused"}}
+	err := pump.run(ctx)
+	if !errors.Is(err, cause) || strings.Count(err.Error(), cause.Error()) != 1 {
+		t.Fatalf("cancelled run reported %v", err)
+	}
+}

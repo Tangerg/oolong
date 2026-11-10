@@ -102,7 +102,7 @@ func TestSupportsSeparatesShowingFromPlacing(t *testing.T) {
 		{graphics.None, false, false},
 		{graphics.Kitty, true, true},
 		{graphics.ITerm2, true, false},
-		{graphics.Sixel, true, false},
+		{graphics.Sixel, false, false},
 	} {
 		if got := tc.p.Supports(graphics.Printed); got != tc.printed {
 			t.Errorf("%v printed = %v, want %v", tc.p, got, tc.printed)
@@ -115,13 +115,13 @@ func TestSupportsSeparatesShowingFromPlacing(t *testing.T) {
 
 func TestUnknownCapabilitiesStayDisabled(t *testing.T) {
 	unknownProtocol := graphics.Protocol(200)
-	for _, where := range []graphics.Placement{graphics.Printed, graphics.Live} {
+	for _, where := range []graphics.Persistence{graphics.Printed, graphics.Live} {
 		if unknownProtocol.Supports(where) {
 			t.Errorf("unknown protocol supports placement %d", where)
 		}
 	}
 	for _, protocol := range []graphics.Protocol{graphics.Kitty, graphics.ITerm2, graphics.Sixel} {
-		if protocol.Supports(graphics.Placement(200)) {
+		if protocol.Supports(graphics.Persistence(200)) {
 			t.Errorf("%v supports an unknown placement", protocol)
 		}
 	}
@@ -130,7 +130,7 @@ func TestUnknownCapabilitiesStayDisabled(t *testing.T) {
 func TestPrintedIsTheZeroPlacement(t *testing.T) {
 	// Code that has not said where an image is going gets the answer that holds in
 	// both places, not the one that holds in neither.
-	var where graphics.Placement
+	var where graphics.Persistence
 	if where != graphics.Printed {
 		t.Fatalf("the zero placement is %v, want Printed", where)
 	}
@@ -187,14 +187,21 @@ func TestInlineRefusesWhatIsNotAPNG(t *testing.T) {
 	}
 }
 
-func TestInlineBoxIsNeverEmpty(t *testing.T) {
-	// A box of no cells would ask the terminal to draw nothing, which is not what a
-	// caller who passed a zero meant.
+func TestInlineZeroBoxKeepsAutomaticSizing(t *testing.T) {
+	// A zero dimension means what it means to Paint: let the protocol size it from
+	// the image, rather than squeeze the image into one cell.
 	var b strings.Builder
 	if err := graphics.Inline(&b, png(8, 8, 8), image.Point{}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(b.String(), "width=1") || !strings.Contains(b.String(), "height=1") {
+	if !strings.Contains(b.String(), "width=auto") || !strings.Contains(b.String(), "height=auto") {
+		t.Errorf("got %q", b.String())
+	}
+	b.Reset()
+	if err := graphics.Inline(&b, png(8, 8, 8), image.Pt(3, 2)); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "width=3") || !strings.Contains(b.String(), "height=2") {
 		t.Errorf("got %q", b.String())
 	}
 }

@@ -19,10 +19,10 @@ type Status struct {
 	// until something has taken long enough to be worth reporting.
 	Elapsed string
 
-	spinner Spinner
+	frame int
 }
 
-func (s *Status) Tick() { s.spinner.Tick() }
+func (s *Status) Tick() { s.frame++ }
 
 func (s *Status) HeightForWidth(int) int { return 1 }
 
@@ -31,10 +31,7 @@ func (s *Status) Draw(v grid.View) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	spinner := s.spinner
-	spinner.Theme = s.Theme
-	spinner.Glyphs = s.Glyphs
-	spinner.Label = s.Doing
+	spinner := Spinner{Theme: s.Theme, Glyphs: s.Glyphs, Label: s.Doing, frame: s.frame}
 
 	if s.Elapsed == "" {
 		spinner.Draw(v)

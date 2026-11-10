@@ -34,58 +34,65 @@ func freezeToken[T any](dst **T, explicit *T) {
 	}
 }
 
-func applyToken[T any](token *T, current T) T {
-	if token == nil {
-		return current
+// overrideToken replaces one inherited role. A role nobody overrides keeps its
+// inherited value, so a role added to Theme but forgotten here is inherited
+// rather than silently erased.
+func overrideToken[T any](dst *T, token *T) {
+	if token != nil {
+		*dst = *token
 	}
-	return *token
+}
+
+// role pairs where an override keeps one palette role's token with where a
+// palette keeps its value.
+type role[T any] struct {
+	token **T
+	value *T
+}
+
+// roles lists every palette role once. over and apply both walk it, so a role
+// added to Theme and ThemeOverride needs adding in exactly one more place.
+func roles(o *ThemeOverride, t *Theme) ([]role[grid.Style], role[Scrim]) {
+	return []role[grid.Style]{
+		{&o.Text, &t.Text},
+		{&o.Muted, &t.Muted},
+		{&o.Subtle, &t.Subtle},
+		{&o.Strong, &t.Strong},
+		{&o.Heading, &t.Heading},
+		{&o.Accent, &t.Accent},
+		{&o.Success, &t.Success},
+		{&o.Warning, &t.Warning},
+		{&o.Danger, &t.Danger},
+		{&o.Info, &t.Info},
+		{&o.Border, &t.Border},
+		{&o.Divider, &t.Divider},
+		{&o.Selection, &t.Selection},
+		{&o.Surface, &t.Surface},
+		{&o.Sunken, &t.Sunken},
+		{&o.Added, &t.Added},
+		{&o.Removed, &t.Removed},
+		{&o.Context, &t.Context},
+	}, role[Scrim]{&o.Scrim, &t.Scrim}
 }
 
 // Inherited tokens are already owned by an immutable scope. Only explicit
 // overrides borrow pointers from the caller and need their own snapshot.
 func (o ThemeOverride) over(parent ThemeOverride) ThemeOverride {
-	freezeToken(&parent.Text, o.Text)
-	freezeToken(&parent.Muted, o.Muted)
-	freezeToken(&parent.Subtle, o.Subtle)
-	freezeToken(&parent.Strong, o.Strong)
-	freezeToken(&parent.Heading, o.Heading)
-	freezeToken(&parent.Accent, o.Accent)
-	freezeToken(&parent.Success, o.Success)
-	freezeToken(&parent.Warning, o.Warning)
-	freezeToken(&parent.Danger, o.Danger)
-	freezeToken(&parent.Info, o.Info)
-	freezeToken(&parent.Border, o.Border)
-	freezeToken(&parent.Divider, o.Divider)
-	freezeToken(&parent.Selection, o.Selection)
-	freezeToken(&parent.Surface, o.Surface)
-	freezeToken(&parent.Sunken, o.Sunken)
-	freezeToken(&parent.Added, o.Added)
-	freezeToken(&parent.Removed, o.Removed)
-	freezeToken(&parent.Context, o.Context)
-	freezeToken(&parent.Scrim, o.Scrim)
+	var unused Theme
+	inherited, inheritedScrim := roles(&parent, &unused)
+	explicit, explicitScrim := roles(&o, &unused)
+	for i := range inherited {
+		freezeToken(inherited[i].token, *explicit[i].token)
+	}
+	freezeToken(inheritedScrim.token, *explicitScrim.token)
 	return parent
 }
 
 func (o ThemeOverride) apply(palette Theme) Theme {
-	return Theme{
-		Text:      applyToken(o.Text, palette.Text),
-		Muted:     applyToken(o.Muted, palette.Muted),
-		Subtle:    applyToken(o.Subtle, palette.Subtle),
-		Strong:    applyToken(o.Strong, palette.Strong),
-		Heading:   applyToken(o.Heading, palette.Heading),
-		Accent:    applyToken(o.Accent, palette.Accent),
-		Success:   applyToken(o.Success, palette.Success),
-		Warning:   applyToken(o.Warning, palette.Warning),
-		Danger:    applyToken(o.Danger, palette.Danger),
-		Info:      applyToken(o.Info, palette.Info),
-		Border:    applyToken(o.Border, palette.Border),
-		Divider:   applyToken(o.Divider, palette.Divider),
-		Selection: applyToken(o.Selection, palette.Selection),
-		Surface:   applyToken(o.Surface, palette.Surface),
-		Sunken:    applyToken(o.Sunken, palette.Sunken),
-		Added:     applyToken(o.Added, palette.Added),
-		Removed:   applyToken(o.Removed, palette.Removed),
-		Context:   applyToken(o.Context, palette.Context),
-		Scrim:     applyToken(o.Scrim, palette.Scrim),
+	styles, scrim := roles(&o, &palette)
+	for _, r := range styles {
+		overrideToken(r.value, *r.token)
 	}
+	overrideToken(scrim.value, *scrim.token)
+	return palette
 }

@@ -7,16 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
-	"time"
 
-	"github.com/Tangerg/oolong/ui/core/text"
-
-	"github.com/Tangerg/oolong/examples/internal/markdownlook"
 	"github.com/Tangerg/oolong/extensions/markdown"
 	"github.com/Tangerg/oolong/extensions/mermaid"
-	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -24,6 +18,11 @@ import (
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/term"
 	"github.com/Tangerg/oolong/ui/kit"
+)
+
+const (
+	flowchart = "flowchart TD\n Owner --> Worker --> PNG --> Owner --> Terminal"
+	sequence  = "sequenceDiagram\n Owner->>Worker: Prepare source\n Worker-->>Owner: Neutral PNG\n Owner->>Terminal: Upload accepted image"
 )
 
 func main() {
@@ -48,21 +47,18 @@ func run(ctx context.Context) (err error) {
 
 // The host outlives Run so its image owner can release the final resource.
 func runScreen(ctx context.Context, host program.Host, prepare func(context.Context, string) (*mermaid.Image, error)) (err error) {
-	images, _ := host.(program.ImageHost)
 	var screen *diagramScreen
 	defer func() {
 		if screen != nil {
 			err = errors.Join(err, screen.close())
 		}
 	}()
+	images, _ := host.(program.ImageHost)
+	//nolint:contextcheck // Every scope the screen opens derives from the session context Run(ctx) creates.
 	app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(runtime *program.Runtime) (scene.Element, error) {
-		lifetime, lifetimeErr := runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // The explicit config field carries ctx into the lifetime owner.
-		if lifetimeErr != nil {
-			return scene.Element{}, lifetimeErr
-		}
-		screen = &diagramScreen{lifetime: lifetime, runtime: runtime, images: images, prepare: prepare, open: openImage, theme: kit.Suited(runtime.Environment().Ground()), keys: diagramKeys()}
-		screen.start(ctx, flowchart)
-		return screen.Element(), nil //nolint:contextcheck // Future input starts work through screen.lifetime, derived from ctx above.
+		screen = newDiagramScreen(runtime, images, prepare)
+		screen.show(flowchart)
+		return screen.Element(), nil
 	}})
 	if err == nil {
 		err = app.Run(ctx)
@@ -71,258 +67,85 @@ func runScreen(ctx context.Context, host program.Host, prepare func(context.Cont
 }
 
 type diagramScreen struct {
-	element          scene.Element
-	lifetime         *program.Scope
-	scope            *program.Scope
-	runtime          *program.Runtime
-	images           program.ImageHost
-	prepare          func(context.Context, string) (*mermaid.Image, error)
-	theme            kit.Theme
-	doc              markdown.Doc
-	imageMu          sync.Mutex
-	imageResources   map[graphics.Resource]struct{}
-	err              error
-	source           string
-	prepared         *mermaid.Image
-	exported, notice string
-	open             func(context.Context, string) error
-	workers          sync.WaitGroup
-	pending, closed  bool
-	keys             *keymap.Map
+	element scene.Element
+	runtime *program.Runtime
+	prepare func(context.Context, string) (*mermaid.Image, error)
+	open    func(context.Context, string) error
+	theme   kit.Theme
+	keys    *keymap.Map
+	images  *imageLedger
+	toolbar scene.Snapshot[[]toolbarButton]
+	doc     markdown.Doc
+	current diagram
+	// workers counts every goroutine the screen started, so close returns only
+	// after each has finished and every accepted upload is in the ledger.
+	workers sync.WaitGroup
 }
 
-func (s *diagramScreen) start(ctx context.Context, source string) {
-	if s.scope != nil {
-		s.scope.Close()
+func newDiagramScreen(runtime *program.Runtime, images program.ImageHost, prepare func(context.Context, string) (*mermaid.Image, error)) *diagramScreen {
+	s := &diagramScreen{
+		runtime: runtime,
+		prepare: prepare,
+		open:    openImage,
+		theme:   kit.Suited(runtime.Environment().Ground()),
+		keys:    diagramKeys(),
+		images:  &imageLedger{host: images},
 	}
-	defer s.element.Invalidate()
-	s.source = source
-	s.prepared = nil
-	s.exported, s.notice = "", ""
-	s.pending = true
-	s.doc.SetBlocks(nil)
-	s.err = s.release()
-	s.setDocument(nil)
-	if s.err != nil {
-		s.pending = false
-		return
-	}
-	scope, err := s.runtime.NewScope(program.ScopeConfig{Context: ctx}) //nolint:contextcheck // Context is passed explicitly through ScopeConfig and then into every Work.Run.
-	if err != nil {
-		s.err, s.pending = err, false
-		return
-	}
-	s.scope = scope
-	prepare := s.prepare
-	s.workers.Add(1)
-	_, err = s.runtime.Start(scope, program.Work[*mermaid.Image]{
-		Run: func(ctx context.Context) (*mermaid.Image, error) {
-			defer s.workers.Done()
-			return prepare(ctx, source)
-		},
-		Apply: s.accept,
+	s.element = scene.NewElement(scene.ElementConfig{
+		Key:       "mermaid",
+		Focusable: func() bool { return true },
+		Paint:     s.paint,
+		Handle:    s.handle,
 	})
-	if err != nil {
-		s.workers.Done()
-		scope.Close()
-		s.err, s.pending = err, false
-	}
+	return s
 }
 
-func (s *diagramScreen) accept(result *mermaid.Image, err error) {
-	if s.closed {
-		return
-	}
-	s.pending = false
-	s.err = err
-	if err != nil {
-		return
-	}
-	if result == nil {
-		s.err = errors.New("backend returned no diagram")
-		return
-	}
-	s.prepared = result
-	images := s.runtime.Images()
-	cell, known := images.CellSize()
-	if !images.Protocol().Supports(graphics.Live) || !known || cell.X <= 0 || cell.Y <= 0 {
-		s.notice = "Inline images unavailable; source shown. Open Image to view the diagram."
-		s.setDocument(nil)
-		return
-	}
-	resultChannel, err := images.Transmit(s.scope.Context(), result.PNG())
-	if err != nil {
-		s.err = err
-		return
-	}
-	s.pending = true
-	receive := func(ctx context.Context) (graphics.Resource, error) { return s.receiveImage(ctx, resultChannel) }
-	s.workers.Add(1)
-	_, err = s.runtime.Start(s.scope, program.Work[graphics.Resource]{
-		Run: receive,
-		Apply: func(resource graphics.Resource, uploadErr error) {
-			s.pending, s.err = false, uploadErr
-			if uploadErr == nil {
-				s.setDocument(kit.Image{Of: resource, Cell: cell, MaxRows: 16, Alt: "Mermaid diagram", Theme: s.theme})
-			}
-			s.element.Invalidate()
-		},
-	})
-	if err != nil {
-		s.scope.Close()
-		ctx := s.scope.Context()
-		go func() { _, _ = receive(ctx) }()
-		s.pending, s.err = false, err
-	}
-}
+func (s *diagramScreen) Element() scene.Element { return s.element }
 
-func (s *diagramScreen) setDocument(child grid.Drawable) {
-	if child == nil {
-		var lines []text.Line
-		for line := range strings.SplitSeq(s.source, "\n") {
-			lines = append(lines, text.Of(line, s.theme.Text))
-		}
-		child = text.NewBlock(text.BlockConfig{Lines: lines, Wrap: true})
-	}
-	source := s.source
-	look := markdownlook.New(s.theme, kit.GlyphsFor(s.runtime.Environment().Locale()))
-	look.SetRenderer(markdown.FencedCode, func(info, body string) (grid.Drawable, error) {
-		if info != "mermaid" {
-			return nil, markdown.ErrUnhandled
-		}
-		if body != source {
-			return nil, errors.New("diagram source does not match prepared image")
-		}
-		return child, nil
-	})
-	blocks, err := markdown.Render("# Mermaid as embedded content\n\n```mermaid\n"+source+"\n```", look)
-	s.doc.SetBlocks(blocks)
-	s.err = errors.Join(s.err, err)
-}
-
-func (s *diagramScreen) receiveImage(ctx context.Context, result <-chan graphics.UploadResult) (graphics.Resource, error) {
-	defer s.workers.Done()
-	outcome := <-result
-	s.imageMu.Lock()
-	defer s.imageMu.Unlock()
-	if outcome.Resource.Live() {
-		if s.imageResources == nil {
-			s.imageResources = make(map[graphics.Resource]struct{})
-		}
-		s.imageResources[outcome.Resource] = struct{}{}
-	}
-	if ctx.Err() != nil {
-		var cleanupErr error
-		if outcome.Resource.Live() {
-			// A refused deletion stays owned for the next replacement or close.
-			// Revoked task delivery cannot dispose of the only resource reference.
-			cleanupErr = s.retireImage(outcome.Resource)
-		}
-		return graphics.Resource{}, errors.Join(context.Cause(ctx), cleanupErr)
-	}
-	return outcome.Resource, outcome.Err
-}
-
-func (s *diagramScreen) retireImage(resource graphics.Resource) error {
-	if resource.Live() {
-		if err := s.images.ReleaseImage(resource); err != nil {
-			return err
-		}
-	}
-	delete(s.imageResources, resource)
-	return nil
-}
-
-func (s *diagramScreen) release() error {
-	s.imageMu.Lock()
-	defer s.imageMu.Unlock()
-	var failures []error
-	for resource := range s.imageResources {
-		failures = append(failures, s.retireImage(resource))
-	}
-	return errors.Join(failures...)
-}
-
-func (s *diagramScreen) close() error {
-	s.closed = true
-	if s.lifetime != nil {
-		s.lifetime.Close()
-	}
-	if s.scope != nil {
-		s.scope.Close()
-	}
-	s.workers.Wait()
-	s.doc.SetBlocks(nil)
-	return s.release()
-}
-
-func (s *diagramScreen) Draw(view grid.View) {
+func (s *diagramScreen) paint(frame scene.Frame) {
+	view := frame.View
 	width, height := view.Size()
 	if height < 1 {
 		return
 	}
-	s.drawActions(view.Sub(grid.Area(0, 0, width, 1)))
+	s.toolbar.Stage(frame, drawToolbar(view, s.keys, s.theme.Accent))
 	s.doc.Draw(view.Sub(grid.Area(0, 1, width, max(0, height-2))))
-	status, style := "", s.theme.Subtle
-	switch {
-	case s.err != nil:
-		status, style = s.err.Error(), s.theme.Danger
-	case s.pending:
-		status = "Preparing Mermaid…"
-	case s.notice != "":
-		status = s.notice
-	}
 	footer := view.Sub(grid.Area(0, height-1, width, 1))
-	if status != "" {
-		kit.Label{Text: status, Style: style}.Draw(footer)
-	} else {
+	message, failed := s.current.status()
+	switch {
+	case failed:
+		kit.Label{Text: message, Style: s.theme.Danger}.Draw(footer)
+	case message != "":
+		kit.Label{Text: message, Style: s.theme.Subtle}.Draw(footer)
+	default:
 		kit.Help{Theme: s.theme, Keys: s.keys, Show: []keymap.Action{replaceDiagramSource, quitDiagram}}.Draw(footer)
 	}
 }
 
-func (s *diagramScreen) Handle(event input.Event) bool {
-	if mouse, ok := event.(input.Mouse); ok {
-		return mouse.Pos.Y == 0 && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft && s.clickAction(mouse.Pos.X)
+func (s *diagramScreen) handle(event scene.Event) scene.EventResult {
+	action, ok := s.actionFor(event)
+	if !ok || !s.act(action) {
+		return scene.EventResult{}
 	}
-	key, ok := event.(input.Key)
-	if !ok {
-		return false
-	}
-	if action, bound := s.keys.ActionFor(key); bound && s.act(action) {
-		s.element.Invalidate()
-		return true
-	}
-	return false
+	s.element.Invalidate()
+	return scene.EventResult{Consumed: true}
 }
 
-const (
-	flowchart        = "flowchart TD\n Owner --> Worker --> PNG --> Owner --> Terminal"
-	sequence         = "sequenceDiagram\n Owner->>Worker: Prepare source\n Worker-->>Owner: Neutral PNG\n Owner->>Terminal: Upload accepted image"
-	diagramActionGap = 2
-	viewerTimeout    = 5 * time.Second
-)
-
-func (s *diagramScreen) drawActions(view grid.View) {
-	x := 0
-	for _, action := range diagramActions() {
-		label := action.text(s.keys)
-		kit.Label{Text: label, Style: s.theme.Accent}.Draw(view.Sub(grid.Area(x, 0, text.Width(label), 1)))
-		x += text.Width(label) + diagramActionGap
-	}
-}
-
-func (s *diagramScreen) clickAction(x int) bool {
-	offset := 0
-	for _, action := range diagramActions() {
-		width := text.Width(action.text(s.keys))
-		if x >= offset && x < offset+width {
-			consumed := s.act(action.action)
-			s.element.Invalidate()
-			return consumed
+// actionFor resolves a click against the toolbar of the frame it arrived in,
+// which is the toolbar the user aimed at even if the bindings changed since.
+func (s *diagramScreen) actionFor(event scene.Event) (keymap.Action, bool) {
+	switch in := event.Input().(type) {
+	case input.Mouse:
+		if in.Action != input.MouseDown || in.Button != input.ButtonLeft {
+			return "", false
 		}
-		offset += width + diagramActionGap
+		buttons, _ := event.Read(&s.toolbar)
+		return buttonAt(buttons, in.Pos)
+	case input.Key:
+		return s.keys.ActionFor(in)
+	default:
+		return "", false
 	}
-	return false
 }
 
 func (s *diagramScreen) act(action keymap.Action) bool {
@@ -330,89 +153,42 @@ func (s *diagramScreen) act(action keymap.Action) bool {
 	case quitDiagram:
 		s.runtime.Quit()
 	case replaceDiagramSource:
-		source := sequence
-		if s.source == sequence {
-			source = flowchart
-		}
-		s.start(s.lifetime.Context(), source)
-	case copyDiagramSource:
-		if !s.runtime.Clipboard().Copy(s.source) {
-			s.notice = "Clipboard unavailable"
+		if s.current.source == sequence {
+			s.show(flowchart)
 		} else {
-			s.notice = "Source copied"
+			s.show(sequence)
 		}
-	case openDiagram, copyDiagramPath:
-		path, ok := s.exportedPath()
-		if !ok {
-			return true
+	case copyDiagramSource:
+		s.copy(s.current.source, "Source copied", "Clipboard unavailable")
+	case copyDiagramPath:
+		if path, ok := s.export(); ok {
+			s.copy(path, "Image path copied: "+path, "Clipboard unavailable: "+path)
 		}
-		if action == copyDiagramPath {
-			if !s.runtime.Clipboard().Copy(path) {
-				s.notice = "Clipboard unavailable: " + path
-			} else {
-				s.notice = "Image path copied: " + path
-			}
-			return true
+	case openDiagram:
+		if path, ok := s.export(); ok {
+			s.openExported(path)
 		}
-		s.openExported(path)
 	default:
 		return false
 	}
 	return true
 }
 
-func (s *diagramScreen) exportedPath() (string, bool) {
-	if s.prepared == nil {
-		s.notice = "Image is not ready"
-		return "", false
-	}
-	if s.exported == "" {
-		path, err := exportPNG(s.prepared.PNG())
-		if err != nil {
-			s.notice = err.Error()
-			return "", false
-		}
-		s.exported = path
-	}
-	return s.exported, true
-}
-
-// openExported hands the file to the system viewer off the interface goroutine, so
-// drawing is not blocked and the terminal is not held open while the viewer runs.
-func (s *diagramScreen) openExported(path string) {
-	open := s.open
-	s.workers.Add(1)
-	_, err := s.runtime.Start(s.scope, program.Work[struct{}]{
-		Run: func(ctx context.Context) (struct{}, error) {
-			defer s.workers.Done()
-			ctx, cancel := context.WithTimeout(ctx, viewerTimeout)
-			defer cancel()
-			return struct{}{}, open(ctx, path)
-		},
-		Apply: func(_ struct{}, err error) {
-			if err != nil {
-				s.notice = err.Error()
-			} else {
-				s.notice = "Opened image: " + path
-			}
-		},
-	})
-	if err != nil {
-		s.workers.Done()
-		s.notice = err.Error()
+func (s *diagramScreen) copy(value, copied, unavailable string) {
+	if s.runtime.Clipboard().Copy(value) {
+		s.current.notice = copied
+	} else {
+		s.current.notice = unavailable
 	}
 }
 
-func (s *diagramScreen) Element() scene.Element {
-	if s.element.IsZero() {
-		s.element = scene.NewElement(scene.ElementConfig{
-			Key:       "mermaid",
-			Focusable: func() bool { return true },
-			Paint:     func(frame scene.Frame) { s.Draw(frame.View) },
-			Handle: func(event scene.Event) scene.EventResult {
-				return scene.EventResult{Consumed: s.Handle(event.Input())}
-			},
-		})
+// close runs after Run has returned, when the program has already revoked every
+// pending delivery, so no result can still reach the screen.
+func (s *diagramScreen) close() error {
+	if s.current.work != nil {
+		s.current.work.Close()
 	}
-	return s.element
+	s.workers.Wait()
+	s.doc.SetBlocks(nil)
+	return s.images.releaseAll()
 }

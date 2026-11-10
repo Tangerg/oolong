@@ -23,16 +23,11 @@ const treeIndent = 2
 // opens, and the row under the cursor drawn as a selection.
 // A Tree must not be copied after first use: its controller retains this appearance.
 type Tree[T any] struct {
-	noCopy noCopy
-
-	// Text is what a row says. A tree given none draws nothing but its marks, which
-	// is what an item that cannot be read as text comes to. Text runs during drawing
-	// and must be an observationally pure projection.
+	noCopy     noCopy
 	text       func(item T) string
 	appearance appearance
 	glyphs     Glyphs
-	// Indent is how many columns a level is worth. Zero uses two.
-	indent int
+	indent     int
 
 	controller *base.Tree[T]
 }
@@ -93,11 +88,7 @@ func (t *Tree[T]) row(v grid.View, _ int, row base.Shown[T], selected bool) {
 	if width <= 0 {
 		return
 	}
-	style := t.appearance.palette().Text
-	if selected {
-		style = t.appearance.palette().Text.Merge(t.appearance.palette().Selection)
-		v.Fill(grid.Area(0, 0, width, 1), t.appearance.palette().Selection)
-	}
+	style := t.appearance.rowStyle(v, selected)
 
 	// The default belongs to the zero value, not to every width below it: a caller
 	// who asked for one column meant one.
@@ -122,17 +113,19 @@ func (t *Tree[T]) row(v grid.View, _ int, row base.Shown[T], selected bool) {
 	v.Text(x, 0, text.Truncate(t.text(row.Item), width-x, t.glyphs.Ellipsis), style)
 }
 
-// mark is what goes before a row: which way a branch is turned, or a space as wide
-// as one so that leaves line up with their siblings.
+// mark is what goes before a row: which way a branch is turned, padded to the
+// wider of the two turns so open branches, closed branches and leaves all start
+// their text in the same column.
 func (t *Tree[T]) mark(row base.Shown[T]) string {
+	mark := ""
 	switch {
-	case !row.Branch:
-		return strings.Repeat(" ", max(text.Width(t.glyphs.Collapsed), 0))
-	case row.Open:
-		return t.glyphs.Expanded
-	default:
-		return t.glyphs.Collapsed
+	case row.Branch && row.Open:
+		mark = t.glyphs.Expanded
+	case row.Branch:
+		mark = t.glyphs.Collapsed
 	}
+	column := max(text.Width(t.glyphs.Expanded), text.Width(t.glyphs.Collapsed))
+	return mark + strings.Repeat(" ", column-text.Width(mark))
 }
 
 func (t *Tree[T]) Element() scene.Element {
@@ -162,14 +155,7 @@ func (t *Tree[T]) Glyphs() Glyphs { return t.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (t *Tree[T]) SetGlyphs(value Glyphs) {
-	element := t.Element()
-	if err := element.CheckMutation(); err != nil {
-		panic(err)
-	}
-	t.glyphs = value.clone()
-	element.Invalidate()
-}
+func (t *Tree[T]) SetGlyphs(value Glyphs) { replaceGlyphs(t.Element(), &t.glyphs, value) }
 
 func (t *Tree[T]) Indent() int { return t.indent }
 

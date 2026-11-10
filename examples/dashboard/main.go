@@ -3,11 +3,9 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -22,7 +20,11 @@ import (
 
 func main() {
 	app, err := program.NewScreen(program.ScreenConfig{Terminal: term.Features{Probe: true, Mouse: true}, Build: func(runtime *program.Runtime) (scene.Element, error) {
-		return newDashboard(runtime).Element(), nil
+		d, err := newDashboard(runtime)
+		if err != nil {
+			return scene.Element{}, err
+		}
+		return d.Element(), nil
 	}})
 	if err == nil {
 		err = app.Run(context.Background())
@@ -30,33 +32,6 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "dashboard:", err)
 		os.Exit(1)
-	}
-}
-
-const (
-	waiting = "waiting"
-	running = "running"
-	done    = "done"
-
-	dashboardTickInterval = 120 * time.Millisecond
-	activityHistoryLength = 64
-	maximumUnitsPerTick   = 4
-)
-
-type task struct {
-	name  string
-	done  int
-	total int
-}
-
-func (t task) state() string {
-	switch {
-	case t.done >= t.total:
-		return done
-	case t.done > 0:
-		return running
-	default:
-		return waiting
 	}
 }
 
@@ -85,7 +60,7 @@ const (
 	lastPaneShortcut                = '9'
 )
 
-func newDashboard(runtime *program.Runtime) *dashboard {
+func newDashboard(runtime *program.Runtime) (*dashboard, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 
@@ -116,14 +91,14 @@ func newDashboard(runtime *program.Runtime) *dashboard {
 	var err error
 	d.scope, err = runtime.NewScope(program.ScopeConfig{})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	d.timer, err = runtime.Every(d.scope, dashboardTickInterval, d.advance)
 	if err != nil {
 		d.scope.Close()
-		panic(err)
+		return nil, err
 	}
-	return d
+	return d, nil
 }
 
 func (d *dashboard) Element() scene.Element { return d.element }
@@ -195,7 +170,7 @@ func (d *dashboard) advance() {
 func (d *dashboard) preferenceValue(item preference) string {
 	switch item {
 	case ratePreference:
-		return fmt.Sprintf("%d tasks/tick", d.watch.rate.Controller().Value())
+		return formatRate(d.watch.rate.Controller().Value())
 	case motionPreference:
 		if d.motion {
 			return "on"
@@ -234,291 +209,4 @@ func (d *dashboard) changePreference(_ int, item preference, action keymap.Actio
 		}
 	}
 	return result
-}
-
-type taskColumn struct {
-	header  kit.Column
-	compare func(task, task) int
-	cell    func(task) kit.Cell
-}
-
-type queue struct {
-	element     scene.Element
-	theme       kit.Theme
-	rows        *base.Table[task]
-	view        kit.Table
-	definitions []taskColumn
-	// columns are the complete table geometry from the last accepted frame. A press
-	// arrives between frames and can only be about the boxes it saw.
-	columns scene.Snapshot[kit.TableLayout]
-}
-
-func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
-	q := &queue{theme: theme}
-	q.rows = new(base.Table[task])
-	q.definitions = q.taskColumns()
-	q.rows.SetSortColumns(q.sortColumn)
-	q.rows.SetItems(tasks())
-	headers := make([]kit.Column, len(q.definitions))
-	for i, column := range q.definitions {
-		headers[i] = column.header
-	}
-	q.view = kit.Table{
-		Theme:   theme,
-		Glyphs:  glyphs,
-		Columns: headers,
-		Header:  true,
-		Sorted:  q.rows.Sorted,
-		Cell:    q.cell,
-	}
-	header := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		width, _ := frame.Size()
-		columns := q.view.Layout(width)
-		q.columns.Stage(frame, columns)
-		columns.Titles(frame.View)
-	}, Handle: func(event scene.Event) scene.EventResult {
-		mouse, ok := event.Input().(input.Mouse)
-		if !ok || mouse.Action != input.MouseDown || mouse.Button != input.ButtonLeft {
-			return scene.EventResult{}
-		}
-		columns, known := event.Read(&q.columns)
-		if !known {
-			return scene.EventResult{}
-		}
-		column, on := columns.ColumnAt(mouse.Pos.X)
-		return scene.EventResult{Consumed: on && q.rows.SortBy(column)}
-	}})
-	if err := q.rows.Element().SetPaint(func(frame scene.Frame) {
-		width, _ := frame.Size()
-		columns := q.view.Layout(width)
-		q.rows.DrawRows(frame, func(view grid.View, at int, item task, selected bool) { q.row(columns, view, at, item, selected) })
-	}); err != nil {
-		panic(err)
-	}
-	q.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{{Element: header, Size: layout.Fixed(1)}, {Element: q.rows.Element(), Size: layout.Flex(1)}}}).Element()
-	return q
-}
-
-func (q *queue) Element() scene.Element { return q.element }
-
-const progressCellWidth = 12
-
-func (q *queue) taskColumns() []taskColumn {
-	return []taskColumn{
-		{
-			header:  kit.Column{Title: "task", Size: layout.Flex(2).AtLeast(8)},
-			compare: func(a, b task) int { return cmp.Compare(a.name, b.name) },
-			cell: func(item task) kit.Cell {
-				return kit.LabelCell(kit.Label{Text: item.name, Ellipsis: q.view.Glyphs.Ellipsis})
-			},
-		},
-		{
-			header:  kit.Column{Title: "state", Size: layout.Fixed(9)},
-			compare: func(a, b task) int { return cmp.Compare(a.state(), b.state()) },
-			cell: func(item task) kit.Cell {
-				return kit.LabelCell(kit.Label{Text: item.state(), Style: q.stateStyle(item), Ellipsis: q.view.Glyphs.Ellipsis})
-			},
-		},
-		{
-			header:  kit.Column{Title: "progress", Size: layout.Flex(3).AtLeast(progressCellWidth)},
-			compare: func(a, b task) int { return cmp.Compare(a.done*b.total, b.done*a.total) },
-			cell:    q.progressCell,
-		},
-	}
-}
-
-func (q *queue) sortColumn(column int) func(task, task) int {
-	if column < 0 || column >= len(q.definitions) {
-		return nil
-	}
-	return q.definitions[column].compare
-}
-
-func (q *queue) row(columns kit.TableLayout, v grid.View, at int, _ task, selected bool) {
-	width, _ := v.Size()
-	base := q.theme.Text
-	if selected && q.rows.Focused() {
-		base = base.Merge(q.theme.Selection)
-		v.Fill(grid.Area(0, 0, width, 1), q.theme.Selection)
-	}
-	columns.Cells(v, at, base)
-}
-
-// The table owns row order, while application rows own cell content; rendering
-// reads that mapping without retaining a second task model.
-func (q *queue) cell(row, column int) kit.Cell {
-	item, ok := q.rows.At(row)
-	if !ok || column < 0 || column >= len(q.definitions) {
-		return kit.Cell{}
-	}
-	return q.definitions[column].cell(item)
-}
-
-func (q *queue) progressCell(item task) kit.Cell {
-	return kit.Cell{
-		Preferred: progressCellWidth,
-		Paint: func(v grid.View, _ grid.Style) {
-			kit.Progress{
-				Theme: q.theme, Glyphs: q.view.Glyphs,
-				Done: item.done, Total: item.total, Percent: true,
-			}.Draw(v)
-		},
-	}
-}
-
-func (q *queue) stateStyle(of task) grid.Style {
-	switch of.state() {
-	case done:
-		return q.theme.Success
-	default:
-		return q.theme.Muted
-	}
-}
-
-func (q *queue) advance(by int) bool {
-	if by <= 0 {
-		return false
-	}
-	items := q.rows.Items()
-	changed := false
-	for i := range items {
-		item := &items[i]
-		if item.done >= item.total {
-			continue
-		}
-		item.done = min(item.done+by, item.total)
-		changed = true
-	}
-	if changed {
-		q.rows.SetItems(items)
-	}
-	return changed
-}
-
-func (q *queue) completionTotals() (completedUnits, totalUnits int) {
-	for _, item := range q.rows.Items() {
-		completedUnits += item.done
-		totalUnits += item.total
-	}
-	return completedUnits, totalUnits
-}
-
-type activity struct {
-	theme   kit.Theme
-	glyphs  kit.Glyphs
-	of      *queue
-	spinner kit.Spinner
-	samples []float64
-	rate    *kit.Slider
-	element scene.Element
-}
-
-func newActivity(theme kit.Theme, glyphs kit.Glyphs, of *queue) *activity {
-	activity := &activity{
-		theme: theme, glyphs: glyphs, of: of,
-		samples: make([]float64, 0, activityHistoryLength),
-	}
-	activity.rate = kit.NewSlider(kit.SliderConfig{
-		Behavior: base.SliderConfig{
-			Initial: 1,
-			Minimum: 1, Maximum: maximumUnitsPerTick, Label: "rate",
-		}, Theme: theme, Glyphs: glyphs,
-	})
-	activity.rate.SetFormat(func(value int) string { return fmt.Sprintf("%d tasks/tick", value) })
-	activity.spinner = kit.Spinner{
-		Theme: theme, Glyphs: glyphs, Label: "watching",
-	}
-	activity.record()
-	activity.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
-		{Element: scene.NewElement(scene.ElementConfig{Paint: activity.drawProgress}), Size: layout.Fixed(1)},
-		{Element: activity.rate.Element(), Size: layout.Fixed(1)},
-		{Element: scene.NewElement(scene.ElementConfig{Paint: activity.drawHistory}), Size: layout.Fixed(1)},
-		{Element: scene.NewElement(scene.ElementConfig{Paint: activity.drawStatus}), Size: layout.Fixed(1)},
-		{Element: scene.NewElement(scene.ElementConfig{Paint: activity.drawTasks}), Size: layout.Flex(1)},
-	}}).Element()
-	return activity
-}
-
-func (a *activity) tick() {
-	a.spinner.Tick()
-}
-
-func (a *activity) drawProgress(frame scene.Frame) {
-	completedUnits, totalUnits := a.of.completionTotals()
-	kit.Progress{
-		Theme:   a.theme,
-		Glyphs:  a.glyphs,
-		Label:   "all of it",
-		Done:    completedUnits,
-		Total:   totalUnits,
-		Percent: true,
-	}.Draw(frame.View)
-}
-
-func (a *activity) drawHistory(frame scene.Frame) {
-	kit.Sparkline{
-		Theme: a.theme, Glyphs: a.glyphs, Values: a.samples,
-		Minimum: 0, Maximum: 1,
-	}.Draw(frame.View)
-}
-
-func (a *activity) drawStatus(frame scene.Frame) {
-	completedUnits, totalUnits := a.of.completionTotals()
-	if completedUnits >= totalUnits {
-		kit.Label{Text: "everything is done", Style: a.theme.Success}.Draw(frame.View)
-	} else {
-		a.spinner.Draw(frame.View)
-	}
-}
-
-func (a *activity) drawTasks(frame scene.Frame) {
-	kit.BarChart{
-		Theme: a.theme, Glyphs: a.glyphs, Maximum: 100,
-		Bars: a.bars(),
-	}.Draw(frame.View)
-}
-
-func (a *activity) Element() scene.Element { return a.element }
-
-// The dashboard owns sampling policy; Sparkline only projects its bounded history.
-func (a *activity) record() {
-	completedUnits, totalUnits := a.of.completionTotals()
-	value := 0.0
-	if totalUnits > 0 {
-		value = float64(completedUnits) / float64(totalUnits)
-	}
-	if len(a.samples) == cap(a.samples) {
-		copy(a.samples, a.samples[1:])
-		a.samples[len(a.samples)-1] = value
-		return
-	}
-	a.samples = append(a.samples, value)
-}
-
-// Category labels and completion comparison are application grammar, so chart
-// blocks receive a projection of the task model.
-func (a *activity) bars() []kit.Bar {
-	items := a.of.rows.Items()
-	bars := make([]kit.Bar, len(items))
-	for i, item := range items {
-		percent := 0.0
-		if item.total > 0 {
-			percent = float64(item.done) / float64(item.total) * 100
-		}
-		bars[i] = kit.Bar{
-			Label: item.name,
-			Value: percent,
-			Text:  fmt.Sprintf("%.0f%%", percent),
-		}
-	}
-	return bars
-}
-
-func tasks() []task {
-	return []task{
-		{name: "build", done: 3, total: 12},
-		{name: "test", done: 1, total: 20},
-		{name: "vet", done: 0, total: 6},
-		{name: "lint", done: 0, total: 9},
-	}
 }

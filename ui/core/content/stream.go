@@ -12,10 +12,11 @@ import (
 
 // Source and preparation errors preserve the failed stage without advancing it.
 var (
-	ErrSourceClosed     = errors.New("content: source already ended")
-	ErrSourceLimit      = errors.New("content: source exceeds its byte budget")
-	ErrStalePreparation = errors.New("content: preparation does not match the current source")
-	ErrAlreadyPrepared  = errors.New("content: revision already prepared")
+	ErrSourceClosed       = errors.New("content: source already ended")
+	ErrSourceLimit        = errors.New("content: source exceeds its byte budget")
+	ErrStalePreparation   = errors.New("content: preparation does not match the current source")
+	ErrAlreadyPrepared    = errors.New("content: revision already prepared")
+	errRevisionsExhausted = errors.New("content: revisions exhausted")
 )
 
 // Revision identifies one immutable source version within its document.
@@ -171,14 +172,16 @@ func (d *StreamDocument) Append(batch []byte) error {
 	if len(batch) > d.cfg.MaxSourceBytes-d.source.Len() {
 		return ErrSourceLimit
 	}
-	if d.revision == Revision(math.MaxUint64) {
-		return errors.New("content: revisions exhausted")
+	if !d.hasNextRevision() {
+		return errRevisionsExhausted
 	}
 	_, _ = d.source.Write(batch)
 	d.revision++
 	d.notify()
 	return nil
 }
+
+func (d *StreamDocument) hasNextRevision() bool { return d.revision < Revision(math.MaxUint64) }
 
 // End closes the source and creates a new revision, even for unchanged bytes.
 // Final parsing may settle an incomplete UTF-8 sequence or unresolved syntax
@@ -188,8 +191,8 @@ func (d *StreamDocument) End(cause error) error {
 	if d.ended {
 		return ErrSourceClosed
 	}
-	if d.revision == Revision(math.MaxUint64) {
-		return errors.New("content: revisions exhausted")
+	if !d.hasNextRevision() {
+		return errRevisionsExhausted
 	}
 	d.ended, d.sourceErr = true, cause
 	d.revision++

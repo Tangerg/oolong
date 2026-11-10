@@ -40,23 +40,34 @@ type Resolver func(wait time.Duration, resolve func()) (cancel func())
 type Matcher struct {
 	noCopy noCopy
 
+	pending *sequence
+	// ticket advances whenever matching is abandoned, so a resolver or callback
+	// from an earlier sequence can tell it has been superseded.
+	ticket uint64
+}
+
+// sequence is one partially typed chord sequence. It exists only while a prefix
+// waits for its next chord and is replaced as a whole, so its parts can never
+// describe different sequences.
+type sequence struct {
 	bindings *Map
 	version  *byte
 	keys     input.Keys
 	at       time.Time
-	exact    Action
-	do       func(Action) bool
 	current  func() bool
-	cancel   func()
-	ticket   uint64
+	// exact is the action the prefix already names, settled by the resolver or by
+	// a chord that proves no longer binding will arrive.
+	exact  Action
+	do     func(Action) bool
+	cancel func()
 }
 
 // Keys returns a copy of the chords typed so far.
 func (m *Matcher) Keys() input.Keys {
-	if m == nil {
+	if m == nil || m.pending == nil {
 		return nil
 	}
-	return slices.Clone(m.keys)
+	return slices.Clone(m.pending.keys)
 }
 
 // Clear abandons the partially typed sequence and cancels its resolver.
@@ -79,9 +90,10 @@ func (m *Matcher) Reset(change func()) (current bool) {
 		}
 		return true
 	}
-	bindings := m.bindings
+	var bindings *Map
 	var version *byte
-	if bindings != nil {
+	if m.pending != nil {
+		bindings = m.pending.bindings
 		version = bindings.version
 	}
 	cancel := m.abandon()
@@ -102,7 +114,7 @@ func (m *Matcher) Reset(change func()) (current bool) {
 // notification cannot erase a sequence already started at the current version.
 // Change runs in either case, with the same cancellation ordering as Reset.
 func (m *Matcher) ResetStale(change func()) {
-	if m != nil && m.bindings != nil && m.version != m.bindings.version {
+	if m != nil && m.pending != nil && m.pending.version != m.pending.bindings.version {
 		m.Reset(change)
 		return
 	}
@@ -112,9 +124,11 @@ func (m *Matcher) ResetStale(change func()) {
 }
 
 func (m *Matcher) abandon() func() {
-	cancel := m.cancel
-	m.keys, m.at, m.exact, m.do, m.current, m.cancel = nil, time.Time{}, "", nil, nil, nil
-	m.bindings, m.version = nil, nil
+	var cancel func()
+	if m.pending != nil {
+		cancel = m.pending.cancel
+	}
+	m.pending = nil
 	m.ticket++
 	return cancel
 }
@@ -157,9 +171,15 @@ func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
 // Bind associates keys with action, replacing an existing binding for the same
-// sequence. Empty actions and empty sequences are ignored.
+// sequence. Empty actions, empty sequences and a binding the map already holds
+// change nothing, so they neither notify consumers nor abandon a pending sequence.
 func (m *Map) Bind(action Action, keys ...input.Chord) {
 	if m == nil || action == "" || len(keys) == 0 {
+		return
+	}
+	if slices.ContainsFunc(m.bound, func(binding Binding) bool {
+		return binding.Action == action && slices.Equal(binding.Keys, input.Keys(keys))
+	}) {
 		return
 	}
 	subscribers := m.checkSubscribers()
@@ -283,7 +303,10 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, current func() bool, do f
 		return true, true
 	}
 
-	prefix := m.keys
+	var prefix input.Keys
+	if m.pending != nil {
+		prefix = m.pending.keys
+	}
 	node, chord := bindings.matchKey(prefix, key)
 	if node == nil && len(prefix) > 0 {
 		// The key proves the longer binding will not arrive. Settle an exact prefix,
@@ -306,17 +329,13 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, current func() bool, do f
 		return true, true
 	}
 	if len(node.next) == 0 {
-		if node.action == "" {
-			return false, false
-		}
 		return true, do(node.action)
 	}
 
-	prefix = append(prefix, chord)
-	m.keys = prefix
-	m.at = key.At
-	m.bindings, m.version = bindings, bindings.version
-	m.current = current
+	m.pending = &sequence{
+		bindings: bindings, version: bindings.version,
+		keys: append(prefix, chord), at: key.At, current: current,
+	}
 	if node.action != "" {
 		m.deferExact(bindings, node.action, do)
 	}
@@ -326,7 +345,7 @@ func (m *Matcher) Handle(bindings *Map, key input.Key, current func() bool, do f
 // Settle the previous sequence before matching another key. Its cancellation or
 // exact-prefix callback may replace the matcher, revoking the interrupted dispatch.
 func (m *Matcher) prepare(bindings *Map, at time.Time, current func() bool) bool {
-	if m.bindings != nil && (m.bindings != bindings || m.version != bindings.version || !lifetimeCurrent(m.current)) && !m.Reset(nil) {
+	if p := m.pending; p != nil && (p.bindings != bindings || p.version != bindings.version || !lifetimeCurrent(p.current)) && !m.Reset(nil) {
 		return false
 	}
 	if !lifetimeCurrent(current) {
@@ -345,17 +364,17 @@ func lifetimeCurrent(current func() bool) bool { return current == nil || curren
 // Synthetic events with no arrival time never expire because no elapsed time can be
 // inferred from them.
 func (m *Matcher) expired(timeout time.Duration, now time.Time) bool {
-	if len(m.keys) == 0 || m.at.IsZero() || now.IsZero() {
+	if m.pending == nil || m.pending.at.IsZero() || now.IsZero() {
 		return false
 	}
-	elapsed := now.Sub(m.at)
+	elapsed := now.Sub(m.pending.at)
 	return elapsed < 0 || elapsed > timeout
 }
 
 // deferExact remembers the action at an ambiguous node and asks the map's policy to
 // settle it. The ticket makes a late callback from a cancelled resolver inert.
 func (m *Matcher) deferExact(bindings *Map, action Action, do func(Action) bool) {
-	m.exact, m.do = action, do
+	m.pending.exact, m.pending.do = action, do
 	if bindings.resolver == nil {
 		return
 	}
@@ -370,8 +389,8 @@ func (m *Matcher) deferExact(bindings *Map, action Action, do func(Action) bool)
 	}()
 	cancel := bindings.resolver(bindings.Timeout(), func() { m.resolve(ticket) })
 	returned = true
-	if m.ticket == ticket && len(m.keys) > 0 {
-		m.cancel = cancel
+	if m.ticket == ticket && m.pending != nil {
+		m.pending.cancel = cancel
 	} else if cancel != nil {
 		// A resolver is allowed to resolve synchronously. If it also returns a
 		// cancellation function, nothing should retain the already-finished work.
@@ -390,10 +409,16 @@ func (m *Matcher) resolveExact() bool {
 	if m == nil {
 		return false
 	}
-	action, do, current := m.exact, m.do, m.current
-	bindings, version := m.bindings, m.version
-	if m.bindings == nil || m.version != m.bindings.version {
-		do = nil
+	var action Action
+	var do func(Action) bool
+	var current func() bool
+	var bindings *Map
+	var version *byte
+	if p := m.pending; p != nil {
+		action, current, bindings, version = p.exact, p.current, p.bindings, p.version
+		if p.version == p.bindings.version {
+			do = p.do
+		}
 	}
 	if !m.Reset(nil) {
 		return true

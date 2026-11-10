@@ -155,8 +155,8 @@ func TestLateIngressCannotFinishTheNextAgentRun(t *testing.T) {
 	second := <-started
 	<-first.ingress.Done()
 	if err := second.dispatch.Dispatch(t.Context(), func() error {
-		if second.owner.run != second.run || second.owner.conversation.document != nil || !strings.Contains(second.owner.status.Doing, "planning") {
-			t.Errorf("old bytes or EOF changed the next run: %s", second.owner.status.Doing)
+		if second.owner.run != second.run || second.owner.conversation.document != nil || !strings.Contains(second.run.status.Doing, "planning") {
+			t.Errorf("old bytes or EOF changed the next run: %s", second.run.status.Doing)
 		}
 		return nil
 	}); err != nil {

@@ -91,10 +91,10 @@ type Terminal struct {
 	// Closing application delivery must release its backpressure while the sole
 	// input pump still owns replies needed to settle terminal resources.
 	deliveryStopped chan struct{}
-	// waker owns interruptible input, including the platform's buffered characters.
+	// inputReader owns interruptible input, including the platform's buffered characters.
 	// Only the reader may consume it; Close joins that owner before restoring modes.
-	waker  *waker
-	handed handover
+	inputReader *inputReader
+	handed      handover
 	// The reader orders this boundary after its earlier bytes and before its
 	// next read, even if backpressure outlasted the handover.
 	restartInput atomic.Bool
@@ -148,7 +148,11 @@ func OpenOn(
 	cfg Config,
 	lookup func(string) (string, bool),
 ) (*Terminal, error) {
-	if err := cfg.RestoreCursor.Shape.Validate(); err != nil {
+	// Resolve every caller-provided environment fact before raw mode, files or
+	// readers need cleanup. A lookup may panic or leave its goroutine.
+	environment := startupEnvironment(lookup)
+	modes, err := cfg.Modes(environment)
+	if err != nil {
 		return nil, err
 	}
 	if in == nil {
@@ -166,9 +170,7 @@ func OpenOn(
 		return nil, err
 	}
 
-	// Resolve every caller-provided environment fact before raw mode, files or
-	// readers need cleanup. A lookup may panic or leave its goroutine.
-	t := newTerminal(in, out, cfg, startupEnvironment(lookup))
+	t := newTerminal(in, out, cfg, modes, environment)
 	t.inFD, t.outFD = inFD, outFD
 	oldState, err := xterm.MakeRaw(inFD)
 	if err != nil {
@@ -229,12 +231,13 @@ func startupEnvironment(lookup func(string) (string, bool)) func(string) (string
 func newTerminal(
 	in, out *os.File,
 	cfg Config,
+	modes Modes,
 	lookup func(string) (string, bool),
 ) *Terminal {
 	return &Terminal{
 		in:              in,
 		out:             out,
-		modes:           cfg.Modes(lookup),
+		modes:           modes,
 		events:          make(chan input.Event, inputEventCapacity),
 		deliveryStopped: make(chan struct{}),
 		resized:         make(chan input.Resize, 1),
@@ -245,7 +248,7 @@ func newTerminal(
 		task:            newTaskProgress(),
 		clipboard:       clipboard.New(cfg.Features.Clipboard),
 		locale:          DetectLocale(lookup),
-		color:           DetectDepth(lookup),
+		color:           localDepth(lookup),
 		wheelProfile:    input.WheelFor(lookup, ""),
 		imageProtocol:   graphics.Detect(lookup, "", false),
 	}
@@ -261,11 +264,11 @@ func (t *Terminal) takeOver() error {
 	t.output = output
 	// Acquire everything that can fail before entering terminal modes. Rollback
 	// never needs to send restoration through a writer it has already stopped.
-	waker, err := newWaker(t.inFD)
+	inputReader, err := newInputReader(t.inFD)
 	if err != nil {
 		return t.abortOpen(err)
 	}
-	t.waker = waker
+	t.inputReader = inputReader
 	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
 		return t.abortOpen(err)
 	}
@@ -274,9 +277,6 @@ func (t *Terminal) takeOver() error {
 	if _, err := t.output.WriteString(t.modes.Enter()); err != nil {
 		return t.abortOpen(fmt.Errorf("term: take over the terminal: %w", err))
 	}
-
-	t.writer = NewWriter(WriterConfig{Destination: t.output})
-	go t.task.run(t.stop, t.writer.Queue)
 	return nil
 }
 
@@ -290,10 +290,12 @@ func (t *Terminal) start(cfg Config) error {
 
 	// The size is delivered as an event rather than left to be asked for, so a
 	// session learns its size the same way it learns about every later change. No
-	// watcher is running yet, so this is the one write to size that needs no lock.
+	// watcher is running yet, so this is the one write to size that needs no lock;
+	// the event waits for the pump, which alone writes the event channel.
+	var early []input.Event
 	if w, h, err := t.Size(); err == nil {
 		t.size = knownDimensions(w, h)
-		t.events <- input.Resize{Width: w, Height: h}
+		early = append(early, input.Resize{Width: w, Height: h})
 	}
 
 	raw := make(chan readResult, inputReadCapacity)
@@ -307,7 +309,6 @@ func (t *Terminal) start(cfg Config) error {
 	// input — the same timing, the same escape grace — so the probe and the pump read
 	// through one stream rather than two agreeing decoders.
 	stream := input.NewStream(input.StreamConfig{Clipboard: t.clipboard})
-	var early []input.Event
 	var end *readResult
 	var probeErr error
 	if cfg.Features.Probe {
@@ -319,12 +320,16 @@ func (t *Terminal) start(cfg Config) error {
 		}
 		t.said, probeErr = pr.run()
 		if t.said.hasCursor {
-			t.modes.restoreCursor = t.said.cursor.Sequence()
+			t.modes = t.modes.restoringCursor(t.said.cursor)
 		}
-		early = pr.early
+		early = append(early, pr.early...)
 		end = pr.end
 	}
-	t.wheelProfile = t.wheelProfile.Negotiated(t.identity())
+	// The writer takes the byte stream only once the probe has finished writing
+	// to it directly, so the stream has exactly one owner at every moment.
+	t.writer = NewWriter(WriterConfig{Destination: t.output})
+	go t.task.run(t.stop, t.writer.Queue)
+	t.wheelProfile = t.wheelProfile.Negotiated(t.said.name)
 	t.imageProtocol = t.said.graphics(t.imageProtocol)
 
 	p := &pump{
@@ -355,8 +360,8 @@ func (t *Terminal) abortOpen(cause error) error {
 	} else {
 		errs = append(errs, xterm.Restore(t.inFD, t.oldState))
 	}
-	if t.waker != nil {
-		t.waker.close()
+	if t.inputReader != nil {
+		t.inputReader.close()
 	}
 	errs = append(errs, t.output.active(false), t.output.Close())
 	return errors.Join(errs...)
@@ -416,8 +421,9 @@ func (t *Terminal) ReadClipboard(ctx context.Context) (string, error) {
 	})
 }
 
-// Name prefers the destination's direct reply over environment hints that may
-// describe an outer or remote terminal. Its spelling is terminal-defined.
+// Name is the name the terminal gave in reply to the startup probe, and whether
+// it gave one. It never comes from the environment, which may describe an outer
+// or remote terminal. Its spelling is terminal-defined.
 func (t *Terminal) Name() (string, bool) { return t.said.name, t.said.hasName }
 
 // Version is the number a terminal gives when it will not give a name, and whether it
@@ -441,14 +447,8 @@ func (t *Terminal) Locale() string { return t.locale }
 
 func (t *Terminal) Color() grid.Depth { return t.color }
 
-func (t *Terminal) identity() string {
-	if t.said.hasName {
-		return t.said.name
-	}
-	return ""
-}
-
-// Wheel uses negotiated identity before environment hints, as Name does.
+// Wheel is the batching for the terminal's own reported name when it gave one,
+// and otherwise the one its environment suggests.
 func (t *Terminal) Wheel() input.Wheel {
 	return t.wheelProfile
 }
@@ -556,7 +556,7 @@ func (t *Terminal) Close() error {
 		close(t.stop)
 		// Wake both kernel waits and handover parking so shutdown can join the
 		// reader without requiring input or a child to return.
-		t.waker.wake()
+		t.inputReader.wake()
 		// A wake request is not a completed read. Modes and input belong to this
 		// session until the reader has actually stopped consuming the descriptor.
 		<-t.readerDone
@@ -578,15 +578,12 @@ func (t *Terminal) closeOutput() error {
 	defer t.modeMu.Unlock()
 	defer t.imageOwner.RevokeAll()
 	defer t.revokeUploads()
-	var errs []error
-	if t.ownsModes {
-		// Raw mode must settle independently of output backpressure. The same
-		// deadline covers queued frames and the final restore sequences.
-		if err := xterm.Restore(t.inFD, t.oldState); err != nil {
-			errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
-		}
-	}
-	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
+	// One deadline bounds the queued frames, image release and leave sequences, so
+	// raw mode is still restored when the display stops draining. It is restored
+	// last, in reverse acquisition order: cooked mode while mouse, paste and screen
+	// modes are still on would let a keystroke raise a signal or echo into the
+	// display before the leave sequence reaches it.
+	errs := []error{t.output.SetWriteDeadline(time.Now().Add(DrainGrace))}
 	if t.ownsModes {
 		errs = append(errs, t.releaseImages())
 		_, cleanupErr := t.writer.QueueControl([]byte(t.leaveSequence()))
@@ -598,6 +595,9 @@ func (t *Terminal) closeOutput() error {
 	var flagsErr error
 	if t.ownsModes {
 		flagsErr = t.output.active(false)
+		if err := xterm.Restore(t.inFD, t.oldState); err != nil {
+			errs = append(errs, fmt.Errorf("term: leave raw mode: %w", err))
+		}
 	}
 	if err := errors.Join(flagsErr, t.output.Close()); err != nil {
 		errs = append(errs, fmt.Errorf("term: give the terminal back: %w", err))
@@ -623,8 +623,8 @@ func (t *Terminal) giveBack() []error {
 	return errs
 }
 
-// control joins the session writer once it exists. Startup rollback is the only
-// direct write: no writer has taken ownership of the byte stream at that point.
+// control joins the session writer once it exists. Before that, during startup
+// and its rollback, nothing else owns the byte stream and the write is direct.
 func (t *Terminal) control(value string) error {
 	if t.writer == nil {
 		_, err := t.output.WriteString(value)
@@ -644,12 +644,12 @@ const readChunkBytes = 4096
 // input without cancelling a kernel read or leaving a second consumer behind.
 func (t *Terminal) read(raw chan<- readResult) {
 	defer close(t.readerDone)
-	defer t.waker.close()
+	defer t.inputReader.close()
 	for {
 		// Bytes already removed from the terminal precede the handover boundary.
 		// Drain that bounded platform buffer before confirming that input parked;
 		// only then may the child own the next kernel read.
-		if !t.waker.buffered() {
+		if !t.inputReader.buffered() {
 			t.handed.park(t.stop)
 		}
 		select {
@@ -658,13 +658,13 @@ func (t *Terminal) read(raw chan<- readResult) {
 		default:
 		}
 		if t.restartInput.Swap(false) {
-			t.waker.reset()
+			t.inputReader.reset()
 			if !t.sendRead(raw, readResult{restart: true}) {
 				return
 			}
 		}
 
-		result := t.waker.read(t.in)
+		result := t.inputReader.read(t.in)
 		if len(result.data) > 0 || result.err != nil {
 			if !t.sendRead(raw, result) {
 				return
@@ -735,7 +735,7 @@ func (t *Terminal) Hand(prepare, run func() error) (err error) {
 		return ErrClosed
 	default:
 	}
-	if !t.waker.interruptible() {
+	if !t.inputReader.interruptible() {
 		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
 	}
 	if !t.handed.hold() {
@@ -836,6 +836,10 @@ func (t *Terminal) retakeModes() error {
 	}
 	errs = append(errs, t.output.SetWriteDeadline(time.Time{}))
 	if err := errors.Join(errs...); err != nil {
+		// The display is in a state nobody can describe. Sealing admission makes
+		// every later frame report this failure instead of a handover that is
+		// no longer happening.
+		t.writer.seal(fmt.Errorf("term: take the terminal back: %w", err))
 		return err
 	}
 	errs = append(errs, t.resumeOutput())
@@ -852,7 +856,7 @@ func (t *Terminal) resumeOutput() error {
 }
 
 func (t *Terminal) park(parked <-chan struct{}) error {
-	t.waker.wake()
+	t.inputReader.wake()
 
 	grace := time.NewTimer(parkGrace)
 	defer grace.Stop()

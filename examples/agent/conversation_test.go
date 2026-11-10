@@ -126,7 +126,7 @@ func TestAnAnswerThatEndsWithNothingLeftStillEnds(t *testing.T) {
 		})
 	}
 	c.apply(t, func(c *conversation) error {
-		if c.content.Len() != retainedCompletedItems || first.State() != base.ContentRetired || first.Receipt().Snapshot().ID == 0 {
+		if c.transcript.Len() != retainedCompletedItems || first.State() != base.ContentRetired || first.Receipt().Snapshot().ID == 0 {
 			t.Error("settled content did not transfer to the publisher")
 		}
 		return nil
@@ -142,14 +142,14 @@ func TestMoreOfTheSameAnswerDoesNotTakeTheReaderBackToIt(t *testing.T) {
 		return c.Markdown(t.Context(), "first\n\n<!-- separator -->\n\n")
 	})
 	c.apply(t, func(c *conversation) error {
-		c.content.Scroll().ToTop()
-		if c.content.Scroll().FollowingEnd() {
+		c.transcript.Scroll().ToTop()
+		if c.transcript.Scroll().FollowingEnd() {
 			t.Error("the reader is at the end after scrolling to the top")
 		}
 		return c.Markdown(t.Context(), "second\n\nthird\n")
 	})
 	c.apply(t, func(c *conversation) error {
-		if c.content.Scroll().FollowingEnd() {
+		if c.transcript.Scroll().FollowingEnd() {
 			t.Error("more of the same answer took the reader back to the end of it")
 		}
 		return nil
@@ -196,8 +196,8 @@ func TestFinalRendererFailureCannotAnnounceRunSuccess(t *testing.T) {
 		a.finishRun(nil)
 		return a.conversation.Settled(func(error) {
 			label := a.outcome.label(a.theme, a.glyphs)
-			if a.outcome.kind != outcomeFailed || !strings.Contains(label.Text, failure.Error()) || a.status.Doing != "" {
-				t.Errorf("failed final renderer produced outcome %+v and activity %q", a.outcome, a.status.Doing)
+			if a.run != nil || a.outcome.kind != outcomeFailed || !strings.Contains(label.Text, failure.Error()) {
+				t.Errorf("failed final renderer produced outcome %+v with run %+v", a.outcome, a.run)
 			}
 			close(settled)
 		})
@@ -221,14 +221,14 @@ func TestSourceErrorDoesNotPoisonTheNextRun(t *testing.T) {
 	settled := make(chan struct{})
 	if err := first.dispatch.Invoke(t.Context(), func() error {
 		a := first.owner
-		a.accept(program.ByteBatch{Data: make([]byte, (1<<20)+1)})
+		a.accept(a.run, program.ByteBatch{Data: make([]byte, maxMarkdownSourceBytes+1)})
 		return a.conversation.Settled(func(error) {
-			if a.run != nil || a.outcome.kind != outcomeFailed || a.status.Doing != "" {
-				t.Errorf("oversized first run: outcome=%+v activity=%q", a.outcome, a.status.Doing)
+			if a.run != nil || a.outcome.kind != outcomeFailed {
+				t.Errorf("oversized first run: outcome=%+v run=%+v", a.outcome, a.run)
 			}
 			a.startRun("independent next run")
 			if a.run == nil || a.outcome != (sessionOutcome{}) {
-				t.Errorf("previous failure leaked to next run: outcome=%+v activity=%q", a.outcome, a.status.Doing)
+				t.Errorf("previous failure leaked to next run: outcome=%+v", a.outcome)
 			}
 			close(settled)
 		})

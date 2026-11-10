@@ -40,13 +40,39 @@ type ConfirmControl interface {
 	Subscribe(notify func()) func()
 }
 
-// Snapshot reads one complete value version from the selected value owner.
+// Snapshot reads one complete value version from the answer's owner.
 func (c *Confirm) Snapshot() ConfirmSnapshot {
-	if c.control != nil {
-		return readProjection(c.Element(), c.control.Snapshot)
-	}
-	return ConfirmSnapshot{Value: c.answer.get(), Revision: c.answer.revision}
+	return readProjection(c.Element(), c.owner().Snapshot)
 }
+
+func (c *Confirm) owner() ConfirmControl {
+	if c.control == nil {
+		c.control = new(localConfirm)
+	}
+	return c.control
+}
+
+// localConfirm owns the answer of a Confirm that no domain owner controls,
+// through the same protocol a domain owner implements.
+type localConfirm struct{ answer ownedValue[bool] }
+
+func (l *localConfirm) Snapshot() ConfirmSnapshot {
+	return ConfirmSnapshot{Value: l.answer.get(), Revision: l.answer.revision}
+}
+
+func (l *localConfirm) Change(_ context.Context, request ConfirmRequest) (scene.ActionResult[ConfirmSnapshot], error) {
+	if request.ExpectedRevision != l.answer.revision {
+		return scene.ActionResult[ConfirmSnapshot]{}, ErrConfirmStale
+	}
+	if !l.answer.set(request.Value) {
+		return scene.ActionResult[ConfirmSnapshot]{State: scene.Unchanged, Value: l.Snapshot()}, nil
+	}
+	return scene.ActionResult[ConfirmSnapshot]{State: scene.Applied, Value: l.Snapshot()}, nil
+}
+
+// Subscribe has nothing to deliver: the local answer changes only through
+// Change, whose result the Confirm already reports.
+func (*localConfirm) Subscribe(func()) func() { return func() {} }
 
 // Request applies the same semantic change used by keys, pointer input and AX.
 // External owners may return Started while performing asynchronous work; the
@@ -90,11 +116,7 @@ func (c *Confirm) applyRequest(ctx context.Context, request ConfirmRequest) (sce
 	if request.Value == before.Value {
 		return scene.ActionResult[ConfirmSnapshot]{State: scene.Unchanged, Value: before}, nil
 	}
-	if c.control != nil {
-		return c.control.Change(ctx, request)
-	}
-	c.answer.set(request.Value)
-	return scene.ActionResult[ConfirmSnapshot]{State: scene.Applied, Value: c.Snapshot()}, nil
+	return c.owner().Change(ctx, request)
 }
 
 func (c *Confirm) invalidate() {

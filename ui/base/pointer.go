@@ -99,6 +99,13 @@ func (p *Pointer) Left() {
 // Position reports the last pointer coordinates and whether it is in the interface.
 func (p *Pointer) Position() (image.Point, bool) { return p.at, p.inside }
 
+// pressedWith is the button of the press the latest accepted event belonged to.
+func (p *Pointer) pressedWith() input.Button { return p.button }
+
+// track is the control's committed region before clipping, so a value dragged
+// along it keeps its scale where the frame cuts it off.
+func (p *Pointer) track() image.Rectangle { return p.geometry.read(&p.presentation).track }
+
 // Over reports whether the pointer is over the control's committed region.
 func (p *Pointer) Over() bool {
 	return p.inside && p.at.In(p.geometry.read(&p.presentation).area)

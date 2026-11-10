@@ -336,7 +336,7 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	panelBody := &base.Editor{}
 	panelBody.Insert("body")
 
-	panel := NewPanel(PanelConfig{Box: Box{Theme: Theme{}, Glyphs: Unicode()}, Content: panelBody.Element()})
+	panel := NewPanel(PanelConfig{Box: Box{Glyphs: Unicode()}, Content: panelBody.Element()})
 	panelBox := panel.Box()
 	panelBox.Title = "panel"
 	panel.SetBox(panelBox)
@@ -483,7 +483,7 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 				doing, elapsed string
 				frame          int
 				frames         []string
-			}{status.Doing, status.Elapsed, status.spinner.frame, slices.Clone(status.spinner.Glyphs.Spinner)}
+			}{status.Doing, status.Elapsed, status.frame, slices.Clone(status.Glyphs.Spinner)}
 		},
 	})
 

@@ -261,6 +261,9 @@ func TestPrompterValidatesItsInputBoundary(t *testing.T) {
 	}
 	field := base.NewText(base.TextConfig{})
 	prompter := newPrompter(t, kit.PrompterConfig{Input: strings.NewReader(""), Output: io.Discard})
+	if _, err := prompter.Ask(nil); err == nil {
+		t.Fatal("a missing form was reported as an unchanged submission")
+	}
 	if _, err := prompter.Ask(base.NewForm(base.FormConfig{Fields: []base.Field{field}})); !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("unanswered field err=%v", err)
 	}

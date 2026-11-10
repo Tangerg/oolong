@@ -54,14 +54,31 @@ type Modes struct {
 	restoreCursor   string
 }
 
+// restoringCursor is these modes with the cursor style the terminal reported at
+// entry as the restoration target, which a probe learns only after acquisition.
+func (m Modes) restoringCursor(style ansi.CursorStyle) Modes {
+	m.restoreCursor = style.Sequence()
+	return m
+}
+
+// Validate refuses a configuration no session can honour. Every transport checks
+// it before acquiring a terminal, so a refusal leaves nothing to restore.
+func (c Config) Validate() error {
+	return c.RestoreCursor.Shape.Validate()
+}
+
 // Modes includes keyboard observation in acquisition for both local and remote
-// transports so startup probing consumes that reply without a second query.
+// transports so startup probing consumes that reply without a second query. It
+// returns the error Validate reports for a configuration no session can honour.
 //
 // lookup is the environment of the terminal being driven, not necessarily this
 // process. A local terminal passes its process environment lookup; an SSH adapter
 // passes the client's accepted PTY environment. Nil means no environment facts are
 // available.
-func (c Config) Modes(lookup func(string) (string, bool)) Modes {
+func (c Config) Modes(lookup func(string) (string, bool)) (Modes, error) {
+	if err := c.Validate(); err != nil {
+		return Modes{}, err
+	}
 	keyboard := compatibleKeyboard(c.Features.Keyboard, lookup)
 	return Modes{
 		altScreen:       c.AltScreen,
@@ -70,7 +87,7 @@ func (c Config) Modes(lookup func(string) (string, bool)) Modes {
 		keyboard:        keyboard,
 		observeKeyboard: keyboard != 0 || c.Features.Probe,
 		restoreCursor:   c.RestoreCursor.Sequence(),
-	}
+	}, nil
 }
 
 func compatibleKeyboard(

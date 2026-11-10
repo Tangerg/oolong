@@ -84,7 +84,7 @@ func TestRefusedEditDoesNotSplitAnExistingTypingGroup(t *testing.T) {
 		{name: "set text", apply: func(view *Editor) { view.SetText("replacement") }},
 		{name: "clear", apply: (*Editor).Clear},
 		{name: "insert", apply: func(view *Editor) { view.Insert("replacement") }},
-		{name: "replace", apply: func(view *Editor) { view.Replace(0, 1, "replacement") }},
+		{name: "replace", apply: func(view *Editor) { view.Replace(0, 0, 1, "replacement") }},
 		{name: "undo", apply: (*Editor).Undo},
 		{name: "kill", apply: (*Editor).KillToStart},
 		{name: "element revision", apply: func(view *Editor) { view.InsertElement(1, "replacement") }},

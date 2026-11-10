@@ -47,10 +47,13 @@ func TestRunOwnsModesButNotTheSSHExit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all := term.Config{
+	all, err := term.Config{
 		AltScreen: true,
 		Features:  term.Features{Mouse: true, Focus: true, Keyboard: term.KeyboardCompatible},
 	}.Modes(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	written := session.output.String()
 	if !strings.HasPrefix(written, all.Enter()) {
 		t.Fatalf("output did not acquire modes first: %q", written)

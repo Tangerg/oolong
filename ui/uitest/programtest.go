@@ -365,7 +365,7 @@ func visibleRuns(frame string) (string, error) {
 		case ansi.String:
 			// A hyperlink preserves adjacency. An opaque painter (including OSC
 			// inline images) is not evidence that the text on its sides is joined.
-			if piece.Final != ']' || !strings.HasPrefix(piece.Body, "8;") {
+			if piece.Family != ansi.OSC || !strings.HasPrefix(piece.Body, "8;") {
 				visible.WriteByte(0)
 			}
 		case ansi.Control:

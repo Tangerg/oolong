@@ -30,7 +30,7 @@ func (m *MultiSelect[T]) setTakenAction() scene.ActionBinding {
 			if !complete {
 				return scene.Availability{Disabled: true, Reason: "value is not available"}
 			}
-			if m.limit > 0 && len(indices) > m.limit {
+			if !m.admits(len(indices)) {
 				return scene.Availability{Disabled: true, Reason: "selection exceeds the choice limit"}
 			}
 			return scene.Availability{}

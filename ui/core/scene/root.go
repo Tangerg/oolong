@@ -46,11 +46,8 @@ type Root struct {
 	closed                bool
 	pending               *Prepared
 	layout                *layoutSnapshot
-	written               *layoutSnapshot
-	inFlight              []*layoutSnapshot
+	frames                frameLedger
 	maxPendingFrames      int
-	lastSequence          uint64
-	writtenSequence       uint64
 	published             atomic.Pointer[inputGeometry]
 	inputHistory          int
 	geometryEpoch         uint64
@@ -100,11 +97,18 @@ func (r *Root) mutable() error {
 	if r == nil || r.closed {
 		return ErrClosed
 	}
-	if r.preparing || r.observing || r.pending != nil {
+	if r.settling() {
 		return ErrBusy
 	}
 	return nil
 }
+
+// projecting reports a pure phase: a frame being painted or a read-only observation.
+func (r *Root) projecting() bool { return r.preparing || r.observing }
+
+// settling reports that the model is not the root's to change: it is being
+// projected, or a prepared frame still awaits its commit or abort.
+func (r *Root) settling() bool { return r.projecting() || r.pending != nil }
 
 func (r *Root) Content() Element {
 	if r == nil {
@@ -270,19 +274,43 @@ func (r *Root) allowed(n *node) bool {
 	return n != nil && r.allowedIn(n, r.modal())
 }
 
-func (r *Root) allowedIn(n, modal *node) bool {
+func (r *Root) allowedIn(n, modal *node) bool { return r.eligibilityIn(n, modal) == eligible }
+
+// eligibility is whether a node can take input now, and if not, why not.
+type eligibility uint8
+
+const (
+	eligible eligibility = iota
+	// disabled means the node's own or an ancestor's Enabled refuses it.
+	disabled
+	// outsideModal means an active modal layer does not contain the node.
+	outsideModal
+)
+
+func (e eligibility) reason() string {
+	switch e {
+	case disabled:
+		return "target is disabled"
+	case outsideModal:
+		return "target is outside the active modal layer"
+	default:
+		return ""
+	}
+}
+
+func (r *Root) eligibilityIn(n, modal *node) eligibility {
 	if !r.enabled(n) {
-		return false
+		return disabled
 	}
 	if modal == nil {
-		return true
+		return eligible
 	}
 	for ancestor := n; ancestor != nil; ancestor = ancestor.parent {
 		if ancestor == modal {
-			return true
+			return eligible
 		}
 	}
-	return false
+	return outsideModal
 }
 
 func (r *Root) walkModals(visit func(*node)) {
@@ -321,7 +349,7 @@ func (r *Root) RequestFocus(target Target) error {
 	if n == nil {
 		return ErrStale
 	}
-	active := r.modal()
+	active := r.reconcileModals()
 	if !r.focusableIn(n, active) {
 		return ErrUnavailable
 	}
@@ -409,8 +437,30 @@ func (r *Root) settleFocus() {
 			r.recordKeyboardRoute(nil)
 		}
 	}()
+	active := r.reconcileModals()
+	if n := r.resolve(r.focus); n != nil && r.focusableIn(n, active) {
+		r.recordKeyboardRoute(r.keyboardRoute(r.focus, active))
+		settled = true
+		return
+	}
+	var first Target
+	r.walk(r.content.node, func(n *node) bool {
+		if r.focusableIn(n, active) {
+			first = n.target()
+			return false
+		}
+		return true
+	})
+	r.setFocus(first, r.keyboardRoute(first, active))
+	settled = true
+}
+
+// reconcileModals brings the remembered layers up to the live modal stack and
+// returns its top. A new layer records the current focus as its opener, so it runs
+// before anything moves focus into that layer; a layer that has gone returns focus
+// to its opener.
+func (r *Root) reconcileModals() (active *node) {
 	var modals []Target
-	var active *node
 	r.walkModals(func(n *node) {
 		active = n
 		modals = append(modals, n.target())
@@ -441,21 +491,7 @@ func (r *Root) settleFocus() {
 			}
 		}
 	}
-	if n := r.resolve(r.focus); n != nil && r.focusableIn(n, active) {
-		r.recordKeyboardRoute(r.keyboardRoute(r.focus, active))
-		settled = true
-		return
-	}
-	var first Target
-	r.walk(r.content.node, func(n *node) bool {
-		if r.focusableIn(n, active) {
-			first = n.target()
-			return false
-		}
-		return true
-	})
-	r.setFocus(first, r.keyboardRoute(first, active))
-	settled = true
+	return active
 }
 
 // FocusNext is a traversal mechanism. Composite controllers may request a
@@ -465,7 +501,7 @@ func (r *Root) FocusNext(backward bool) bool {
 		return false
 	}
 	var targets []Target
-	active := r.modal()
+	active := r.reconcileModals()
 	r.walk(r.content.node, func(n *node) bool {
 		if r.focusableIn(n, active) {
 			targets = append(targets, n.target())
@@ -535,7 +571,7 @@ func (c lifecycleCall) deliver() {
 // produced them has completed. Runtime owners call it between owner turns, never
 // while a frame is prepared or admitted. Notifications may schedule new work.
 func (r *Root) FlushNotifications() {
-	if r == nil || r.flushing || r.preparing || r.observing || r.pending != nil {
+	if r == nil || r.flushing || r.settling() {
 		return
 	}
 	r.flushing = true
@@ -623,7 +659,8 @@ func (r *Root) revoke() {
 	r.capture = capture{}
 	r.scopes = nil
 	r.previousKeyboardRoute = nil
-	r.layout, r.written, r.inFlight = nil, nil, nil
+	r.layout = nil
+	r.frames.revoke()
 	r.published.Store(nil)
 	r.signal()
 }

@@ -107,7 +107,7 @@ func stageTranscript(transcript *base.Transcript, width int) base.TranscriptLayo
 func transcriptLayout(transcript *base.Transcript) base.TranscriptLayout {
 	width := 0
 	if transcript != nil {
-		width = transcript.Width()
+		width = transcript.Layout().Width()
 	}
 	return stageTranscript(transcript, width)
 }
@@ -600,7 +600,7 @@ func TestAcceptingACompletionIsOneUndoStep(t *testing.T) {
 	if !ok {
 		t.Fatal("no token")
 	}
-	e.Replace(token.Start, token.End, "src/main.go")
+	e.Replace(token.Line, token.Start, token.End, "src/main.go")
 	if got := e.Text(); got != "look at @src/main.go" {
 		t.Fatalf("after accepting = %q", got)
 	}
@@ -616,7 +616,7 @@ func TestAcceptingACompletionIsOneUndoStep(t *testing.T) {
 func TestReplaceIsClampedToTheLine(t *testing.T) {
 	e := &base.Editor{}
 	e.SetText("abc")
-	e.Replace(-3, 99, "x")
+	e.Replace(0, -3, 99, "x")
 	if got := e.Text(); got != "x" {
 		t.Fatalf("text = %q", got)
 	}

@@ -16,14 +16,15 @@ import (
 // of what goes inside it and lets the same box frame a widget, a string, or nothing.
 // A focusable child that must participate in routing inside the frame belongs in a
 // [Panel], which owns that narrower live composition explicitly.
+//
+// Border overrides the frame drawn from Glyphs; a box with neither glyphs nor a
+// border has no frame, and therefore no room for a title or footer.
 type Box struct {
 	Theme   Theme
 	Glyphs  Glyphs
 	Border  Border
 	Padding layout.Inset
-	Bare    bool
-	// Title sits in the top border, indented one column so the corner reads as a
-	// corner.
+	// Title sits in the top border, inset so the corner reads as a corner.
 	Title       string
 	TitleAlign  layout.Align
 	Footer      string
@@ -31,9 +32,6 @@ type Box struct {
 }
 
 func (b Box) border() Border {
-	if b.Bare {
-		return Border{}
-	}
 	if b.Border != (Border{}) {
 		return b.Border
 	}

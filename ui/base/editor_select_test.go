@@ -157,8 +157,8 @@ func TestReplacementDropsASelectionWhetherOrNotTextChanges(t *testing.T) {
 		{"clear", func(e *base.Editor) { e.Clear() }},
 		{"different set text", func(e *base.Editor) { e.SetText("hi") }},
 		{"equivalent set text", func(e *base.Editor) { e.SetText("hello world") }},
-		{"different replace", func(e *base.Editor) { e.Replace(0, 5, "HELLO") }},
-		{"equivalent replace", func(e *base.Editor) { e.Replace(0, 5, "hello") }},
+		{"different replace", func(e *base.Editor) { e.Replace(0, 0, 5, "HELLO") }},
+		{"equivalent replace", func(e *base.Editor) { e.Replace(0, 0, 5, "hello") }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			editor := editorWith("hello world")

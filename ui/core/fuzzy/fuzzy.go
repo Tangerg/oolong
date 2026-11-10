@@ -29,9 +29,9 @@ const (
 )
 
 type Match struct {
-	// Score is meaningful only against other scores for the same pattern. Higher is
-	// better, and a match is never worth less than one, so that "matched at all" and
-	// "did not match" cannot be confused.
+	// Score is meaningful only against other scores for the same pattern; higher
+	// is better. Whether there was a match at all is Score's boolean result, not
+	// this value: an empty pattern matches with a score of zero.
 	Score int
 	// At is the byte offset in the candidate of each character the pattern matched,
 	// ascending. An offset can fall inside a grapheme cluster — a pattern character

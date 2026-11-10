@@ -226,9 +226,11 @@ func (r *Root) Invoke(ctx context.Context, target Target, action ActionID, param
 		if availability.Disabled {
 			return Invocation{}, &UnavailableError{Action: action, Reason: availability.Reason}
 		}
-		before := r.modelRevision
 		result, err := binding.invoke(ctx, params)
-		if result.State != Unchanged && before == r.modelRevision {
+		// A changed outcome always settles here, even when the action already
+		// advanced the revision: moving focus does so without settling modal
+		// layers and eligibility, and a revision cannot tell the two apart.
+		if result.State != Unchanged {
 			r.Changed()
 		}
 		return result, err

@@ -64,13 +64,13 @@ func ExampleComposer_typing() {
 	scenes := scenetest.New()
 	defer scenes.Close()
 
-	var c kit.Composer
+	c := kit.NewComposer(kit.ComposerConfig{})
 	c.SetPrompt("› ")
 	for _, r := range "hello" {
-		scenes.Mount(&c).Handle(input.Key{Code: input.Character, Rune: r})
+		scenes.Mount(c).Handle(input.Key{Code: input.Character, Rune: r})
 	}
 	fmt.Println(c.Controller().Text())
-	showWidget(scenes, 12, 1, &c)
+	showWidget(scenes, 12, 1, c)
 
 	// Output:
 	// hello

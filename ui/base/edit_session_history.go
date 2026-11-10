@@ -3,8 +3,6 @@ package base
 import (
 	"slices"
 	"weak"
-
-	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 const maxUndo = 200
@@ -15,7 +13,7 @@ type editSnapshot struct {
 	view   weak.Pointer[Editor]
 	change ChangeMap
 	lines  []string
-	marks  []text.Mark
+	marks  []elementMark
 	caret  Caret
 }
 

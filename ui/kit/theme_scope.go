@@ -6,6 +6,8 @@ import (
 	"slices"
 	"weak"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
+
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
@@ -120,6 +122,18 @@ func newAppearance(palette Theme, scope *ThemeScope, override ThemeOverride) (ap
 func (a *appearance) bind(element scene.Element) {
 	a.consumer = &themeConsumer{element: element}
 	a.scope.owner.retain(a.consumer)
+}
+
+// rowStyle paints a list row's selection band and returns the style its text
+// is drawn with. Every list skin shares this one selection policy, so a row
+// reads as selected the same way wherever it is shown.
+func (a *appearance) rowStyle(view grid.View, selected bool) grid.Style {
+	palette := a.palette()
+	if !selected {
+		return palette.Text
+	}
+	view.Fill(view.Bounds(), palette.Selection)
+	return palette.Text.Merge(palette.Selection)
 }
 
 func (a *appearance) palette() Theme {

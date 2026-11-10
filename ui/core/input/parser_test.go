@@ -451,10 +451,74 @@ func TestEscapeThenTypingIsTwoKeystrokes(t *testing.T) {
 	}
 }
 
+// A second Escape can be the Meta prefix of a sequence (ESC ESC [ A is Alt+Up on
+// urxvt and PuTTY), so it waits to see what follows; only then is it a key of its
+// own.
 func TestTwoEscapesInARow(t *testing.T) {
-	events := feed("\x1b\x1b")
-	if len(events) != 1 || events[0].(input.Key).Code != input.Esc {
-		t.Fatalf("got %+v, want one Escape with the second still buffered", events)
+	var p input.Parser
+	if events := p.Feed([]byte("\x1b\x1b")); len(events) != 0 {
+		t.Fatalf("got %+v, want both Escapes held for what follows", events)
+	}
+	esc := input.Key{Code: input.Esc}
+	if events := p.Expire(); !slices.Equal(events, []input.Event{esc, esc}) {
+		t.Fatalf("expired Escapes = %+v, want two Escape keys", events)
+	}
+	if events := feed("\x1b\x1bx"); !slices.Equal(events, []input.Event{esc, input.Key{Code: input.Character, Rune: 'x', Mods: input.Alt}}) {
+		t.Fatalf("Escape then Alt+x = %+v", events)
+	}
+}
+
+func TestMetaPrefixModifiesTheSequenceItIntroduces(t *testing.T) {
+	for in, want := range map[string]input.Key{
+		"\x1b\x1b[A": {Code: input.Up, Mods: input.Alt},
+		"\x1b\x1bOB": {Code: input.Down, Mods: input.Alt},
+	} {
+		for split := 1; split < len(in); split++ {
+			var p input.Parser
+			events := append(p.Feed([]byte(in[:split])), p.Feed([]byte(in[split:]))...)
+			if !slices.Equal(events, []input.Event{want}) {
+				t.Fatalf("%q split %d = %+v, want %+v", in, split, events, want)
+			}
+		}
+	}
+}
+
+// ESC O followed by a byte that cannot end an SS3 sequence was Alt+O. The byte
+// that proved it used to be swallowed, turning Alt+O then Up into typed "[A".
+func TestSS3RereadsTheByteThatProvedItWasAltO(t *testing.T) {
+	altO := input.Key{Code: input.Character, Rune: 'O', Mods: input.Alt}
+	if events := feed("\x1bO\x1b[A"); !slices.Equal(events, []input.Event{altO, input.Key{Code: input.Up}}) {
+		t.Fatalf("Alt+O then Up = %+v", events)
+	}
+	if events := feed("\x1bO2P"); !slices.Equal(events, []input.Event{input.Key{Code: input.F1, Mods: input.Shift}}) {
+		t.Fatalf("legacy SS3 Shift+F1 = %+v", events)
+	}
+}
+
+// A sequence split by the transport across the Escape wait is not typing. Its body
+// used to be replayed as keys once the wait expired.
+func TestAnExpiredSequenceBodyIsNotReplayedAsKeys(t *testing.T) {
+	var p input.Parser
+	if events := p.Feed([]byte("\x1b[<35;12;")); len(events) != 0 {
+		t.Fatalf("partial mouse report produced %+v", events)
+	}
+	if events := p.Expire(); len(events) != 0 {
+		t.Fatalf("expired partial report produced %+v", events)
+	}
+	if events := p.Feed([]byte("4Mx")); !slices.Equal(events, []input.Event{input.Key{Code: input.Character, Rune: 'x'}}) {
+		t.Fatalf("rest of the report = %+v, want only the key typed after it", events)
+	}
+}
+
+func TestRxvtModifiedNumberedKeys(t *testing.T) {
+	for in, want := range map[string]input.Key{
+		"\x1b[3$": {Code: input.Delete, Mods: input.Shift},
+		"\x1b[5^": {Code: input.PageUp, Mods: input.Ctrl},
+		"\x1b[2@": {Code: input.Insert, Mods: input.Ctrl | input.Shift},
+	} {
+		if events := feed(in); !slices.Equal(events, []input.Event{want}) {
+			t.Fatalf("%q = %+v, want %+v", in, events, want)
+		}
 	}
 }
 

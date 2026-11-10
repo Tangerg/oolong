@@ -83,6 +83,18 @@ type ElementConfig struct {
 	Detached     func()
 }
 
+// MeasureRows measures content that fills whatever width it is given and needs
+// height(width) rows for it. It has no intrinsic width, so a flow along the
+// horizontal axis leaves its size to the slot rather than to the content.
+func MeasureRows(height func(width int) int) func(layout.Axis, int) int {
+	return func(axis layout.Axis, width int) int {
+		if axis == layout.Down {
+			return height(width)
+		}
+		return 0
+	}
+}
+
 type node struct {
 	config        ElementConfig
 	group         *Group
@@ -348,21 +360,16 @@ func (e Element) detachedOwner() *node {
 // SetPaint fills an unmounted behavior part's visual slot. After mounting, its
 // painter is fixed; changing appearance is data consumed by that same painter.
 func (e Element) SetPaint(paint func(Frame)) error {
-	if e.node == nil {
-		return ErrInvalid
-	}
-	if err := e.CheckMutation(); err != nil {
+	if err := e.configurable(); err != nil {
 		return err
-	}
-	if e.node.root != nil {
-		return ErrMounted
 	}
 	e.node.config.Paint = paint
 	return nil
 }
 
-// SetMeasure fills the measurement slot before attachment. The callback must be a pure projection.
-func (e Element) SetMeasure(measure func(layout.Axis, int) int) error {
+// configurable is the one rule every configuration slot obeys: it can be filled
+// only on an unmounted element outside a read-only phase.
+func (e Element) configurable() error {
 	if e.node == nil {
 		return ErrInvalid
 	}
@@ -371,6 +378,14 @@ func (e Element) SetMeasure(measure func(layout.Axis, int) int) error {
 	}
 	if e.node.root != nil {
 		return ErrMounted
+	}
+	return nil
+}
+
+// SetMeasure fills the measurement slot before attachment. The callback must be a pure projection.
+func (e Element) SetMeasure(measure func(layout.Axis, int) int) error {
+	if err := e.configurable(); err != nil {
+		return err
 	}
 	e.node.config.Measure = measure
 	return nil
@@ -380,14 +395,8 @@ func (e Element) SetMeasure(measure func(layout.Axis, int) int) error {
 // controls may keep keyboard focus on an input while a list remains pointer
 // interactive. The predicate must be pure; the scene still owns actual focus.
 func (e Element) SetFocusable(focusable func() bool) error {
-	if e.node == nil {
-		return ErrInvalid
-	}
-	if err := e.CheckMutation(); err != nil {
+	if err := e.configurable(); err != nil {
 		return err
-	}
-	if e.node.root != nil {
-		return ErrMounted
 	}
 	e.node.config.Focusable = focusable
 	return nil
@@ -429,6 +438,11 @@ type Item struct {
 // GroupConfig selects child geometry. Layout is a pure variation point. Its returned rectangles
 // are in the group's coordinates and must have exactly one entry per item.
 // Nil uses Flow, or overlapping full bounds when Overlay is true.
+// GroupConfig arranges children in two independent respects. Placement is
+// Layout when set, and otherwise an overlay or a flow along Axis with Gap.
+// Measurement, unless Element.Measure overrides it, is the largest child for an
+// overlay, the flow's wanted extent for a flow, and for a custom Layout that is
+// not an overlay, the children's extents summed along Axis with Gap between them.
 type GroupConfig struct {
 	Element ElementConfig
 	Axis    layout.Axis
@@ -439,6 +453,19 @@ type GroupConfig struct {
 	Layout  func(image.Point, []Item) []image.Rectangle
 }
 
+// validateArrangement refuses a gap that no arrangement would use, rather than
+// letting a measurement silently ignore it.
+func (cfg GroupConfig) validateArrangement() error {
+	switch {
+	case cfg.Gap < 0:
+		return fmt.Errorf("%w: negative group gap %d", ErrInvalid, cfg.Gap)
+	case cfg.Overlay && cfg.Gap != 0:
+		return fmt.Errorf("%w: an overlay group has no gap", ErrInvalid)
+	default:
+		return nil
+	}
+}
+
 // Group owns one ordered child relation. A Group must not be copied after first use.
 type Group struct {
 	noCopy  noCopy
@@ -447,9 +474,13 @@ type Group struct {
 	items   []Item
 }
 
-// NewGroup creates an ordered composition. It panics for an invalid axis or initial child relation.
+// NewGroup creates an ordered composition. It panics for an invalid axis or
+// initial child relation, a negative gap, or a gap on an overlay.
 func NewGroup(cfg GroupConfig) *Group {
 	if err := cfg.Axis.Validate(); err != nil {
+		panic(err)
+	}
+	if err := cfg.validateArrangement(); err != nil {
 		panic(err)
 	}
 	g := &Group{config: cfg}
@@ -686,7 +717,7 @@ func (g *Group) measure(axis layout.Axis, across int) int {
 	extent := 0
 	for i, item := range g.items {
 		if i != 0 {
-			extent = layout.Sum(extent, max(0, g.config.Gap))
+			extent = layout.Sum(extent, g.config.Gap)
 		}
 		extent = layout.Sum(extent, item.Element.Measure(axis, across))
 	}

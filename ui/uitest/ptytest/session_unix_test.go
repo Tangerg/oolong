@@ -4,6 +4,8 @@ package ptytest_test
 
 import (
 	"context"
+	"errors"
+	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
@@ -52,7 +54,11 @@ func TestClosingEndsTheWholeSessionItStarted(t *testing.T) {
 	closed := make(chan error, 1)
 	go func() { closed <- s.Close() }()
 	select {
-	case <-closed:
+	case err := <-closed:
+		exit, exited := errors.AsType[*exec.ExitError](err)
+		if !exited || exit.Sys().(syscall.WaitStatus).Signal() != syscall.SIGKILL {
+			t.Fatalf("Close: %v, want process killed by SIGKILL", err)
+		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("Close did not return while a descendant held the terminal")
 	}

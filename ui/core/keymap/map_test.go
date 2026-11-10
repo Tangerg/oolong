@@ -635,12 +635,12 @@ func TestResetPublishesConsumerStateBeforeCancelingTheOldResolver(t *testing.T) 
 }
 
 func TestKeybindingTextPreservesWhitespaceAndCannotEmitTerminalControls(t *testing.T) {
-	keys := input.Keys{input.Ctrl.Rune('\t'), {Rune: '\u00a0'}, {Rune: '\u2003'}, {Rune: '\x1b'}, {Rune: '中'}}
+	keys := input.Keys{{Rune: '\u00a0'}, input.Ctrl.Rune('\u2003'), {Rune: '中'}}
 	wire, err := keys.MarshalText()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.ContainsAny(wire, "\t\u00a0\u2003\x1b") {
+	if bytes.ContainsAny(wire, "\u00a0\u2003") {
 		t.Fatalf("ambiguous or executable chord text %q", wire)
 	}
 	var restored input.Keys
@@ -650,7 +650,9 @@ func TestKeybindingTextPreservesWhitespaceAndCannotEmitTerminalControls(t *testi
 	if _, ok := input.ParseChord("\xff"); ok {
 		t.Fatal("invalid UTF-8 became a replacement-character binding")
 	}
-	for _, invalid := range []input.Chord{{Code: input.Enter, Rune: 'z'}, {Mods: 255, Rune: 'x'}, {Rune: 0xd800}} {
+	// A control character is never a key's identity, so a chord naming one could
+	// never match; it is refused rather than written as a dead binding.
+	for _, invalid := range []input.Chord{{Code: input.Enter, Rune: 'z'}, {Mods: 255, Rune: 'x'}, {Rune: 0xd800}, input.Ctrl.Rune('\t'), {Rune: '\x1b'}} {
 		if _, err := invalid.MarshalText(); err == nil {
 			t.Fatalf("an unrepresentable chord serialized successfully: %#v", invalid)
 		}

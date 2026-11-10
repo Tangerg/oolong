@@ -22,7 +22,7 @@ func TestRepaintReplyMutationUsesTheNormalFrameSchedule(t *testing.T) {
 			writer := &admissionWriter{changes: make(chan struct{}, 1)}
 			p := &program{root: root, canvas: grid.NewScreen(10, 1), writer: writer, tasks: newTaskQueue(), frameInterval: time.Second}
 			t.Cleanup(p.stop)
-			if err := p.answerRepaint(func(_, _ int, repaintErr error) {
+			if err := p.answerRepaint(&repaintRequest{reply: func(_, _ int, repaintErr error) {
 				if repaintErr != nil {
 					t.Fatal(repaintErr)
 				}
@@ -30,7 +30,7 @@ func TestRepaintReplyMutationUsesTheNormalFrameSchedule(t *testing.T) {
 					value = "after"
 					element.Invalidate()
 				}
-			}); err != nil {
+			}}); err != nil {
 				t.Fatal(err)
 			}
 			if err := p.draw(); err != nil || len(writer.frames) != 1 {

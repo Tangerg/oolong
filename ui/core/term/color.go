@@ -32,5 +32,3 @@ func DetectDepth(lookup func(string) (string, bool)) grid.Depth {
 		return grid.TrueColor
 	}
 }
-
-const sixelAttribute = 4

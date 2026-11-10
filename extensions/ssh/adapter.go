@@ -136,8 +136,13 @@ func (t *Terminal) Open(cfg term.Config) (*Host, error) {
 	return t.binding.open(cfg)
 }
 
+// open refuses an invalid configuration before claiming the terminal, so the
+// refusal leaves the session's one open available.
 func (t *terminalBinding) open(cfg term.Config) (*Host, error) {
-	if err := cfg.RestoreCursor.Shape.Validate(); err != nil {
+	env := newEnvironment(t.session.Environ())
+	env.set("TERM", t.name)
+	modes, err := cfg.Modes(env.lookup)
+	if err != nil {
 		return nil, err
 	}
 	t.mu.Lock()
@@ -149,10 +154,8 @@ func (t *terminalBinding) open(cfg term.Config) (*Host, error) {
 		return nil, err
 	}
 	t.unavailable = true
-	env := newEnvironment(t.session.Environ())
-	env.set("TERM", t.name)
 	return newHost(t.session.Context().Done(), exactly(t.session), t.windows,
-		cfg.Modes(env.lookup), clipboard.New(cfg.Features.Clipboard),
+		modes, clipboard.New(cfg.Features.Clipboard),
 		term.DetectLocale(env.lookup), term.DetectDepth(env.lookup),
-		input.WheelFor(env.lookup, "")), nil
+		input.WheelFor(env.lookup, ""))
 }

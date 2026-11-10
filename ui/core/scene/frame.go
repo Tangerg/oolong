@@ -216,21 +216,17 @@ func (p *Prepared) Commit(sequence uint64) {
 	p.requireSettlement()
 	r := p.root
 	p.layout.hasOutput = sequence != 0
+	committed := r.committedSequence()
 	if sequence == 0 {
-		sequence = r.lastSequence
+		sequence = committed
 	}
-	if sequence < r.lastSequence {
+	if sequence < committed {
 		panic("scene: writer sequence moved backwards")
 	}
 	p.layout.sequence = sequence
-	r.lastSequence = sequence
 	p.tx.commit()
 	r.layout = p.layout
-	if n := len(r.inFlight); n != 0 && r.inFlight[n-1].sequence == sequence {
-		r.inFlight[n-1] = p.layout
-	} else {
-		r.inFlight = append(r.inFlight, p.layout)
-	}
+	r.frames.admit(p.layout)
 	p.layout.admittedAt = time.Now()
 	r.publishGeometry(p.layout)
 	p.settle()
@@ -274,7 +270,7 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 	if err := r.mutable(); err != nil {
 		return nil, err
 	}
-	if len(r.inFlight) >= r.maxPendingFrames {
+	if len(r.frames.inFlight) >= r.maxPendingFrames {
 		return nil, ErrBusy
 	}
 	r.preparing = true
@@ -348,29 +344,24 @@ func (r *Root) paint(item Item, view grid.View, tx *transaction, origin image.Po
 // does not claim that a physical terminal has displayed the bytes. It panics during
 // paint or observation; report writer progress between these pure phases.
 func (r *Root) Wrote(sequence uint64) {
-	if r == nil || r.closed || sequence < r.writtenSequence {
+	if r == nil || r.closed || sequence < r.frames.sequence {
 		return
 	}
-	if r.preparing || r.observing {
+	if r.projecting() {
 		panic(ErrBusy)
 	}
-	covered := 0
-	for covered < len(r.inFlight) && r.inFlight[covered].sequence <= sequence {
-		covered++
+	if r.frames.wrote(sequence) {
+		r.signal()
 	}
-	if covered == 0 && sequence == r.writtenSequence {
-		return
+}
+
+// committedSequence is the writer sequence of the newest committed frame, which
+// a later commit may not precede.
+func (r *Root) committedSequence() uint64 {
+	if r.layout == nil {
+		return 0
 	}
-	if covered > 0 {
-		r.written = r.inFlight[covered-1]
-		clear(r.inFlight[:covered])
-		r.inFlight = r.inFlight[covered:]
-		if len(r.inFlight) == 0 {
-			r.inFlight = nil
-		}
-	}
-	r.writtenSequence = sequence
-	r.signal()
+	return r.layout.sequence
 }
 
 // InvalidateGeometry refuses coordinate input until a complete replacement frame
@@ -383,8 +374,7 @@ func (r *Root) InvalidateGeometry() {
 	if err := r.mutable(); err != nil {
 		panic(err)
 	}
-	r.written = nil
-	r.inFlight = nil
+	r.frames.revoke()
 	r.geometryEpoch = next(r.geometryEpoch)
 	r.published.Store(nil)
 	if n := r.resolve(r.hover); n != nil {
@@ -414,6 +404,12 @@ func (r *Root) publishGeometry(snapshot *layoutSnapshot) {
 	}
 	layouts = append(layouts, snapshot)
 	r.published.Store(&inputGeometry{layouts: layouts})
+}
+
+// current reports whether snapshot is admitted geometry that no invalidation has
+// revoked. It is the one rule every coordinate reader applies.
+func (r *Root) current(snapshot *layoutSnapshot) bool {
+	return snapshot != nil && snapshot.epoch == r.geometryEpoch
 }
 
 func (r *Root) layoutRevision() uint64 {

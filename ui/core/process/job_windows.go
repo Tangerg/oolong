@@ -277,7 +277,9 @@ func (j *Job) closeObserver() error {
 		<-j.done
 		err = windows.CloseHandle(j.port)
 	}
-	if !j.started && errors.Is(j.err, errJobObservationStopped) {
+	// A started job's observation result was already reported by wait; joining it
+	// again would report one failure twice.
+	if j.started || errors.Is(j.err, errJobObservationStopped) {
 		return err
 	}
 	return errors.Join(err, j.err)

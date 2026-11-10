@@ -41,7 +41,7 @@ func TestMarkdownPreparationLeavesTheOwnerResponsive(t *testing.T) {
 			t.Fatal("the renderer never started")
 		}
 		if err := c.runtime.Dispatcher().Invoke(t.Context(), func() error {
-			c.conversation.content.Scroll().ToTop()
+			c.conversation.transcript.Scroll().ToTop()
 			return nil
 		}); err != nil {
 			t.Fatal(err)

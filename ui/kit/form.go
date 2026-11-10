@@ -3,7 +3,6 @@ package kit
 import (
 	"image"
 	"slices"
-	"sync"
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -65,12 +64,7 @@ func NewForm(config FormConfig) *Form {
 	f.group = scene.NewGroup(scene.GroupConfig{
 		Items: []scene.Item{{Element: f.controller.Element(), Size: layout.Flex(1)}},
 		Element: scene.ElementConfig{
-			Measure: func(axis layout.Axis, width int) int {
-				if axis == layout.Down {
-					return f.HeightForWidth(width)
-				}
-				return 0
-			},
+			Measure: scene.MeasureRows(f.HeightForWidth),
 			Paint: func(frame scene.Frame) {
 				w, h := frame.Size()
 				if f.controller.Title() != "" {
@@ -111,26 +105,12 @@ func (f *Form) titleRows() int {
 	return 0
 }
 
-func (f *Form) help() Help { return Help{Theme: f.appearance.palette(), Keys: f.keys(), Show: f.hints} }
-
-var defaultFormKeys = sync.OnceValue(base.DefaultFormKeys)
-
-func (f *Form) keys() *keymap.Map {
-	if f.controller.Keys() != nil {
-		return f.controller.Keys()
-	}
-	return defaultFormKeys()
+func (f *Form) help() Help {
+	return Help{Theme: f.appearance.palette(), Keys: KeysFunc(f.controller.KeysFor), Show: f.hints}
 }
 
 func (f *Form) Glyphs() Glyphs { return f.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (f *Form) SetGlyphs(value Glyphs) {
-	element := f.Element()
-	if err := element.CheckMutation(); err != nil {
-		panic(err)
-	}
-	f.glyphs = value.clone()
-	element.Invalidate()
-}
+func (f *Form) SetGlyphs(value Glyphs) { replaceGlyphs(f.Element(), &f.glyphs, value) }

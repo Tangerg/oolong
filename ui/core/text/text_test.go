@@ -195,16 +195,18 @@ func TestTruncateUsesOneTabAwareGeometry(t *testing.T) {
 	}{
 		{name: "tab gap is clipped", in: "a\tb", width: 4, want: "a   "},
 		{name: "tab reaches the edge", in: "a\tb", width: 8, want: "a       "},
-		{name: "complete tabbed text", in: "a\tb", width: 9, want: "a\tb"},
+		{name: "complete tabbed text", in: "a\tb", width: 9, want: "a       b"},
 		{
 			name: "suffix tab expands after retained text", in: "abcdefghijklmnopqrst",
-			width: 15, ellipsis: "X\t", want: "abcdefX\t",
+			width: 15, ellipsis: "X\t", want: "abcdefX ",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// The string result is drawn by View.Text, which has no tab stops, so its
+			// tabs are already the spaces the styled line expands them to.
 			plain := text.Truncate(test.in, test.width, test.ellipsis)
-			styled := text.Of(test.in, grid.Style{}).Truncate(test.width, test.ellipsis).String()
+			styled := text.ExpandTabs(text.Of(test.in, grid.Style{}).Truncate(test.width, test.ellipsis))
 			if plain != test.want || styled != test.want {
 				t.Fatalf("plain/styled truncate = %q/%q, want %q", plain, styled, test.want)
 			}
@@ -237,8 +239,8 @@ func FuzzTruncateMatchesStyledLineAndFits(f *testing.F) {
 		}
 		width = min(max(width, 0), 64)
 		plain := text.Truncate(source, width, ellipsis)
-		styled := text.Of(source, grid.Style{}).Truncate(width, ellipsis).String()
-		if plain != styled {
+		styled := text.ExpandTabs(text.Of(source, grid.Style{}).Truncate(width, ellipsis))
+		if plain != styled || strings.Contains(plain, "\t") {
 			t.Fatalf("plain/styled truncate = %q/%q", plain, styled)
 		}
 		if got := text.Width(plain); got > width {

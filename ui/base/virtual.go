@@ -175,8 +175,10 @@ func (v *VirtualWindow) Resolve(width, height, offset int) (VirtualRange, error)
 	// Installing children invokes scene predicates after attachment. They must
 	// already observe the range to which those children belong.
 	v.keys, v.heights, v.width, v.window = candidate.keys, candidate.heights, width, candidate.window
+	// CheckSet admitted exactly these children, so a refusal now would leave the
+	// committed range describing children that were never installed.
 	if err = v.group.Set(children...); err != nil {
-		return VirtualRange{}, err
+		panic(err)
 	}
 	return v.Snapshot(), nil
 }

@@ -200,8 +200,7 @@ type editorMeaning struct {
 	anchor           Caret
 	selecting        bool
 	desiredColumn    editorColumn
-	rowEnd           Caret
-	rowEndSet        bool
+	rowEnd           *Caret
 	elements         []Element
 	elementIDs       identitySequence
 	matcherKeys      input.Keys
@@ -219,15 +218,14 @@ type editorMeaning struct {
 	kills            []editorKill
 	typing           bool
 	continuation     editorContinuation
-	yank             editorYank
 }
 
 func meaningOfEditor(editor *Editor) editorMeaning {
 	line, byteOffset := editor.Cursor()
 	return editorMeaning{
 		text: editor.Text(), revision: editor.Revision(), line: line, byteOffset: byteOffset,
-		selection: editor.Selected(), anchor: editor.anchor, selecting: editor.selecting,
-		desiredColumn: editor.desiredColumn, rowEnd: editor.rowEnd, rowEndSet: editor.rowEndSet,
+		selection: editor.Selected(), anchor: editor.anchor, selecting: editor.selection != editorSelectionNone,
+		desiredColumn: editor.desiredColumn, rowEnd: editor.rowEnd,
 		elements: editor.Elements(), elementIDs: editor.document().elementIDs,
 		matcherKeys: editor.matcher.Keys(), focused: editor.element.Focused(),
 		look: editor.Look(), placeholder: editor.Placeholder(),
@@ -236,7 +234,7 @@ func meaningOfEditor(editor *Editor) editorMeaning {
 		mask: editor.Mask(), gutter: editor.Gutter(), cursor: editor.CursorStyle(),
 		undo: cloneEditSnapshots(editor.document().history.undo), redo: cloneEditSnapshots(editor.document().history.redo),
 		kills: cloneEditorKills(editor.kills.entries), typing: editor.document().history.typist.Value() == editor,
-		continuation: editor.continuation, yank: editor.yank,
+		continuation: editor.continuation,
 	}
 }
 
@@ -291,6 +289,10 @@ func headlessDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 			revision uint64
 		}{chosenValue(one), one.Revision()}
 	}))
+	// The measure Select and MultiSelect share is exercised through a field that
+	// adds nothing to it.
+	listed := NewSelect(SelectConfig[string]{Same: Equal[string], Options: Options("one", "two"), Rows: 1})
+	cases = append(cases, widgetPurityCase(scenes, "*choiceList", listed, func() any { return listed.Revision() }))
 	many := NewMultiSelect(MultiSelectConfig[string]{Same: Equal[string], Options: Options("one", "two"), Initial: []string{"two"}})
 	cases = append(cases, widgetPurityCase(scenes, "*MultiSelect", many, func() any {
 		return struct {

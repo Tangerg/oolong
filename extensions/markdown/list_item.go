@@ -17,7 +17,7 @@ type listItem struct {
 	marker *prefixMark
 }
 
-func (item *listItem) prepareLayout(ctx context.Context, width int) (*listItemLayout, error) {
+func (item *listItem) layout(ctx context.Context, width int) (placedBody, error) {
 	body, err := item.body.prepareLayout(ctx, width)
 	if err != nil {
 		return nil, err

@@ -65,13 +65,13 @@ func TestTranscriptRetirementPreservesTheLastRepresentableOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(transcript.Close)
-	transcript.start = math.MaxInt - 1
+	transcript.startRow = math.MaxInt - 1
 	last, err := transcript.Add(retirementBoundaryBlock(1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	stageTranscriptForTest(transcript, 20)
-	if transcript.EndRow() != math.MaxInt {
+	if transcript.Layout().EndRow() != math.MaxInt {
 		t.Fatal("the last representable row was refused")
 	}
 	publisher.Commit(publisher.Prepare(), 1)
@@ -85,7 +85,7 @@ func TestTranscriptRetirementPreservesTheLastRepresentableOrigin(t *testing.T) {
 		t.Fatal(err)
 	}
 	stageTranscriptForTest(transcript, 20)
-	if transcript.StartRow() != math.MaxInt || transcript.EndRow() != math.MaxInt || transcript.Height() != 0 {
+	if transcript.Layout().StartRow() != math.MaxInt || transcript.Layout().EndRow() != math.MaxInt || transcript.Layout().Height() != 0 {
 		t.Fatal("retirement wrapped the exhausted row origin")
 	}
 	if empty.State() != ContentRetired || empty.Receipt().Snapshot().State != publication.Written {
@@ -117,7 +117,7 @@ func TestTranscriptReleasesTheFullAllocationAfterPrefixRetires(t *testing.T) {
 		t.Fatalf("retained %d items", transcript.Len())
 	}
 	for _, item := range original[:1900] {
-		if item != nil && item.body != nil {
+		if item != nil && item.source != nil {
 			t.Fatal("retired prefix still retains a content payload")
 		}
 	}

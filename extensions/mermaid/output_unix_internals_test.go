@@ -14,10 +14,10 @@ func TestSpecialOutputIsRejectedBeforeOpening(t *testing.T) {
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readImage(t.Context(), fifo, 1024, 100); !errors.Is(err, ErrLimit) {
+	if _, err := readImage(fifo, 1024, 100); !errors.Is(err, ErrLimit) {
 		t.Fatalf("FIFO: %v", err)
 	}
-	if _, err := readImage(t.Context(), t.TempDir(), 1024, 100); !errors.Is(err, ErrLimit) {
+	if _, err := readImage(t.TempDir(), 1024, 100); !errors.Is(err, ErrLimit) {
 		t.Fatalf("directory: %v", err)
 	}
 }

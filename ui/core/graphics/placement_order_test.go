@@ -75,7 +75,7 @@ func decodeKittyPlacements(t *testing.T, output string) []kittyPlacement {
 	var placements []kittyPlacement
 	var scanner ansi.Scanner
 	if err := scanner.Feed(output, func(piece ansi.Piece) error {
-		if piece.Kind != ansi.String || piece.Final != '_' || !strings.HasPrefix(piece.Body, "Ga=p,") {
+		if piece.Kind != ansi.String || piece.Family != ansi.APC || !strings.HasPrefix(piece.Body, "Ga=p,") {
 			return nil
 		}
 		control, _, _ := strings.Cut(piece.Body[1:], ";")

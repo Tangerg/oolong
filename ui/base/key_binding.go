@@ -12,6 +12,15 @@ type keyBinding struct {
 	subscription *keymap.Subscription
 }
 
+// resolve is the map its consumer handles keys with: the consumer's own map, or
+// its immutable defaults when none is set.
+func (b *keyBinding) resolve(defaults func() *keymap.Map) *keymap.Map {
+	if b.current != nil {
+		return b.current
+	}
+	return defaults()
+}
+
 func (b *keyBinding) attach(element scene.Element, matcher *keymap.Matcher) {
 	if b.current == nil || b.subscription != nil || element.IsZero() {
 		return

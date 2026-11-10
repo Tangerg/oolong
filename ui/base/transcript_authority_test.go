@@ -109,7 +109,7 @@ func TestDocumentRegistrationPublishesOnlyTheSubscribedReference(t *testing.T) {
 	}
 	transcriptPrepare(t, d)
 	transcriptCommit(t, r, 10, 1, 1)
-	if got := m.Rows(0, 1); len(got) != 1 || got[0].Text != "new" {
+	if got := m.Layout().Rows(0, 1); len(got) != 1 || got[0].Text != "new" {
 		t.Fatalf("retained reference was never subscribed: %v", got)
 	}
 }

@@ -46,21 +46,15 @@ func NewDialog(config DialogConfig) *Dialog {
 		panic(appearanceErr)
 	}
 	d := &Dialog{appearance: look, where: config.Where}
-	d.panel = NewPanel(PanelConfig{Box: Box{Glyphs: config.Glyphs, Border: config.Border, Padding: layout.Symmetric(0, 1)}, Content: config.Body})
+	// The panel resolves the dialog's own scope, and its title is the controller's
+	// semantic title, so neither has a second copy here.
+	box := Box{Glyphs: config.Glyphs, Border: config.Border, Padding: layout.Symmetric(0, 1)}
+	d.panel = newPanel(appearance{scope: look.scope}, box, config.Body, func() string { return d.controller.Title() })
 	d.controller = base.NewDialog(base.DialogConfig{
 		Initial: config.Initial, Title: config.Title, Description: config.Description, Content: d.panel.Element(), Keys: config.Keys, DismissOutside: config.DismissOutside, Dismissed: config.Dismissed,
 		Place:    func(space image.Point) image.Rectangle { return d.where.In(space) },
 		Backdrop: func(frame scene.Frame) { d.appearance.palette().Scrim.Over(frame.View) },
 	})
-	// The title is semantic state in the controller. Painting reads it directly.
-	if err := d.panel.Element().SetPaint(func(frame scene.Frame) {
-		box := d.panel.Box()
-		box.Theme = d.appearance.palette()
-		box.Title = d.controller.Title()
-		box.paint(frame.View)
-	}); err != nil {
-		panic(err)
-	}
 	d.appearance.bind(d.Element())
 	return d
 }

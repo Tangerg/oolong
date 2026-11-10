@@ -48,10 +48,13 @@ func TestInvalidCursorRestoreDoesNotConsumeTerminalOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refused configuration consumed the open lifetime: %v", err)
 	}
-	if err := host.Close(); err != nil {
+	if err = host.Close(); err != nil {
 		t.Fatal(err)
 	}
-	modes := valid.Modes(nil)
+	modes, err := valid.Modes(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got, want := session.output.String(), modes.Enter()+modes.Leave(); got != want {
 		t.Fatalf("configured restore output = %q, want %q", got, want)
 	}

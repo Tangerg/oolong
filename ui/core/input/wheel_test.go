@@ -126,10 +126,10 @@ func TestTheZeroWheelIsTheCommonArrangement(t *testing.T) {
 // terminal that sends three reports to a notch worth one row, each is worth a third,
 // and rounding each to zero would mean the view never moved while the wheel turned.
 func TestAdvanceKeepsWhatAReportWasWorth(t *testing.T) {
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 3, Rows: 1})
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 3, Rows: 1})
 
-	got := []int{a.Rows(time.Time{}, 1), a.Rows(time.Time{}, 1), a.Rows(time.Time{}, 1), a.Rows(time.Time{}, 1)}
+	got := []int{a.Accumulate(time.Time{}, 1), a.Accumulate(time.Time{}, 1), a.Accumulate(time.Time{}, 1), a.Accumulate(time.Time{}, 1)}
 	want := []int{0, 0, 1, 0}
 	for i := range want {
 		if got[i] != want[i] {
@@ -139,12 +139,12 @@ func TestAdvanceKeepsWhatAReportWasWorth(t *testing.T) {
 }
 
 func TestAdvanceUpAndDown(t *testing.T) {
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 1, Rows: 3})
-	if got := a.Rows(time.Time{}, -1); got != -3 {
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 1, Rows: 3})
+	if got := a.Accumulate(time.Time{}, -1); got != -3 {
 		t.Errorf("one report up = %d rows, want -3", got)
 	}
-	if got := a.Rows(time.Time{}, 1); got != 3 {
+	if got := a.Accumulate(time.Time{}, 1); got != 3 {
 		t.Errorf("one report down = %d rows, want 3", got)
 	}
 }
@@ -152,34 +152,34 @@ func TestAdvanceUpAndDown(t *testing.T) {
 // TestAdvanceDoesNotSpendARowItDidNotEarn. Truncating towards zero means a change of
 // direction cannot cross the boundary and hand out a row that was never turned.
 func TestAdvanceDoesNotSpendARowItDidNotEarn(t *testing.T) {
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 3, Rows: 1})
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 3, Rows: 1})
 
 	// Two thirds down, then two thirds back up: nothing moved, and nothing is owed.
-	total := a.Rows(time.Time{}, 1) + a.Rows(time.Time{}, 1) + a.Rows(time.Time{}, -1) + a.Rows(time.Time{}, -1)
+	total := a.Accumulate(time.Time{}, 1) + a.Accumulate(time.Time{}, 1) + a.Accumulate(time.Time{}, -1) + a.Accumulate(time.Time{}, -1)
 	if total != 0 {
 		t.Errorf("scrolled %d rows for a gesture that came back to where it began", total)
 	}
 	// And the next full notch is still a whole row.
-	if got := a.Rows(time.Time{}, 3); got != 1 {
+	if got := a.Accumulate(time.Time{}, 3); got != 1 {
 		t.Errorf("a notch after that = %d rows, want 1", got)
 	}
 }
 
 func TestAdvanceReset(t *testing.T) {
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 3, Rows: 1})
-	a.Rows(time.Time{}, 1)
-	a.Rows(time.Time{}, 1)
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 3, Rows: 1})
+	a.Accumulate(time.Time{}, 1)
+	a.Accumulate(time.Time{}, 1)
 	a.Reset()
-	if got := a.Rows(time.Time{}, 1); got != 0 {
+	if got := a.Accumulate(time.Time{}, 1); got != 0 {
 		t.Errorf("after a reset the first report gave %d rows, want 0", got)
 	}
 }
 
 func TestTheZeroAdvanceScrollsOneRowAReport(t *testing.T) {
-	var a input.Advance
-	if got := a.Rows(time.Time{}, 1); got != 1 {
+	var a input.WheelAccumulator
+	if got := a.Accumulate(time.Time{}, 1); got != 1 {
 		t.Errorf("got %d, want one row", got)
 	}
 }
@@ -206,23 +206,23 @@ func TestAFingerIsToldFromTheWheelByHowFastItArrives(t *testing.T) {
 	profile := input.Wheel{Reports: 1, Rows: 3, Trackpad: 15}
 	base := time.Unix(0, 0)
 
-	var wheel input.Advance
-	wheel.Wheel(profile)
+	var wheel input.WheelAccumulator
+	wheel.SetWheel(profile)
 	turned := 0
 	for i := range 4 {
 		// A hand turning a wheel: notches a fifth of a second apart.
-		turned += wheel.Rows(base.Add(time.Duration(i)*200*time.Millisecond), 1)
+		turned += wheel.Accumulate(base.Add(time.Duration(i)*200*time.Millisecond), 1)
 	}
 	if turned != 12 {
 		t.Errorf("four notches scrolled %d rows, want 12", turned)
 	}
 
-	var finger input.Advance
-	finger.Wheel(profile)
+	var finger input.WheelAccumulator
+	finger.SetWheel(profile)
 	swiped := 0
 	for i := range 4 {
 		// A finger: reports as fast as the terminal can send them.
-		swiped += finger.Rows(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+		swiped += finger.Accumulate(base.Add(time.Duration(i)*8*time.Millisecond), 1)
 	}
 	if swiped <= turned {
 		t.Errorf("four reports of a swipe scrolled %d rows and four notches scrolled %d", swiped, turned)
@@ -230,16 +230,16 @@ func TestAFingerIsToldFromTheWheelByHowFastItArrives(t *testing.T) {
 }
 
 func TestAGestureEndsAndTheNextIsJudgedAfresh(t *testing.T) {
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
 	base := time.Unix(0, 0)
 
 	// A swipe.
 	for i := range 6 {
-		a.Rows(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+		a.Accumulate(base.Add(time.Duration(i)*8*time.Millisecond), 1)
 	}
 	// Then, long after, a single notch — which must not be charged at the swipe's rate.
-	if got := a.Rows(base.Add(2*time.Second), 1); got != 3 {
+	if got := a.Accumulate(base.Add(2*time.Second), 1); got != 3 {
 		t.Errorf("a notch after the swipe scrolled %d rows, want 3", got)
 	}
 }
@@ -248,13 +248,13 @@ func TestAGestureEndsAndTheNextIsJudgedAfresh(t *testing.T) {
 // notch, a notch already looks like a burst — and the two numbers come to the same
 // thing anyway.
 func TestATerminalThatBatchesIsNeverAskedTheQuestion(t *testing.T) {
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 3, Rows: 3, Trackpad: 3})
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 3, Rows: 3, Trackpad: 3})
 	base := time.Unix(0, 0)
 
 	rows := 0
 	for i := range 6 {
-		rows += a.Rows(base.Add(time.Duration(i)*time.Millisecond), 1)
+		rows += a.Accumulate(base.Add(time.Duration(i)*time.Millisecond), 1)
 	}
 	if rows != 6 {
 		t.Errorf("six reports scrolled %d rows, want 6 — one each", rows)
@@ -263,10 +263,10 @@ func TestATerminalThatBatchesIsNeverAskedTheQuestion(t *testing.T) {
 
 func TestAReportWithNoTimeIsTheWheel(t *testing.T) {
 	// Nothing timed it, so there is nothing to tell a finger by.
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
 	for range 6 {
-		if got := a.Rows(time.Time{}, 1); got != 3 {
+		if got := a.Accumulate(time.Time{}, 1); got != 3 {
 			t.Fatalf("an untimed report scrolled %d rows, want the wheel's 3", got)
 		}
 	}
@@ -275,23 +275,23 @@ func TestAReportWithNoTimeIsTheWheel(t *testing.T) {
 func TestExtremeReportCountsKeepTheirDirection(t *testing.T) {
 	maxInt := int(^uint(0) >> 1)
 	minInt := -maxInt - 1
-	var advance input.Advance
-	if got := advance.Rows(time.Time{}, maxInt); got != maxInt {
+	var advance input.WheelAccumulator
+	if got := advance.Accumulate(time.Time{}, maxInt); got != maxInt {
 		t.Fatalf("largest forward report count advanced %d rows, want %d", got, maxInt)
 	}
-	if got := advance.Rows(time.Time{}, minInt); got != minInt {
+	if got := advance.Accumulate(time.Time{}, minInt); got != minInt {
 		t.Fatalf("largest backward report count advanced %d rows, want %d", got, minInt)
 	}
 }
 
 func TestAClockMovingBackwardsStartsANewWheelGesture(t *testing.T) {
-	var advance input.Advance
-	advance.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	var advance input.WheelAccumulator
+	advance.SetWheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
 	base := time.Unix(10, 0)
-	advance.Rows(base, 1)
-	advance.Rows(base.Add(8*time.Millisecond), 1)
+	advance.Accumulate(base, 1)
+	advance.Accumulate(base.Add(8*time.Millisecond), 1)
 
-	if got := advance.Rows(base.Add(-time.Second), 1); got != 3 {
+	if got := advance.Accumulate(base.Add(-time.Second), 1); got != 3 {
 		t.Fatalf("out-of-order report advanced %d rows, want a fresh wheel notch of 3", got)
 	}
 }
@@ -308,13 +308,13 @@ func TestTrackpadDistanceFallsBackToTheWheel(t *testing.T) {
 func TestAFingerSwipingUpwardsIsStillAFinger(t *testing.T) {
 	// The direction is not part of the question, so a swipe up counts its reports the
 	// same way a swipe down does.
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
 	base := time.Unix(0, 0)
 
 	rows := 0
 	for i := range 6 {
-		rows += a.Rows(base.Add(time.Duration(i)*8*time.Millisecond), -1)
+		rows += a.Accumulate(base.Add(time.Duration(i)*8*time.Millisecond), -1)
 	}
 	if rows > -18 {
 		t.Errorf("six upward reports scrolled %d rows, want more than six notches' worth", rows)
@@ -322,14 +322,14 @@ func TestAFingerSwipingUpwardsIsStillAFinger(t *testing.T) {
 }
 
 func TestResetForgetsTheGesture(t *testing.T) {
-	var a input.Advance
-	a.Wheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
+	var a input.WheelAccumulator
+	a.SetWheel(input.Wheel{Reports: 1, Rows: 3, Trackpad: 15})
 	base := time.Unix(0, 0)
 	for i := range 6 {
-		a.Rows(base.Add(time.Duration(i)*8*time.Millisecond), 1)
+		a.Accumulate(base.Add(time.Duration(i)*8*time.Millisecond), 1)
 	}
 	a.Reset()
-	if got := a.Rows(base.Add(50*time.Millisecond), 1); got != 3 {
+	if got := a.Accumulate(base.Add(50*time.Millisecond), 1); got != 3 {
 		t.Errorf("the first report after a reset scrolled %d rows, want the wheel's 3", got)
 	}
 }

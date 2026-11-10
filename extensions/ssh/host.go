@@ -50,9 +50,14 @@ func newHost(
 	locale string,
 	color grid.Depth,
 	wheel input.Wheel,
-) *Host {
+) (*Host, error) {
+	writer := term.NewWriter(term.WriterConfig{Destination: channel})
+	// A host whose modes were never entered must not later send their Leave.
+	if _, err := writer.QueueControl([]byte(modes.Enter())); err != nil {
+		return nil, errors.Join(fmt.Errorf("ssh: enter terminal modes: %w", err), writer.Close())
+	}
 	h := &Host{
-		writer:  term.NewWriter(term.WriterConfig{Destination: channel}),
+		writer:  writer,
 		modes:   modes,
 		clip:    clip,
 		locale:  locale,
@@ -60,9 +65,8 @@ func newHost(
 		wheel:   wheel,
 		windows: windows,
 	}
-	_, _ = h.writer.QueueControl([]byte(h.modes.Enter()))
 	h.source = newEventSource(cancelled, channel, windows, h.clip)
-	return h
+	return h, nil
 }
 
 func (h *Host) Input() program.EventSource { return h.source }

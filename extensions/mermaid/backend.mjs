@@ -6,7 +6,9 @@ const [entry, configPath, output] = process.argv.slice(2);
 const requireCLI = createRequire(entry);
 const puppeteerPath = requireCLI.resolve('puppeteer');
 const {default: puppeteer} = await import(pathToFileURL(puppeteerPath));
-const browserOptions = {headless: 'shell'};
+// renderMermaid drives Chrome through CDP. Naming the browser keeps an ambient
+// PUPPETEER_BROWSER or rc file from choosing another executable or its arguments.
+const browserOptions = {browser: 'chrome', headless: 'shell'};
 
 // Sandbox setup asks this owner for the same executable used by rendering.
 if (configPath === '--browser-path') {
@@ -25,8 +27,9 @@ async function render() {
   let source = '';
   for await (const chunk of process.stdin) source += chunk;
 
-  // The Go owner creates the process group/job. Browser launch must never create
-  // a detached group: cleanup cannot depend on this JavaScript remaining responsive.
+  // The Go owner creates the process group/job and alone enforces the render
+  // deadline. Browser launch must never create a detached group: cleanup cannot
+  // depend on this JavaScript remaining responsive.
   browserOptions.userDataDir = config.profile;
   const processHandle = launch({
     executablePath: config.browser || await puppeteer.executablePath(browserOptions),
@@ -38,7 +41,7 @@ async function render() {
   });
   let browser;
   try {
-    const endpoint = await processHandle.waitForLineOutput(CDP_WEBSOCKET_ENDPOINT_REGEX, config.timeout);
+    const endpoint = await processHandle.waitForLineOutput(CDP_WEBSOCKET_ENDPOINT_REGEX);
     browser = await puppeteer.connect({browserWSEndpoint: endpoint});
     browser.on('targetcreated', async target => {
       try {

@@ -71,12 +71,12 @@ func TestProtocolIdentity(t *testing.T) {
 }
 
 func TestDefaultWheelReportsClassifyLikeExplicitDefault(t *testing.T) {
-	var a Advance
-	a.Wheel(Wheel{Trackpad: 15})
+	var a WheelAccumulator
+	a.SetWheel(Wheel{Trackpad: 15})
 	now := time.Now()
 	total := 0
 	for i := range 3 {
-		total += a.Rows(now.Add(time.Duration(i)*time.Millisecond), 1)
+		total += a.Accumulate(now.Add(time.Duration(i)*time.Millisecond), 1)
 	}
 	if total != 3 {
 		t.Fatalf("rows=%d", total)

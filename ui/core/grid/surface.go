@@ -4,6 +4,7 @@ import (
 	"image"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/internal/grapheme"
@@ -424,9 +425,9 @@ func (v View) Text(x, y int, s string, style Style) int {
 	}
 	clip := v.clipped()
 	p := translatePoint(image.Pt(x, y), v.origin)
-	if p.Y < clip.Min.Y || p.Y >= clip.Max.Y {
-		return graphemeWidth(s)
-	}
+	// A row outside the clip is measured exactly as a visible one; it only skips
+	// the writes. Clipping must not change the advance a caller chains from.
+	visible := p.Y >= clip.Min.Y && p.Y < clip.Max.Y
 
 	cx := p.X
 	advanced := 0
@@ -446,7 +447,7 @@ func (v View) Text(x, y int, s string, style Style) int {
 		end := layout.Translate(cx, w)
 		advanced = layout.Translate(advanced, w)
 		switch {
-		case end <= clip.Min.X || cx >= clip.Max.X:
+		case !visible || end <= clip.Min.X || cx >= clip.Max.X:
 			// The column still advances: a caller measuring what it drew is asking
 			// about the text, not about how much of it landed.
 		case cx < clip.Min.X || end > clip.Max.X:
@@ -511,13 +512,18 @@ func (v View) combine(cx, y int, cluster string) int {
 		head = layout.Translate(head, int(prev.span))
 		prev = v.surface.cellAt(head, y)
 	}
-	if prev == nil || prev.span < 0 || !image.Pt(head, y).In(v.clipped()) {
+	if prev == nil || prev.span < 0 {
 		return 0
 	}
 	base := prev.content
 	if base == "" {
 		// The implicit blank still advances a column on the wire.
 		base = " "
+	}
+	if !image.Pt(head, y).In(v.clipped()) {
+		// A head outside the clip is not repainted, but the join still changes
+		// its width, and the advance reports that whatever was clipped.
+		return graphemeWidth(base+cluster) - prev.Width()
 	}
 	if pool := v.surface.capture; pool != nil {
 		if int64(len(cluster)) > pool.limit-int64(len(base)) {
@@ -621,7 +627,7 @@ func control(cluster string) bool {
 		return true
 	}
 	r, _ := utf8.DecodeRuneInString(cluster)
-	return r < 0x20 || r >= 0x7f && r <= 0x9f
+	return unicode.IsControl(r)
 }
 
 // Render supports nonterminal output with unstyled rows and trimmed trailing

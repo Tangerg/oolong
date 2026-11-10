@@ -53,12 +53,12 @@ func TestRepaintPressureRestoresInputProgressThroughSourceTermination(t *testing
 					}
 					owner.inputPipe = newInputPipe(ctx, root, source, source.Events(), nil, Config{InputEvents: capacity.events, InputBytes: capacity.bytes})
 					defer owner.stop()
-					if err := owner.answerRepaint(func(width, height int, err error) {
+					if err := owner.answerRepaint(&repaintRequest{reply: func(width, height int, err error) {
 						replies++
 						if width != 0 || height != 0 || !errors.Is(err, capacity.reply) {
 							t.Errorf("repaint result=%dx%d, %v; want %v", width, height, err, capacity.reply)
 						}
-					}); err != nil {
+					}}); err != nil {
 						t.Fatal(err)
 					}
 					source.events <- input.Key{Rune: 'a'}

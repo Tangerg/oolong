@@ -25,7 +25,8 @@ import (
 //
 //	filter.SetPattern(composer.Controller().Text())
 //
-// The zero Filter shows everything, in the order it was given. A Filter must not be
+// A Filter without item text matches nothing, because it cannot guess how to read
+// an item. A Filter must not be
 // copied after first use: its source, ranked list and cursor are one mutable owner.
 // Source and pattern changes prepare their matches before publication. A projection
 // panic leaves the previous state intact; projections cannot reenter either setter.
@@ -40,11 +41,7 @@ type Filter[T any] struct {
 	// text is what an item reads as, which is what the pattern is matched against. A
 	// filter with none matches nothing, because there is nothing to match: an item is
 	// whatever the caller says it is, and this cannot guess how to read one.
-	text func(item T) string
-	// Row draws one of the items that matched. at is where it sits among the rows on
-	// screen, match says which characters of its text answered the pattern, and
-	// selected says whether it is the one under the cursor. It runs during drawing
-	// and must be an observationally pure projection.
+	text       func(item T) string
 	rowPainter func(v grid.View, at int, item T, match fuzzy.Match, selected bool)
 
 	pattern string
@@ -58,7 +55,11 @@ type hit[T any] struct {
 }
 
 type FilterConfig[T any] struct {
-	Row  func(grid.View, int, T, fuzzy.Match, bool)
+	// Row draws one of the items that matched: at is where it sits among the rows
+	// on screen, match says which characters of its text answered the pattern, and
+	// selected says whether it is the one under the cursor. It runs during drawing
+	// and must be an observationally pure projection.
+	Row  func(v grid.View, at int, item T, match fuzzy.Match, selected bool)
 	Keys *keymap.Map
 }
 

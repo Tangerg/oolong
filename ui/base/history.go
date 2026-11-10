@@ -57,9 +57,7 @@ const DefaultHistoryLimit = 1000
 // a negative limit panics. If the current entry is dropped, the next Forward reaches
 // the oldest retained entry without losing the original draft.
 func (h *History[T]) SetLimit(n int) {
-	if n < 0 {
-		panic("base: history limit cannot be negative")
-	}
+	requireNonNegative("history limit", n)
 	h.limit = n
 	h.trim()
 }

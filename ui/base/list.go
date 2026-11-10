@@ -254,12 +254,7 @@ func (l *List[T]) mouse(ev input.Mouse, choose func(int)) bool {
 	return true
 }
 
-func (l *List[T]) resolvedKeys() *keymap.Map {
-	if l.keys.current != nil {
-		return l.keys.current
-	}
-	return listKeys()
-}
+func (l *List[T]) resolvedKeys() *keymap.Map { return l.keys.resolve(listKeys) }
 
 func (l *List[T]) HeightForWidth(int) int { return len(l.items) }
 

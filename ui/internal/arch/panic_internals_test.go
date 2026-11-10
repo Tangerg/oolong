@@ -38,6 +38,7 @@ var internalAssertions = map[string]string{
 	"ui/core/grid:publication.requireIdle":       "Screen and Inline document that publication callbacks cannot reenter mutation or publication on the same canvas",
 	"ui/core/grid:viewScope.requireWritable":     "View, Screen.Frame and Inline.Frame document expired drawing and publication boundaries",
 	"ui/core/grid:CursorStyle.normalized":        "View.PlaceCursor documents invalid CursorShape refusal and normalizes before changing the frame cursor",
+	"ui/core/grid:CursorStyle.selector":          "CursorStyle.Sequence documents invalid Shape refusal; selector is its only encoding",
 
 	// Collection checks run inside the exported operations that accept the collection,
 	// and those operations document the rule.
@@ -49,7 +50,9 @@ var internalAssertions = map[string]string{
 	"ui/base:Selection.setRange":                   "Selection.Begin and Set document invalid Affinity refusal; both endpoints are checked before anchors or gesture state change",
 	"ui/kit:Box.paint":                             "Box.Draw and Panel.Element document invalid title or footer alignment refusal before cells change",
 	"ui/base:subscriptions.add":                    "public Subscribe operations reject nil callbacks before entering the subscription owner",
-	"ui/kit:Composer.ensure":                       "Composer.Element and Controller document that the compound element must be assembled before its editor is independently attached",
+	"ui/kit:newPanel":                              "NewPanel documents invalid alignment, Box.Theme and competing palette refusal; Dialog supplies its own scope and a title source with an empty Box.Title",
+	"ui/kit:replaceGlyphs":                         "every SetGlyphs documents scene.ErrBusy outside owner mutation, the only refusal this shared guard raises",
+	"ui/base:requireNonNegative":                   "each constructor and setter that takes a count documents negative refusal; this guard words the one rule they share",
 	"ui/core/content:StreamDocument.assertMutable": "StreamDocument documents construction and prohibits reentrant source mutation from its synchronous change notification",
 	"ui/core/publication:Publisher.assertIdle":     "Publisher documents that capture callbacks cannot reenter publication mutation",
 
@@ -71,7 +74,6 @@ var internalAssertions = map[string]string{
 	// exhausting one is not a state a caller can arrange within a session; the
 	// exported operations that can plausibly approach one say so anyway.
 	"ui/base:EditSession.requireRevision": "revisions are uint64 and consumed one per content change",
-	"ui/base:EditSession.commit":          "EditSession.requireRevision checks identity space before any edit reaches the internal commit",
 	"ui/base:EditSession.setPolicy":       "Editor.SetMask documents refusal before changing an invalid mask policy",
 	"ui/base:EditSession.insertElement":   "Editor.InsertElement documents identity exhaustion before mutation",
 	"ui/base:Transcript.requireRevisions": "Transcript documents refusal to wrap its content revision and revive an old selection",

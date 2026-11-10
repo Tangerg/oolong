@@ -109,7 +109,7 @@ func TestBoxGeometryAgreesWithItself(t *testing.T) {
 		"plain":  {Glyphs: kit.Unicode()},
 		"titled": {Glyphs: kit.Unicode(), Title: "title", Footer: "footer"},
 		"padded": {Glyphs: kit.Unicode(), Padding: layout.Uniform(3)},
-		"bare":   {Bare: true, Padding: layout.Symmetric(2, 5)},
+		"bare":   {Padding: layout.Symmetric(2, 5)},
 	}
 	for name, box := range boxes {
 		for w := range 15 {
@@ -232,7 +232,7 @@ func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
 	box := panel.Box()
 	box.Padding = layout.Uniform(1)
 	box.Title = "pane"
@@ -255,7 +255,7 @@ func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
 	box := panel.Box()
 	box.Padding = layout.Uniform(1)
 	panel.SetBox(box)
@@ -284,7 +284,7 @@ func TestPanelTransfersFocusWhenItsContentChanges(t *testing.T) {
 
 	first := &panelChild{}
 	second := &panelChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(first)})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Glyphs: kit.Unicode()}, Content: scenes.Element(first)})
 	root := scenes.Mount(panel)
 	if panel.Content() != scenes.Element(first) || !first.focused {
 		t.Fatal("a new panel did not give its content the keyboard")
@@ -319,7 +319,7 @@ func TestPanelKeepsAGestureThatLeavesItsInterior(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	child := &panelChild{}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
 	scenes.Mount(panel).Draw(grid.NewSurface(10, 6).View())
 
 	press := input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}
@@ -352,7 +352,7 @@ func TestPanelDoesNotTakeAGestureItsChildRefused(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	child := &panelChild{deaf: true}
-	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Theme: kit.Theme{}, Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Glyphs: kit.Unicode()}, Content: scenes.Element(child)})
 	scenes.Mount(panel).Draw(grid.NewSurface(10, 6).View())
 
 	if scenes.Mount(panel).Handle(input.Mouse{Pos: image.Pt(3, 3), Action: input.MouseDown}) {
@@ -1074,15 +1074,15 @@ func TestParagraphCopiesAsAParagraph(t *testing.T) {
 		t.Fatal(err)
 	}
 	stageContent(t, &transcript, 12)
-	if transcript.Height() < 4 {
-		t.Fatalf("wrapped rows=%d", transcript.Height())
+	if transcript.Layout().Height() < 4 {
+		t.Fatalf("wrapped rows=%d", transcript.Layout().Height())
 	}
 	first, ok := transcript.Layout().Hit(base.Point{Row: 0, Col: 0})
 	if !ok {
 		t.Fatal("first rendered cell has no logical text")
 	}
-	lastRow := transcript.Rows(transcript.EndRow()-1, 1)[0]
-	last, ok := transcript.Layout().Hit(base.Point{Row: transcript.EndRow() - 1, Col: lastRow.Offset + text.Width(lastRow.Text) - 1})
+	lastRow := transcript.Layout().Rows(transcript.Layout().EndRow()-1, 1)[0]
+	last, ok := transcript.Layout().Hit(base.Point{Row: transcript.Layout().EndRow() - 1, Col: lastRow.Offset + text.Width(lastRow.Text) - 1})
 	if !ok {
 		t.Fatal("last rendered cell has no logical text")
 	}
@@ -1104,8 +1104,8 @@ func TestParagraphCopiesAWordItHadToBreak(t *testing.T) {
 	if !ok {
 		t.Fatal("first rendered cell has no logical text")
 	}
-	lastRow := transcript.Rows(transcript.EndRow()-1, 1)[0]
-	last, ok := transcript.Layout().Hit(base.Point{Row: transcript.EndRow() - 1, Col: lastRow.Offset + text.Width(lastRow.Text) - 1})
+	lastRow := transcript.Layout().Rows(transcript.Layout().EndRow()-1, 1)[0]
+	last, ok := transcript.Layout().Hit(base.Point{Row: transcript.Layout().EndRow() - 1, Col: lastRow.Offset + text.Width(lastRow.Text) - 1})
 	if !ok {
 		t.Fatal("last rendered cell has no logical text")
 	}
@@ -1323,6 +1323,32 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 		"-.core......",
 		".. .grid....",
 		" .README....",
+	})
+}
+
+// Unequal turn marks used to pad leaves to the closed mark only, so an open
+// branch's text started further right than its siblings'.
+func TestATreeAlignsTextAcrossTurnMarksOfDifferentWidths(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
+	tree := base.NewTree(
+		base.Node[string]{Item: "core", Children: []base.Node[string]{{Item: "grid"}}},
+		base.Node[string]{Item: "docs", Children: []base.Node[string]{{Item: "guide"}}},
+		base.Node[string]{Item: "README"},
+	)
+	glyphs := kit.ASCII()
+	glyphs.Expanded, glyphs.Collapsed = "[-]", "+"
+	view := kit.NewTree(kit.TreeConfig[string]{
+		Theme: kit.Dark(), Glyphs: glyphs, Nodes: tree.Nodes(), Indent: 4,
+		Text: func(s string) string { return s },
+	})
+	view.Controller().Open(0)
+	equalRows(t, paintWidget(scenes, 14, 4, view), []string{
+		"[-].core......",
+		"....   .grid..",
+		"+  .docs......",
+		"   .README....",
 	})
 }
 

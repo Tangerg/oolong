@@ -31,8 +31,8 @@ type Entry struct {
 }
 
 var (
-	_ base.Block         = (*Entry)(nil)
-	_ base.TextProjector = (*Entry)(nil)
+	_ base.Block     = (*Entry)(nil)
+	_ text.Projector = (*Entry)(nil)
 )
 
 func (e *Entry) HeightForWidth(width int) int {

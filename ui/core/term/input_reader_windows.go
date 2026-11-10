@@ -16,7 +16,7 @@ import (
 // Console readiness may describe records without text. Nonblocking record
 // reads avoid uncancellable ReadConsole waits; owning UTF-16 decoding keeps
 // buffered characters available after the OS queue empties.
-type waker struct {
+type inputReader struct {
 	// input is the console this session reads, and console says it is one. A session
 	// whose input is a pipe cannot supply cancellable console input and is refused
 	// by read. OpenOn checks this before creating a session.
@@ -42,7 +42,7 @@ var (
 	_ [4]byte  = [unsafe.Offsetof(consoleInputRecord{}.key)]byte{}
 )
 
-func newWaker(fd int) (*waker, error) {
+func newInputReader(fd int) (*inputReader, error) {
 	if err := readConsoleInputEx.Find(); err != nil {
 		return nil, fmt.Errorf("term: find nonblocking console input: %w", err)
 	}
@@ -54,14 +54,14 @@ func newWaker(fd int) (*waker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("term: an event to wake the reader: %w", err)
 	}
-	return &waker{input: input, console: console, signal: event}, nil
+	return &inputReader{input: input, console: console, signal: event}, nil
 }
 
-func (w *waker) interruptible() bool { return w.console }
+func (w *inputReader) interruptible() bool { return w.console }
 
-func (w *waker) buffered() bool { return len(w.text.records) > 0 }
+func (w *inputReader) buffered() bool { return len(w.text.records) > 0 }
 
-func (w *waker) read(_ *os.File) readResult {
+func (w *inputReader) read(_ *os.File) readResult {
 	if !w.console {
 		return readResult{at: time.Now(), err: fmt.Errorf("term: input is not a console: %w", errors.ErrUnsupported)}
 	}
@@ -97,9 +97,9 @@ func (w *waker) read(_ *os.File) readResult {
 	return w.text.read()
 }
 
-func (w *waker) reset() { w.text.reset() }
+func (w *inputReader) reset() { w.text.reset() }
 
-func (w *waker) wait() (bool, error) {
+func (w *inputReader) wait() (bool, error) {
 	if !w.console {
 		return false, fmt.Errorf("term: input is not a console: %w", errors.ErrUnsupported)
 	}
@@ -122,7 +122,7 @@ func (w *waker) wait() (bool, error) {
 	}
 }
 
-func (w *waker) wake() {
+func (w *inputReader) wake() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -134,7 +134,7 @@ func (w *waker) wake() {
 // close releases the event. It belongs to the reader and is called when the reader
 // returns, for the reason it is everywhere else: closing a handle out from under a
 // wait is closing a number the operating system is free to hand out again.
-func (w *waker) close() {
+func (w *inputReader) close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {

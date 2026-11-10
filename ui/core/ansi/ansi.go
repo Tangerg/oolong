@@ -31,8 +31,8 @@ const (
 	// erasure and mode changes are all this shape.
 	Control
 	// String is a command with a body and a terminator: an operating system
-	// command, a device control string, and the three like them. [Piece.Final]
-	// holds the byte that introduced it, because that is what says which.
+	// command, a device control string, and the three like them. [Piece.Family]
+	// says which.
 	String
 	// Other is an escape with intermediates and a final byte and no parameters:
 	// selecting a character set, entering keypad mode, saving the cursor.
@@ -59,8 +59,11 @@ type Piece struct {
 	// Body is a [String] piece's payload without its introducer or terminator. It is
 	// empty for the other piece kinds.
 	Body string
+	// Family is the kind of command a [String] piece is. It is zero for the other
+	// piece kinds.
+	Family StringFamily
 	// Final is the byte that ended a [Control] or [Other] piece and says what it
-	// was, and the byte that introduced a [String] piece, for the same reason.
+	// was. It is zero for the other piece kinds.
 	Final byte
 }
 
@@ -145,7 +148,7 @@ func command(s string) (Piece, int, bool) {
 		n, result := StringFamily(s[1]).Step(s[i], s[min(i+1, len(s)-1)], i+1 < len(s))
 		switch result {
 		case StringTerminated:
-			return Piece{Kind: String, Raw: s[:i+n], Body: s[2:i], Final: s[1]}, i + n, true
+			return Piece{Kind: String, Raw: s[:i+n], Body: s[2:i], Family: StringFamily(s[1])}, i + n, true
 		case StringCanceled:
 			return Piece{Kind: Malformed, Raw: s[:i+n]}, i + n, true
 		case StringIncomplete:

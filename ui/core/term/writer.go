@@ -81,7 +81,8 @@ type Writer struct {
 	queue                                     fifo.Queue[frame]
 	wake                                      chan struct{}
 	closed                                    bool
-	admissionErr                              error
+	admission                                 admission
+	sealCause                                 error
 	pendingBytes, pendingFrames               int
 	controlBytes, controlFrames               int
 	maxFrames, maxFrameBytes, maxPendingBytes int
@@ -190,39 +191,71 @@ func (w *Writer) Queue(data []byte) (uint64, error) { return w.enqueue(data, fal
 // Like Queue, it panics if the uint64 sequence space is exhausted.
 func (w *Writer) QueueControl(data []byte) (uint64, error) { return w.enqueue(data, true) }
 
+// admission is whether ordinary frames are accepted. A handover pauses it and
+// gives it back; a seal is permanent, and its cause is what every later refusal
+// reports. QueueControl is not subject to it.
+type admission uint8
+
+const (
+	admitting admission = iota
+	handedOver
+	sealed
+)
+
 // CloseAdmission refuses ordinary data while preserving accepted frames and
 // the reserved QueueControl path needed to restore terminal modes.
-func (w *Writer) CloseAdmission() {
+func (w *Writer) CloseAdmission() { w.seal(ErrClosed) }
+
+// seal ends ordinary admission for good. The first cause is kept: it is the one
+// that explains why the display stopped accepting frames.
+func (w *Writer) seal(cause error) {
 	w.queueMu.Lock()
-	w.admissionErr = ErrClosed
-	w.queueMu.Unlock()
+	defer w.queueMu.Unlock()
+	if w.admission != sealed {
+		w.admission, w.sealCause = sealed, cause
+	}
 }
 
-// Seal ordinary admission before taking the drain watermark. Otherwise another
+// Pause ordinary admission before taking the drain watermark. Otherwise another
 // producer can enqueue between draining the last frame and handing off the PTY.
 func (w *Writer) pauseAdmission() error {
 	w.queueMu.Lock()
 	defer w.queueMu.Unlock()
-	if w.admissionErr != nil && !errors.Is(w.admissionErr, ErrHandoverActive) {
-		return w.admissionErr
+	if w.admission == sealed {
+		return w.sealCause
 	}
-	w.admissionErr = ErrHandoverActive
+	w.admission = handedOver
 	return nil
 }
 
 func (w *Writer) resumeAdmission() {
 	w.queueMu.Lock()
 	defer w.queueMu.Unlock()
-	if errors.Is(w.admissionErr, ErrHandoverActive) {
-		w.admissionErr = nil
+	if w.admission == handedOver {
+		w.admission = admitting
+	}
+}
+
+// fits reports whether one frame of n bytes is within the per-frame budget,
+// which is fixed at construction.
+func (w *Writer) fits(n int) bool { return n <= w.maxFrameBytes }
+
+func (w *Writer) refusal() error {
+	switch w.admission {
+	case handedOver:
+		return ErrHandoverActive
+	case sealed:
+		return w.sealCause
+	default:
+		return nil
 	}
 }
 
 func (w *Writer) enqueue(data []byte, control bool) (uint64, error) {
 	w.queueMu.Lock()
 	defer w.queueMu.Unlock()
-	if !control && w.admissionErr != nil {
-		return 0, w.admissionErr
+	if err := w.refusal(); !control && err != nil {
+		return 0, err
 	}
 	if w.closed || w.discarding.Load() {
 		if err := w.Err(); err != nil {
@@ -261,7 +294,7 @@ func (w *Writer) capacity(bytes int, control bool) error {
 			return ErrQueueFull
 		}
 	} else {
-		if bytes > w.maxFrameBytes {
+		if !w.fits(bytes) {
 			return ErrPayloadTooLarge
 		}
 		if w.pendingFrames >= w.maxFrames || bytes > w.maxPendingBytes-w.pendingBytes {

@@ -59,10 +59,25 @@ func TestDriverFollowsItsRuntimeThroughShutdown(t *testing.T) {
 		t.Fatalf("read-only outcomes advanced revision %d to %d: %v", nodes.Progress.ModelRevision, after.Progress.ModelRevision, err)
 	}
 	checkPartialActions(ctx, t, d, after, failure)
+	waiting := make(chan error, 1)
+	go func() {
+		_, waitErr := d.Wait(t.Context(), scene.Query{}, func(scene.Observation) bool { return false })
+		waiting <- waitErr
+	}()
 	cancel()
-	<-stopped
+	if err = <-stopped; err != nil {
+		t.Fatalf("session cancellation: %v", err)
+	}
+	// Whether the stop reaches Wait while it waits or at its next observation, the
+	// driver reports the owner's one stop error.
+	if err = <-waiting; !errors.Is(err, program.ErrStopped) {
+		t.Fatalf("wait across shutdown: %v", err)
+	}
 	if _, err = d.Observe(t.Context(), scene.Query{}); !errors.Is(err, program.ErrStopped) {
 		t.Fatalf("stale session observation: %v", err)
+	}
+	if _, err = d.Wait(t.Context(), scene.Query{}, func(scene.Observation) bool { return false }); !errors.Is(err, program.ErrStopped) {
+		t.Fatalf("stale session wait: %v", err)
 	}
 }
 

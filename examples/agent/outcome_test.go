@@ -29,9 +29,8 @@ func TestRunOutcomeOwnsStatusAndNativeProgress(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			a := &agent{theme: theme, glyphs: kit.Unicode(), outcome: finishedOutcome(test.cause)}
-			a.status.Doing = "unrelated activity description"
 			surface := grid.NewSurface(80, 1)
-			agentStatus{owner: a}.Draw(surface.View())
+			a.drawStatus(surface.View())
 			if got := strings.TrimSpace(surface.Rows()[0]); got != test.text {
 				t.Fatalf("status text = %q, want %q", got, test.text)
 			}
@@ -50,7 +49,7 @@ func TestIdleCommandFeedbackHasItsOwnOutcome(t *testing.T) {
 	a := &agent{theme: kit.Dark(), outcome: finishedOutcome(errors.New("old failure"))}
 	a.inform("failed is a word in this notice")
 	label := a.outcome.label(a.theme, a.glyphs)
-	if label.Text != "failed is a word in this notice" || label.Style != a.theme.Muted || a.status.Doing != "" {
-		t.Fatalf("idle feedback = %+v, activity = %q", label, a.status.Doing)
+	if label.Text != "failed is a word in this notice" || label.Style != a.theme.Muted {
+		t.Fatalf("idle feedback = %+v", label)
 	}
 }

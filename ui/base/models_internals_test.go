@@ -10,7 +10,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
-	"github.com/Tangerg/oolong/ui/core/text"
 	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
@@ -36,7 +35,7 @@ func TestEditorUndoHistoryIsBounded(t *testing.T) {
 
 func TestEditorHistoryClearsPoppedSnapshots(t *testing.T) {
 	history := editHistory{}
-	history.record(editSnapshot{lines: []string{"before"}, marks: []text.Mark{{ID: 1}}})
+	history.record(editSnapshot{lines: []string{"before"}, marks: []elementMark{{ID: 1}}})
 	if _, ok := history.back(editSnapshot{lines: []string{"after"}}); !ok {
 		t.Fatal("undo stack reported empty")
 	}
