@@ -2,6 +2,7 @@ package kit
 
 import (
 	"bytes"
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -257,7 +258,7 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	})
 
 	numbers := LineNumbers{Separator: "│"}
-	rows := []text.Row{{Text: "one", Line: 1}, {Text: "two", Line: 2}}
+	rows := []text.Row{{Content: text.Of("one", grid.Style{}), SourceLine: 1}, {Content: text.Of("two", grid.Style{}), SourceLine: 2}}
 	cases = append(cases, drawPurityCase{
 		name: "LineNumbers", width: 4, height: 2,
 		draw: func(view grid.View) { numbers.Draw(view, rows) },
@@ -389,9 +390,9 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 		Items: []int{0, 1},
 		Label: func(index int) string { return []string{"theme", "wrap"}[index] },
 		Value: func(index int) string { return settingValues[index] },
-		Change: func(int, int, keymap.Action) scene.ActionResult[bool] {
+		Change: func(context.Context, int, int, keymap.Action) (scene.ActionResult[bool], error) {
 			settingChanges++
-			return scene.ActionResult[bool]{State: scene.Applied, Value: true}
+			return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
 		},
 	})
 	settings.Controller().List().Select(1)

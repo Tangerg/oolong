@@ -29,8 +29,8 @@ func TestTableCellsKeepColumnsAcrossGraphemeBoundaries(t *testing.T) {
 					if len(rows) != 3 {
 						t.Fatalf("got %d rows, want a header, rule and record", len(rows))
 					}
-					if !strings.Contains(rows[2].Text, value) {
-						t.Fatalf("cell content was lost: %q", rows[2].Text)
+					if !strings.Contains(rows[2].Content.String(), value) {
+						t.Fatalf("cell content was lost: %q", rows[2].Content.String())
 					}
 					drawn := grid.NewSurface(width, len(rows))
 					blocks[0].Draw(drawn.View())
@@ -40,7 +40,7 @@ func TestTableCellsKeepColumnsAcrossGraphemeBoundaries(t *testing.T) {
 								return x
 							}
 						}
-						t.Fatalf("row %d has no %q with style %+v: %q", y, content, style, rows[y].Text)
+						t.Fatalf("row %d has no %q with style %+v: %q", y, content, style, rows[y].Content.String())
 						return 0
 					}
 					if got, want := column(2, "z", grid.Style{}), column(0, "z", grid.Style{}); got != want {
@@ -49,12 +49,12 @@ func TestTableCellsKeepColumnsAcrossGraphemeBoundaries(t *testing.T) {
 					if got, want := column(2, bar, rail), column(0, bar, rail); got != want {
 						t.Errorf("separator starts in column %d, want %d", got, want)
 					}
-					if got, want := text.Width(rows[2].Text), text.Width(rows[0].Text); got != want {
+					if got, want := rows[2].Content.Width(), rows[0].Content.Width(); got != want {
 						t.Errorf("record width = %d, want header width %d", got, want)
 					}
 					projected := grid.NewSurface(width, len(rows))
 					for y, row := range rows {
-						text.Of(row.Text, grid.Style{}).Draw(projected.View(), row.Offset, y)
+						row.Content.Draw(projected.View(), row.Offset, y)
 						for x, actual := range drawn.Row(y) {
 							want := cellAt(projected, x, y)
 							if actual.Content() != want.Content() || actual.Width() != want.Width() {
@@ -79,22 +79,22 @@ func TestTableColumnsKeepIndivisibleGraphemesWhole(t *testing.T) {
 		rows := blocks[0].Rows(width)
 		found := false
 		for _, row := range rows {
-			if got := text.Width(row.Text); got > width {
-				t.Fatalf("table at width %d produced a %d-column row: %q", width, got, row.Text)
+			if got := row.Content.Width(); got > width {
+				t.Fatalf("table at width %d produced a %d-column row: %q", width, got, row.Content.String())
 			}
-			found = found || strings.Contains(row.Text, cluster)
+			found = found || strings.Contains(row.Content.String(), cluster)
 		}
 		if !found {
 			t.Fatalf("table at width %d lost its complete grapheme: %+v", width, rows)
 		}
 		if width == 20 {
 			for _, row := range rows {
-				before, _, found := strings.Cut(row.Text, "│")
+				before, _, found := strings.Cut(row.Content.String(), "│")
 				if !found || text.Width(before) != text.Width(cluster)+1 {
-					t.Fatalf("wide atom moved the grid separator: %q", row.Text)
+					t.Fatalf("wide atom moved the grid separator: %q", row.Content.String())
 				}
 			}
-		} else if strings.Contains(rows[0].Text, "│") {
+		} else if strings.Contains(rows[0].Content.String(), "│") {
 			t.Fatalf("grid remained after its indivisible columns stopped fitting: %+v", rows)
 		}
 	}

@@ -51,6 +51,8 @@ func NewPrompter(cfg PrompterConfig) (*Prompter, error) {
 
 // Ask leaves field validation and submission with the form. An unavailable
 // spoken field or failed input cannot silently submit an incomplete form.
+// Owner failures stop collection even when a domain effect was accepted; only
+// correctable parse and validation failures ask for another answer.
 // Oversized answers are discarded through their line ending before returning
 // ErrAnswerTooLong, so a later Ask can resume at the next answer.
 func (p *Prompter) Ask(form *base.Form) (scene.ActionResult[base.SubmissionID], error) {

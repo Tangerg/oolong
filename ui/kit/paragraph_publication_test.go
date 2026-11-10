@@ -98,7 +98,7 @@ func TestParagraphDetectionReadsTheLastCompletePublication(t *testing.T) {
 func assertParagraphPublication(t *testing.T, p *kit.Paragraph, want string) {
 	t.Helper()
 	lines, rows := p.Lines(), p.Rows(40)
-	if len(lines) != 1 || lines[0].String() != want || len(rows) != 1 || rows[0].Text != want {
+	if len(lines) != 1 || lines[0].String() != want || len(rows) != 1 || rows[0].Content.String() != want {
 		t.Fatalf("inconsistent text publication: lines=%v rows=%v, want %q", lines, rows, want)
 	}
 	if destination, ok := p.LinkAt(0, 0, 40); !ok || destination.Target != want {

@@ -86,6 +86,6 @@ func BenchmarkTruncate(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		_ = text.Truncate(s, 40, "…")
+		_ = text.Of(s, grid.Style{}).Truncate(40, "…").String()
 	}
 }

@@ -16,7 +16,6 @@ type View interface {
 	Handle(event input.Event) bool
 }
 
-// Element is a focusable element that paints view and gives it every event.
 func Element(key string, view View) scene.Element {
 	return scene.NewElement(scene.ElementConfig{
 		Key:       key,

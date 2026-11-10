@@ -71,6 +71,7 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 				// what happens to what it says.
 				r = &runner{
 					keys:    runnerKeys(),
+					out:     new(text.Decoder),
 					runtime: runtime,
 					command: []string{"a", "command"},
 				}
@@ -89,10 +90,10 @@ func TestOutputKeepsItsColoursAndFinishedLinesBelongToTheTerminal(t *testing.T) 
 
 	// A chunk boundary can fall anywhere, including inside an escape sequence.
 	pump := r.pump(nil)
-	if err := pump.deliver(t.Context(), func() []text.Line { return pump.feed("plain \x1b[3") }); err != nil {
+	if err := pump.deliver(t.Context(), func() ([]text.Line, error) { return pump.feed("plain \x1b[3") }); err != nil {
 		t.Fatal(err)
 	}
-	if err := pump.deliver(t.Context(), func() []text.Line { return pump.feed("1mred\x1b[0m and more\nsecond line\nhalf a li") }); err != nil {
+	if err := pump.deliver(t.Context(), func() ([]text.Line, error) { return pump.feed("1mred\x1b[0m and more\nsecond line\nhalf a li") }); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +142,11 @@ func TestCommandBurstHonorsPublicationCapacity(t *testing.T) {
 		app, err := program.NewInline(program.InlineConfig{
 			Host: host, Publication: publication.Limits{MaxItems: 1},
 			Build: func(rt *program.InlineRuntime) (scene.Element, error) {
-				return newRunner(rt, []string{os.Args[0], "-test.run=^TestCommandBurstHonorsPublicationCapacity$", "--", "burst-fixture"}).Element(), nil
+				runner, err := newRunner(rt, []string{os.Args[0], "-test.run=^TestCommandBurstHonorsPublicationCapacity$", "--", "burst-fixture"})
+				if err != nil {
+					return scene.Element{}, err
+				}
+				return runner.Element(), nil
 			},
 		})
 		if err == nil {

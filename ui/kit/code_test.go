@@ -28,7 +28,7 @@ func TestCodeNumbersLogicalLinesAndLeavesContinuationsBlank(t *testing.T) {
 	})
 
 	rows := code.Rows(8)
-	if got := []int{rows[0].Line, rows[1].Line, rows[2].Line}; !reflect.DeepEqual(got, []int{1, 1, 2}) {
+	if got := []int{rows[0].SourceLine, rows[1].SourceLine, rows[2].SourceLine}; !reflect.DeepEqual(got, []int{1, 1, 2}) {
 		t.Fatalf("source lines = %v, want [1 1 2]", got)
 	}
 	if !rows[1].Joined || rows[0].Offset != 3 {
@@ -53,10 +53,10 @@ func TestLineNumbersCanStartAtASourceOffset(t *testing.T) {
 	}
 
 	rows := []text.Row{
-		{Line: 1},
-		{Line: 1, Joined: true},
-		{Line: 2},
-		{Line: 3},
+		{SourceLine: 1},
+		{SourceLine: 1, Joined: true},
+		{SourceLine: 2},
+		{SourceLine: 3},
 	}
 	equalRows(t, paint(5, 4, func(v grid.View) { numbers.Draw(v, rows) }), []string{
 		" 98│.",
@@ -70,7 +70,7 @@ func TestLineNumbersUseOnlyTheVisiblePadding(t *testing.T) {
 	screen := grid.NewSurface(2, 1)
 	screen.View().Text(0, 0, "xx", grid.Style{})
 	wide := screen.View().Sub(grid.Area(0, 0, math.MaxInt, 1))
-	kit.LineNumbers{}.Draw(wide, []text.Row{{Line: 1}})
+	kit.LineNumbers{}.Draw(wide, []text.Row{{SourceLine: 1}})
 	if got := rowOf(screen.View(), 0, 2); got != "  " {
 		t.Fatalf("visible padding = %q, want two empty cells", got)
 	}

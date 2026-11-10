@@ -5,6 +5,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
+
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -27,7 +29,7 @@ func TestLayoutRejectsUnknownAffinityBeforeProjection(t *testing.T) {
 	}{
 		{name: "nil"},
 		{name: "empty", layout: text.NewLayout(text.LayoutConfig{})},
-		{name: "grapheme", layout: text.NewLayout(text.LayoutConfig{Lines: []string{"e\u0301x"}, Width: 1})},
+		{name: "grapheme", layout: text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of("e\u0301x", grid.Style{})}, Width: 1})},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			for _, operation := range []struct {
@@ -47,7 +49,7 @@ func TestLayoutRejectsUnknownAffinityBeforeProjection(t *testing.T) {
 			}
 		})
 	}
-	layout := text.NewLayout(text.LayoutConfig{Lines: []string{"content"}})
+	layout := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of("content", grid.Style{})}})
 	for _, line := range []int{-1, 1} {
 		invalid.Line = line
 		expectAffinityPanic(t, func() { layout.Normalize(invalid) })

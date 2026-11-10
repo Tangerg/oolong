@@ -103,7 +103,7 @@ func TestLinkedImageKeepsItsLabelAndOuterDestination(t *testing.T) {
 		var doc markdown.Doc
 		doc.SetBlocks(mustRender(t, tc.source, markdown.Look{}))
 		rows := doc.Rows(120)
-		if len(rows) != 1 || rows[0].Text != tc.shown {
+		if len(rows) != 1 || rows[0].Content.String() != tc.shown {
 			t.Fatalf("image label: %+v", rows)
 		}
 		surface := grid.NewSurface(120, 1)

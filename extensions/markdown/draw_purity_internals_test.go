@@ -267,7 +267,7 @@ func markdownDrawPurityCases() []drawPurityCase {
 					{plain("name"), plain("description")},
 					{plain("one"), plain("a value long enough to wrap")},
 				},
-				header: true, separator: " | ", divider: "-",
+				header: true, separator: plain(" | "), divider: plain("-"),
 			},
 			blankBefore: true,
 		},

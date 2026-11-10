@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"context"
 	"image"
 	"strings"
 	"testing"
@@ -212,9 +213,9 @@ func TestDeferredSettingActionCannotEditAnotherRow(t *testing.T) {
 		changes := 0
 		settings := base.NewSettings(base.SettingsConfig[string]{
 			EditKeys: keys,
-			Change: func(int, string, keymap.Action) scene.ActionResult[bool] {
+			Change: func(context.Context, int, string, keymap.Action) (scene.ActionResult[bool], error) {
 				changes++
-				return scene.ActionResult[bool]{State: scene.Applied, Value: true}
+				return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
 			},
 		})
 		settings.List().SetItems([]string{"one", "two"})

@@ -22,7 +22,7 @@ func (l Line) Truncate(width int, ellipsis string) Line {
 			return l.WithSuffix(width, ellipsis)
 		}
 	}
-	return l.printable()
+	return l.Display()
 }
 
 // WithSuffix appends suffix within width columns, shortening the line as needed.
@@ -71,18 +71,6 @@ func (l Line) WithSuffix(width int, suffix string) Line {
 	return append(out, Span{Text: ending.value, Style: style})
 }
 
-// Truncate is [Line.Truncate] on unstyled text, with each tab expanded to the
-// spaces it occupies from the first column. The result is drawn by
-// [grid.View.Text], which has no tab stops; a tab left in would be dropped there
-// and every column after it would shift by the width it was measured at.
-func Truncate(s string, width int, ellipsis string) string {
-	return expandTabs(Of(s, grid.Style{}).Truncate(width, ellipsis))
-}
-
-// expandTabs spells a line with each tab replaced by the spaces it occupies from
-// the first column, which is the width Width measures it at.
-func expandTabs(l Line) string { return line(l.units()).String() }
-
 type suffix struct {
 	value, firstRune     string
 	headWidth, tailWidth int
@@ -90,7 +78,7 @@ type suffix struct {
 }
 
 func newSuffix(value string, width int) suffix {
-	value = prefix(Of(value, grid.Style{}).printable().String(), width)
+	value = prefix(Of(value, grid.Style{}).Display().String(), width)
 	_, size := utf8.DecodeRuneInString(value)
 	head, tail, hasTab := strings.Cut(value, "\t")
 	return suffix{

@@ -81,7 +81,7 @@ func (b *Block) Rows(width int) []Row {
 	physical := b.physical(width)
 	rows := make([]Row, len(physical))
 	for i, row := range physical {
-		rows[i] = Row{Text: row.Line.String(), Line: row.logical, Joined: row.Joined, Gap: row.Gap}
+		rows[i] = Row{Content: row.Line.Clone(), SourceLine: row.logical, Joined: row.Joined, Gap: row.Gap}
 	}
 	return rows
 }

@@ -1,6 +1,7 @@
 package latex_test
 
 import (
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,7 +26,7 @@ func TestFallbackRowsAreThePreparedDisplay(t *testing.T) {
 				t.Fatalf("Rows=%d Draw=%d", len(rows), len(drawn))
 			}
 			for i, row := range rows {
-				if got := strings.Repeat(" ", row.Offset) + row.Text; got != drawn[i] {
+				if got := strings.Repeat(" ", row.Offset) + row.Content.String(); got != drawn[i] {
 					t.Fatalf("source=%q width=%d: Rows=%q Draw=%q", source, width, got, drawn[i])
 				}
 			}
@@ -87,7 +88,7 @@ func TestFormulaUsesOneLayoutForMeasureDrawAndRows(t *testing.T) {
 		t.Fatalf("measure=%d, drawn=%d, selected=%d", formula.HeightForWidth(40), len(drawn), len(selected))
 	}
 	for i, row := range selected {
-		if got := strings.Repeat(" ", row.Offset) + row.Text; got != drawn[i] {
+		if got := strings.Repeat(" ", row.Offset) + row.Content.String(); got != drawn[i] {
 			t.Fatalf("row %d selection %q != drawing %q", i, got, drawn[i])
 		}
 	}
@@ -255,7 +256,7 @@ func TestAnIncompleteEscapeCannotConsumeTheParserDelimiter(t *testing.T) {
 	for _, source := range []string{`\`, `x\`, `x^\`} {
 		formula := latex.Render(source, latex.Look{})
 		rows := formula.Rows(20)
-		if formula.Err() == nil || len(rows) != 1 || rows[0].Text != source {
+		if formula.Err() == nil || len(rows) != 1 || rows[0].Content.String() != source {
 			t.Fatalf("Render(%q) = %v, %v", source, rows, formula.Err())
 		}
 	}
@@ -270,7 +271,7 @@ func TestPhysicalLineEndingsAgreeInCommentsAndFallback(t *testing.T) {
 		for _, newline := range []string{"\r\n", "\r"} {
 			original := strings.ReplaceAll(source, "\n", newline)
 			got := latex.Render(original, latex.Look{})
-			if got.Source() != original || (got.Err() == nil) != (want.Err() == nil) || !slices.Equal(got.Rows(20), want.Rows(20)) {
+			if got.Source() != original || (got.Err() == nil) != (want.Err() == nil) || !reflect.DeepEqual(got.Rows(20), want.Rows(20)) {
 				t.Errorf("Render(%q) = %+v, %v; want %+v", original, got.Rows(20), got.Err(), want.Rows(20))
 			}
 		}

@@ -116,7 +116,11 @@ func (c *Confirm) applyRequest(ctx context.Context, request ConfirmRequest) (sce
 	if request.Value == before.Value {
 		return scene.ActionResult[ConfirmSnapshot]{State: scene.Unchanged, Value: before}, nil
 	}
-	return c.owner().Change(ctx, request)
+	result, err := c.owner().Change(ctx, request)
+	if stateErr := result.State.Validate(); stateErr != nil {
+		return scene.ActionResult[ConfirmSnapshot]{}, errors.Join(err, stateErr)
+	}
+	return result, err
 }
 
 func (c *Confirm) invalidate() {

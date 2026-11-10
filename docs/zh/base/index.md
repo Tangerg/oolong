@@ -16,6 +16,10 @@ Base 提供更换外观后仍可复用的行为：编辑、选择、列表、表
 
 字段控制器拥有值；表单输出与语义值是投影。验证和提交使用类型化操作并返回显式结果，不通过回调读取另一份可写副本。`EditSession` 拥有文本与修订映射；编辑器组合文档并拥有视图交互。
 
+默认字段在语义 `Description` 中提供当前验证原因，同时标记 `StateInvalid`。Text 与 Editor 从 `PasteError` 投影键盘粘贴失败，Confirm 从 `ChangeError` 投影领域失败。这些操作错误与 `Field.Error` 分别归属各自所有者，不会成为验证失败。默认呈现预留一行不可编辑的反馈，同时发生的原因在该行合并显示，语义观察保留完整文本。Editor 的 `MaxRows` 只限制文本行，反馈另占一行。
+
+`SpokenField.Reply` 依次解析、应用并验证答案。解析或接纳阶段的拒绝保留原答案；应用后的检查失败会保留已接受的草稿，便于修正。错误不代表完全没有副作用：领域控制的 Confirm 可以已应用或启动变更，同时返回错误。`ErrReplyUnavailable` 和 `ErrValidationSuperseded` 要求口头适配器停止；普通解析与验证失败允许重新回答。字段不会回滚外部领域效果。
+
 初始设置放入组件的 `Config`。后续通过 `SetLabel`、`SetRows`、`SetLook`、`SetKeys` 等命令修改控制器，并通过对应的 `Label()`、`Rows()`、`Look()`、`Keys()` 读取。命令检查场景的变更阶段，并使对应元素失效，因此标签、几何与代理观察不会绕过模型修订而改变。呈现期间或帧候选尚未结算时，修改会在设置改变前被拒绝。复合控制器将共享设置交给已有所有者：Text 使用内部 Editor 的编辑设置，Table 使用内部 List 的行绘制、循环导航与绑定。
 
 使用 `NewCompletion(CompletionConfig)`、`NewList(ListConfig[T])`、`NewSettings(SettingsConfig[T])`、`NewSticky(StickyConfig)` 提供初始设置，替代带字段的控制器字面量；零值控制器仍可使用。`Completion.CurrentToken()` 在只读借用中查询配置的 token 来源，返回 token 及其是否可用；`SetCurrentToken` 替换该来源。
@@ -53,15 +57,17 @@ Button 和 Confirm 即使在后续步骤返回错误时，也会发布已接受�
 
 UI 反馈属于最近一次 UI 请求。回调同步发起新请求后，较早请求的返回不能覆盖新反馈。Form 在既有提交身份内按相同规则记录取消反馈，成功重试会清除之前的取消错误。类型化的程序请求与语义请求仍直接返回自己的结果和错误。
 
+领域回调必须返回合法的 `scene.ActionState`。类型化动作、Confirm、Settings 和 Form 共用 `ActionState.Validate`；未知结果会在成为控制器接纳的结果前被拒绝，返回 `scene.ErrInvalid` 并保留领域原始错误。拒绝非法报告不会回滚外部所有者已经执行的效果。
+
 `Table.SetSortColumns` 接受列所有者提供的查询，由列索引取得纯三路比较器。返回 nil 表示该列不可排序，直接排序和语义动作都在同一边界拒绝它。列是否受支持和如何比较来自同一个查询，Table 不再维护另一份列数或 schema。支持的列或比较规则变化时应替换查询；活动排序列被移除时，清除排序描述并保留当前行序。
 
 Form 即使同时收到错误，也保留回调报告的 `Applied` 或 `Started` 结果及提交 ID。`Started` 继续等待结算，其伴随错误可通过 `Submission` 和 `Error` 查询。显式取代旧提交时返回 `ErrSubmissionStale`，但不抹掉旧回调已经接受的效果。
 
-`Form.Set` 在改变字段关系前校验完整替换。替换成功会撤销表单旧的延迟快捷键和未完成键序列，即使当前焦点字段仍然挂载。被拒绝的替换保留原有关系与键序列。发起提交会先发布新的空闲尝试和已清除的反馈，再进入外部验证。即使验证异常退出，观察者仍能看到旧尝试已经结束；随后返回的验证错误另行发布自己的反馈。
+`Form.Set` 在改变字段关系前校验完整替换。替换成功会撤销表单旧的延迟快捷键和未完成键序列，即使当前焦点字段仍然挂载。被拒绝的替换保留原有关系与键序列。发起提交会先发布新的空闲尝试和已清除的反馈，再进入外部验证。即使验证异常退出，观察者仍能看到旧尝试已经结束；随后返回的验证错误另行发布自己的反馈。待处理 ID 一旦被撤销，即使发布或 resolver 清理发生 panic 或调用 `Goexit`，已配置的 `Cancel` 回调仍会被调用。取消回调看到替换后的状态，也不能再结算旧 ID。取消回调自身的 panic 正常向外传播。
 
 按键序列通过 `Matcher.Handle` 的生命周期谓词捕获 `scene.KeyboardLease`。键盘路由内的接收者在焦点移动于其后代之间时保留凭证；显式转交给路由外接收者的输入（例如补全弹层）借用当前输入起点的生命周期。没有焦点时，活动模态层或 root 内容提供这个起点。离开作用域、卸载或关闭 root 会永久撤销旧凭证，包括已排队的 resolver；焦点回来不会恢复旧输入。未挂载控件可以接收新的本地输入，直到下次挂载。独立 matcher 可传 nil，由直接调用方管理生命周期。
 
-`SettingsConfig.Change` 回调返回 `scene.ActionResult[bool]`：`Value` 表示是否接受输入，`State` 由领域所有者报告实际结果。到达值边界但仍接受按键时返回 `Value: true, State: scene.Unchanged`。通过 `Settings.SetChange` 替换回调。Settings 不复制领域值，也不根据输入是否被消费猜测值是否改变。
+`SettingsConfig.Change` 回调的签名为 `func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)`。`Value` 表示是否消费输入，`State` 由领域所有者报告实际结果，错误独立表达失败。到达值边界但仍接受按键时返回 `Value: true, State: scene.Unchanged`；`Applied` 或 `Started` 可以与错误同时返回。`Settings.Request(ctx, index, action)` 按当前条目顺序寻址，直接返回结果与错误；带修订地址的语义动作同样如此。物理输入将最新请求的错误保留在 `ChangeError`，默认显示反馈行与语义说明。程序请求和语义请求保留该物理反馈。通过 `Settings.SetChange` 替换回调。Settings 不复制领域值，也不根据错误猜测值是否改变或输入是否被消费。
 
 ## 编辑器的插入位置
 

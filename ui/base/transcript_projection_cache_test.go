@@ -36,7 +36,7 @@ func TestTranscriptUnchangedFramesReuseTextProjection(t *testing.T) {
 	root := transcriptScene(t, model)
 	for sequence := uint64(1); sequence <= 3; sequence++ {
 		transcriptCommit(t, root, 20, 2, sequence)
-		if rows := model.Layout().Rows(0, 1); len(rows) != 1 || rows[0].Text != "alpha beta" {
+		if rows := model.Layout().Rows(0, 1); len(rows) != 1 || rows[0].Content.String() != "alpha beta" {
 			t.Fatalf("unchanged projection returned %v", rows)
 		}
 	}
@@ -67,7 +67,7 @@ func TestTranscriptDocumentChangeReplacesCachedProjection(t *testing.T) {
 	}
 	for sequence := uint64(2); sequence <= 3; sequence++ {
 		transcriptCommit(t, root, 20, 2, sequence)
-		if rows := model.Layout().Rows(0, 1); len(rows) != 1 || rows[0].Text != "new text" {
+		if rows := model.Layout().Rows(0, 1); len(rows) != 1 || rows[0].Content.String() != "new text" {
 			t.Fatalf("changed document kept old projection: %v", rows)
 		}
 	}
@@ -104,7 +104,7 @@ func TestTranscriptAbortedResizeKeepsCommittedProjection(t *testing.T) {
 	if model.Layout().Width() != 4 || model.Layout().Height() != 3 || body.measurements != 3 || body.projections != 3 {
 		t.Fatalf("resize projection: width=%d height=%d measurements=%d projections=%d", model.Layout().Width(), model.Layout().Height(), body.measurements, body.projections)
 	}
-	if rows := before.Rows(0, 1); len(rows) != 1 || rows[0].Text != "abcdefghij" {
+	if rows := before.Rows(0, 1); len(rows) != 1 || rows[0].Content.String() != "abcdefghij" {
 		t.Fatal("new width mutated the earlier immutable projection")
 	}
 }

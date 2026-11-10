@@ -32,7 +32,7 @@ func (p *layoutPreparationChild) Rows(int) []text.Row {
 	if p.onRows != nil {
 		p.onRows()
 	}
-	return []text.Row{{Text: "child"}}
+	return []text.Row{{Content: text.Of("child", grid.Style{})}}
 }
 
 func TestDocumentMeasurementDoesNotPrepareAllTextRows(t *testing.T) {
@@ -66,10 +66,10 @@ func TestWidthPreparationWarmsMeasurementAndRows(t *testing.T) {
 			t.Fatalf("height = %d", got)
 		}
 		rows := doc.Rows(20)
-		if len(rows) != 2 || rows[0].Text != "child" || rows[1].Text != "" {
+		if len(rows) != 2 || rows[0].Content.String() != "child" || rows[1].Content.String() != "" {
 			t.Fatalf("rows = %+v", rows)
 		}
-		rows[0].Text = "caller mutation"
+		rows[0].Content[0].Text = "caller mutation"
 		if _, err := grid.Capture(grid.CaptureConfig{Content: prepared, Width: 20}); err != nil {
 			t.Fatal(err)
 		}

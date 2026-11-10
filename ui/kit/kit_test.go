@@ -1082,7 +1082,7 @@ func TestParagraphCopiesAsAParagraph(t *testing.T) {
 		t.Fatal("first rendered cell has no logical text")
 	}
 	lastRow := transcript.Layout().Rows(transcript.Layout().EndRow()-1, 1)[0]
-	last, ok := transcript.Layout().Hit(base.Point{Row: transcript.Layout().EndRow() - 1, Col: lastRow.Offset + text.Width(lastRow.Text) - 1})
+	last, ok := transcript.Layout().Hit(base.Point{Row: transcript.Layout().EndRow() - 1, Col: lastRow.Offset + lastRow.Content.Width() - 1})
 	if !ok {
 		t.Fatal("last rendered cell has no logical text")
 	}
@@ -1105,7 +1105,7 @@ func TestParagraphCopiesAWordItHadToBreak(t *testing.T) {
 		t.Fatal("first rendered cell has no logical text")
 	}
 	lastRow := transcript.Layout().Rows(transcript.Layout().EndRow()-1, 1)[0]
-	last, ok := transcript.Layout().Hit(base.Point{Row: transcript.Layout().EndRow() - 1, Col: lastRow.Offset + text.Width(lastRow.Text) - 1})
+	last, ok := transcript.Layout().Hit(base.Point{Row: transcript.Layout().EndRow() - 1, Col: lastRow.Offset + lastRow.Content.Width() - 1})
 	if !ok {
 		t.Fatal("last rendered cell has no logical text")
 	}
@@ -1566,8 +1566,8 @@ func TestACappedParagraphStillSaysWhatTheWrapSwallowed(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("got %d rows, want the cap", len(rows))
 	}
-	if !strings.Contains(rows[1].Text, "…") {
-		t.Fatalf("last row = %q, want it to say it was cut", rows[1].Text)
+	if !strings.Contains(rows[1].Content.String(), "…") {
+		t.Fatalf("last row = %q, want it to say it was cut", rows[1].Content.String())
 	}
 	if rows[1].Gap != " " {
 		t.Fatalf("the capped row reports gap %q, want the space the wrap swallowed", rows[1].Gap)

@@ -10,7 +10,7 @@ import (
 func ExampleRender() {
 	formula := latex.Render(`E = mc^2`, latex.Look{})
 	for _, row := range formula.Rows(20) {
-		fmt.Printf("%*s%s\n", row.Offset, "", row.Text)
+		fmt.Printf("%*s%s\n", row.Offset, "", row.Content.String())
 	}
 
 	// Output:

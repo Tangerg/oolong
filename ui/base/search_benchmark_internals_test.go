@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -15,7 +16,7 @@ func BenchmarkSearchDenseMatches(b *testing.B) {
 		b.Run(fmt.Sprintf("rows=%d", rows), func(b *testing.B) {
 			corpus := make([]text.Row, rows)
 			for i := range corpus {
-				corpus[i].Text = strings.Repeat("cat ", 9) + "cat"
+				corpus[i].Content = text.Line{{Text: strings.Repeat("cat ", 9) + "cat"}}
 			}
 			config := ScanConfig{Query: "cat", Rows: corpus, MaxMatches: rows * 10}
 			b.ReportAllocs()
@@ -27,7 +28,7 @@ func BenchmarkSearchDenseMatches(b *testing.B) {
 }
 
 func BenchmarkSearchNoMatch(b *testing.B) {
-	corpus := []text.Row{{Text: strings.Repeat("nothing here ", 10_000)}}
+	corpus := []text.Row{{Content: text.Line{{Text: strings.Repeat("nothing here ", 10_000)}}}}
 	config := ScanConfig{Query: "absent", Rows: corpus}
 	b.ReportAllocs()
 	for b.Loop() {
@@ -36,10 +37,29 @@ func BenchmarkSearchNoMatch(b *testing.B) {
 }
 
 func BenchmarkScanLongUnicodeRow(b *testing.B) {
-	config := ScanConfig{Query: "猫", Rows: []text.Row{{Text: strings.Repeat("猫犬", 2000)}}}
+	config := ScanConfig{Query: "猫", Rows: []text.Row{{Content: text.Line{{Text: strings.Repeat("猫犬", 2000)}}}}}
 	for b.Loop() {
 		result, err := Scan(b.Context(), config)
 		if err != nil || len(result.Matches) != 2000 {
+			b.Fatal(err, len(result.Matches))
+		}
+	}
+}
+
+func BenchmarkScanLongStyledRow(b *testing.B) {
+	const matches = 2000
+	line := make(text.Line, matches)
+	for i := range line {
+		line[i] = text.Span{Text: "猫犬"}
+		if i%2 != 0 {
+			line[i].Style.Attr = grid.Bold
+		}
+	}
+	config := ScanConfig{Query: "猫", Rows: []text.Row{{Content: line}}}
+	b.ReportAllocs()
+	for b.Loop() {
+		result, err := Scan(b.Context(), config)
+		if err != nil || len(result.Matches) != matches {
 			b.Fatal(err, len(result.Matches))
 		}
 	}

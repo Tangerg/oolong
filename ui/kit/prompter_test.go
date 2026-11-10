@@ -2,6 +2,7 @@ package kit_test
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -20,6 +21,59 @@ func newPrompter(t *testing.T, cfg kit.PrompterConfig) *kit.Prompter {
 		t.Fatal(err)
 	}
 	return prompter
+}
+
+type spokenEffectOwner struct {
+	snapshot base.ConfirmSnapshot
+	outcome  scene.ActionState
+	problem  error
+	notify   func()
+	pending  *base.ConfirmRequest
+	requests int
+}
+
+func (o *spokenEffectOwner) Snapshot() base.ConfirmSnapshot { return o.snapshot }
+
+func (o *spokenEffectOwner) Subscribe(notify func()) func() {
+	o.notify = notify
+	return func() { o.notify = nil }
+}
+
+func (o *spokenEffectOwner) Change(_ context.Context, request base.ConfirmRequest) (scene.ActionResult[base.ConfirmSnapshot], error) {
+	o.requests++
+	if o.outcome == scene.Started {
+		o.pending = &request
+	} else {
+		o.snapshot = base.ConfirmSnapshot{Value: request.Value, Revision: o.snapshot.Revision + 1}
+		if o.notify != nil {
+			o.notify()
+		}
+	}
+	return scene.ActionResult[base.ConfirmSnapshot]{State: o.outcome, Value: o.snapshot}, o.problem
+}
+
+func TestPrompterStopsAfterAPartiallyAcceptedDomainFailure(t *testing.T) {
+	problem := errors.New("accepted change has a later failure")
+	for _, outcome := range []scene.ActionState{scene.Applied, scene.Started} {
+		owner := &spokenEffectOwner{outcome: outcome, problem: problem}
+		field := base.NewConfirm(base.ConfirmConfig{Control: owner})
+		t.Cleanup(field.Close)
+		prompter := newPrompter(t, kit.PrompterConfig{Input: strings.NewReader("yes\nnext\n"), Output: io.Discard})
+		form := base.NewForm(base.FormConfig{Fields: []base.Field{field}, Submit: func(base.SubmissionID) (scene.ActionState, error) {
+			t.Error("partial domain failure submitted the form")
+			return scene.Applied, nil
+		}})
+		if _, err := prompter.Ask(form); !errors.Is(err, base.ErrReplyUnavailable) || !errors.Is(err, problem) || owner.requests != 1 {
+			t.Fatalf("domain failure was retried or lost: %v, requests=%d", err, owner.requests)
+		}
+		if field.Answer() != (outcome == scene.Applied) || (owner.pending != nil) != (outcome == scene.Started) {
+			t.Fatal("failed spoken collection rolled back accepted domain effects")
+		}
+		next := base.NewText(base.TextConfig{})
+		if _, err := prompter.Ask(base.NewForm(base.FormConfig{Fields: []base.Field{next}})); err != nil || next.Text() != "next" {
+			t.Fatalf("domain failure consumed the next answer: text=%q, error=%v", next.Text(), err)
+		}
+	}
 }
 
 func TestPrompterRetainsInputAcrossForms(t *testing.T) {

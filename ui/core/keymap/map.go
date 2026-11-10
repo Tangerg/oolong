@@ -173,9 +173,15 @@ func (*noCopy) Unlock() {}
 // Bind associates keys with action, replacing an existing binding for the same
 // sequence. Empty actions, empty sequences and a binding the map already holds
 // change nothing, so they neither notify consumers nor abandon a pending sequence.
+// An invalid chord panics before any consumer checks or mutation.
 func (m *Map) Bind(action Action, keys ...input.Chord) {
 	if m == nil || action == "" || len(keys) == 0 {
 		return
+	}
+	for _, chord := range keys {
+		if err := chord.Validate(); err != nil {
+			panic(err)
+		}
 	}
 	if slices.ContainsFunc(m.bound, func(binding Binding) bool {
 		return binding.Action == action && slices.Equal(binding.Keys, input.Keys(keys))

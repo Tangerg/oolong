@@ -29,7 +29,7 @@ func TestLayoutCannotPublishAgainstReplacedBlocks(t *testing.T) {
 		t.Fatal("measurement did not finish against its original block sequence")
 	}
 	rows := doc.Rows(20)
-	if doc.Len() != 2 || len(rows) != 3 || rows[0].Text != "replacement" || rows[2].Text != "next" {
+	if doc.Len() != 2 || len(rows) != 3 || rows[0].Content.String() != "replacement" || rows[2].Content.String() != "next" {
 		t.Fatalf("after replacement: %d logical blocks, rows %+v", doc.Len(), rows)
 	}
 }
@@ -96,7 +96,7 @@ func TestThematicBreakProjectsDecorationWithinTheVisibleClip(t *testing.T) {
 		if got := doc.HeightForWidth(math.MaxInt); got != 1 {
 			t.Fatalf("height = %d", got)
 		}
-		if rows := doc.Rows(math.MaxInt); len(rows) != 1 || rows[0].Text != "" {
+		if rows := doc.Rows(math.MaxInt); len(rows) != 1 || rows[0].Content.String() != "" {
 			t.Fatal("a thematic break must occupy one semantic row without inventing document text")
 		}
 		screen := grid.NewSurface(2, 1)
@@ -131,8 +131,8 @@ func TestEmptyTableStillBudgetsItsSeparators(t *testing.T) {
 	var doc markdown.Doc
 	doc.SetBlocks(mustRender(t, "|||\n|-|-|\n|||", markdown.Look{Glyphs: markdown.Glyphs{Bar: "|"}}))
 	for _, row := range doc.Rows(1) {
-		if row.Text != "" {
-			t.Fatalf("empty cells at width one project decoration past the edge: %q", row.Text)
+		if row.Content.String() != "" {
+			t.Fatalf("empty cells at width one project decoration past the edge: %q", row.Content.String())
 		}
 	}
 }

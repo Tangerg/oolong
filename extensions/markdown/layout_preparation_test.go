@@ -61,7 +61,7 @@ func TestPreparedRowsCanBeReadWhileAnotherWidthIsPrepared(t *testing.T) {
 				rows := doc.Rows(width)
 				var joined []string
 				for _, row := range rows {
-					joined = append(joined, row.Text)
+					joined = append(joined, row.Content.String())
 				}
 				if got := strings.Join(joined, " "); got != "alpha beta gamma" {
 					t.Errorf("width %d: %q", width, got)

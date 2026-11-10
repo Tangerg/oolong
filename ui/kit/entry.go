@@ -52,7 +52,7 @@ func (e *Entry) Draw(v grid.View) {
 	}
 	y := 0
 	if e.head() > 0 {
-		v.Text(0, 0, e.Label, e.Theme.Muted.Merge(e.LabelStyle))
+		e.labelLine().Draw(v, 0, 0)
 		y = 1
 	}
 	body := e.body()
@@ -61,16 +61,16 @@ func (e *Entry) Draw(v grid.View) {
 	body.Draw(v.Sub(grid.Area(indent, y, e.wrapWidth(width), layout.Remaining(height, y))))
 }
 
-// Rows returns the entry without its visual gutter, with body offsets aligned to
-// where Draw places them. Label and trailing rows remain real text rows because a
-// selection dragged across the entry includes the same vertical structure it saw.
+// Rows preserves the complete label projection across horizontal clipping, so
+// resizing cannot change a selection's text identity. Body offsets match Draw;
+// label and trailing rows preserve the entry's visible vertical structure.
 func (e *Entry) Rows(width int) []text.Row {
 	if e == nil {
 		return nil
 	}
 	out := make([]text.Row, 0, e.HeightForWidth(width))
 	if e.head() > 0 {
-		out = append(out, text.Row{Text: e.Label})
+		out = append(out, text.Row{Content: e.labelLine().Display().Clone()})
 	}
 	for _, row := range e.body().Rows(e.wrapWidth(width)) {
 		row.Offset = layout.Sum(row.Offset, e.indent())
@@ -80,6 +80,10 @@ func (e *Entry) Rows(width int) []text.Row {
 		out = append(out, text.Row{})
 	}
 	return out
+}
+
+func (e *Entry) labelLine() text.Line {
+	return text.Of(e.Label, e.Theme.Muted.Merge(e.LabelStyle))
 }
 
 // gutter is how far the body is indented under its label, so the eye can find where

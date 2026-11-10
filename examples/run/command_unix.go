@@ -35,7 +35,7 @@ func (c *commandProcess) run(ctx context.Context) error {
 	observed := process.WaitExit(c.cmd.Process)
 	close(finished)
 	cancelErr := <-cancelled
-	return errors.Join(context.Cause(ctx), cancelErr, c.finish(observed))
+	return errors.Join(cancelErr, c.finish(observed))
 }
 
 func (c *commandProcess) finish(observed error) error {

@@ -44,8 +44,8 @@ type Editor struct {
 	kills        editorKillRing
 	continuation editorContinuation
 
-	matcher  keymap.Matcher
-	pasteErr error
+	matcher       keymap.Matcher
+	pasteFeedback requestFeedback
 
 	scroll Scroll
 	// Scroll owns request consumption and cancellation; drawing only resolves its visual row.
@@ -60,8 +60,8 @@ type EditorConfig struct {
 	Session     *EditSession
 	Initial     string
 	Placeholder string
-	// MaxRows of zero allows unlimited height; a positive limit scrolls to keep the
-	// cursor visible.
+	// MaxRows caps text rows while keeping the cursor visible. Zero is unlimited;
+	// a paste failure adds its own feedback row outside this content limit.
 	MaxRows    int
 	SingleLine bool
 	Look       Look
@@ -225,7 +225,8 @@ func (e *Editor) SetLook(value Look) {
 
 func (e *Editor) MaxRows() int { return e.maxRows }
 
-// SetMaxRows panics for a negative limit. Zero leaves the measured height uncapped.
+// SetMaxRows limits text rows; operation feedback has its own row. It panics for
+// a negative limit. Zero leaves text height uncapped.
 func (e *Editor) SetMaxRows(value int) {
 	element := e.Element()
 	requireMutable(element)

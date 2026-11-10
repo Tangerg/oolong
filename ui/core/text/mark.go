@@ -113,6 +113,7 @@ func (e Edit) Shift[K any](marks []Mark[K], n int) []Mark[K] {
 		}
 		kept = append(kept, m)
 	}
+	clear(marks[len(kept):])
 	return kept
 }
 

@@ -1,6 +1,9 @@
 package kit_test
 
 import (
+	"context"
+	"errors"
+	"image"
 	"reflect"
 	"testing"
 
@@ -30,12 +33,12 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 			}
 			return ""
 		},
-		Change: func(index int, _ preference, action keymap.Action) scene.ActionResult[bool] {
+		Change: func(_ context.Context, index int, _ preference, action keymap.Action) (scene.ActionResult[bool], error) {
 			if action != base.Increase {
-				return scene.ActionResult[bool]{}
+				return scene.ActionResult[bool]{}, nil
 			}
 			values[index] = "off"
-			return scene.ActionResult[bool]{State: scene.Applied, Value: true}
+			return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
 		},
 	})
 
@@ -51,6 +54,37 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 		"theme.......dark",
 		"wrap.........off",
 	})
+}
+
+func TestSettingsSkinProjectsDomainFailuresOutsideSelectableRows(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+	problem := errors.New("save failed")
+	settings := kit.NewSettings(kit.SettingsConfig[string]{
+		Items: []string{"theme", "wrap"}, Label: func(value string) string { return value },
+		Change: func(context.Context, int, string, keymap.Action) (scene.ActionResult[bool], error) {
+			return scene.ActionResult[bool]{State: scene.Started, Value: true}, problem
+		},
+	})
+	fixture := scenes.Mount(settings)
+	if !fixture.Handle(input.Key{Code: input.Right}) || !errors.Is(settings.Controller().ChangeError(), problem) {
+		t.Fatal("setting failure was not retained by its controller")
+	}
+	if height := settings.HeightForWidth(16); height != 3 {
+		t.Fatalf("settings measured %d rows, want two choices and feedback", height)
+	}
+	equalRows(t, paintWidget(scenes, 16, 3, settings), []string{
+		"theme...........", "wrap............", "save failed.....",
+	})
+	if fixture.Handle(input.Mouse{Pos: image.Pt(0, 2), Action: input.MouseDown, Button: input.ButtonLeft}) || settings.Controller().List().Selected() != 0 {
+		t.Fatal("feedback row changed list selection")
+	}
+	settings.Controller().SetChange(func(context.Context, int, string, keymap.Action) (scene.ActionResult[bool], error) {
+		return scene.ActionResult[bool]{Value: true}, nil
+	})
+	if !fixture.Handle(input.Key{Code: input.Right}) || settings.HeightForWidth(16) != 2 || settings.Controller().ChangeError() != nil {
+		t.Fatal("successful retry did not clear the feedback row")
+	}
 }
 
 func TestSettingsOwnTheirItemSlice(t *testing.T) {

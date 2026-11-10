@@ -145,7 +145,7 @@ func TestTranscriptOwnsOneCoordinateProjectionAcrossRowsAndDrawing(t *testing.T)
 			cell, _ := canvas.CellAt(x, 0)
 			got.WriteString(cell.Content())
 		}
-		if strings.TrimRight(got.String(), " ") != meaningful[0].Text {
+		if strings.TrimRight(got.String(), " ") != meaningful[0].Content.String() {
 			t.Fatalf("draw and copy differ at %d", row)
 		}
 	}

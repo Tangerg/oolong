@@ -77,5 +77,5 @@ func (c *commandProcess) wait(ctx context.Context, job *process.Job, output *os.
 	if waitErr == nil && !state.Success() {
 		waitErr = &exec.ExitError{ProcessState: state}
 	}
-	return errors.Join(context.Cause(ctx), waitErr, cancelErr, stopErr, settledErr, copyErr)
+	return errors.Join(waitErr, cancelErr, stopErr, settledErr, copyErr)
 }

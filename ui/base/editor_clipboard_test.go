@@ -3,6 +3,7 @@ package base_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -23,6 +24,99 @@ type directedClipboard struct {
 type directedReadResult struct {
 	value string
 	err   error
+}
+
+type queuedClipboard struct{ receivers []func(string, error) }
+
+func (*queuedClipboard) Copy(string) bool { return false }
+
+func (c *queuedClipboard) Read(_ context.Context, receive func(string, error)) error {
+	c.receivers = append(c.receivers, receive)
+	return nil
+}
+
+type clipboardReadFunc func(context.Context, func(string, error)) error
+
+func (clipboardReadFunc) Copy(string) bool { return false }
+
+func (read clipboardReadFunc) Read(ctx context.Context, receive func(string, error)) error {
+	return read(ctx, receive)
+}
+
+func TestEditorPasteFeedbackSurvivesReentrantProviderAdmission(t *testing.T) {
+	older, newer := errors.New("earlier admission failed"), errors.New("newer read failed")
+	for _, exit := range []string{"return", "panic", "Goexit"} {
+		for _, latest := range []error{nil, newer} {
+			editor := &base.Editor{}
+			nested := false
+			editor.SetClipboard(clipboardReadFunc(func(_ context.Context, receive func(string, error)) error {
+				if nested {
+					receive("", latest)
+					return nil
+				}
+				nested = true
+				editor.Do(base.Paste)
+				if exit == "Goexit" {
+					runtime.Goexit()
+				}
+				if exit == "panic" {
+					panic("interrupted callback")
+				}
+				return older
+			}))
+			if exit == "return" {
+				editor.Do(base.Paste)
+			} else {
+				runInterruptedCallback(t, exit, func() { editor.Do(base.Paste) })
+			}
+			if !nested || !errors.Is(editor.PasteError(), latest) {
+				t.Fatalf("%s: older admission replaced feedback: got %v, want %v", exit, editor.PasteError(), latest)
+			}
+		}
+	}
+}
+
+func TestEditorPasteFeedbackBelongsToTheLatestPhysicalRequest(t *testing.T) {
+	older, newer := errors.New("older read failed"), errors.New("newer read failed")
+	for _, latest := range []error{nil, newer} {
+		transport := &queuedClipboard{}
+		editor := base.NewEditor(base.EditorConfig{Clipboard: transport})
+		editor.Do(base.Paste)
+		editor.Do(base.Paste)
+		transport.receivers[1]("", latest)
+		transport.receivers[0]("", older)
+		if !errors.Is(editor.PasteError(), latest) {
+			t.Fatalf("earlier completion replaced latest feedback: got %v, want %v", editor.PasteError(), latest)
+		}
+	}
+}
+
+func TestEditorPendingPasteRefusalSurvivesThePreviousWireReply(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		transport := &directedClipboard{}
+		editor := base.NewEditor(base.EditorConfig{Clipboard: transport})
+		root := semanticOwner(t, editor.Element())
+		paste := input.Key{Rune: 'v', Mods: input.Alt}
+		for request := range 2 {
+			if !root.Handle(paste) {
+				t.Fatalf("keyboard paste %d was not handled", request+1)
+			}
+		}
+		if !errors.Is(editor.PasteError(), clipboard.ErrPending) {
+			t.Fatalf("second wire read error = %v", editor.PasteError())
+		}
+		transport.answer(t, "")
+		if !errors.Is(editor.PasteError(), clipboard.ErrPending) {
+			t.Fatalf("older success erased the newer refusal: %v", editor.PasteError())
+		}
+		if !root.Handle(paste) || editor.PasteError() != nil {
+			t.Fatalf("retry did not clear feedback: %v", editor.PasteError())
+		}
+		transport.answer(t, "accepted")
+		if editor.Text() != "accepted" || editor.PasteError() != nil {
+			t.Fatalf("retry text=%q error=%v", editor.Text(), editor.PasteError())
+		}
+	})
 }
 
 func (*directedClipboard) Copy(string) bool { return false }

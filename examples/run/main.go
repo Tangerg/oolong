@@ -22,8 +22,12 @@ import (
 )
 
 const (
-	defaultEditor                     = "vi"
-	spinnerTickInterval               = 120 * time.Millisecond
+	defaultEditor       = "vi"
+	spinnerTickInterval = 120 * time.Millisecond
+	// An unfinished line has no publication receipt to bound its retained strings
+	// or style metadata; command admission supplies both budgets.
+	maxCommandLineBytes               = 64 << 10
+	maxCommandLineSpans               = 1024
 	leaveRunner         keymap.Action = "leave"
 	openEditor          keymap.Action = "editor"
 	suspendRunner       keymap.Action = "suspend"
@@ -38,7 +42,11 @@ func main() {
 		command = []string{"go", "version"}
 	}
 	app, err := program.NewInline(program.InlineConfig{Terminal: term.Features{Probe: true}, Build: func(runtime *program.InlineRuntime) (scene.Element, error) {
-		return newRunner(runtime, command).Element(), nil
+		runner, err := newRunner(runtime, command)
+		if err != nil {
+			return scene.Element{}, err
+		}
+		return runner.Element(), nil
 	}})
 	if err == nil {
 		err = app.Run(context.Background())
@@ -58,7 +66,7 @@ type runner struct {
 
 	// Escape sequences may span command chunks, so one decoder must retain colour
 	// and partial-sequence state for the whole output stream.
-	out     text.Decoder
+	out     *text.Decoder
 	spinner kit.Spinner
 	// outcome is nil while the command runs and set once when it settles.
 	outcome   *runOutcome
@@ -74,12 +82,17 @@ func (o runOutcome) String() string {
 	return "done"
 }
 
-func newRunner(runtime *program.InlineRuntime, command []string) *runner {
+func newRunner(runtime *program.InlineRuntime, command []string) (*runner, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
+	out, err := text.NewDecoder(text.DecoderConfig{
+		Base: theme.Text, MaxLineBytes: maxCommandLineBytes, MaxLineSpans: maxCommandLineSpans,
+	})
+	if err != nil {
+		return nil, err
+	}
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
-	r := &runner{runtime: runtime, theme: theme, command: command, keys: runnerKeys()}
+	r := &runner{runtime: runtime, theme: theme, command: command, keys: runnerKeys(), out: out}
 	r.element = drawn.Element("run", r)
-	r.out.Base = theme.Text
 	r.spinner = kit.Spinner{Theme: theme, Glyphs: glyphs}
 
 	// Terminal metadata is optional; the visible status remains authoritative
@@ -88,17 +101,17 @@ func newRunner(runtime *program.InlineRuntime, command []string) *runner {
 	scope, err := runtime.NewScope(program.ScopeConfig{})
 	if err != nil {
 		r.finish(err)
-		return r
+		return r, nil
 	}
 	if _, err := runtime.Every(scope, spinnerTickInterval, r.spinner.Tick); err != nil {
 		scope.Close()
 		r.finish(err)
-		return r
+		return r, nil
 	}
 	if _, err := r.start(scope); err != nil {
 		r.finish(err)
 	}
-	return r
+	return r, nil
 }
 
 func runnerKeys() *keymap.Map {

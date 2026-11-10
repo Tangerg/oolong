@@ -3,6 +3,7 @@ package base
 import (
 	"context"
 	"errors"
+	"iter"
 	"math"
 	"regexp"
 	"strings"
@@ -67,7 +68,7 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	joined, starts := join(config.Rows)
+	corpus := newSearchCorpus(config.Rows)
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -75,7 +76,7 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	if count < math.MaxInt {
 		count++
 	}
-	locations := re.FindAllStringIndex(joined, count)
+	locations := re.FindAllStringIndex(corpus.text, count)
 	if len(locations) == 0 {
 		return result, nil
 	}
@@ -85,12 +86,13 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	spans := make([]Span, 0, len(locations))
 	result.Matches = make([]Match, 0, len(locations))
 	columns := matchColumns{row: -1}
+	defer columns.close()
 	for _, location := range locations {
 		if err := ctx.Err(); err != nil {
 			return Result{Query: config.Query, Revision: config.Revision}, err
 		}
 		first := len(spans)
-		row, next, ok := columns.spread(spans, location[0], location[1], config.Rows, starts)
+		row, next, ok := columns.spread(spans, location[0], location[1], corpus)
 		if ok {
 			spans = next
 			last := len(spans)
@@ -108,18 +110,29 @@ func compile(query string, regex bool) (*regexp.Regexp, error) {
 	return regexp.Compile("(?i)" + query)
 }
 
-// Join wrapped rows as originally written so a width change cannot split searchable phrases.
-func join(rows []text.Row) (joined string, starts []int) {
+type searchCorpus struct {
+	rows   []text.Row
+	starts []int
+	text   string
+}
+
+// Regex and geometry must see the same admitted text. A display cluster's source
+// interval can cross removed controls, which cannot become searchable content.
+func newSearchCorpus(source []text.Row) searchCorpus {
+	corpus := searchCorpus{rows: make([]text.Row, len(source)), starts: make([]int, len(source))}
 	var b strings.Builder
-	starts = make([]int, len(rows))
-	for i, r := range rows {
+	for i, row := range source {
+		row.Content = row.Content.Display()
+		row.Gap = (text.Line{{Text: row.Gap}}).Display().String()
+		corpus.rows[i] = row
 		if i > 0 {
-			b.WriteString(r.Separator())
+			b.WriteString(row.Separator())
 		}
-		starts[i] = b.Len()
-		b.WriteString(r.Text)
+		corpus.starts[i] = b.Len()
+		b.WriteString(row.Content.String())
 	}
-	return b.String(), starts
+	corpus.text = b.String()
+	return corpus
 }
 
 // Regex locations arrive in byte order. Retain the last grapheme so distinct
@@ -128,17 +141,32 @@ type matchColumns struct {
 	row         int
 	start, end  int
 	left, right int
+	next        func() (text.Cluster, bool)
+	stop        func()
 }
 
-func (c *matchColumns) column(row int, value string, offset int, roundUp bool) int {
+func (c *matchColumns) close() {
+	if c.stop != nil {
+		c.stop()
+		c.stop = nil
+	}
+}
+
+func (c *matchColumns) column(row int, value text.Line, offset int, roundUp bool) int {
 	if row != c.row {
-		*c = matchColumns{row: row}
+		c.close()
+		next, stop := iter.Pull(value.Clusters())
+		*c = matchColumns{row: row, next: next, stop: stop}
 	}
 	if offset > c.end {
-		for _, cluster := range text.Clusters(value[c.end:]) {
-			c.start, c.left = c.end, c.right
-			c.end += len(cluster)
-			c.right = text.Advance(cluster, c.left)
+		for {
+			cluster, ok := c.next()
+			if !ok {
+				return c.right
+			}
+			c.start, c.end = cluster.From, cluster.To
+			c.left = c.right
+			c.right = text.Advance(cluster.Text, c.left)
 			if offset <= c.end {
 				break
 			}
@@ -150,14 +178,15 @@ func (c *matchColumns) column(row int, value string, offset int, roundUp bool) i
 	return c.left
 }
 
-func (c *matchColumns) spread(dst []Span, from, to int, rows []text.Row, starts []int) (int, []Span, bool) {
-	first := rowAt(starts, rows, from)
+func (c *matchColumns) spread(dst []Span, from, to int, corpus searchCorpus) (int, []Span, bool) {
+	first := corpus.rowAt(from)
 	if first < 0 {
 		return 0, dst, false
 	}
+	rows, starts := corpus.rows, corpus.starts
 	before := len(dst)
 	for i := first; i < len(rows); i++ {
-		start, end := starts[i], starts[i]+len(rows[i].Text)
+		start, end := starts[i], corpus.rowEnd(i)
 		if start >= to {
 			break
 		}
@@ -167,8 +196,8 @@ func (c *matchColumns) spread(dst []Span, from, to int, rows []text.Row, starts 
 			// nothing between two others produces.
 			lo, hi = 0, 0
 		}
-		startCol := c.column(i, rows[i].Text, lo, lo == hi)
-		endCol := c.column(i, rows[i].Text, hi, true)
+		startCol := c.column(i, rows[i].Content, lo, lo == hi)
+		endCol := c.column(i, rows[i].Content, hi, true)
 		dst = append(dst, Span{Col: layout.Sum(rows[i].Offset, startCol), Width: endCol - startCol})
 	}
 	if len(dst) == before {
@@ -179,21 +208,28 @@ func (c *matchColumns) spread(dst []Span, from, to int, rows []text.Row, starts 
 }
 
 // A match in consumed wrap whitespace belongs to the next visible row; refusing it loses real source matches.
-func rowAt(starts []int, rows []text.Row, offset int) int {
-	lo, hi := 0, len(starts)-1
+func (c searchCorpus) rowAt(offset int) int {
+	lo, hi := 0, len(c.starts)-1
 	if hi < 0 {
 		return -1
 	}
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
-		if starts[mid] <= offset {
+		if c.starts[mid] <= offset {
 			lo = mid
 		} else {
 			hi = mid - 1
 		}
 	}
-	if lo+1 < len(rows) && rows[lo+1].Joined && offset >= starts[lo]+len(rows[lo].Text) {
+	if lo+1 < len(c.rows) && c.rows[lo+1].Joined && offset >= c.rowEnd(lo) {
 		return lo + 1
 	}
 	return lo
+}
+
+func (c searchCorpus) rowEnd(row int) int {
+	if row+1 < len(c.rows) {
+		return c.starts[row+1] - len(c.rows[row+1].Separator())
+	}
+	return len(c.text)
 }

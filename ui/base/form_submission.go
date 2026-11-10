@@ -68,14 +68,14 @@ func (f *Form) Submit() (scene.ActionResult[SubmissionID], error) {
 func (f *Form) SubmitWith(collect func(Field) error) (scene.ActionResult[SubmissionID], error) {
 	requireMutable(f.Element())
 	id := SubmissionID{identity: new(byte)}
-	superseded := f.attempt
-	f.problem = nil
-	f.cancelFeedback.clear()
-	f.attempt = Submission{ID: id, State: SubmissionIdle}
-	f.submitted = nil
-	// Validation may exit without returning after the previous attempt was revoked.
-	f.Element().Invalidate()
-	f.revoke(superseded)
+	f.supersede(func() {
+		f.problem = nil
+		f.cancelFeedback.clear()
+		f.attempt = Submission{ID: id, State: SubmissionIdle}
+		f.submitted = nil
+		// Validation may exit without returning after the previous attempt was revoked.
+		f.Element().Invalidate()
+	})
 	if f.attempt.ID != id {
 		return scene.ActionResult[SubmissionID]{}, ErrSubmissionStale
 	}
@@ -88,8 +88,8 @@ func (f *Form) SubmitWith(collect func(Field) error) (scene.ActionResult[Submiss
 	}
 	f.submitted = versions
 	state, err := f.start(id)
-	if state != scene.Started && state != scene.Applied && state != scene.Unchanged {
-		err = errors.Join(err, errors.New("base: submission callback returned an invalid action state"))
+	if stateErr := state.Validate(); stateErr != nil {
+		err = errors.Join(err, stateErr)
 		if f.attempt.ID == id {
 			f.complete(SubmissionOutcome{Err: err})
 		}

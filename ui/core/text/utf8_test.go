@@ -122,7 +122,7 @@ func TestTruncateReturnsOnlyDrawableSuffixText(t *testing.T) {
 		{"!\x1b\x00\xff", "ab!"},
 		{"\x1bX\xffYZQ", "XYZ"},
 	} {
-		if got := text.Truncate("abcdef", 3, tc.suffix); got != tc.want {
+		if got := text.Of("abcdef", grid.Style{}).Truncate(3, tc.suffix).String(); got != tc.want {
 			t.Errorf("returned %q, want drawable text %q", got, tc.want)
 		}
 	}

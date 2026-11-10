@@ -68,7 +68,7 @@ func (p Palette) Draw(v grid.View) {
 		if y == p.Selected {
 			style = p.Theme.Selection
 			if mark != "" {
-				v.Text(0, y, mark, style)
+				text.Of(mark, style).Draw(v, 0, y)
 			}
 		}
 		p.row(v, y, marker, w, found, style)

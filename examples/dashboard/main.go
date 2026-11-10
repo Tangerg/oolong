@@ -181,7 +181,7 @@ func (d *dashboard) preferenceValue(item preference) string {
 	}
 }
 
-func (d *dashboard) changePreference(_ int, item preference, action keymap.Action) scene.ActionResult[bool] {
+func (d *dashboard) changePreference(_ context.Context, _ int, item preference, action keymap.Action) (scene.ActionResult[bool], error) {
 	result := scene.ActionResult[bool]{}
 	switch item {
 	case ratePreference:
@@ -201,12 +201,12 @@ func (d *dashboard) changePreference(_ int, item preference, action keymap.Actio
 		case base.Activate:
 			d.motion = !d.motion
 		default:
-			return scene.ActionResult[bool]{}
+			return scene.ActionResult[bool]{}, nil
 		}
 		result.Value = true
 		if d.motion != previous {
 			result.State = scene.Applied
 		}
 	}
-	return result
+	return result, nil
 }

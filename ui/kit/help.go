@@ -81,25 +81,25 @@ func (h Help) Draw(v grid.View) {
 	if separator == "" {
 		separator = "  "
 	}
-	sepWidth := text.Width(separator)
+	gap := text.Of(separator, h.Theme.Subtle)
 
 	x := 0
 	for action, binding := range h.hints() {
-		key := binding.String()
-		does := actionLabel(action)
-		need := layout.Sum(text.Width(key), 1, text.Width(does))
+		key := text.Of(binding.String(), h.Theme.Accent)
+		does := text.Of(actionLabel(action), h.Theme.Muted)
+		need := layout.Sum(key.Width(), 1, does.Width())
 		if x > 0 {
-			need = layout.Sum(need, sepWidth)
+			need = layout.Sum(need, gap.Width())
 		}
 		if layout.Sum(x, need) > w {
 			return
 		}
 		if x > 0 {
-			x = layout.Sum(x, v.Text(x, 0, separator, h.Theme.Subtle))
+			x = layout.Sum(x, gap.Draw(v, x, 0))
 		}
-		x = layout.Sum(x, v.Text(x, 0, key, h.Theme.Accent))
+		x = layout.Sum(x, key.Draw(v, x, 0))
 		x = layout.Sum(x, v.Text(x, 0, " ", h.Theme.Muted))
-		x = layout.Sum(x, v.Text(x, 0, does, h.Theme.Muted))
+		x = layout.Sum(x, does.Draw(v, x, 0))
 	}
 }
 

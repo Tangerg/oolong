@@ -136,7 +136,7 @@ func TestStickyReadingAnchorTracksReflowedHeaderGeometry(t *testing.T) {
 				t.Fatalf("header reflow moved the logical reading position: before=%+v after=%+v", before, after)
 			}
 			point, valid := model.Layout().Caret(before.Point)
-			if !valid || point.Row != bodyFrom || bodyTop != tc.nextPinnedRows || rowText(surface.View(), bodyTop) != model.Layout().Rows(point.Row, 1)[0].Text {
+			if !valid || point.Row != bodyFrom || bodyTop != tc.nextPinnedRows || rowText(surface.View(), bodyTop) != model.Layout().Rows(point.Row, 1)[0].Content.String() {
 				t.Fatalf("anchor is not the first visible body row: point=%+v body=%d+%d", point, bodyFrom, bodyTop)
 			}
 			if got := model.Scroll().Offset(); got != tc.nextOffset {
@@ -209,7 +209,7 @@ func TestTranscriptRevealKeepsMatchesBelowStickyFurniture(t *testing.T) {
 				surface := transcriptCommit(t, root, 12, height, 2)
 				for i, row := range source.Rows(match.Row, len(match.Spans)) {
 					y := bodyTop + match.Row + i - bodyFrom
-					if y < bodyTop || y >= height || rowText(surface.View(), y) != row.Text {
+					if y < bodyTop || y >= height || rowText(surface.View(), y) != row.Content.String() {
 						t.Fatalf("revealed row %d is obscured: viewport=%d body=%d+%d targetY=%d", match.Row+i, model.Scroll().Offset(), bodyFrom, bodyTop, y)
 					}
 				}
@@ -239,7 +239,7 @@ func TestTranscriptRevealUsesTheCandidateWidthForStickyGeometry(t *testing.T) {
 	model.Scroll().Reveal(target, target)
 	surface := transcriptCommit(t, root, 4, 6, 2)
 	y := bodyTop + target - bodyFrom
-	if y < bodyTop || y >= 6 || rowText(surface.View(), y) != model.Layout().Rows(target, 1)[0].Text {
+	if y < bodyTop || y >= 6 || rowText(surface.View(), y) != model.Layout().Rows(target, 1)[0].Content.String() {
 		t.Fatalf("candidate-width reveal is obscured: body=%d+%d targetY=%d", bodyFrom, bodyTop, y)
 	}
 }

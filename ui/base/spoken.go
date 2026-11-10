@@ -7,15 +7,18 @@ import (
 	"strings"
 )
 
-// ErrReplyUnavailable means an answer could not be applied by its owner. A spoken
-// adapter must stop instead of asking the user to correct or repeat that input.
+// ErrReplyUnavailable marks a reply that repeating or correcting the spoken
+// input cannot complete. Its owner may already have applied or started the
+// requested effect; an adapter must stop rather than repeat or roll it back.
 var ErrReplyUnavailable = errors.New("base: reply unavailable")
 
-// SpokenField is a field that can be answered in words, one question and one
-// reply at a time, without its scene element. Reply validates like keyboard input:
-// a rejected reply leaves the answer unchanged and explains why, so the caller can
-// ask again; ErrReplyUnavailable and ErrValidationSuperseded mean asking again
-// cannot help.
+// SpokenField accepts answers without mounting a scene. Reply parses and applies
+// an answer before checking the resulting draft. A parse or admission refusal
+// leaves the answer unchanged; a failed check retains the accepted draft so the
+// caller can correct it. Error alone does not imply that no effect occurred:
+// an external owner can return Applied or Started together with an error.
+// ErrReplyUnavailable and ErrValidationSuperseded tell adapters to stop; repeating
+// the input cannot repair an owner failure or restore a superseded request.
 type SpokenField interface {
 	Field
 	Ask() string

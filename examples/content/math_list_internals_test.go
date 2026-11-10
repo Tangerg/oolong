@@ -1,7 +1,6 @@
 package main
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -28,11 +27,11 @@ func TestEmptyLaTeXKeepsTheEnclosingListItem(t *testing.T) {
 			t.Fatalf("cell %d = %q, want %q", column, cell.Content(), want)
 		}
 	}
-	projector, ok := screen.body.(interface{ Rows(width int) []text.Row })
+	projector, ok := screen.body.(text.Projector)
 	if !ok {
 		t.Fatal("composed Markdown lost its text projection")
 	}
-	if got := projector.Rows(30); !slices.Equal(got, []text.Row{{Text: "visible", Offset: 3}}) {
+	if got := projector.Rows(30); len(got) != 1 || got[0].Content.String() != "visible" || got[0].Offset != 3 {
 		t.Fatalf("projected list item = %+v", got)
 	}
 }

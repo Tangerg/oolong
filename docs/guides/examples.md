@@ -36,6 +36,10 @@ Run these commands from the repository root. The table follows directories conta
 | `state` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/state) | `go run ./examples/state` |
 | `streaming` | [Source and tests](https://github.com/Tangerg/oolong/tree/main/examples/streaming) | `go run ./examples/streaming` |
 
+## Command output admission
+
+The `run` command limits an unfinished logical line to 64 KiB of decoded text/link strings and 1,024 style/link spans. These limits bound content that publication cannot see before a newline. The decoder accounts for the line once; CR progress output does not reset the budget, and oversized OSC 8 targets are refused before retention. Exceeding either limit stops the command with an explicit failure while keeping the accepted open prefix visible and draining completed output already accepted by the owner. EOF decoding follows the same limits. See [text decoding](../core/text.md#decoding-bounded-command-output) for the shared decoder contract.
+
 ## Foreground editor
 
 The `run` example interprets `EDITOR` as a command in the host's shell syntax: `sh` on Unix and `cmd.exe` on Windows. Values such as `code --wait` and quoted executable paths can include arguments. Quote a path containing spaces according to that shell's rules; the example does not guess whether the whole value is a path. An empty value selects `vi`. The temporary filename is passed separately from command syntax, and editor failures remain process errors.

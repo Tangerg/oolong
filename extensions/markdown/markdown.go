@@ -134,7 +134,7 @@ func (d *documentLayout) Draw(v grid.View) {
 // Combined row-space overflow panics before publishing the new geometry.
 func (d *Snapshot) Rows(width int) []text.Row {
 	rows, _ := d.arrange(width).prepareRows(context.Background())
-	return slices.Clone(rows.values)
+	return text.CloneRows(rows.values)
 }
 
 func (d *Snapshot) arrange(width int) *documentLayout {

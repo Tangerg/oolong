@@ -2,9 +2,12 @@ package base
 
 import (
 	"context"
+	"errors"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
@@ -23,7 +26,7 @@ type Settings[T any] struct {
 	list List[T]
 	// Value reports input acceptance; State reports the domain owner's outcome.
 	// Acceptance alone cannot tell semantic callers whether a value changed.
-	changeValue func(index int, item T, action keymap.Action) scene.ActionResult[bool]
+	changeValue func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)
 	// EditKeys binds value actions. Nil reads through [DefaultSettingsKeys]. List.Keys
 	// independently controls navigation, so rebinding a value never replaces how the
 	// list is browsed.
@@ -31,10 +34,13 @@ type Settings[T any] struct {
 
 	matcher      keymap.Matcher
 	editRevision uint64
+	feedback     requestFeedback
 }
 
 type SettingsConfig[T any] struct {
-	Change   func(int, T, keymap.Action) scene.ActionResult[bool]
+	// Accepted effects and failures are independent; Applied or Started survives
+	// an accompanying error. Value alone only reports input consumption.
+	Change   func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)
 	EditKeys *keymap.Map
 }
 
@@ -83,18 +89,71 @@ func (s *Settings[T]) Do(action keymap.Action) bool {
 	if s.list.Do(action) {
 		return true
 	}
-	return s.change(s.list.Selected(), action).Value
+	if s.changeValue == nil || s.list.Selected() < 0 {
+		return false
+	}
+	result, _ := s.request(context.Background(), s.list.Selected(), action, true)
+	return result.Value
 }
 
-func (s *Settings[T]) change(index int, action keymap.Action) scene.ActionResult[bool] {
-	if item, ok := s.list.At(index); ok && s.changeValue != nil {
-		result := s.changeValue(index, item, action)
-		if result.State != scene.Unchanged {
-			s.list.element.Invalidate()
-		}
-		return result
+// Request addresses the current item order. It returns the domain's accepted
+// effects and error without replacing physical-input feedback. For an observed
+// revision-qualified address, use the element's semantic collection actions.
+// It panics during presentation or observation.
+func (s *Settings[T]) Request(ctx context.Context, index int, action keymap.Action) (scene.ActionResult[bool], error) {
+	return s.request(ctx, index, action, false)
+}
+
+func (s *Settings[T]) request(ctx context.Context, index int, action keymap.Action, recordError bool) (scene.ActionResult[bool], error) {
+	requireMutable(s.list.element)
+	var turn uint64
+	if recordError {
+		turn = s.feedback.begin()
 	}
-	return scene.ActionResult[bool]{}
+	result, err := s.applyRequest(ctx, index, action)
+	changed := result.State != scene.Unchanged
+	if recordError {
+		changed = s.feedback.finish(turn, err) || changed
+	}
+	if changed {
+		s.list.element.Invalidate()
+	}
+	return result, err
+}
+
+func (s *Settings[T]) applyRequest(ctx context.Context, index int, action keymap.Action) (scene.ActionResult[bool], error) {
+	if err := ctx.Err(); err != nil {
+		return scene.ActionResult[bool]{}, context.Cause(ctx)
+	}
+	item, ok := s.list.At(index)
+	if !ok || s.changeValue == nil {
+		return scene.ActionResult[bool]{}, scene.ErrUnavailable
+	}
+	result, err := s.changeValue(ctx, index, item, action)
+	if stateErr := result.State.Validate(); stateErr != nil {
+		return scene.ActionResult[bool]{}, errors.Join(err, stateErr)
+	}
+	return result, err
+}
+
+// ChangeError belongs to the latest physical value request. Request and semantic
+// actions return errors to their callers without changing this feedback.
+func (s *Settings[T]) ChangeError() error { return s.feedback.err }
+
+func (s *Settings[T]) HeightForWidth(width int) int {
+	return layout.Sum(s.list.HeightForWidth(width), feedbackRows(s.ChangeError()))
+}
+
+func (s *Settings[T]) Draw(frame scene.Frame) {
+	s.DrawRows(frame, Look{}, s.list.rowPainter)
+}
+
+// DrawRows reserves the same feedback row as Draw before staging list geometry.
+// It panics unless the settings owner is mounted in the frame's scene outside
+// read-only projection. The painter must be observationally pure.
+func (s *Settings[T]) DrawRows(frame scene.Frame, look Look, draw func(grid.View, int, T, bool)) {
+	requireProjection(s.list.element, frame)
+	s.list.DrawRows(feedbackFrame(frame, s.ChangeError(), look), draw)
 }
 
 func (s *Settings[T]) valueActions() []scene.ActionBinding {
@@ -117,8 +176,8 @@ func (s *Settings[T]) valueAction(id scene.ActionID, label string, action keymap
 			}
 			return scene.Availability{}
 		},
-		Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[bool], error) {
-			return s.change(address.Index, action), nil
+		Run: func(ctx context.Context, address CollectionIndex) (scene.ActionResult[bool], error) {
+			return s.Request(ctx, address.Index, action)
 		},
 	}).Binding()
 }
@@ -136,11 +195,11 @@ func (s *Settings[T]) List() *List[T] {
 	return &s.list
 }
 
-func (s *Settings[T]) Change() func(int, T, keymap.Action) scene.ActionResult[bool] {
+func (s *Settings[T]) Change() func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error) {
 	return s.changeValue
 }
 
-func (s *Settings[T]) SetChange(value func(int, T, keymap.Action) scene.ActionResult[bool]) {
+func (s *Settings[T]) SetChange(value func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)) {
 	element := s.Element()
 	requireMutable(element)
 	s.matcher.Reset(func() {

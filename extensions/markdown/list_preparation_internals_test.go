@@ -33,7 +33,7 @@ func (p *listPreparationChild) Rows(int) []text.Row {
 	if p.onRows != nil {
 		p.onRows()
 	}
-	return []text.Row{{Text: "x"}}
+	return []text.Row{{Content: text.Of("x", grid.Style{})}}
 }
 
 func TestPreparedListsRetainGeometryAcrossSourceWidths(t *testing.T) {

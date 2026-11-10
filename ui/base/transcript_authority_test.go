@@ -18,7 +18,7 @@ func (*recordingProjector) HeightForWidth(int) int { return 1 }
 func (*recordingProjector) Draw(grid.View)         {}
 func (b *recordingProjector) Rows(int) []text.Row {
 	b.calls++
-	return []text.Row{{Text: "he\x1bllo"}, {Text: "outside the measured block"}}
+	return []text.Row{{Content: text.Line{{Text: "he\x1bllo"}}}, {Content: text.Line{{Text: "outside the measured block"}}}}
 }
 
 func TestTranscriptQueriesReadOnlyCommittedRows(t *testing.T) {
@@ -29,7 +29,7 @@ func TestTranscriptQueriesReadOnlyCommittedRows(t *testing.T) {
 	r := transcriptScene(t, m)
 	transcriptCommit(t, r, 20, 2, 1)
 	projection := m.Layout()
-	if got := projection.Rows(0, 2); len(got) != 2 || got[0].Text != "hello" || block.calls != 1 {
+	if got := projection.Rows(0, 2); len(got) != 2 || got[0].Content.String() != "hello" || block.calls != 1 {
 		t.Errorf("committed rows = %v; projection calls = %d", got, block.calls)
 	}
 	first, ok := projection.Hit(base.Point{})
@@ -109,7 +109,7 @@ func TestDocumentRegistrationPublishesOnlyTheSubscribedReference(t *testing.T) {
 	}
 	transcriptPrepare(t, d)
 	transcriptCommit(t, r, 10, 1, 1)
-	if got := m.Layout().Rows(0, 1); len(got) != 1 || got[0].Text != "new" {
+	if got := m.Layout().Rows(0, 1); len(got) != 1 || got[0].Content.String() != "new" {
 		t.Fatalf("retained reference was never subscribed: %v", got)
 	}
 }

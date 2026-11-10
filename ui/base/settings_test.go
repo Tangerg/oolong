@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"context"
 	"image"
 	"testing"
 
@@ -18,9 +19,9 @@ func TestSettingsRoutesNavigationAndValueActionsSeparately(t *testing.T) {
 	var index int
 	var item string
 	var action keymap.Action
-	settings.SetChange(func(at int, current string, do keymap.Action) scene.ActionResult[bool] {
+	settings.SetChange(func(_ context.Context, at int, current string, do keymap.Action) (scene.ActionResult[bool], error) {
 		index, item, action = at, current, do
-		return scene.ActionResult[bool]{State: scene.Applied, Value: true}
+		return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
 	})
 
 	if !settings.Handle(input.Key{Code: input.Down}) || settings.List().Selected() != 1 {

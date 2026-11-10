@@ -70,11 +70,11 @@ func (e editorLineView) draw(frame scene.Frame, look Look, presented *scene.Snap
 	}
 	left = max(min(left, layout.Remaining(text.Width(shown), width-1)), 0)
 	if e.gutter != nil {
-		e.gutter.Draw(frame.Sub(grid.Area(0, 0, gutter, height)).View, []text.Row{{Text: shown, Line: 1}})
+		e.gutter.Draw(frame.Sub(grid.Area(0, 0, gutter, height)).View, []text.Row{{Content: text.Of(shown, grid.Style{}), SourceLine: 1}})
 	}
 	view := frame.Sub(grid.Area(gutter, 0, width, height)).View
 	if e.value == "" && e.placeholder != "" {
-		view.Text(0, 0, text.Truncate(e.placeholder, width, look.Ellipsis), look.Subtle)
+		text.Of(e.placeholder, look.Subtle).Truncate(width, look.Ellipsis).Draw(view, 0, 0)
 	} else {
 		text.Of(shown, look.Text).Draw(view, -left, 0)
 		if visible := view.Visible(); e.selecting && !visible.Empty() && visible.Min.Y == 0 {

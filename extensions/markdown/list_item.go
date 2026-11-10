@@ -2,7 +2,6 @@ package markdown
 
 import (
 	"context"
-	"slices"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
@@ -58,5 +57,5 @@ func (item *listItemLayout) project(ctx context.Context) ([]text.Row, error) {
 	if len(rows.values) == 0 {
 		return []text.Row{{Offset: item.inset}}, nil
 	}
-	return slices.Clone(rows.values), nil
+	return text.CloneRows(rows.values), nil
 }

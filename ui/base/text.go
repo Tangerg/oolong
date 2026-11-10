@@ -44,13 +44,13 @@ func (t *Text) Mask() string { return t.editor.Mask() }
 
 func (t *Text) Prompt() string { return t.label }
 
-func (t *Text) HeightForWidth(int) int { return layout.Sum(1, t.rows(t.label)) }
+func (t *Text) HeightForWidth(int) int { return layout.Sum(1, t.rows(t.label, t.PasteError())) }
 
 func (t *Text) Draw(v scene.Frame) { t.DrawWith(v, Look{}) }
 
 func (t *Text) DrawWith(v scene.Frame, look Look) {
 	view := t.editor.lineView()
-	view.draw(t.frame(v, t.label, look), look, &t.editor.presentation)
+	view.draw(t.frame(v, t.label, look, t.PasteError()), look, &t.editor.presentation)
 }
 
 // Handle applies local edit input. Mounted applications route events through Element so focus, capture and written-frame geometry remain scene-owned.

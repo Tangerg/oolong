@@ -34,10 +34,12 @@ func BenchmarkParagraphClippedDraw(b *testing.B) {
 
 func BenchmarkParagraphWrappedLinksDraw(b *testing.B) {
 	const visible = 40
-	paragraph := kit.NewParagraph(
-		strings.Repeat("a long linked paragraph ", 400)+"https://example.test/reference",
-		grid.Style{},
-	)
+	paragraph := kit.NewParagraph("", grid.Style{})
+	paragraph.SetText([]text.Line{{
+		{Text: strings.Repeat("a long linked paragraph ", 200)},
+		{Text: strings.Repeat("a long linked paragraph ", 200), Style: grid.Style{Attr: grid.Bold}},
+		{Text: "https://example.test/reference"},
+	}})
 	paragraph.SetLinks(kit.LinkConfig{Enabled: true})
 	height := paragraph.HeightForWidth(40)
 	surface := grid.NewSurface(40, visible)

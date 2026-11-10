@@ -38,6 +38,15 @@ const (
 	Started
 )
 
+// Validate lets typed and semantic request boundaries share the same admission
+// rule for owner-reported outcomes.
+func (s ActionState) Validate() error {
+	if s > Started {
+		return fmt.Errorf("%w: unknown action state %d", ErrInvalid, s)
+	}
+	return nil
+}
+
 // ActionResult reports what took effect even when a later part of the operation failed.
 type ActionResult[T any] struct {
 	State ActionState
@@ -101,8 +110,8 @@ func (a *Action[P, R]) run(ctx context.Context, params P) (ActionResult[R], erro
 		return zero, err
 	}
 	result, err := a.config.Run(ctx, params)
-	if result.State > Started {
-		return zero, errors.Join(err, fmt.Errorf("%w: action returned an unknown state", ErrInvalid))
+	if stateErr := result.State.Validate(); stateErr != nil {
+		return zero, errors.Join(err, stateErr)
 	}
 	return result, err
 }

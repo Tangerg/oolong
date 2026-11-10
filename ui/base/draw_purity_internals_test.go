@@ -3,6 +3,7 @@ package base
 import (
 	"bytes"
 	"context"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -320,6 +321,20 @@ func headlessDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 			geometry  scrollGeometry
 			following bool
 		}{list.Selected(), list.scroll.current, list.scroll.following}
+	}))
+	settings := NewSettings(SettingsConfig[string]{
+		Change: func(context.Context, int, string, keymap.Action) (scene.ActionResult[bool], error) {
+			return scene.ActionResult[bool]{Value: true}, errors.New("setting unavailable")
+		},
+	})
+	settings.List().SetItems([]string{"volume", "theme"})
+	settings.List().SetRow(list.Row())
+	settings.Do(Increase)
+	cases = append(cases, widgetPurityCase(scenes, "*Settings", settings, func() any {
+		return struct {
+			selected int
+			feedback requestFeedback
+		}{settings.List().Selected(), settings.feedback}
 	}))
 	table := NewTable(TableConfig[string]{Row: list.Row()})
 	table.SetSortColumns(func(int) func(string, string) int { return strings.Compare })

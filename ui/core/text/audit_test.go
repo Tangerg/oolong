@@ -36,7 +36,7 @@ func TestSpanBoundariesDoNotSplitGraphemes(t *testing.T) {
 				}
 			}
 			rows := text.NewBlock(text.BlockConfig{Lines: []text.Line{line}}).Rows(width + 4)
-			if len(rows) != 1 || rows[0].Text != source {
+			if len(rows) != 1 || rows[0].Content.String() != source {
 				t.Fatalf("%q split %d: %#v", source, split, rows)
 			}
 			s := grid.NewSurface(width, 1)
@@ -66,7 +66,7 @@ func TestCompleteReplacementDestroysMarkIdentity(t *testing.T) {
 
 func TestFilteredBytesCannotReassembleIntoWiderText(t *testing.T) {
 	source := "a\xc2\n\xa9bc"
-	if got := text.Truncate(source, 2, "…"); text.Width(got) > 2 {
+	if got := text.Of(source, grid.Style{}).Truncate(2, "…").String(); text.Width(got) > 2 {
 		t.Fatalf("overflow: %q", got)
 	}
 	for _, row := range text.Of(source, grid.Style{}).Wrap(2) {
@@ -80,7 +80,7 @@ func TestARemovedControlLeavesItsNeighborsApart(t *testing.T) {
 	const source = "⚠\n\ufe0f!"
 	for name, shown := range map[string]string{
 		"wrapped":   text.Of(source, grid.Style{}).Wrap(10)[0].Line.String(),
-		"truncated": text.Truncate(source, 10, "…"),
+		"truncated": text.Of(source, grid.Style{}).Truncate(10, "…").String(),
 	} {
 		if shown != "⚠!" {
 			t.Errorf("%s text is %q, want the warning sign kept narrow", name, shown)

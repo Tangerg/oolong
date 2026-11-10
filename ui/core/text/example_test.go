@@ -28,7 +28,11 @@ func ExampleDecoder() {
 	// in one and closed in another, and a sequence split down the middle.
 	var d text.Decoder
 	for _, chunk := range []string{"building \x1b[3", "3mtwo\x1b[0m targets\nlin", "king\n"} {
-		for _, line := range d.Feed(chunk) {
+		lines, err := d.Feed(chunk)
+		if err != nil {
+			panic(err)
+		}
+		for _, line := range lines {
 			fmt.Printf("%q\n", line.String())
 		}
 	}

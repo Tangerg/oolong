@@ -323,8 +323,8 @@ func TestAnEntryWrapsToTheWidthItIsGiven(t *testing.T) {
 func TestAnEntryCanBeCopiedWithoutCopyingItsVisualGutter(t *testing.T) {
 	m := kit.Entry{Label: "source", Body: "result", Trailing: 1}
 	rows := m.Rows(20)
-	if len(rows) != 3 || rows[0].Text != "source" ||
-		rows[1].Text != "result" || rows[1].Offset != 2 || rows[2].Text != "" {
+	if len(rows) != 3 || rows[0].Content.String() != "source" ||
+		rows[1].Content.String() != "result" || rows[1].Offset != 2 || rows[2].Content.String() != "" {
 		t.Fatalf("entry rows = %+v", rows)
 	}
 }

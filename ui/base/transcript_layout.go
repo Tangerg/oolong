@@ -118,7 +118,8 @@ func (l TranscriptLayout) Rows(from, count int) []text.Row {
 		}
 		source := min(max(from-b.top, 0), len(b.mapping.rows))
 		destination := max(b.top-from, 0)
-		copy(out[destination:], b.mapping.rows[source:])
+		n := min(len(out)-destination, len(b.mapping.rows)-source)
+		copy(out[destination:], text.CloneRows(b.mapping.rows[source:source+n]))
 	}
 	return out
 }

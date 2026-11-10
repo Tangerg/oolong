@@ -20,7 +20,7 @@ type retainedBlock struct{ payload []byte }
 func (b *retainedBlock) HeightForWidth(int) int { return 1 }
 func (b *retainedBlock) Draw(grid.View)         {}
 func (b *retainedBlock) Rows(int) []text.Row {
-	return []text.Row{{Text: string(b.payload)}}
+	return []text.Row{{Content: text.Line{{Text: string(b.payload)}}}}
 }
 
 func TestTranscriptCommitReleasesPayloadAndPlacement(t *testing.T) {

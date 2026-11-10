@@ -38,7 +38,7 @@ func TestListMarkersSurviveInvisibleChildren(t *testing.T) {
 				t.Fatalf("projected %d rows for %d drawn rows", len(projected), len(test.want))
 			}
 			for _, row := range projected {
-				if strings.ContainsAny(row.Text, "•│") || strings.Contains(row.Text, "1.") {
+				if strings.ContainsAny(row.Content.String(), "•│") || strings.Contains(row.Content.String(), "1.") {
 					t.Fatalf("list furniture became searchable content: %+v", row)
 				}
 			}
@@ -66,7 +66,7 @@ func (content widthDependentContent) Rows(width int) []text.Row {
 	if content.HeightForWidth(width) == 0 {
 		return nil
 	}
-	return []text.Row{{Text: "wide"}}
+	return []text.Row{{Content: text.Of("wide", grid.Style{})}}
 }
 
 func TestListMarkerPlacementFollowsTheCurrentWidth(t *testing.T) {
@@ -84,16 +84,16 @@ func TestListMarkerPlacementFollowsTheCurrentWidth(t *testing.T) {
 		case 0:
 		case 1:
 			want = []string{"e", "n", "d"}
-			projected = []text.Row{{Text: "e"}, {Text: "n", Joined: true}, {Text: "d", Joined: true}}
+			projected = []text.Row{{Content: text.Of("e", grid.Style{})}, {Content: text.Of("n", grid.Style{}), Joined: true}, {Content: text.Of("d", grid.Style{}), Joined: true}}
 		case 6:
 			want = []string{"1. end"}
-			projected = []text.Row{{Text: "end", Offset: 3}}
+			projected = []text.Row{{Content: text.Of("end", grid.Style{}), Offset: 3}}
 		default:
 			want = []string{"1. wide", "", "   end"}
-			projected = []text.Row{{Text: "wide", Offset: 3}, {}, {Text: "end", Offset: 3}}
+			projected = []text.Row{{Content: text.Of("wide", grid.Style{}), Offset: 3}, {}, {Content: text.Of("end", grid.Style{}), Offset: 3}}
 		}
 		equal(t, rows(t, width, blocks), want)
-		if got := doc.Rows(width); !slices.Equal(got, projected) {
+		if got := doc.Rows(width); !sameTextRows(got, projected) {
 			t.Fatalf("width %d: projection %+v, want %+v", width, got, projected)
 		}
 		if got := doc.HeightForWidth(width); got != len(projected) {
@@ -119,9 +119,9 @@ func TestAnEntirelyInvisibleItemProjectsOnlyItsBlankContentColumn(t *testing.T) 
 		}
 		want := text.Row{Offset: min(5, width-1)}
 		if width >= 15 {
-			want.Text = "wide"
+			want.Content = text.Of("wide", grid.Style{})
 		}
-		if !slices.Equal(projected, []text.Row{want}) || block.HeightForWidth(width) != 1 {
+		if !sameTextRows(projected, []text.Row{want}) || block.HeightForWidth(width) != 1 {
 			t.Fatalf("width %d: rows %+v, height %d", width, projected, block.HeightForWidth(width))
 		}
 	}
@@ -168,10 +168,17 @@ func TestNestedExtensionErrorsIdentifyTheContainingResultBlock(t *testing.T) {
 		}
 		var content strings.Builder
 		for _, row := range blocks[located.Block].Rows(30) {
-			content.WriteString(row.Text)
+			content.WriteString(row.Content.String())
 		}
 		if !strings.Contains(content.String(), "partial") {
 			t.Fatalf("diagnostic points away from partial content: %q", content.String())
 		}
 	}
+}
+
+func sameTextRows(a, b []text.Row) bool {
+	return slices.EqualFunc(a, b, func(a, b text.Row) bool {
+		return a.Content.String() == b.Content.String() && a.Content.Width() == b.Content.Width() &&
+			a.Offset == b.Offset && a.SourceLine == b.SourceLine && a.Joined == b.Joined && a.Gap == b.Gap
+	})
 }

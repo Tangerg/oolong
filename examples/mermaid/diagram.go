@@ -22,9 +22,9 @@ const diagramRows = 16
 type diagramPhase uint8
 
 const (
-	diagramRendering diagramPhase = iota // the backend renders the source to PNG
-	diagramUploading                     // the terminal receives the rendered PNG
-	diagramShown                         // the image, or the source standing in for it, is final
+	diagramRendering diagramPhase = iota
+	diagramUploading
+	diagramShown // the image, or the source standing in for it, is final
 	diagramFailed
 )
 
@@ -54,7 +54,6 @@ func (d *diagram) status() (message string, failed bool) {
 	}
 }
 
-// show replaces the current diagram with source and starts rendering it.
 func (s *diagramScreen) show(source string) {
 	if s.current.work != nil {
 		s.current.work.Close()

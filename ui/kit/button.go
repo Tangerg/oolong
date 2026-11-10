@@ -84,7 +84,9 @@ func (b *Button) Draw(frame scene.Frame) {
 		style = style.Merge(palette.Selection).Merge(palette.Accent)
 	}
 	width, _ := frame.Size()
-	label := brackets.prefix + text.Truncate(b.controller.Label(), layout.Remaining(width, brackets.width()), b.ellipsis) + brackets.suffix
+	label := text.Of(b.controller.Label(), style).Truncate(layout.Remaining(width, brackets.width()), b.ellipsis)
 	frame.Fill(frame.Bounds(), style)
-	Label{Text: label, Style: style}.Draw(frame.View)
+	x := text.Of(brackets.prefix, style).Draw(frame.View, 0, 0)
+	x = layout.Sum(x, label.Draw(frame.View, x, 0))
+	text.Of(brackets.suffix, style).Draw(frame.View, x, 0)
 }

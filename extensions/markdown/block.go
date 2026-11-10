@@ -136,7 +136,7 @@ func (p placedEmbedded) draw(v grid.View) { p.child.Draw(v) }
 func (p placedEmbedded) project(context.Context) ([]text.Row, error) {
 	rows := make([]text.Row, p.rows)
 	if projector, ok := p.child.(text.Projector); ok {
-		copy(rows, projector.Rows(p.width))
+		copy(rows, text.CloneRows(projector.Rows(p.width)))
 	}
 	return rows, nil
 }
@@ -200,7 +200,7 @@ func publicRows(rows []text.Wrapped, offset int) []text.Row {
 	out := make([]text.Row, len(rows))
 	for i, row := range rows {
 		out[i] = text.Row{
-			Text: row.Line.String(), Offset: offset,
+			Content: row.Line.Clone(), Offset: offset,
 			Joined: row.Joined, Gap: row.Gap,
 		}
 	}
@@ -209,14 +209,15 @@ func publicRows(rows []text.Wrapped, offset int) []text.Row {
 
 // Repetition stays anchored to the logical origin even when a viewport clips its left edge.
 func drawRule(v grid.View, glyph text.Span) {
-	unit := text.Width(glyph.Text)
+	pattern := text.Line{glyph}
+	unit := pattern.Width()
 	if unit == 0 || v.Empty() {
 		return
 	}
 	width, _ := v.Size()
 	visible := v.Visible()
 	for x := visible.Min.X - visible.Min.X%unit; x < visible.Max.X; {
-		v.Text(x, 0, text.Truncate(glyph.Text, width-x, ""), glyph.Style)
+		pattern.Truncate(width-x, "").Draw(v, x, 0)
 		if visible.Max.X-x <= unit {
 			break
 		}

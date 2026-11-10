@@ -27,7 +27,7 @@ func TestBlockNestingLimitIncludesTheLeaf(t *testing.T) {
 			rows := blocks[0].Rows(40)
 			var value strings.Builder
 			for _, row := range rows {
-				value.WriteString(row.Text)
+				value.WriteString(row.Content.String())
 			}
 			if value.String() != "leaf" {
 				t.Fatalf("boundary content = %q", value.String())
@@ -48,7 +48,7 @@ func TestBlockNestingLimitDoesNotCountSiblingsOrCodeMarkers(t *testing.T) {
 		t.Fatalf("code block count=%d error=%v", len(blocks), err)
 	}
 	rows := blocks[0].Rows(len(literal) + 1)
-	if len(rows) != 1 || rows[0].Text != literal {
+	if len(rows) != 1 || rows[0].Content.String() != literal {
 		t.Fatalf("code contents = %+v", rows)
 	}
 }

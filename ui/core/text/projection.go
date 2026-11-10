@@ -22,18 +22,34 @@ type sourceRun struct {
 	displayStart, sourceStart int
 }
 
-type displayCluster struct {
-	text     string
-	from, to int
+// Cluster is one display atom and the half-open source byte interval it occupies.
+// The interval can include filtered bytes that are absent from Text.
+type Cluster struct {
+	Text     string
+	From, To int
 }
 
-type preparedLine struct {
-	source  Line
-	display displayProjection
+func (l Line) sections() iter.Seq2[int, Line] {
+	return func(yield func(int, Line) bool) {
+		offset := 0
+		for start := 0; start < len(l); {
+			end := l.sectionEnd(start)
+			section := l[start:end]
+			if !yield(offset, section) {
+				return
+			}
+			offset += section.ByteLen()
+			start = end
+		}
+	}
 }
 
-func (l Line) prepare() preparedLine {
-	return preparedLine{source: l, display: projectDisplay(l.String())}
+func (l Line) sectionEnd(start int) int {
+	end := start + 1
+	for end < len(l) && !l[end].BreakBefore {
+		end++
+	}
+	return end
 }
 
 func projectDisplay(source string) displayProjection {
@@ -63,8 +79,8 @@ func projectDisplay(source string) displayProjection {
 	return p
 }
 
-func (p displayProjection) clusters() iter.Seq[displayCluster] {
-	return func(yield func(displayCluster) bool) {
+func (p displayProjection) clusters() iter.Seq[Cluster] {
+	return func(yield func(Cluster) bool) {
 		run := 0
 		sourceByte := func(at int) int {
 			if len(p.runs) == 0 {
@@ -77,10 +93,10 @@ func (p displayProjection) clusters() iter.Seq[displayCluster] {
 		}
 		clusters := grapheme.New(p.text)
 		for clusters.Next() {
-			cluster := displayCluster{
-				text: clusters.Value(),
-				from: sourceByte(clusters.Start()),
-				to:   sourceByte(clusters.End()-1) + 1,
+			cluster := Cluster{
+				Text: clusters.Value(),
+				From: sourceByte(clusters.Start()),
+				To:   sourceByte(clusters.End()-1) + 1,
 			}
 			if !yield(cluster) {
 				return
@@ -107,10 +123,10 @@ func (p displayProjection) containsSourceByte(at int) bool {
 	return at-p.runs[index].sourceStart < end-p.runs[index].displayStart
 }
 
-func (p displayProjection) match(cluster displayCluster, offsets []int) (bool, []int) {
+func (p displayProjection) match(cluster Cluster, offsets []int) (bool, []int) {
 	matched := false
-	for len(offsets) > 0 && offsets[0] < cluster.to {
-		if offsets[0] >= cluster.from && p.containsSourceByte(offsets[0]) {
+	for len(offsets) > 0 && offsets[0] < cluster.To {
+		if offsets[0] >= cluster.From && p.containsSourceByte(offsets[0]) {
 			matched = true
 		}
 		offsets = offsets[1:]
@@ -118,21 +134,48 @@ func (p displayProjection) match(cluster displayCluster, offsets []int) (bool, [
 	return matched, offsets
 }
 
-func (p preparedLine) clusters() iter.Seq2[displayCluster, *Span] {
-	return func(yield func(displayCluster, *Span) bool) {
-		line := p.source
-		spanIndex, spanEnd := 0, 0
-		if len(line) > 0 {
-			spanEnd = len(line[0].Text)
-		}
-		for cluster := range p.display.clusters() {
-			for spanIndex+1 < len(line) && cluster.from >= spanEnd {
-				spanIndex++
-				spanEnd += len(line[spanIndex].Text)
+func (l Line) clusters() iter.Seq2[Cluster, *Span] {
+	return func(yield func(Cluster, *Span) bool) {
+		offset := 0
+		for start := 0; start < len(l); {
+			end := l.sectionEnd(start)
+			section := l[start:end]
+			display := projectDisplay(section.String())
+			appearance := spanCursor{spans: section, end: len(section[0].Text)}
+			for cluster := range display.clusters() {
+				span := appearance.at(cluster.From)
+				cluster.From += offset
+				cluster.To += offset
+				if !yield(cluster, span) {
+					return
+				}
 			}
-			if !yield(cluster, &line[spanIndex]) {
+			offset += section.ByteLen()
+			start = end
+		}
+	}
+}
+
+func styledClusters(line Line, display displayProjection) iter.Seq2[Cluster, *Span] {
+	return func(yield func(Cluster, *Span) bool) {
+		appearance := spanCursor{spans: line, end: len(line[0].Text)}
+		for cluster := range display.clusters() {
+			if !yield(cluster, appearance.at(cluster.From)) {
 				return
 			}
 		}
 	}
+}
+
+type spanCursor struct {
+	spans      Line
+	index, end int
+}
+
+func (c *spanCursor) at(sourceByte int) *Span {
+	for c.index+1 < len(c.spans) && sourceByte >= c.end {
+		c.index++
+		c.end += len(c.spans[c.index].Text)
+	}
+	return &c.spans[c.index]
 }

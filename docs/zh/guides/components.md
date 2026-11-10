@@ -57,6 +57,10 @@ for _, form := range forms {
 
 保留 base 控制器，在未挂载元素上设置绘制或测量槽。使用 core 的 text、grid、layout 原子能力绘制传入的 `scene.Frame`。从控制器读取值与状态。绘制使用候选几何，事件通过 `scene.Event.Read` 读取到达帧投影。
 
+标签和装饰文本使用 `line := text.Of(value, style)`，配合它的 `Width` 与 `Draw` 方法。控制字符过滤、字素边界和 tab stops 由同一文字投影解释。Tab 从该文字行自身的起点计算，移动或裁剪视图不会改变其列位置。`grid.View.Text` 是更底层的单元格写入能力，不展开 tab。
+
+`text.Projector` 通过 `Row.Content` 提供与绘制相同的 `text.Line` 投影。交付完整标签时使用 `line.Display().Clone()`：过滤控制字符，保留 tab 和显式字素边界，并使返回的 spans 与生产者脱离共享。`Entry.Rows` 在水平裁剪后仍保留这份完整投影，避免调整宽度改变已有选择的文本身份。`Line.String()` 提供复制或匹配所需的字节；从这些字节重建几何会丢失显式边界。Tab 展开以及所有字节到列的转换由文字布局负责。
+
 [Base 参考](../base/index.md)与 [kit 参考](../kit/index.md)定义两侧职责。[State 示例](https://github.com/Tangerg/oolong/tree/main/examples/state) 展示显式所有者更新与归一化，不保留竞争性的 accessor 存储。
 
 若外观只属于某一次组合，在子关系的 `scene.Item.Paint` 上提供画法；移出子项后，元素自己的画法仍然有效。若一个控制器需要同时替换多个兄弟组的子项，父组可用 `CheckChildItems` 和 `SetChildItems` 对直属子组整体预检、一次安装。
@@ -94,7 +98,7 @@ Oolong 发送 Kitty 图片编号 `I`，并接收终端分配的物理图片 ID `
 
 使用 `runtime.Clipboard().Read(ctx, receive)` 发起定向读取。接纳错误立即返回；回调在 UI 所有者上接收读取结果。自定义宿主实现 `program.ClipboardReader.ReadClipboard(context.Context) (string, error)`，可以在该工作线程调用中阻塞。调用方取消或 runtime 结束会撤销回调交付。普通括号粘贴仍是输入事件；OSC 52 回复只结算发起它的读取。
 
-`editor.Paste(ctx, complete)` 捕获原文档、修订、光标、选择区和挂载身份。焦点移动不会把结果转交另一编辑器。改变捕获的编辑位置或卸载编辑器会使结果过期；未挂载编辑器只有在从未挂载过时才能发起读取。接纳和完成错误均明确报告，键盘触发的失败可通过 `editor.PasteError()` 读取。空剪贴板成功返回，不删除当前选择区。
+`editor.Paste(ctx, complete)` 捕获原文档、修订、光标、选择区和挂载身份。焦点移动不会把结果转交另一编辑器。改变捕获的编辑位置或卸载编辑器会使结果过期；未挂载编辑器只有在从未挂载过时才能发起读取。接纳和完成错误均明确报告。`editor.PasteError()` 属于最近一次键盘请求，旧请求的完成不能覆盖新请求的拒绝或成功。Editor、Text、Input 和 Composer 的默认呈现使用独立反馈行，并通过语义 `Description` 与 `StateInvalid` 暴露完整原因。程序粘贴直接返回自己的错误，不改写物理输入反馈。空剪贴板成功返回，不删除当前选择区。
 
 OSC 52 没有请求标识。响应超时会在十秒后结束等待，但不能证明迟到回复可以安全地归属新请求。取消和终端交接遵守相同规则：旧回复被消费前一直返回 `clipboard.ErrPending`，重复读取不能绕过未结清的查询。直接使用 `clipboard.Channel` 时，发送回调必须提供原子接纳语义；已经部分发出的查询也属于已发送，必须保留接收其回复的义务。
 

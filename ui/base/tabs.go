@@ -315,7 +315,7 @@ func (t *Tabs) newPart(key string) *tabPart {
 			if t.paintTab != nil {
 				t.paintTab(frame, part.tab, t.selectedPart() == part)
 			} else {
-				frame.Text(0, 0, part.tab.Title, Look{}.Text)
+				text.Of(part.tab.Title, Look{}.Text).Draw(frame.View, 0, 0)
 			}
 		},
 		Handle: func(event scene.Event) scene.EventResult {

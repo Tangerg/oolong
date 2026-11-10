@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+### Breaking API migration
+
+#### ui
+
+- `core/text.Row` and `core/text.LayoutRow` carry their display projection directly. `core/text.Row.Text` is replaced by `core/text.Row.Content`, a `core/text.Line`; `core/text.Row.Line` becomes `core/text.Row.SourceLine`. `core/text.LayoutConfig.Lines` accepts `[]core/text.Line`, and `core/text.LayoutRow.Text` becomes `core/text.LayoutRow.Content`. `core/text.LayoutRow.Width` is now a method derived from that content. Keep the line projection through rendering, selection, hit testing and search; use `Line.String()` only to serialize text. Explicit `Span.BreakBefore` boundaries retain independent display atoms that cannot be reconstructed from plain bytes. Ordinary style spans keep this field false. Producers return detached row snapshots with `CloneRows` or `Line.Clone`.
+- Remove the package-level `core/text.Truncate` and `core/text.Fill` string helpers. Use `text.Of(value, style).Truncate(width, suffix)` or `line.Fill(width)` and draw the returned line. `Line.Display`, `Line.Clusters`, `Line.ColumnOf`, `Line.OffsetAt`, `Line.NextCluster`, `Line.PrevCluster`, `Line.WordAt`, `Line.ByteLen` and `Line.Slice` preserve the same projection instead of flattening and segmenting it again. A cluster reports both source byte endpoints because display filtering can remove bytes.
+- `core/text.(*Decoder).Feed` and `core/text.(*Decoder).Flush` return `([]Line, error)`. Handle returned completed lines before the error. Construct a bounded decoder with `NewDecoder(DecoderConfig{MaxLineBytes: ..., MaxLineSpans: ...})`; zero limits remain unbounded. An admission refusal matches `ErrLineLimit`, retains the accepted open prefix, and remains in force until `Reset`. Successful `Flush` transfers its final line once.
+- `base.SettingsConfig.Change`, `kit.SettingsConfig.Change`, `base.(*Settings[T]).Change` and `base.(*Settings[T]).SetChange` use `func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)`. Domain acceptance and failure are explicit; the result value only says whether physical input was consumed. Use `Settings.Request` for typed calls and read the latest physical request's `ChangeError` for presentation. Kit delegates row and feedback geometry to its base controller.
+
+The workspace callers, format extensions and examples migrate together. Publishing consumers of these new contracts requires releasing `ui` first and updating their declared UI dependency to that real tag; no compatibility path or local replacement is added to published module manifests.
+
+### Fixed
+
+- Text components, decorative rules, Markdown tables and LaTeX layout share `text.Line` geometry. Control filtering, tab stops, truncation, wrapping and suffixes no longer disagree with painted cells. Materialized tab spaces retain their boundary from an independent modifier; row snapshots, transcript identity and search preserve it across reflow.
+- `core/input.Chord.Validate` owns legal chord identity. Keymap binding checks it before admitting a change or notifying borrowers, and malformed chords report their actual code, rune and modifiers. `core/scene.ActionState.Validate` similarly owns the accepted state vocabulary for semantic actions, Confirm, Settings and Form boundaries; invalid callback states preserve the original error while reporting `scene.ErrInvalid`.
+- Superseding a form attempt cancels the retired request after publishing its replacement, even when publication or a resolver panics or exits its goroutine. Reentrant cancellation cannot retire the replacement attempt. Spoken field replies retain an accepted draft when later validation fails, and the prompter stops on unavailable or superseded replies instead of replaying an answer.
+- Clipboard paste and Settings feedback belong to the latest physical request. A late older completion cannot erase a newer failure. Field validation and operation failures appear in visual and semantic projections without creating a second error owner or treating an operation failure as an invalid field value.
+- The run example bounds each open decoded output line to 64 KiB and 1,024 style/link spans, cancels an over-limit producer, and drains its already accepted completed prefix. Independent output failures and short writes remain observable when cancellation also kills the command.
+- The terminal test screen applies vertical cursor movement within the appropriate scroll region, treats LF, VT and FF consistently, preserves deferred wrap through NUL, BEL, DEL and a tab at the right margin, and rejects unsupported controls explicitly.
+- Removing text marks clears the discarded backing-array tail so retired owners are not retained. Redundant narration comments are removed from the reviewed example and extension paths.
+
 ## [ui/v0.28.0] — 2026-11-10
 
 ### Breaking API migration

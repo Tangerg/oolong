@@ -6,6 +6,7 @@ import (
 	"image"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
@@ -21,7 +22,10 @@ import (
 // those would turn this test helper into the terminal emulator it is meant to avoid.
 var ErrUnsupportedOutput = errors.New("ptytest: unsupported screen output")
 
-const maxGraphemeBytes = 64 << 10
+const (
+	maxGraphemeBytes = 64 << 10
+	defaultTabWidth  = 8
+)
 
 type screenCell struct {
 	text  string
@@ -335,13 +339,21 @@ func (s *Screen) moveCursor(final byte, params ansi.Params) bool {
 		column := defaultOne(params.At(1)) - 1
 		s.move(column, row)
 	case 'A':
-		s.move(s.at.X, s.at.Y-defaultOne(params.At(0)))
+		top := 0
+		if s.at.Y >= s.top {
+			top = s.top
+		}
+		s.move(s.at.X, s.at.Y-min(defaultOne(params.At(0)), s.at.Y-top))
 	case 'B':
-		s.move(s.at.X, s.at.Y+defaultOne(params.At(0)))
+		bottom := s.size.Rows - 1
+		if s.at.Y < s.end {
+			bottom = s.end - 1
+		}
+		s.move(s.at.X, s.at.Y+min(defaultOne(params.At(0)), bottom-s.at.Y))
 	case 'C':
-		s.move(s.at.X+defaultOne(params.At(0)), s.at.Y)
+		s.move(s.at.X+min(defaultOne(params.At(0)), s.size.Cols-1-s.at.X), s.at.Y)
 	case 'D':
-		s.move(s.at.X-defaultOne(params.At(0)), s.at.Y)
+		s.move(s.at.X-min(defaultOne(params.At(0)), s.at.X), s.at.Y)
 	case 'G':
 		s.move(defaultOne(params.At(0))-1, s.at.Y)
 	case 'd':
@@ -361,35 +373,46 @@ func defaultOne(n int) int {
 
 func (s *Screen) writePlain(raw string) error {
 	for raw != "" {
-		i := strings.IndexAny(raw, "\b\t\n\r")
+		i := strings.IndexFunc(raw, unicode.IsControl)
 		if i < 0 {
 			return s.writeText(raw)
 		}
 		if err := s.writeText(raw[:i]); err != nil {
 			return err
 		}
-		s.controlByte(raw[i])
-		raw = raw[i+1:]
+		control, size := utf8.DecodeRuneInString(raw[i:])
+		if err := s.controlRune(control); err != nil {
+			return err
+		}
+		raw = raw[i+size:]
 	}
 	return nil
 }
 
-func (s *Screen) controlByte(b byte) {
+func (s *Screen) controlRune(control rune) error {
+	if control == '\x00' || control == '\a' || control == '\x7f' {
+		return nil
+	}
 	s.settleGrapheme()
-	switch b {
+	switch control {
 	case '\b':
 		s.at.X = max(s.at.X-1, 0)
 	case '\t':
 		// With no further tab stop the cursor stops at the last column of this row.
 		// Clamping to the width instead would leave it one past the end, where the
 		// next character wraps onto a line the terminal never moved to.
-		s.at.X = min((s.at.X/8+1)*8, s.size.Cols-1)
-	case '\n':
+		s.at.X = min((s.at.X/defaultTabWidth+1)*defaultTabWidth, s.size.Cols-1)
+		// A tab at the right margin leaves the next printable atom's wrap pending.
+		return nil
+	case '\n', '\v', '\f':
 		s.lineFeed()
 	case '\r':
 		s.at.X = 0
+	default:
+		return fmt.Errorf("%w: control %U", ErrUnsupportedOutput, control)
 	}
 	s.pendingWrap = false
+	return nil
 }
 
 func (s *Screen) writeText(raw string) error {

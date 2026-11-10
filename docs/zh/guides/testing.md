@@ -12,6 +12,8 @@ contentType: How-to
 
 直接控制器测试验证值与交互策略。`scene.Root` 候选验证挂载、焦点、语义动作、几何和中止行为。`ui/automation` 验证远程代理使用的相同查询与动作。将 `uitest.New` 作为 `program.ScreenConfig` 或 `program.InlineConfig` 的 Host 在进程内运行会话，使用 `uitest/ptytest` 验证终端屏幕或真实 PTY 一致性。
 
+`ptytest.Screen` 按活动滚动区域处理相对光标移动。LF、VT 和 FF 使用相同的换行行为；NUL、BEL 和 DEL 不改变单元格。右边界上的 tab 保留待执行的自动换行。尚未建模的控制字符在应用后续文本之前返回 `ErrUnsupportedOutput`。这个有界模型应与独立终端一致性测试配合使用：静默忽略会影响单元格的未知命令，不能证明帧正确。
+
 需要断言某次重绘时，调用 `host.Repaint(ctx)`。快照包含实际绘制的画布尺寸、完整帧和截至该帧的全部输出；请求之后出现普通写入，并不代表请求的帧已经画好。给上下文设置时限，这样即使程序在接收请求前退出，测试也不会挂起。取消真实 PTY 会话时，即使直接子进程已经退出，同一进程组中仍占用终端的后代也会被终止。若输出结束时仍未出现所等待的内容，`WaitFor` 返回读取错误或 `io.EOF`。
 
 需要点击已确认输出时，在 `Repaint` 返回后调用 `host.Pointer(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: position})`，保持 `At` 为零。`Pointer` 在排队前捕获已完成输出的不可变几何，后续帧不能重新定位这个事件。程序尚未绑定输入会话，或写入、几何仍未稳定时，它返回 false。键盘事件、指针意图和重绘请求共享一条 FIFO。

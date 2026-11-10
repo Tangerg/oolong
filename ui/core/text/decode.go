@@ -1,12 +1,28 @@
 package text
 
 import (
+	"errors"
+	"fmt"
+	"math"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
 	"github.com/Tangerg/oolong/ui/core/grid"
 )
+
+// DecoderConfig bounds each retained logical line independently of read chunks.
+// Zero limits leave line admission unbounded. Bytes include printable UTF-8 text,
+// each span's link target and an active target not represented by the last span.
+// Escape framing has its own fixed scanner bound; discarded controls use no line budget.
+type DecoderConfig struct {
+	Base         grid.Style
+	MaxLineBytes int
+	MaxLineSpans int
+}
+
+var ErrLineLimit = errors.New("text: decoded line limit exceeded")
 
 // Decoder retains lines, styles and incomplete escapes across output chunks.
 // It belongs to one interface goroutine and must not be copied after first use;
@@ -28,6 +44,11 @@ type Decoder struct {
 	runs  []decodedRun
 	open  Line
 	dirty bool
+
+	maxLineBytes int
+	maxLineSpans int
+	lineBytes    int
+	failure      error
 }
 
 // Make the single-owner constraint visible to go vet.
@@ -43,20 +64,30 @@ type decodedRun struct {
 	link  string
 }
 
-// Feed returns newline-completed lines, retaining incomplete lines and escapes
-// until later input or [Decoder.Flush].
-func (d *Decoder) Feed(chunk string) []Line {
-	if chunk == "" {
-		return nil
+func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
+	if cfg.MaxLineBytes < 0 || cfg.MaxLineSpans < 0 {
+		return nil, errors.New("text: decoder limits must not be negative")
+	}
+	return &Decoder{Base: cfg.Base, maxLineBytes: cfg.MaxLineBytes, maxLineSpans: cfg.MaxLineSpans}, nil
+}
+
+// Feed transfers completed lines even when later input exceeds a line limit.
+// Refusal preserves the accepted open prefix, discards the remaining input and
+// rejects further Feed calls until Reset. Read splits never change admission.
+func (d *Decoder) Feed(chunk string) ([]Line, error) {
+	if d.failure != nil || chunk == "" {
+		return nil, d.failure
 	}
 	var lines []Line
-	err := d.scan.Feed(chunk, func(piece ansi.Piece) error {
-		lines = append(lines, d.piece(piece)...)
-		return nil
+	// Scanner consumes refused escape framing completely. Only output admission
+	// failures stop this decoder; they are retained separately from framing errors.
+	_ = d.scan.Feed(chunk, func(piece ansi.Piece) error {
+		completed, err := d.piece(piece)
+		lines = append(lines, completed...)
+		d.failure = err
+		return err
 	})
-	// Scanner consumes oversized escapes completely, so dropping its error cannot leak command text.
-	_ = err
-	return lines
+	return lines, d.failure
 }
 
 // Open returns a detached snapshot of the unfinished line.
@@ -75,19 +106,21 @@ func (d *Decoder) openLine() Line {
 }
 
 // Flush ends the stream. An incomplete escape is discarded; a partial UTF-8
-// character is now known to be malformed text and follows the usual byte policy.
-func (d *Decoder) Flush() []Line {
-	if pending := d.scan.Pending(); pending != "" && pending[0] != ansi.Escape {
-		d.append(pending)
+// character follows the malformed-byte policy and the same admission limits.
+// Success transfers the final line once. Refusal leaves its accepted prefix in
+// Open and remains observable until Reset; flushing cannot erase failed output.
+func (d *Decoder) Flush() ([]Line, error) {
+	if pending := d.scan.Pending(); d.failure == nil && pending != "" && pending[0] != ansi.Escape {
+		d.failure = d.append(pending)
 	}
 	d.scan.Reset()
-	if len(d.runs) == 0 {
-		return nil
+	if d.failure != nil || len(d.runs) == 0 {
+		return nil, d.failure
 	}
-	return []Line{d.takeLine()}
+	return []Line{d.takeLine()}, nil
 }
 
-// Reset discards stream state while preserving Base for the next stream.
+// Reset starts a new stream with the configured limits and current Base.
 func (d *Decoder) Reset() {
 	d.state = rendition{}
 	d.link = ""
@@ -95,16 +128,21 @@ func (d *Decoder) Reset() {
 	d.runs = nil
 	d.open = nil
 	d.dirty = false
+	d.lineBytes = 0
+	d.failure = nil
 }
 
 // Decode applies base only where SGR has not supplied an explicit override.
 // An unfinished stream requires Decoder so partial sequences keep their state.
 func Decode(s string, base grid.Style) []Line {
 	d := Decoder{Base: base}
-	return append(d.Feed(s), d.Flush()...)
+	// The zero decoder has no admission limits and cannot refuse retained text.
+	lines, _ := d.Feed(s)
+	tail, _ := d.Flush()
+	return append(lines, tail...)
 }
 
-func (d *Decoder) piece(p ansi.Piece) []Line {
+func (d *Decoder) piece(p ansi.Piece) ([]Line, error) {
 	switch p.Kind {
 	case ansi.Plain:
 		return d.write(p.Raw)
@@ -119,35 +157,47 @@ func (d *Decoder) piece(p ansi.Piece) []Line {
 		}
 	case ansi.String:
 		if p.Family == ansi.OSC {
-			d.osc(p.Body)
+			return nil, d.osc(p.Body)
 		}
 	case ansi.Other, ansi.Malformed:
+	}
+	return nil, nil
+}
+
+// Output hyperlinks may affect text; terminal metadata commands must not survive into repainted content.
+func (d *Decoder) osc(body string) error {
+	command, rest, found := strings.Cut(body, ";")
+	if !found || command != "8" {
+		return nil
+	}
+	_, target, found := strings.Cut(rest, ";")
+	if !found {
+		return nil
+	}
+	target = grid.LinkTarget(target)
+	if n := len(d.runs); n > 0 && d.runs[n-1].link == target {
+		d.link = d.runs[n-1].link
+		return nil
+	}
+	if d.maxLineBytes > 0 && len(target) > d.maxLineBytes-d.lineBytes {
+		return d.byteLimitError()
+	}
+	if target != d.link {
+		// The scanner may lend a much larger chunk; only an admitted target survives.
+		d.link = strings.Clone(target)
 	}
 	return nil
 }
 
-// Output hyperlinks may affect text; terminal metadata commands must not survive into repainted content.
-func (d *Decoder) osc(body string) {
-	command, rest, found := strings.Cut(body, ";")
-	if !found || command != "8" {
-		return
-	}
-	_, target, found := strings.Cut(rest, ";")
-	if !found {
-		return
-	}
-	// body may point into the temporary partial-sequence buffer or a much larger
-	// caller chunk. A live hyperlink owns only its address.
-	d.link = strings.Clone(grid.LinkTarget(target))
-}
-
-func (d *Decoder) write(s string) []Line {
+func (d *Decoder) write(s string) ([]Line, error) {
 	var lines []Line
 	for {
 		before, after, found := strings.Cut(s, "\n")
-		d.append(before)
+		if err := d.append(before); err != nil {
+			return lines, err
+		}
 		if !found {
-			return lines
+			return lines, nil
 		}
 		lines = append(lines, d.takeLine())
 		s = after
@@ -155,23 +205,59 @@ func (d *Decoder) write(s string) []Line {
 }
 
 // Chunk boundaries must not create additional style spans.
-func (d *Decoder) append(s string) {
-	s = Printable(s)
-	if s == "" {
-		return
-	}
+func (d *Decoder) append(s string) error {
 	style := d.state.resolve(d.Base)
-	if n := len(d.runs); n > 0 && d.runs[n-1].style == style && d.runs[n-1].link == d.link {
-		d.runs[n-1].text = append(d.runs[n-1].text, s...)
-		d.dirty = true
-		return
+	n := len(d.runs)
+	merge := n > 0 && d.runs[n-1].style == style && d.runs[n-1].link == d.link
+	available := math.MaxInt
+	if d.maxLineBytes > 0 {
+		available = d.maxLineBytes - d.lineBytes
+		if !merge {
+			available -= len(d.link)
+		}
 	}
-	d.runs = append(d.runs, decodedRun{
-		text:  append([]byte(nil), s...),
-		style: style,
-		link:  d.link,
-	})
-	d.dirty = true
+	spanLimit := !merge && d.maxLineSpans > 0 && n == d.maxLineSpans
+	if spanLimit {
+		available = 0
+	}
+	accepted, refused := printablePrefix(s, max(0, available))
+	if accepted != "" {
+		if merge {
+			d.runs[n-1].text = append(d.runs[n-1].text, accepted...)
+		} else {
+			d.runs = append(d.runs, decodedRun{text: []byte(accepted), style: style, link: d.link})
+			d.lineBytes += len(d.link)
+		}
+		d.lineBytes += len(accepted)
+		d.dirty = true
+	}
+	if !refused {
+		return nil
+	}
+	if spanLimit {
+		return fmt.Errorf("%w: at most %d spans", ErrLineLimit, d.maxLineSpans)
+	}
+	return d.byteLimitError()
+}
+
+// Count normalized bytes before allocating them: malformed UTF-8 expands, and a
+// large rejected piece must not first become a large temporary printable string.
+func printablePrefix(s string, available int) (string, bool) {
+	for at, r := range s {
+		if droppedRune(r) {
+			continue
+		}
+		size := utf8.RuneLen(r)
+		if size > available {
+			return Printable(s[:at]), true
+		}
+		available -= size
+	}
+	return Printable(s), false
+}
+
+func (d *Decoder) byteLimitError() error {
+	return fmt.Errorf("%w: at most %d bytes", ErrLineLimit, d.maxLineBytes)
 }
 
 // takeLine transfers the current immutable line to the caller and starts a new
@@ -181,6 +267,7 @@ func (d *Decoder) takeLine() Line {
 	d.runs = nil
 	d.open = nil
 	d.dirty = false
+	d.lineBytes = 0
 	return line
 }
 

@@ -121,14 +121,23 @@ func (c Chord) String() string {
 	return b.String()
 }
 
+// Validate shares the configuration grammar so programmatic bindings cannot name
+// a shortcut that input and persisted configuration cannot represent.
+func (c Chord) Validate() error {
+	written := c.String()
+	if read, ok := ParseChord(written); !ok || read != c {
+		return fmt.Errorf("input: chord {Code:%d Rune:%U Mods:%#x} cannot round-trip through %q", c.Code, c.Rune, uint8(c.Mods), written)
+	}
+	return nil
+}
+
 // MarshalText writes the chord as [Chord.String] does, so a keybinding survives being
 // written to a configuration file and read back.
 func (c Chord) MarshalText() ([]byte, error) {
-	written := c.String()
-	if read, ok := ParseChord(written); !ok || read != c {
-		return nil, notAKeystroke(written)
+	if err := c.Validate(); err != nil {
+		return nil, err
 	}
-	return []byte(written), nil
+	return []byte(c.String()), nil
 }
 
 // UnmarshalText shares ParseChord so configuration decoders cannot introduce

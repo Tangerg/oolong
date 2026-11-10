@@ -38,8 +38,8 @@ func (l Label) Draw(v grid.View) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	shown := text.Truncate(l.Text, w, l.Ellipsis)
-	v.Text(l.Align.Offset(w, text.Width(shown)), 0, shown, l.Style)
+	shown := text.Of(l.Text, l.Style).Truncate(w, l.Ellipsis)
+	shown.Draw(v, l.Align.Offset(w, shown.Width()), 0)
 }
 
 // Paragraph is text that wraps to the width it is given.
@@ -180,11 +180,12 @@ func (p *Paragraph) Draw(v grid.View) {
 	}
 }
 
-// detectedLinks is one logical line and the destinations found in it. Draw keeps
-// one while it walks the physical rows of that line, so wrapping cannot multiply a
-// full-source scan by the number of rows it produced.
+// The serialized detection input is immutable beside its logical line, so each
+// physical row can locate tabs without reconstructing the entire source. Geometry
+// still belongs to content, which retains independent grapheme boundaries.
 type detectedLinks struct {
-	text         string
+	content      text.Line
+	serialized   string
 	destinations []link.Link
 }
 
@@ -203,7 +204,7 @@ func (p *Paragraph) detectLinks(lines []text.Line, config LinkConfig) []detected
 	links := make([]detectedLinks, len(lines))
 	for i, line := range lines {
 		whole := line.String()
-		links[i] = detectedLinks{text: whole, destinations: link.Detect(whole, config.Exists)}
+		links[i] = detectedLinks{content: line, serialized: whole, destinations: link.Detect(whole, config.Exists)}
 	}
 	return links
 }
@@ -217,36 +218,36 @@ func (p *Paragraph) detectedLine(line int) (detectedLinks, bool) {
 
 // rowLinks projects a logical line's destinations onto one wrapped byte range.
 type rowLinks struct {
-	text         string
+	content      text.Line
 	base, from   int
 	origin       int
 	destinations []link.Link
 }
 
 func (d detectedLinks) row(r row) rowLinks {
-	if r.To <= r.From || r.From < 0 || r.To > len(d.text) {
+	if r.To <= r.From || r.From < 0 || r.To > d.content.ByteLen() {
 		return rowLinks{}
 	}
 	base := r.From
-	if strings.IndexByte(d.text[r.From:r.To], '\t') >= 0 {
+	if strings.IndexByte(d.serialized[r.From:r.To], '\t') >= 0 {
 		// Wrapping expands tabs on the logical line. The preceding tab stop
 		// is a sufficient origin for both the rendered and clickable columns.
-		base = strings.LastIndexByte(d.text[:r.From], '\t') + 1
+		base = strings.LastIndexByte(d.serialized[:r.From], '\t') + 1
 	}
-	source := d.text[base:r.To]
+	source := d.content.Slice(base, r.To)
 	return rowLinks{
-		text: source, base: base, from: r.From, origin: text.ColumnOf(source, r.From-base),
+		content: source, base: base, from: r.From, origin: source.ColumnOf(r.From - base),
 		destinations: d.destinations,
 	}
 }
 
 func (r rowLinks) columns(destination link.Link) (start, end int, ok bool) {
 	first := max(destination.Start, r.from) - r.base
-	last := min(destination.End-r.base, len(r.text))
+	last := min(destination.End-r.base, r.content.ByteLen())
 	if first >= last {
 		return 0, 0, false
 	}
-	return text.ColumnOf(r.text, first) - r.origin, text.ColumnOf(r.text, last) - r.origin, true
+	return r.content.ColumnOf(first) - r.origin, r.content.ColumnOf(last) - r.origin, true
 }
 
 func (p *Paragraph) stamp(v grid.View, y int, row rowLinks) {
@@ -305,7 +306,7 @@ func (p *Paragraph) projectRows(rows []row, first, last int) []text.Row {
 	}
 	for _, r := range rows[first:last] {
 		row := text.Row{
-			Text: r.Line.String(), Offset: p.Indent, Line: r.line + 1, Joined: r.Joined,
+			Content: r.Line.Clone(), Offset: p.Indent, SourceLine: r.line + 1, Joined: r.Joined,
 		}
 		if r.Joined && r.line == prevLine {
 			row.Gap = r.Gap
@@ -394,11 +395,12 @@ func linesOf(s string, style grid.Style) []text.Line {
 // original tile boundary so the grid applies its usual wide-cell clipping.
 func drawRule(v grid.View, y int, glyph string, style grid.Style) {
 	visible := v.Visible()
-	step := text.Width(glyph)
+	pattern := text.Of(glyph, style)
+	step := pattern.Width()
 	if step <= 0 || y < visible.Min.Y || y >= visible.Max.Y {
 		return
 	}
 	for x := visible.Min.X - visible.Min.X%step; x < visible.Max.X; x = layout.Sum(x, step) {
-		v.Text(x, y, glyph, style)
+		pattern.Draw(v, x, y)
 	}
 }

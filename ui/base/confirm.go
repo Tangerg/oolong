@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 // Confirm is a field holding a yes or a no.
@@ -57,7 +58,7 @@ func (c *Confirm) requestAnswer(before ConfirmSnapshot, yes bool) (scene.ActionR
 	return c.request(context.Background(), ConfirmRequest{ExpectedRevision: before.Revision, Value: yes}, true)
 }
 
-func (c *Confirm) HeightForWidth(int) int { return layout.Sum(1, c.rows(c.label)) }
+func (c *Confirm) HeightForWidth(int) int { return layout.Sum(1, c.rows(c.label, c.ChangeError())) }
 
 func (c *Confirm) Draw(v scene.Frame) {
 	c.DrawWith(v, Look{})
@@ -68,7 +69,7 @@ func (c *Confirm) Draw(v scene.Frame) {
 func (c *Confirm) DrawWith(v scene.Frame, look Look) {
 	requireProjection(c.element, v)
 	answer := c.Answer()
-	row := c.frame(v, c.label, look)
+	row := c.frame(v, c.label, look, c.ChangeError())
 	w, h := row.Size()
 	if w <= 0 || h <= 0 {
 		c.split.Stage(v, 0)
@@ -84,10 +85,10 @@ func (c *Confirm) DrawWith(v scene.Frame, look Look) {
 			style = look.Selection.Merge(look.Accent)
 		}
 		if mark, width := look.mark(yes == answer); width > 0 {
-			row.Text(x, 0, mark, style)
+			text.Of(mark, style).Draw(row.View, x, 0)
 			x = layout.Sum(x, width)
 		}
-		x = layout.Sum(x, row.Text(x, 0, c.word(yes), style))
+		x = layout.Sum(x, text.Of(c.word(yes), style).Draw(row.View, x, 0))
 		x = layout.Sum(x, row.Text(x, 0, "  ", look.Text))
 	}
 	c.split.Stage(v, split)
@@ -176,9 +177,9 @@ func (c *Confirm) Ask() string {
 	return c.label + " (" + c.word(true) + "/" + c.word(false) + ")"
 }
 
-// Reply takes either answer, or as much of one as is unambiguous — nobody types
-// "yes" in full twice. A domain request that only started returns ErrConfirmPending;
-// only an accepted, current answer is validated.
+// Reply validates only an accepted, current answer. A Started request without
+// another failure reports ErrConfirmPending. Domain failures wrap
+// ErrReplyUnavailable even when the owner already applied or started the effect.
 func (c *Confirm) Reply(said string) error {
 	return c.validate(func() error {
 		at, err := chooseLabel(strings.TrimSpace(said), Options(c.word(true), c.word(false)))

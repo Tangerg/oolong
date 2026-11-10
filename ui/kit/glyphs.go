@@ -26,9 +26,8 @@ type Glyphs struct {
 	Rule           string
 	Ellipsis       string
 	Bullet, Marker string
-	// Taken and Free are the two states of a choice: one that has been made, and one
-	// that is still on offer. They are a pair and are drawn in the same column, so
-	// they have to be the same width or the labels beside them do not line up.
+	// Choice rows reserve the wider of Taken and Free so changing an answer cannot
+	// move its label.
 	Taken, Free              string
 	ScrollTrack, ScrollThumb CellGlyph
 	// SliderTrack is the line a bounded value moves over and SliderThumb is its current
@@ -41,9 +40,8 @@ type Glyphs struct {
 	BarSteps []CellGlyph
 	// Sparkline is the ordered set of sample heights, from lowest to highest.
 	Sparkline []CellGlyph
-	// Expanded and Collapsed are the two states of a branch in a tree: one showing
-	// what is under it, and one inviting the reader to look. Like Taken and Free they
-	// are drawn in the same column and have to be the same width.
+	// Branches and leaves reserve the wider of Expanded and Collapsed so opening
+	// a branch cannot move its label.
 	Expanded, Collapsed   string
 	Ascending, Descending string
 	Spinner               []string

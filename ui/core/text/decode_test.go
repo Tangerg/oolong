@@ -164,9 +164,9 @@ func TestAStreamIsReadTheSameWayHoweverItArrives(t *testing.T) {
 		var d text.Decoder
 		var got []text.Line
 		for i := 0; i < len(whole); i += size {
-			got = append(got, d.Feed(whole[i:min(i+size, len(whole))])...)
+			got = append(got, feedDecoder(t, &d, whole[i:min(i+size, len(whole))])...)
 		}
-		got = append(got, d.Flush()...)
+		got = append(got, flushDecoder(t, &d)...)
 		if len(got) != len(want) {
 			t.Fatalf("in chunks of %d: %d lines, want %d", size, len(got), len(want))
 		}
@@ -188,13 +188,13 @@ func TestMalformedUTF8BecomesReplacementText(t *testing.T) {
 
 func TestTheLineStillArrivingIsThereToBeDrawn(t *testing.T) {
 	var d text.Decoder
-	if lines := d.Feed("half a li"); len(lines) != 0 {
+	if lines := feedDecoder(t, &d, "half a li"); len(lines) != 0 {
 		t.Fatalf("a line nothing ended was handed over: %q", lines)
 	}
 	if got := d.Open().String(); got != "half a li" {
 		t.Fatalf("the open line is %q", got)
 	}
-	if lines := d.Feed("ne\n"); len(lines) != 1 || lines[0].String() != "half a line" {
+	if lines := feedDecoder(t, &d, "ne\n"); len(lines) != 1 || lines[0].String() != "half a line" {
 		t.Fatalf("the line finished as %q", lines)
 	}
 	if got := d.Open(); len(got) != 0 {
@@ -203,11 +203,11 @@ func TestTheLineStillArrivingIsThereToBeDrawn(t *testing.T) {
 
 	// Output that stopped without a newline is still output, and Flush is what says
 	// nothing more is coming.
-	d.Feed("no newline")
-	if lines := d.Flush(); len(lines) != 1 || lines[0].String() != "no newline" {
+	feedDecoder(t, &d, "no newline")
+	if lines := flushDecoder(t, &d); len(lines) != 1 || lines[0].String() != "no newline" {
 		t.Fatalf("flushed %q", lines)
 	}
-	if lines := d.Flush(); len(lines) != 0 {
+	if lines := flushDecoder(t, &d); len(lines) != 0 {
 		t.Fatal("flushing twice invented a line")
 	}
 }
@@ -215,12 +215,12 @@ func TestTheLineStillArrivingIsThereToBeDrawn(t *testing.T) {
 func TestDecoderResetStartsAFreshStreamWithItsConfiguredBase(t *testing.T) {
 	base := grid.Style{FG: grid.RGBColor(0x11, 0x22, 0x33)}
 	decoder := text.Decoder{Base: base}
-	decoder.Feed("\x1b[31mold")
+	feedDecoder(t, &decoder, "\x1b[31mold")
 	decoder.Reset()
 	if open := decoder.Open(); len(open) != 0 {
 		t.Fatalf("reset decoder retained %q", open.String())
 	}
-	lines := decoder.Feed("new\n")
+	lines := feedDecoder(t, &decoder, "new\n")
 	if len(lines) != 1 || len(lines[0]) != 1 || lines[0][0].Text != "new" || lines[0][0].Style != base {
 		t.Fatalf("fresh stream = %#v, want one line in the configured base style", lines)
 	}
@@ -228,15 +228,15 @@ func TestDecoderResetStartsAFreshStreamWithItsConfiguredBase(t *testing.T) {
 
 func TestASequenceThatNeverEndsIsNotHeldForEver(t *testing.T) {
 	var d text.Decoder
-	d.Feed("\x1b]0;" + strings.Repeat("x", 1<<17))
+	feedDecoder(t, &d, "\x1b]0;"+strings.Repeat("x", 1<<17))
 	// Dropped rather than held: the decoder is reading again rather than sitting on
 	// a buffer that only grows. It is still reading that sequence, though, because
 	// that is what the bytes say — a control string's body does not become text
 	// because a read ended in the middle of it.
-	if lines := d.Feed("still the title\n"); len(lines) != 0 {
+	if lines := feedDecoder(t, &d, "still the title\n"); len(lines) != 0 {
 		t.Fatalf("a refused command's body read as %q", lines)
 	}
-	if lines := d.Feed("\x07after\n"); len(lines) != 1 || lines[0].String() != "after" {
+	if lines := feedDecoder(t, &d, "\x07after\n"); len(lines) != 1 || lines[0].String() != "after" {
 		t.Fatalf("after the sequence ended the stream read as %q", lines)
 	}
 }
@@ -274,11 +274,11 @@ func sameHoweverItArrives(t *testing.T, sequence, after string) {
 		var d text.Decoder
 		var out strings.Builder
 		for _, chunk := range chunks {
-			for _, line := range d.Feed(chunk) {
+			for _, line := range feedDecoder(t, &d, chunk) {
 				out.WriteString(line.String() + "\n")
 			}
 		}
-		for _, line := range d.Flush() {
+		for _, line := range flushDecoder(t, &d) {
 			out.WriteString(line.String() + "\n")
 		}
 		return out.String()
@@ -364,9 +364,9 @@ func TestMalformedStreamTextIsIndependentOfReadBoundaries(t *testing.T) {
 	want := text.Decode(source, grid.Style{})
 	for split := 0; split <= len(source); split++ {
 		var d text.Decoder
-		got := d.Feed(source[:split])
-		got = append(got, d.Feed(source[split:])...)
-		got = append(got, d.Flush()...)
+		got := feedDecoder(t, &d, source[:split])
+		got = append(got, feedDecoder(t, &d, source[split:])...)
+		got = append(got, flushDecoder(t, &d)...)
 		if len(got) != 1 || styled(got[0]) != styled(want[0]) {
 			t.Fatalf("split at byte %d: got %v, want %v", split, got, want)
 		}
@@ -377,9 +377,9 @@ func TestEndOfStreamDistinguishesTruncatedTextFromAnEscape(t *testing.T) {
 	for _, tc := range []struct{ tail, want string }{{"\xe2\x82", "x\ufffd\ufffd"}, {"\x1b[31", "x"}, {"\x1b]8;;unfinished", "x"}} {
 		for split := 0; split <= len(tc.tail); split++ {
 			var d text.Decoder
-			d.Feed("x" + tc.tail[:split])
-			d.Feed(tc.tail[split:])
-			lines := d.Flush()
+			feedDecoder(t, &d, "x"+tc.tail[:split])
+			feedDecoder(t, &d, tc.tail[split:])
+			lines := flushDecoder(t, &d)
 			if len(lines) != 1 || lines[0].String() != tc.want {
 				t.Fatalf("tail %q split %d: %v, want %q", tc.tail, split, lines, tc.want)
 			}
@@ -389,10 +389,10 @@ func TestEndOfStreamDistinguishesTruncatedTextFromAnEscape(t *testing.T) {
 
 func TestOpenLineCannotRewriteCompletedOutput(t *testing.T) {
 	var d text.Decoder
-	d.Feed("original")
+	feedDecoder(t, &d, "original")
 	read := d.Open()
 	read[0].Text = "changed"
-	if got := d.Flush()[0].String(); got != "original" {
+	if got := flushDecoder(t, &d)[0].String(); got != "original" {
 		t.Fatalf("borrower rewrote output: %q", got)
 	}
 }
@@ -420,4 +420,22 @@ func TestNamedAndIndexedColoursStayPaletteEntries(t *testing.T) {
 	if _, ok := lines[0][0].Style.FG.Palette(); ok {
 		t.Error("a truecolor value became a palette entry")
 	}
+}
+
+func feedDecoder(t *testing.T, decoder *text.Decoder, chunk string) []text.Line {
+	t.Helper()
+	lines, err := decoder.Feed(chunk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lines
+}
+
+func flushDecoder(t *testing.T, decoder *text.Decoder) []text.Line {
+	t.Helper()
+	lines, err := decoder.Flush()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lines
 }

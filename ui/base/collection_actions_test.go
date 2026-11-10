@@ -2,6 +2,7 @@ package base_test
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -205,19 +206,19 @@ func TestSettingsSemanticActionsKeepAcceptanceSeparateFromDomainChange(t *testin
 		t.Fatalf("read-only setting = %v", err)
 	}
 	volume := 1
-	settings.SetChange(func(index int, item string, action keymap.Action) scene.ActionResult[bool] {
+	settings.SetChange(func(_ context.Context, index int, item string, action keymap.Action) (scene.ActionResult[bool], error) {
 		if index != 0 || item != "volume" {
 			t.Fatal("action reached the wrong domain item")
 		}
 		if action != base.Increase {
-			return scene.ActionResult[bool]{}
+			return scene.ActionResult[bool]{}, nil
 		}
 		result := scene.ActionResult[bool]{Value: true}
 		if volume < 2 {
 			volume++
 			result.State = scene.Applied
 		}
-		return result
+		return result, nil
 	})
 	for _, expected := range []scene.ActionState{scene.Applied, scene.Unchanged} {
 		result, err := root.Invoke(t.Context(), settings.Element().Target(), scene.ActionIncrement, address)

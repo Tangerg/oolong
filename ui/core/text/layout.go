@@ -56,7 +56,7 @@ const (
 
 // LayoutConfig supplies cleaned logical lines, target width and wrapping policy. Revision is caller-owned metadata.
 type LayoutConfig struct {
-	Lines    []string
+	Lines    []Line
 	Width    int
 	Wrap     WrapMode
 	Revision uint64
@@ -70,7 +70,7 @@ type LayoutConfig struct {
 // source. Rendering, hit testing, caret placement and selection use one wrap.
 // Unknown position affinities panic, including on nil and empty layouts.
 type Layout struct {
-	lines        []string
+	lines        []Line
 	rows         []LayoutRow
 	width        int
 	revision     uint64
@@ -79,13 +79,14 @@ type Layout struct {
 
 // LayoutRow is one visual row with its logical byte interval and soft-break relationship.
 type LayoutRow struct {
-	Line   int
-	From   int
-	To     int
-	Joined bool
-	Width  int
-	Text   string
+	Line    int
+	From    int
+	To      int
+	Joined  bool
+	Content Line
 }
+
+func (r LayoutRow) Width() int { return r.Content.Width() }
 
 // NewLayout prepares immutable visual rows from owned printable text. It panics for an unknown wrap mode.
 func NewLayout(cfg LayoutConfig) *Layout {
@@ -93,12 +94,12 @@ func NewLayout(cfg LayoutConfig) *Layout {
 		panic("text: invalid wrapping policy")
 	}
 	l := &Layout{width: max(0, cfg.Width), revision: cfg.Revision, reserveCaret: cfg.ReserveCaret && cfg.Wrap != WrapNone && cfg.Width > 0}
-	l.lines = make([]string, len(cfg.Lines))
+	l.lines = make([]Line, len(cfg.Lines))
 	for i, line := range cfg.Lines {
-		l.lines[i] = strings.Clone(Printable(line))
+		l.lines[i] = line.Display().Clone()
 		l.wrapLine(i, cfg.Wrap)
-		if l.reserveCaret && l.rows[len(l.rows)-1].Width >= l.width {
-			l.appendRow(i, len(l.lines[i]), len(l.lines[i]))
+		if l.reserveCaret && l.rows[len(l.rows)-1].Width() >= l.width {
+			l.appendRow(i, l.lines[i].ByteLen(), l.lines[i].ByteLen())
 		}
 	}
 	return l
@@ -130,7 +131,7 @@ func (l *Layout) Row(index int) (LayoutRow, bool) {
 		return LayoutRow{}, false
 	}
 	row := l.rows[index]
-	row.Text = strings.Clone(row.Text)
+	row.Content = row.Content.Clone()
 	return row, true
 }
 
@@ -147,8 +148,8 @@ func (l *Layout) Rows() []LayoutRow {
 }
 
 func (l *Layout) appendRow(line, from, to int) {
-	content := l.lines[line][from:to]
-	l.rows = append(l.rows, LayoutRow{Line: line, From: from, To: to, Joined: from > 0, Width: Width(content), Text: content})
+	content := l.lines[line].Slice(from, to)
+	l.rows = append(l.rows, LayoutRow{Line: line, From: from, To: to, Joined: from > 0, Content: content})
 }
 
 // wrapLine differs from [Line.Wrap] on purpose: an editing layout keeps every
@@ -157,13 +158,14 @@ func (l *Layout) appendRow(line, from, to int) {
 // origin, because each row is drawn from its own.
 func (l *Layout) wrapLine(index int, policy WrapMode) {
 	line := l.lines[index]
-	if l.width <= 0 || policy == WrapNone || line == "" {
-		l.appendRow(index, 0, len(line))
+	if l.width <= 0 || policy == WrapNone || line.ByteLen() == 0 {
+		l.appendRow(index, 0, line.ByteLen())
 		return
 	}
 	start, column, lastBreak := 0, 0, -1
-	for at, cluster := range Clusters(line) {
-		step := advanceCluster(cluster, column) - column
+	for cluster := range line.Clusters() {
+		at := cluster.From
+		step := advanceCluster(cluster.Text, column) - column
 		for column+step > l.width && at > start {
 			end := at
 			if policy == WrapWords && lastBreak > start {
@@ -171,15 +173,15 @@ func (l *Layout) wrapLine(index int, policy WrapMode) {
 			}
 			l.appendRow(index, start, end)
 			start = end
-			column = ColumnOf(line[start:at], at-start)
-			step = advanceCluster(cluster, column) - column
+			column = line.Slice(start, at).Width()
+			step = advanceCluster(cluster.Text, column) - column
 		}
-		if cluster == " " {
-			lastBreak = at + len(cluster)
+		if cluster.Text == " " {
+			lastBreak = cluster.To
 		}
 		column += step
 	}
-	l.appendRow(index, start, len(line))
+	l.appendRow(index, start, line.ByteLen())
 }
 
 // Normalize clamps a logical position to a valid line and grapheme boundary.
@@ -195,12 +197,13 @@ func (l *Layout) Normalize(position Position) Position {
 		return Position{}
 	}
 	if position.Line >= len(l.lines) {
-		return Position{Line: len(l.lines) - 1, Byte: len(l.lines[len(l.lines)-1]), Affinity: position.Affinity}
+		return Position{Line: len(l.lines) - 1, Byte: l.lines[len(l.lines)-1].ByteLen(), Affinity: position.Affinity}
 	}
 	line := l.lines[position.Line]
-	position.Byte = min(max(0, position.Byte), len(line))
-	for at, cluster := range Clusters(line) {
-		end := at + len(cluster)
+	position.Byte = min(max(0, position.Byte), line.ByteLen())
+	for cluster := range line.Clusters() {
+		at := cluster.From
+		end := cluster.To
 		if position.Byte == at || position.Byte == end {
 			return position
 		}
@@ -228,15 +231,15 @@ func (l *Layout) Caret(position Position) image.Point {
 		}
 		last := i == len(l.rows)-1 || l.rows[i+1].Line != row.Line
 		atEnd := position.Byte == row.To && (position.Affinity == Backward || last)
-		if l.reserveCaret && row.Width >= l.width && !last {
+		if l.reserveCaret && row.Width() >= l.width && !last {
 			atEnd = false
 		}
 		if position.Byte < row.To || atEnd {
-			return image.Pt(ColumnOf(row.Text, position.Byte-row.From), i)
+			return image.Pt(row.Content.ColumnOf(position.Byte-row.From), i)
 		}
 	}
 	last := l.rows[len(l.rows)-1]
-	return image.Pt(last.Width, len(l.rows)-1)
+	return image.Pt(last.Width(), len(l.rows)-1)
 }
 
 // Hit maps visual cell coordinates to a grapheme-aligned logical position.
@@ -250,7 +253,7 @@ func (l *Layout) Hit(point image.Point) Position {
 	}
 	index := max(0, point.Y)
 	row := l.rows[index]
-	position := Position{Line: row.Line, Byte: row.From + OffsetAt(row.Text, max(0, point.X))}
+	position := Position{Line: row.Line, Byte: row.From + row.Content.OffsetAt(max(0, point.X))}
 	if position.Byte == row.To && index+1 < len(l.rows) && l.rows[index+1].Line == row.Line {
 		position.Affinity = Backward
 	}
@@ -290,7 +293,7 @@ func (l *Layout) Rects(selected Range) []image.Rectangle {
 		if row.Line == selected.End.Line {
 			to = min(to, selected.End.Byte)
 		}
-		left, right := ColumnOf(row.Text, from-row.From), ColumnOf(row.Text, to-row.From)
+		left, right := row.Content.ColumnOf(from-row.From), row.Content.ColumnOf(to-row.From)
 		last := i == len(l.rows)-1 || l.rows[i+1].Line != row.Line
 		if last && row.Line < selected.End.Line {
 			right++
@@ -317,14 +320,14 @@ func (l *Layout) Text(selected Range) string {
 		if line != selected.Start.Line {
 			out.WriteByte('\n')
 		}
-		from, to := 0, len(l.lines[line])
+		from, to := 0, l.lines[line].ByteLen()
 		if line == selected.Start.Line {
 			from = selected.Start.Byte
 		}
 		if line == selected.End.Line {
 			to = selected.End.Byte
 		}
-		out.WriteString(l.lines[line][from:to])
+		out.WriteString(l.lines[line].Slice(from, to).String())
 	}
 	return out.String()
 }
@@ -336,6 +339,11 @@ func (l *Layout) Draw(view grid.View, style grid.Style) {
 	}
 	visible := view.Visible()
 	for y := max(0, visible.Min.Y); y < min(len(l.rows), visible.Max.Y); y++ {
-		Of(l.rows[y].Text, style).Draw(view, 0, y)
+		content := make(Line, len(l.rows[y].Content))
+		for i, span := range l.rows[y].Content {
+			span.Style = style.Merge(span.Style)
+			content[i] = span
+		}
+		content.Draw(view, 0, y)
 	}
 }

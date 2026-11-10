@@ -17,8 +17,7 @@ type box struct {
 
 type mark struct {
 	x, y  int
-	value string
-	style grid.Style
+	value text.Line
 }
 
 func (b *box) empty() bool { return len(b.marks) == 0 }
@@ -27,9 +26,8 @@ func atom(value string, style grid.Style) box {
 	if value == "" {
 		return box{}
 	}
-	return box{
-		width: text.Width(value), marks: []mark{{value: value, style: style}},
-	}
+	line := text.Of(value, style).Wrap(0)[0].Line
+	return box{width: line.Width(), marks: []mark{{value: line}}}
 }
 
 func horizontal(parts ...box) box {
@@ -68,7 +66,7 @@ func stack(numerator, denominator box, rule bool, glyphs Glyphs, style grid.Styl
 	out.add(denominator, (width-denominator.width)/2, 1+denominator.above)
 	if rule {
 		out.marks = append(out.marks, mark{
-			value: text.Fill(glyphs.Horizontal, width), style: style,
+			value: text.Of(glyphs.Horizontal, style).Fill(width),
 		})
 	}
 	return out
@@ -135,7 +133,7 @@ func overlined(content box, glyphs Glyphs, style grid.Style) box {
 	out := box{width: content.width, above: content.above + 1, below: content.below}
 	out.add(content, 0, 0)
 	out.marks = append(out.marks, mark{
-		y: -out.above, value: text.Fill(glyphs.Horizontal, content.width), style: style,
+		y: -out.above, value: text.Of(glyphs.Horizontal, style).Fill(content.width),
 	})
 	return out
 }
@@ -163,7 +161,7 @@ func delimiter(above, below int, glyphs Delimiter, style grid.Style) box {
 			value = glyphs.Bottom
 		}
 		out.marks = append(out.marks, mark{
-			x: (width - text.Width(value)) / 2, y: y, value: value, style: style,
+			x: (width - text.Width(value)) / 2, y: y, value: text.Of(value, style).Wrap(0)[0].Line,
 		})
 	}
 	return out
@@ -180,7 +178,7 @@ func (b *box) lines() ([]text.Line, error) {
 	rows := make([][]mark, b.above+b.below+1)
 	for _, placed := range b.marks {
 		row := placed.y + b.above
-		if row < 0 || row >= len(rows) || placed.value == "" {
+		if row < 0 || row >= len(rows) || len(placed.value) == 0 {
 			continue
 		}
 		rows[row] = append(rows[row], placed)
@@ -189,82 +187,25 @@ func (b *box) lines() ([]text.Line, error) {
 	out := make([]text.Line, len(rows))
 	for y, placed := range rows {
 		slices.SortStableFunc(placed, func(a, b mark) int { return a.x - b.x })
-		var run spanRun
-		boundaries := make([]atomBoundary, 0, len(placed))
-		at, byteEnd := 0, 0
+		var line text.Line
+		at := 0
 		for _, item := range placed {
 			if item.x > at {
-				run.write(strings.Repeat(" ", item.x-at), grid.Style{})
-				byteEnd += item.x - at
+				line = append(line, text.Span{Text: strings.Repeat(" ", item.x-at), BreakBefore: true})
 				at = item.x
-				boundaries = append(boundaries, atomBoundary{byteEnd, at})
 			}
-			// Marks occupy complete terminal clusters; clipping an overlap could
-			// split a cluster in the later mark.
+			// The box owns column placement; an overlap cannot be repaired by
+			// clipping an independently prepared mathematical atom.
 			if item.x < at {
 				return nil, &formulaError{message: "formula atoms overlap in terminal columns"}
 			}
-			run.write(item.value, item.style)
-			byteEnd += len(item.value)
-			at += text.Width(item.value)
-			boundaries = append(boundaries, atomBoundary{byteEnd, at})
+			for i, span := range item.value {
+				span.BreakBefore = span.BreakBefore || i == 0
+				line = append(line, span)
+			}
+			at += item.value.Width()
 		}
-		out[y] = run.done()
-		if !preservesAtomColumns(out[y], boundaries) {
-			return nil, &formulaError{message: "terminal graphemes join across formula atoms"}
-		}
+		out[y] = line
 	}
 	return out, nil
-}
-
-type atomBoundary struct{ byteOffset, column int }
-
-// Opposite width changes can cancel at the row's end while moving atoms inside it.
-// One cluster scan checks every boundary with text.ColumnOf's interior-offset rule.
-func preservesAtomColumns(line text.Line, boundaries []atomBoundary) bool {
-	column, next := 0, 0
-	for start, cluster := range text.Clusters(line.String()) {
-		column = text.Advance(cluster, column)
-		end := start + len(cluster)
-		for next < len(boundaries) && boundaries[next].byteOffset <= end {
-			if boundaries[next].column != column {
-				return false
-			}
-			next++
-		}
-	}
-	return next == len(boundaries)
-}
-
-// Adjacent cell marks commonly share a style. A builder keeps their coalescing
-// linear instead of repeatedly copying the growing last span.
-type spanRun struct {
-	line  text.Line
-	run   strings.Builder
-	style grid.Style
-	open  bool
-}
-
-func (r *spanRun) write(value string, style grid.Style) {
-	if value == "" {
-		return
-	}
-	if r.open && r.style != style {
-		r.close()
-	}
-	r.style, r.open = style, true
-	r.run.WriteString(value)
-}
-
-func (r *spanRun) close() {
-	if r.run.Len() > 0 {
-		r.line = append(r.line, text.Span{Text: r.run.String(), Style: r.style})
-		r.run.Reset()
-	}
-	r.open = false
-}
-
-func (r *spanRun) done() text.Line {
-	r.close()
-	return r.line
 }

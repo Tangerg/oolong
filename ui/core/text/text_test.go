@@ -156,7 +156,7 @@ func TestTruncate(t *testing.T) {
 		{"hello", 0, ""},
 		{"中文中文", 5, "中文…"},
 	} {
-		if got := text.Truncate(tc.in, tc.width, "…"); got != tc.want {
+		if got := text.Of(tc.in, grid.Style{}).Truncate(tc.width, "…").String(); got != tc.want {
 			t.Errorf("text.Truncate(%q, %d) = %q, want %q", tc.in, tc.width, got, tc.want)
 		}
 	}
@@ -185,7 +185,7 @@ func TestTruncateLineNeverSplitsAWideCluster(t *testing.T) {
 	}
 }
 
-func TestTruncateUsesOneTabAwareGeometry(t *testing.T) {
+func TestTruncatedLineOwnsTabGeometry(t *testing.T) {
 	tests := []struct {
 		name     string
 		in       string
@@ -195,29 +195,29 @@ func TestTruncateUsesOneTabAwareGeometry(t *testing.T) {
 	}{
 		{name: "tab gap is clipped", in: "a\tb", width: 4, want: "a   "},
 		{name: "tab reaches the edge", in: "a\tb", width: 8, want: "a       "},
-		{name: "complete tabbed text", in: "a\tb", width: 9, want: "a       b"},
+		{name: "complete tabbed text", in: "a\tb", width: 9, want: "a\tb"},
 		{
 			name: "suffix tab expands after retained text", in: "abcdefghijklmnopqrst",
-			width: 15, ellipsis: "X\t", want: "abcdefX ",
+			width: 15, ellipsis: "X\t", want: "abcdefX\t",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// The string result is drawn by View.Text, which has no tab stops, so its
-			// tabs are already the spaces the styled line expands them to.
-			plain := text.Truncate(test.in, test.width, test.ellipsis)
-			styled := text.ExpandTabs(text.Of(test.in, grid.Style{}).Truncate(test.width, test.ellipsis))
-			if plain != test.want || styled != test.want {
-				t.Fatalf("plain/styled truncate = %q/%q, want %q", plain, styled, test.want)
+			line := text.Of(test.in, grid.Style{}).Truncate(test.width, test.ellipsis)
+			if line.String() != test.want {
+				t.Fatalf("truncated content = %q, want %q", line.String(), test.want)
 			}
-			if got := text.Width(plain); got > test.width {
+			if got := line.Width(); got > test.width {
 				t.Fatalf("truncated width = %d, exceeds %d", got, test.width)
+			}
+			if got := line.Draw(grid.NewSurface(test.width, 1).View(), 0, 0); got != line.Width() {
+				t.Fatalf("drawing advances %d columns, measured %d", got, line.Width())
 			}
 		})
 	}
 }
 
-func FuzzTruncateMatchesStyledLineAndFits(f *testing.F) {
+func FuzzTruncatedLinesFitTheirColumnBudget(f *testing.F) {
 	for _, seed := range []struct {
 		text, ellipsis string
 		width          int
@@ -238,13 +238,12 @@ func FuzzTruncateMatchesStyledLineAndFits(f *testing.F) {
 			return
 		}
 		width = min(max(width, 0), 64)
-		plain := text.Truncate(source, width, ellipsis)
-		styled := text.ExpandTabs(text.Of(source, grid.Style{}).Truncate(width, ellipsis))
-		if plain != styled || strings.Contains(plain, "\t") {
-			t.Fatalf("plain/styled truncate = %q/%q", plain, styled)
+		line := text.Of(source, grid.Style{}).Truncate(width, ellipsis)
+		if got := line.Width(); got > width {
+			t.Fatalf("Truncate(%q, %d, %q) = %q at width %d", source, width, ellipsis, line.String(), got)
 		}
-		if got := text.Width(plain); got > width {
-			t.Fatalf("Truncate(%q, %d, %q) = %q at width %d", source, width, ellipsis, plain, got)
+		if got := line.Draw(grid.NewSurface(max(width, 1), 1).View(), 0, 0); got != line.Width() {
+			t.Fatalf("drawing advances %d columns, measured %d", got, line.Width())
 		}
 	})
 }
@@ -730,10 +729,10 @@ func TestTruncatingAcrossStyles(t *testing.T) {
 }
 
 func TestTruncatingPlainTextToNothing(t *testing.T) {
-	if got := text.Truncate("abc", 0, "…"); got != "" {
+	if got := text.Of("abc", grid.Style{}).Truncate(0, "…").String(); got != "" {
 		t.Fatalf("= %q, want nothing", got)
 	}
-	if got := text.Truncate("abcdef", 1, "……"); got != "…" {
+	if got := text.Of("abcdef", grid.Style{}).Truncate(1, "……").String(); got != "…" {
 		t.Fatalf("= %q, want the ellipsis cut to fit", got)
 	}
 }
@@ -1128,8 +1127,8 @@ func TestTextHandedBackIsTextThatWouldBeDrawn(t *testing.T) {
 	for _, wrap := range []bool{true, false} {
 		block := text.NewBlock(text.BlockConfig{Lines: []text.Line{line}, Wrap: wrap})
 		for _, row := range block.Rows(40) {
-			if row.Text != text.Printable(row.Text) {
-				t.Errorf("a block with Wrap=%t gave back %q", wrap, row.Text)
+			if row.Content.String() != text.Printable(row.Content.String()) {
+				t.Errorf("a block with Wrap=%t gave back %q", wrap, row.Content.String())
 			}
 		}
 	}

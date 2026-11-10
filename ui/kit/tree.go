@@ -105,12 +105,12 @@ func (t *Tree[T]) row(v grid.View, _ int, row base.Shown[T], selected bool) {
 		return
 	}
 	if mark := t.mark(row); mark != "" {
-		x = layout.Sum(x, v.Text(x, 0, mark, t.appearance.palette().Subtle.Merge(style)), 1)
+		x = layout.Sum(x, text.Of(mark, t.appearance.palette().Subtle.Merge(style)).Draw(v, x, 0), 1)
 	}
 	if t.text == nil || x >= width {
 		return
 	}
-	v.Text(x, 0, text.Truncate(t.text(row.Item), width-x, t.glyphs.Ellipsis), style)
+	text.Of(t.text(row.Item), style).Truncate(width-x, t.glyphs.Ellipsis).Draw(v, x, 0)
 }
 
 // mark is what goes before a row: which way a branch is turned, padded to the
@@ -125,6 +125,9 @@ func (t *Tree[T]) mark(row base.Shown[T]) string {
 		mark = t.glyphs.Collapsed
 	}
 	column := max(text.Width(t.glyphs.Expanded), text.Width(t.glyphs.Collapsed))
+	if column == 0 {
+		return ""
+	}
 	return mark + strings.Repeat(" ", column-text.Width(mark))
 }
 

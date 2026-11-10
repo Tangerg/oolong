@@ -223,7 +223,7 @@ func (f *Formula) Rows(width int) []text.Row {
 	for i, line := range f.lines {
 		shown := f.shown(line, width)
 		rows[i] = text.Row{
-			Text: shown.String(), Offset: f.look.Align.Offset(width, shown.Width()),
+			Content: shown.Clone(), Offset: f.look.Align.Offset(width, shown.Width()),
 		}
 	}
 	return rows

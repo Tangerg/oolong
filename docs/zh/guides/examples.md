@@ -36,6 +36,10 @@ contentType: Reference
 | `state` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/state) | `go run ./examples/state` |
 | `streaming` | [源码与测试](https://github.com/Tangerg/oolong/tree/main/examples/streaming) | `go run ./examples/streaming` |
 
+## 命令输出接纳
+
+`run` 将未结束的逻辑行限制为 64 KiB 解码后文字/链接字符串及 1,024 个样式/链接 span。这些限额约束换行前尚未进入 publication 的内容。解码器统一核算该行；CR 进度输出不会重置预算，过长 OSC 8 目标会在留存前被拒绝。超限会以明确失败停止命令，保留可见的已接受开放前缀，并排空 owner 已接受的完成输出。EOF 解码使用相同限额。共享解码合同见[文字解码](../core/text.md#解码有界命令输出)。
+
 ## 前台编辑器
 
 `run` 示例按宿主 shell 语法解释 `EDITOR`：Unix 使用 `sh`，Windows 使用 `cmd.exe`。`code --wait` 等配置和带引号的可执行路径都可以包含参数。路径含空格时，按对应 shell 的规则引用；示例不会猜测整个值是否为一个路径。空值选择 `vi`。临时文件名单独传入，不参与命令语法，编辑器失败仍保留为进程错误。

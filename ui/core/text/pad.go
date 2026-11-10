@@ -17,6 +17,7 @@ import (
 func (l Line) Pad(width int, alignment layout.Align) Line {
 	out := line(l.units())
 	if len(out) > 0 {
+		out[0].BreakBefore = true
 		value := out.String()
 		if NextCluster(" "+value, 0) > 1 {
 			out[0].Text = " " + out[0].Text
@@ -28,10 +29,10 @@ func (l Line) Pad(width int, alignment layout.Align) Line {
 	padding := layout.Remaining(width, out.Width())
 	left := alignment.Offset(padding, 0)
 	if left > 0 {
-		out = append(Line{{Text: strings.Repeat(" ", left)}}, out...)
+		out = append(Line{{Text: strings.Repeat(" ", left), BreakBefore: true}}, out...)
 	}
 	if right := padding - left; right > 0 {
-		out = append(out, Span{Text: strings.Repeat(" ", right)})
+		out = append(out, Span{Text: strings.Repeat(" ", right), BreakBefore: true})
 	}
 	return out
 }

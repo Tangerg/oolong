@@ -2,33 +2,28 @@ package text
 
 import "strings"
 
-// Fill keeps dividers and padding on the same terminal-column boundaries as
-// text layout. It repeats whole copies of pattern and fills unused columns with
-// spaces; nonpositive widths produce empty text. Tabs become their in-pattern
-// spaces, and a pattern with no drawable width produces only padding.
-func Fill(pattern string, width int) string {
+// Fill repeats independent copies of the line and fills unused columns with
+// unlinked, default-appearance spaces. Tabs keep their in-pattern columns. A
+// pattern with no drawable width produces only padding. The returned Line owns
+// its span storage and retains atom boundaries between copies and padding.
+func (l Line) Fill(width int) Line {
 	if width <= 0 {
-		return ""
+		return nil
 	}
-	pattern = line(Line{{Text: pattern}}.units()).String()
-	columns := Width(pattern)
+	pattern := line(l.units())
+	columns := pattern.Width()
 	if columns == 0 || columns > width {
-		return strings.Repeat(" ", width)
+		return Line{{Text: strings.Repeat(" ", width), BreakBefore: true}}
 	}
-	filled := strings.Repeat(pattern, width/columns)
-	// Adjacent copies can join into different graphemes. Only the complete
-	// projection can decide how many cells remain, or whether a final atom fits.
-	for Width(filled) > width {
-		// A grapheme boundary can split a pattern copy. Keep complete copies,
-		// then remeasure because removing the suffix can change the final cluster.
-		copies := len(prefix(filled, width)) / len(pattern)
-		filled = filled[:copies*len(pattern)]
+	pattern[0].BreakBefore = true
+	var out Line
+	remaining := width
+	for remaining >= columns {
+		out = append(out, pattern...)
+		remaining -= columns
 	}
-	if Width(filled) < width {
-		// A trailing Unicode Prepend cluster can absorb the first padding
-		// space. After that boundary, every additional space is independent.
-		filled += " "
-		filled += strings.Repeat(" ", width-Width(filled))
+	if remaining > 0 {
+		out = append(out, Span{Text: strings.Repeat(" ", remaining), BreakBefore: true})
 	}
-	return filled
+	return out
 }

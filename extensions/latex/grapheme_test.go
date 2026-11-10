@@ -2,12 +2,15 @@ package latex_test
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/extensions/latex"
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 func TestLiteralGraphemesKeepTheirGeometryInsideFractions(t *testing.T) {
@@ -67,29 +70,67 @@ func TestGraphemeJoiningCannotConsumeFormulaSyntax(t *testing.T) {
 	}
 }
 
-func TestCrossAtomGraphemesReportUnrepresentableLayout(t *testing.T) {
-	for _, source := range []string{
-		"👩{\u200d💻}^2",
-		"👩\\textbf{\u200d💻}^2",
-		"\\frac{👩{\u200d💻}}{x}",
-		"{\u0600\\alpha}",
-		"\\sqrt[\u0600]{x}",
-		"🇨{🇳}^2",
-		"🇨{🇺🇸ा}x^1",
-		"x^1{\u0600}{界}",
-		// Opposite width changes can preserve the row width while moving a script's base.
-		"🇨{🇺🇸ा}x^1{\u0600}{界}",
+func TestCrossAtomGraphemesKeepTheirSourcePlacement(t *testing.T) {
+	type cell struct {
+		x, y    int
+		content string
+		width   int
+		attr    grid.Attr
+	}
+	for _, test := range []struct {
+		source string
+		width  int
+		cells  []cell
+	}{
+		{source: "👩{\u200d💻}^2", width: 5, cells: []cell{{0, 1, "👩", 2, 0}, {2, 1, "💻", 2, 0}, {4, 0, "2", 1, 0}}},
+		{source: "👩\\textbf{\u200d💻}^2", width: 5, cells: []cell{{0, 1, "👩", 2, 0}, {2, 1, "💻", 2, grid.Bold}, {4, 0, "2", 1, 0}}},
+		{source: "\\frac{👩{\u200d💻}}{x}", width: 6, cells: []cell{{1, 0, "👩", 2, 0}, {3, 0, "💻", 2, 0}, {0, 1, "─", 1, 0}, {5, 1, "─", 1, 0}, {2, 2, "x", 1, 0}}},
+		{source: "{\u0600\\alpha}", width: 2, cells: []cell{{0, 0, "\u0600", 1, 0}, {1, 0, "α", 1, 0}}},
+		{source: "\\sqrt[\u0600]{x}", width: 3, cells: []cell{{0, 0, "\u0600", 1, 0}, {2, 0, "─", 1, 0}, {1, 1, "√", 1, 0}, {2, 1, "x", 1, 0}}},
+		{source: "🇨{🇳}^2", width: 3, cells: []cell{{0, 1, "🇨", 1, 0}, {1, 1, "🇳", 1, 0}, {2, 0, "2", 1, 0}}},
+		{source: "🇨{🇺🇸ा}x^1", width: 5, cells: []cell{{0, 1, "🇨", 1, 0}, {1, 1, "🇺🇸ा", 2, 0}, {3, 1, "x", 1, 0}, {4, 0, "1", 1, 0}}},
+		{source: "x^1{\u0600}{界}", width: 5, cells: []cell{{0, 1, "x", 1, 0}, {1, 0, "1", 1, 0}, {2, 1, "\u0600", 1, 0}, {3, 1, "界", 2, 0}}},
+		{source: "🇨{🇺🇸ा}x^1{\u0600}{界}", width: 8, cells: []cell{{0, 1, "🇨", 1, 0}, {1, 1, "🇺🇸ा", 2, 0}, {3, 1, "x", 1, 0}, {4, 0, "1", 1, 0}, {5, 1, "\u0600", 1, 0}, {6, 1, "界", 2, 0}}},
+		{source: "X{🏻}^2", width: 4, cells: []cell{{0, 1, "X", 1, 0}, {1, 1, "🏻", 2, 0}, {3, 0, "2", 1, 0}}},
 	} {
-		formula := latex.Render(source, latex.Look{})
-		if err := formula.Err(); err == nil || !strings.Contains(err.Error(), "grapheme") {
-			t.Fatalf("Render(%q) = %v; want an unsupported geometry diagnostic", source, err)
-		}
-		if formula.Source() != source {
-			t.Fatalf("source = %q, want %q", formula.Source(), source)
-		}
-		if lines := formula.Lines(); len(lines) != 1 || lines[0].String() != source {
-			t.Fatalf("fallback = %v, want complete source %q", lines, source)
-		}
+		t.Run(test.source, func(t *testing.T) {
+			formula := latex.Render(test.source, latex.Look{})
+			if formula.Err() != nil || formula.Source() != test.source || formula.Width() != test.width {
+				t.Fatalf("Render(%q): source=%q width=%d err=%v", test.source, formula.Source(), formula.Width(), formula.Err())
+			}
+			surface := grid.NewSurface(test.width, formula.HeightForWidth(test.width))
+			formula.Draw(surface.View())
+			for _, want := range test.cells {
+				got, _ := surface.CellAt(want.x, want.y)
+				if got.Content() != want.content || got.Width() != want.width || got.Style.Attr != want.attr {
+					t.Fatalf("cell (%d,%d) = %+v, want %+v", want.x, want.y, got, want)
+				}
+				for x := want.x + 1; x < want.x+want.width; x++ {
+					continuation, _ := surface.CellAt(x, want.y)
+					if continuation.Content() != "" || continuation.Width() != 0 {
+						t.Fatalf("continuation (%d,%d) = %+v", x, want.y, continuation)
+					}
+				}
+			}
+			rows := formula.Rows(test.width)
+			projected := grid.NewSurface(test.width, len(rows))
+			for y, row := range rows {
+				row.Content.Draw(projected.View(), row.Offset, y)
+				if !reflect.DeepEqual(projected.Row(y), surface.Row(y)) {
+					t.Fatalf("row %d projection changed atom placement", y)
+				}
+				for i := range row.Content {
+					row.Content[i] = text.Span{Text: "caller mutation"}
+				}
+			}
+			after := grid.NewSurface(test.width, len(rows))
+			formula.Draw(after.View())
+			for y := range rows {
+				if !reflect.DeepEqual(after.Row(y), surface.Row(y)) {
+					t.Fatalf("public Rows mutated prepared formula row %d", y)
+				}
+			}
+		})
 	}
 	for _, source := range []string{"", "{}", "x{}", "{\u0301}", "\\frac{}{}", "👩‍💻^2", "\\frac{e{\u0301}}{x}", "e{\u0301}{\u0301}^2"} {
 		if err := latex.Render(source, latex.Look{}).Err(); err != nil {

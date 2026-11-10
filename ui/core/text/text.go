@@ -26,6 +26,9 @@ type Span struct {
 	// Links travel with spans through wrapping and clipping; original byte
 	// offsets alone cannot identify the resulting terminal cells.
 	Link string
+	// BreakBefore keeps this span's first grapheme independent of preceding text.
+	// Ordinary appearance changes leave it false so they cannot split a grapheme.
+	BreakBefore bool
 }
 
 // Line is one logical line of styled text — logical in that it has no width yet.
@@ -87,7 +90,7 @@ func Highlight(value string, offsets []int, normal, matched grid.Style) Line {
 	style := normal
 	projection := projectDisplay(value)
 	for cluster := range projection.clusters() {
-		at := cluster.from
+		at := cluster.From
 		hit, remaining := projection.match(cluster, offsets)
 		offsets = remaining
 		next := normal
@@ -110,6 +113,8 @@ func Highlight(value string, offsets []int, normal, matched grid.Style) Line {
 	return line
 }
 
+// String serializes the content for copying. Explicit grapheme boundaries belong
+// to the Line and are not encoded in the returned bytes; geometry uses Line methods.
 func (l Line) String() string {
 	if len(l) == 1 {
 		return l[0].Text
@@ -123,7 +128,23 @@ func (l Line) String() string {
 
 // Width is how many columns the line would occupy unwrapped, with tabs expanded.
 func (l Line) Width() int {
-	return Width(l.String())
+	asciiWidth := 0
+	ascii := true
+	for _, span := range l {
+		if !plainASCII(span.Text) {
+			ascii = false
+			break
+		}
+		asciiWidth = layout.Sum(asciiWidth, len(span.Text))
+	}
+	if ascii {
+		return asciiWidth
+	}
+	width := 0
+	for u := range l.eachUnit() {
+		width = layout.Sum(width, u.width)
+	}
+	return width
 }
 
 // Draw writes the line onto v at (x, y) and returns how many columns it advanced.
@@ -193,7 +214,7 @@ func (w Wrapped) Draw(v grid.View, x, y int) int { return w.Line.Draw(v, x, y) }
 func (l Line) Wrap(width int) []Wrapped {
 	units := l.units()
 	if width <= 0 || len(units) == 0 {
-		return []Wrapped{{Line: line(units), To: l.bytes()}}
+		return []Wrapped{{Line: line(units), To: l.ByteLen()}}
 	}
 	rowCapacity := min(len(units), width)
 	w := wrapper{
@@ -428,19 +449,19 @@ func (l Line) units() []unit {
 func (l Line) eachUnit() iter.Seq[unit] {
 	return func(yield func(unit) bool) {
 		col := 0
-		for cluster, s := range l.prepare().clusters() {
-			switch cluster.text {
+		for cluster, s := range l.clusters() {
+			switch cluster.Text {
 			case "\t":
 				n := TabStop - col%TabStop
 				for range n {
-					if !yield(unit{cluster: " ", source: s, width: 1, space: true, at: cluster.from, size: cluster.to - cluster.from}) {
+					if !yield(unit{cluster: " ", source: s, width: 1, space: true, at: cluster.From, size: cluster.To - cluster.From}) {
 						return
 					}
 				}
 				col = layout.Sum(col, n)
 			default:
-				w := grid.ClusterWidth(cluster.text)
-				if !yield(unit{cluster: cluster.text, source: s, linked: true, width: w, space: cluster.text == " ", at: cluster.from, size: cluster.to - cluster.from}) {
+				w := grid.ClusterWidth(cluster.Text)
+				if !yield(unit{cluster: cluster.Text, source: s, linked: true, width: w, space: cluster.Text == " ", at: cluster.From, size: cluster.To - cluster.From}) {
 					return
 				}
 				col = layout.Sum(col, w)
@@ -449,7 +470,7 @@ func (l Line) eachUnit() iter.Seq[unit] {
 	}
 }
 
-func (l Line) bytes() int {
+func (l Line) ByteLen() int {
 	n := 0
 	for _, s := range l {
 		n += len(s.Text)
@@ -464,10 +485,12 @@ func line(units []unit) Line {
 	// Every non-empty row has one style run. Let uncommon additional runs grow the
 	// slice instead of reserving one Span for every grapheme in ordinary plain text.
 	out := make(Line, 0, 1)
+	previous := ""
 	for first := 0; first < len(units); {
+		boundary := joins(previous, units[first].cluster)
 		last := first + 1
 		bytes := len(units[first].cluster)
-		for last < len(units) && units[last].sameRun(units[first]) {
+		for last < len(units) && units[last].sameRun(units[first]) && !joins(units[last-1].cluster, units[last].cluster) {
 			bytes += len(units[last].cluster)
 			last++
 		}
@@ -477,10 +500,12 @@ func line(units []unit) Line {
 			text.WriteString(u.cluster)
 		}
 		out = append(out, Span{
-			Text:  text.String(),
-			Style: units[first].style(),
-			Link:  units[first].link(),
+			Text:        text.String(),
+			Style:       units[first].style(),
+			Link:        units[first].link(),
+			BreakBefore: boundary,
 		})
+		previous = units[last-1].cluster
 		first = last
 	}
 	return out
@@ -509,7 +534,7 @@ func Advance(s string, col int) int {
 		return layout.Sum(col, len(s))
 	}
 	for cluster := range projectDisplay(s).clusters() {
-		col = advanceCluster(cluster.text, col)
+		col = advanceCluster(cluster.Text, col)
 	}
 	return col
 }
@@ -572,17 +597,20 @@ func (d *displayFilter) hides(cluster string) bool {
 // joins reports whether segmentation would make next part of previous once the
 // two are adjacent.
 func joins(previous, next string) bool {
+	if previous == "" || next == "" || plainASCIIByte(previous[len(previous)-1]) && plainASCIIByte(next[0]) {
+		return false
+	}
 	return !IsClusterBoundary(previous+next, len(previous))
 }
 
-// printable is the line with the clusters that never reach a cell removed. Tabs
-// survive: an uncut line is laid out by whatever places it, and a tab's width
-// depends on the column it lands in.
+// Display removes controls and malformed bytes while preserving independent
+// boundaries and tabs. Its spans may share storage with the source; use Clone at
+// ownership boundaries.
 //
 // It removes rather than replaces, which is where it parts company with [Printable]:
 // that one normalizes text somebody will store and hands back a mark where invalid
 // bytes were, and this one answers what was drawn, which is nothing.
-func (l Line) printable() Line {
+func (l Line) Display() Line {
 	// Long ASCII labels need no segmentation just to establish that every byte
 	// survives. Clipping will segment only the prefix it can retain.
 	ascii := true
@@ -595,29 +623,37 @@ func (l Line) printable() Line {
 	if ascii {
 		return l
 	}
-	prepared := l.prepare()
-	// An untouched line keeps the division into spans it came with: rebuilding would
-	// only move boundaries a caller chose.
-	if prepared.display.text == prepared.display.source {
+	out := make(Line, 0, len(l))
+	changed := false
+	for _, section := range l.sections() {
+		display := projectDisplay(section.String())
+		if display.text == display.source {
+			out = append(out, section...)
+			continue
+		}
+		changed = true
+		var value strings.Builder
+		var from *Span
+		boundary := section[0].BreakBefore
+		end := func() {
+			if value.Len() > 0 {
+				out = append(out, Span{Text: value.String(), Style: from.Style, Link: from.Link, BreakBefore: boundary})
+				value.Reset()
+				boundary = false
+			}
+		}
+		for cluster, source := range styledClusters(section, display) {
+			if source != from {
+				end()
+				from = source
+			}
+			value.WriteString(cluster.Text)
+		}
+		end()
+	}
+	if !changed {
 		return l
 	}
-	out := make(Line, 0, len(l))
-	var text strings.Builder
-	var from *Span
-	end := func() {
-		if text.Len() > 0 {
-			out = append(out, Span{Text: text.String(), Style: from.Style, Link: from.Link})
-			text.Reset()
-		}
-	}
-	for cluster, source := range prepared.clusters() {
-		if source != from {
-			end()
-			from = source
-		}
-		text.WriteString(cluster.text)
-	}
-	end()
 	return out
 }
 
@@ -716,14 +752,7 @@ func ColumnOf(s string, i int) int {
 	if plainASCII(s[:i]) && (i == len(s) || s[i] < utf8.RuneSelf) {
 		return i
 	}
-	col := 0
-	for cluster := range projectDisplay(s).clusters() {
-		if cluster.from >= i {
-			break
-		}
-		col = advanceCluster(cluster.text, col)
-	}
-	return col
+	return Of(s, grid.Style{}).ColumnOf(i)
 }
 
 // OffsetAt is the original byte offset of the display boundary nearest to col,
@@ -740,15 +769,7 @@ func OffsetAt(s string, col int) int {
 	if plainASCII(s[:end]) && (end == len(s) || plainASCIIByte(s[end])) {
 		return end
 	}
-	width := 0
-	for cluster := range projectDisplay(s).clusters() {
-		next := advanceCluster(cluster.text, width)
-		if next > col {
-			return cluster.from
-		}
-		width = next
-	}
-	return len(s)
+	return Of(s, grid.Style{}).OffsetAt(col)
 }
 
 // StampLink converts source byte ranges to terminal columns so wide clusters
@@ -820,40 +841,5 @@ func cjk(r rune) bool {
 // The offset is pulled to a cluster boundary first, so a caller working in columns
 // cannot land inside a character and get half of it.
 func WordAt(s string, at int) (start, end int, ok bool) {
-	if s == "" || at < 0 || at >= len(s) {
-		return 0, 0, false
-	}
-	// Materialize once so selection can expand from the hit in both directions
-	// without repeating grapheme segmentation.
-	type span struct {
-		from, to int
-		class    Class
-	}
-	var spans []span
-	hit := -1
-	for offset, cluster := range Clusters(s) {
-		if at >= offset && at < offset+len(cluster) {
-			hit = len(spans)
-		}
-		spans = append(spans, span{from: offset, to: offset + len(cluster), class: ClassOf(cluster)})
-	}
-	if hit < 0 {
-		return 0, 0, false
-	}
-
-	switch class := spans[hit].class; class {
-	case Space:
-		return 0, 0, false
-	case Punct:
-		return spans[hit].from, spans[hit].to, true
-	default:
-		first, last := hit, hit
-		for first > 0 && spans[first-1].class == class {
-			first--
-		}
-		for last+1 < len(spans) && spans[last+1].class == class {
-			last++
-		}
-		return spans[first].from, spans[last].to, true
-	}
+	return Of(s, grid.Style{}).WordAt(at)
 }

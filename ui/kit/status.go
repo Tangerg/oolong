@@ -39,11 +39,12 @@ func (s *Status) Draw(v grid.View) {
 	}
 	// The elapsed time is pinned to the right and the label gets what is left, so a
 	// long label is what gets truncated and the number stays readable.
-	elapsed := text.Width(s.Elapsed)
-	if elapsed+2 >= width {
+	elapsed := text.Of(s.Elapsed, s.Theme.Subtle)
+	used := elapsed.Width()
+	if used+2 >= width {
 		spinner.Draw(v)
 		return
 	}
-	spinner.Draw(v.Sub(grid.Area(0, 0, width-elapsed-1, 1)))
-	v.Text(width-elapsed, 0, s.Elapsed, s.Theme.Subtle)
+	spinner.Draw(v.Sub(grid.Area(0, 0, width-used-1, 1)))
+	elapsed.Draw(v, width-used, 0)
 }

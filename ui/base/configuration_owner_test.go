@@ -1,6 +1,7 @@
 package base_test
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -93,7 +94,9 @@ func TestMountedConfigurationChangesShareTheOwnersMutationBoundary(t *testing.T)
 		{"table wrap", table.Element(), func() { table.SetWrap(true) }, func() any { return table.Wrap() }, true},
 		{"table keys", table.Element(), func() { table.SetKeys(&keys) }, func() any { return table.Keys() }, &keys},
 		{"settings change", settings.Element(), func() {
-			settings.SetChange(func(int, int, keymap.Action) scene.ActionResult[bool] { return scene.ActionResult[bool]{} })
+			settings.SetChange(func(context.Context, int, int, keymap.Action) (scene.ActionResult[bool], error) {
+				return scene.ActionResult[bool]{}, nil
+			})
 		}, func() any { return settings.Change() != nil }, true},
 		{"settings keys", settings.Element(), func() { settings.SetEditKeys(&keys) }, func() any { return settings.EditKeys() }, &keys},
 		{"slider keys", slider.Element(), func() { slider.SetKeys(&keys) }, func() any { return slider.Keys() }, &keys},

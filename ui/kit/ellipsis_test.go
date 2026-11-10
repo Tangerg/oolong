@@ -22,7 +22,7 @@ func TestTruncationUsesTheSuppliedGlyphCapability(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			paragraph := kit.NewParagraph("abcdefgh", grid.Style{})
 			paragraph.MaxRows, paragraph.Ellipsis = 1, tc.ellipsis
-			if got := paragraph.Rows(4); len(got) != 1 || got[0].Text != tc.paragraph {
+			if got := paragraph.Rows(4); len(got) != 1 || got[0].Content.String() != tc.paragraph {
 				t.Fatalf("paragraph rows=%+v, want %q", got, tc.paragraph)
 			}
 			button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "abcdefgh"}, Ellipsis: tc.ellipsis})
@@ -56,12 +56,12 @@ func TestParagraphRewrapsWhenItsEllipsisChanges(t *testing.T) {
 		{want: "abcd"},
 	} {
 		paragraph.Ellipsis = tc.ellipsis
-		if got := paragraph.Rows(4)[0].Text; got != tc.want {
+		if got := paragraph.Rows(4)[0].Content.String(); got != tc.want {
 			t.Fatalf("changed ellipsis produced %q, want %q", got, tc.want)
 		}
 	}
 	paragraph.Ellipsis = kit.ASCII().Ellipsis
-	if got := paragraph.Rows(2)[0].Text; got != ".." {
+	if got := paragraph.Rows(2)[0].Content.String(); got != ".." {
 		t.Fatalf("marker larger than viewport=%q, want a fitting marker", got)
 	}
 }
@@ -80,7 +80,7 @@ func TestParagraphElisionUsesAnIndependentSuffix(t *testing.T) {
 			paragraph := kit.NewParagraph(tc.source, grid.Style{})
 			paragraph.MaxRows, paragraph.Ellipsis = 1, tc.suffix
 			rows := paragraph.Rows(tc.width)
-			if len(rows) != 1 || rows[0].Text != tc.want || text.Width(rows[0].Text) > tc.width {
+			if len(rows) != 1 || rows[0].Content.String() != tc.want || rows[0].Content.Width() > tc.width {
 				t.Fatalf("elided rows = %+v, want %q within %d columns", rows, tc.want, tc.width)
 			}
 		})

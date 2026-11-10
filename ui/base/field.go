@@ -57,9 +57,8 @@ type Look struct {
 	Text, Label, Subtle grid.Style
 	Selection, Accent   grid.Style
 	Danger              grid.Style
-	// Taken and Free are the marks beside a choice that has been made and one that is
-	// still on offer. They are drawn in the same column, so they are the same width or
-	// nothing beside them lines up.
+	// Choice rows reserve the wider of Taken and Free so changing an answer cannot
+	// move its label.
 	Taken, Free string
 	// Ellipsis is the truncation marker. Empty clips without a marker.
 	Ellipsis string
@@ -93,10 +92,10 @@ func (l Look) choice(v grid.View, label string, under, taken bool) {
 		if taken {
 			marked = style.Merge(l.Accent)
 		}
-		v.Text(x, 0, mark, marked)
+		text.Of(mark, marked).Draw(v, x, 0)
 		x = width
 	}
-	v.Text(x, 0, text.Truncate(label, layout.Remaining(w, x), l.Ellipsis), style)
+	text.Of(label, style).Truncate(layout.Remaining(w, x), l.Ellipsis).Draw(v, x, 0)
 }
 
 // ThemedField optionally receives a Form look for one frame. Built-in and external
@@ -162,34 +161,29 @@ func (f *field) InvalidateValidation() {
 	f.element.Invalidate()
 }
 
-func (f *field) rows(label string) int {
+func (f *field) feedbackError(operation error) error { return errors.Join(f.Error(), operation) }
+
+func (f *field) rows(label string, operation error) int {
 	extra := 0
 	if label != "" {
 		extra++
 	}
-	if f.Error() != nil {
-		extra++
-	}
-	return extra
+	return extra + feedbackRows(f.feedbackError(operation))
 }
 
-func (f *field) frame(v scene.Frame, label string, look Look) scene.Frame {
+func (f *field) frame(v scene.Frame, label string, look Look, operation error) scene.Frame {
 	requireProjection(f.element, v)
 	w, h := v.Size()
 	if w <= 0 || h <= 0 {
 		f.presentation.Stage(v, fieldPresentation{})
 		return v.Sub(grid.Area(0, 0, 0, 0))
 	}
-	top, bottom := 0, 0
+	top := 0
 	if label != "" {
-		v.Text(0, 0, text.Truncate(label, w, look.Ellipsis), look.Label)
+		text.Of(label, look.Label).Truncate(w, look.Ellipsis).Draw(v.View, 0, 0)
 		top = 1
 	}
-	if f.Error() != nil && h > top {
-		bottom = 1
-		v.Text(0, h-1, text.Truncate(f.Error().Error(), w, look.Ellipsis), look.Danger)
-	}
-	inner := v.Sub(grid.Area(0, top, w, max(h-top-bottom, 0)))
+	inner := feedbackFrame(v.Sub(grid.Area(0, top, w, max(h-top, 0))), f.feedbackError(operation), look)
 	f.presentation.Stage(v, fieldPresentation{top: top, visible: inner.Visible()})
 	return inner
 }

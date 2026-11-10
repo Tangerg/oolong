@@ -10,13 +10,13 @@ import (
 func (e *Editor) HeightForWidth(width int) int {
 	width = e.textWidth(width)
 	if e.oneLine() {
-		return 1
+		return 1 + feedbackRows(e.PasteError())
 	}
 	rows := len(e.rows(width))
 	if e.maxRows > 0 {
-		return min(rows, e.maxRows)
+		rows = min(rows, e.maxRows)
 	}
-	return rows
+	return layout.Sum(rows, feedbackRows(e.PasteError()))
 }
 
 func (e *Editor) Draw(frame scene.Frame) {
@@ -32,6 +32,7 @@ func (e *Editor) Draw(frame scene.Frame) {
 // It panics unless the editor is mounted in the frame's scene outside read-only projection.
 func (e *Editor) DrawWith(frame scene.Frame, look Look) {
 	requireProjection(e.element, frame)
+	frame = feedbackFrame(frame, e.PasteError(), look)
 	presented := &e.presentation
 	if e.oneLine() {
 		e.lineView().draw(frame, look, presented)
@@ -77,20 +78,13 @@ func (e *Editor) drawMultiline(
 	e.drawGutter(gutterView, projection, first, last)
 
 	if e.Empty() && e.placeholder != "" {
-		view.Text(0, 0, text.Truncate(e.placeholder, width, look.Ellipsis), look.Subtle)
+		text.Of(e.placeholder, look.Subtle).Truncate(width, look.Ellipsis).Draw(view, 0, 0)
 		e.placeCursor(view, 0, 0)
 		return presentation
 	}
 
 	visible := view.Visible()
-	for y := visible.Min.Y; y < visible.Max.Y; y++ {
-		index := layout.Sum(first, y)
-		if index >= len(rows) {
-			break
-		}
-		row, _ := projection.Row(index)
-		text.Of(row.Text, look.Text).Draw(view, 0, y)
-	}
+	projection.Draw(view.Sub(grid.Area(0, -first, width, len(rows))), look.Text)
 	// The selection is laid over the text rather than drawn into it, so a run that
 	// crosses a style boundary keeps whatever was underneath — and so that the rows
 	// above did not have to be told which of them was selected.
@@ -128,7 +122,7 @@ func (e *Editor) drawGutter(view grid.View, projection *text.Layout, first, last
 	rows := make([]text.Row, last-first)
 	for i := range rows {
 		row, _ := projection.Row(first + i)
-		rows[i] = text.Row{Text: row.Text, Line: row.Line + 1, Joined: row.Joined}
+		rows[i] = text.Row{Content: row.Content, SourceLine: row.Line + 1, Joined: row.Joined}
 	}
 	e.gutter.Draw(view, rows)
 }

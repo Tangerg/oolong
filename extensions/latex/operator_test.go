@@ -1,10 +1,11 @@
 package latex_test
 
 import (
-	"slices"
+	"reflect"
 	"testing"
 
 	"github.com/Tangerg/oolong/extensions/latex"
+	"github.com/Tangerg/oolong/ui/core/grid"
 )
 
 func TestExponentialUsesTheNamedOperatorGrammar(t *testing.T) {
@@ -16,8 +17,17 @@ func TestExponentialUsesTheNamedOperatorGrammar(t *testing.T) {
 					t.Fatalf("Render(%q): %v", source, err)
 				}
 				want := latex.Render(source[1:], look)
-				if rows := formula.Rows(40); !slices.Equal(rows, want.Rows(40)) {
-					t.Fatalf("operator rows = %+v, want %+v", rows, want.Rows(40))
+				actual := grid.NewSurface(40, formula.HeightForWidth(40))
+				expected := grid.NewSurface(40, want.HeightForWidth(40))
+				formula.Draw(actual.View())
+				want.Draw(expected.View())
+				if formula.HeightForWidth(40) != want.HeightForWidth(40) {
+					t.Fatal("operator changed the expression height")
+				}
+				for y := range formula.HeightForWidth(40) {
+					if !reflect.DeepEqual(actual.Row(y), expected.Row(y)) {
+						t.Fatalf("operator changed cells on row %d", y)
+					}
 				}
 			}
 		})

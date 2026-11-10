@@ -11,9 +11,9 @@ import (
 )
 
 func TestLayoutUsesOneMappingForWrappingCaretHitAndSelection(t *testing.T) {
-	l := text.NewLayout(text.LayoutConfig{Lines: []string{"a界bcd", "x\ty"}, Width: 4, Revision: 7})
+	l := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of("a界bcd", grid.Style{}), text.Of("x\ty", grid.Style{})}, Width: 4, Revision: 7})
 	rows := l.Rows()
-	if len(rows) != 5 || rows[0].Text != "a界b" || rows[1].Text != "cd" {
+	if len(rows) != 5 || rows[0].Content.String() != "a界b" || rows[1].Content.String() != "cd" {
 		t.Fatalf("rows: %+v", rows)
 	}
 	boundary := len("a界b")
@@ -42,7 +42,7 @@ func TestLayoutUsesOneMappingForWrappingCaretHitAndSelection(t *testing.T) {
 }
 
 func TestLayoutNormalizesClustersAndPreservesHardNewlines(t *testing.T) {
-	l := text.NewLayout(text.LayoutConfig{Lines: []string{"e\u0301👨‍👩‍👧‍👦", "tail"}, Width: 2})
+	l := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of("e\u0301👨‍👩‍👧‍👦", grid.Style{}), text.Of("tail", grid.Style{})}, Width: 2})
 	if position := l.Normalize(text.Position{Byte: 1, Affinity: text.Backward}); position.Byte != 0 {
 		t.Fatalf("backward normalization: %+v", position)
 	}
@@ -53,7 +53,7 @@ func TestLayoutNormalizesClustersAndPreservesHardNewlines(t *testing.T) {
 	if copied := l.Text(text.Range{End: end}); copied != "e\u0301👨‍👩‍👧‍👦\ntail" {
 		t.Fatalf("soft/hard line breaks: %q", copied)
 	}
-	other := text.NewLayout(text.LayoutConfig{Lines: []string{"e\u0301👨‍👩‍👧‍👦", "tail"}, Width: 20})
+	other := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of("e\u0301👨‍👩‍👧‍👦", grid.Style{}), text.Of("tail", grid.Style{})}, Width: 20})
 	anchor := l.Hit(image.Pt(0, 1))
 	if got := other.Hit(other.Caret(anchor)); got.Line != anchor.Line || got.Byte != anchor.Byte {
 		t.Fatalf("resize changed logical anchor: %+v -> %+v", anchor, got)
@@ -61,16 +61,16 @@ func TestLayoutNormalizesClustersAndPreservesHardNewlines(t *testing.T) {
 }
 
 func TestLayoutOwnsSourceAndNeverCopiesHiddenControlBytes(t *testing.T) {
-	lines := []string{"a\x1bb\x00c\t"}
+	lines := []text.Line{text.Of("a\x1bb\x00c\t", grid.Style{})}
 	l := text.NewLayout(text.LayoutConfig{Lines: lines, Width: 0})
-	lines[0] = "changed"
+	lines[0][0].Text = "changed"
 	rows := l.Rows()
-	rows[0].Text = "another change"
+	rows[0].Content[0].Text = "another change"
 	if value := l.Text(text.Range{End: text.Position{Line: 1}}); value != "abc\t" {
 		t.Fatalf("unsafe or aliased logical text: %q", value)
 	}
 	row, ok := l.Row(0)
-	if !ok || row.Width != text.Width(row.Text) {
+	if !ok || row.Width() != row.Content.Width() {
 		t.Fatal("row metrics differ from terminal metrics")
 	}
 	surface := grid.NewSurface(12, 1)
@@ -81,15 +81,15 @@ func TestLayoutOwnsSourceAndNeverCopiesHiddenControlBytes(t *testing.T) {
 }
 
 func TestLayoutPreservesWhitespaceAndClipsSelectionWithoutSplittingAtoms(t *testing.T) {
-	l := text.NewLayout(text.LayoutConfig{Lines: []string{"word   next"}, Width: 5})
+	l := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of("word   next", grid.Style{})}, Width: 5})
 	var joined strings.Builder
 	for _, row := range l.Rows() {
-		joined.WriteString(row.Text)
+		joined.WriteString(row.Content.String())
 	}
 	if joined.String() != "word   next" {
 		t.Fatalf("editable wrapping consumed characters: %q", joined.String())
 	}
-	unwrapped := text.NewLayout(text.LayoutConfig{Lines: []string{"abcdef"}, Width: 2, Wrap: text.WrapNone})
+	unwrapped := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of("abcdef", grid.Style{})}, Width: 2, Wrap: text.WrapNone})
 	if unwrapped.Len() != 1 {
 		t.Fatal("no-wrap mode wrapped")
 	}
@@ -101,8 +101,8 @@ func TestLayoutPreservesWhitespaceAndClipsSelectionWithoutSplittingAtoms(t *test
 func TestReservedInsertionCaretSharesLayoutHitAndSelection(t *testing.T) {
 	for _, value := range []string{"abcd", "abcdefgh", "界界", "a\u0301bcd"} {
 		t.Run(value, func(t *testing.T) {
-			passive := text.NewLayout(text.LayoutConfig{Lines: []string{value}, Width: 4})
-			editable := text.NewLayout(text.LayoutConfig{Lines: []string{value}, Width: 4, ReserveCaret: true})
+			passive := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of(value, grid.Style{})}, Width: 4})
+			editable := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of(value, grid.Style{})}, Width: 4, ReserveCaret: true})
 			if editable.Len() != passive.Len()+1 {
 				t.Fatalf("full final row lacks its insertion row: %v", editable.Rows())
 			}
@@ -123,9 +123,9 @@ func TestReservedInsertionCaretSharesLayoutHitAndSelection(t *testing.T) {
 		})
 	}
 	for _, cfg := range []text.LayoutConfig{
-		{Lines: []string{"abc"}, Width: 4, ReserveCaret: true},
-		{Lines: []string{"abcd"}, Width: 4, Wrap: text.WrapNone, ReserveCaret: true},
-		{Lines: []string{"abcd"}, ReserveCaret: true},
+		{Lines: []text.Line{text.Of("abc", grid.Style{})}, Width: 4, ReserveCaret: true},
+		{Lines: []text.Line{text.Of("abcd", grid.Style{})}, Width: 4, Wrap: text.WrapNone, ReserveCaret: true},
+		{Lines: []text.Line{text.Of("abcd", grid.Style{})}, ReserveCaret: true},
 	} {
 		if got := text.NewLayout(cfg).Len(); got != 1 {
 			t.Fatalf("unneeded insertion row for %+v: %d rows", cfg, got)
@@ -141,8 +141,8 @@ func FuzzLayoutPositionsRemainGraphemeBoundaries(f *testing.F) {
 		if len(source) > 1024 {
 			return
 		}
-		logical := text.Printable(source)
-		l := text.NewLayout(text.LayoutConfig{Lines: []string{source}, Width: int(width%32) + 1})
+		logical := text.Of(source, grid.Style{}).Display().String()
+		l := text.NewLayout(text.LayoutConfig{Lines: []text.Line{text.Of(source, grid.Style{})}, Width: int(width%32) + 1})
 		boundaries := map[int]bool{0: true, len(logical): true}
 		for at, cluster := range text.Clusters(logical) {
 			boundaries[at], boundaries[at+len(cluster)] = true, true
@@ -152,8 +152,8 @@ func FuzzLayoutPositionsRemainGraphemeBoundaries(f *testing.F) {
 			if !boundaries[row.From] || !boundaries[row.To] {
 				t.Fatalf("wrap split a grapheme: %+v", row)
 			}
-			joined.WriteString(row.Text)
-			for x := 0; x <= min(row.Width+1, 128); x++ {
+			joined.WriteString(row.Content.String())
+			for x := 0; x <= min(row.Width()+1, 128); x++ {
 				position := l.Hit(image.Pt(x, y))
 				if !boundaries[position.Byte] {
 					t.Fatalf("hit split a grapheme: %+v", position)

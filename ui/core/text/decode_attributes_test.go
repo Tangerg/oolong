@@ -30,12 +30,12 @@ func TestSGRCanDisableBaseAttributes(t *testing.T) {
 				decoder := text.Decoder{Base: grid.Style{Attr: test.attr}}
 				if chunked {
 					for _, b := range []byte(input) {
-						decoder.Feed(string([]byte{b}))
+						feedDecoder(t, &decoder, string([]byte{b}))
 					}
 				} else {
-					decoder.Feed(input)
+					feedDecoder(t, &decoder, input)
 				}
-				for _, span := range decoder.Flush()[0] {
+				for _, span := range flushDecoder(t, &decoder)[0] {
 					for _, r := range span.Text {
 						want := test.attr
 						if r == 'B' {
@@ -53,10 +53,10 @@ func TestSGRCanDisableBaseAttributes(t *testing.T) {
 
 func TestBaseChangesOnlyAffectUnspecifiedRendition(t *testing.T) {
 	decoder := text.Decoder{Base: grid.Style{Attr: grid.Bold}}
-	decoder.Feed("A\x1b[22m")
+	feedDecoder(t, &decoder, "A\x1b[22m")
 	decoder.Base = grid.Style{FG: grid.RGBColor(12, 34, 56), Attr: grid.Bold | grid.Italic}
-	decoder.Feed("B\x1b[31mC\x1b[39mD")
-	line := decoder.Flush()[0]
+	feedDecoder(t, &decoder, "B\x1b[31mC\x1b[39mD")
+	line := flushDecoder(t, &decoder)[0]
 	for _, span := range line {
 		if span.Text == "A" {
 			if span.Style.Attr != grid.Bold || !span.Style.FG.Default() {
@@ -72,8 +72,8 @@ func TestBaseChangesOnlyAffectUnspecifiedRendition(t *testing.T) {
 		}
 	}
 	decoder.Reset()
-	decoder.Feed("E")
-	if got := decoder.Flush()[0][0].Style; got != decoder.Base {
+	feedDecoder(t, &decoder, "E")
+	if got := flushDecoder(t, &decoder)[0][0].Style; got != decoder.Base {
 		t.Errorf("Reset style = %#v, want Base %#v", got, decoder.Base)
 	}
 }

@@ -18,8 +18,8 @@ type table struct {
 	aligns []layout.Align
 	header bool
 
-	separator string
-	divider   string
+	separator text.Line
+	divider   text.Line
 	rail      grid.Style
 	rule      grid.Style
 }
@@ -80,8 +80,8 @@ func (t *table) measureColumns() []columnMeasure {
 			measure.natural = max(measure.natural, cell.Width())
 			// Wrapping preserves an oversized grapheme; a narrower grid column
 			// would let that atom displace or hide the fields beside it.
-			for _, cluster := range text.Clusters(cell.String()) {
-				measure.indivisible = max(measure.indivisible, grid.ClusterWidth(cluster))
+			for cluster := range cell.Clusters() {
+				measure.indivisible = max(measure.indivisible, grid.ClusterWidth(cluster.Text))
 			}
 		}
 	}
@@ -91,7 +91,7 @@ func (t *table) measureColumns() []columnMeasure {
 func (t *table) separatorWidth(columns int) int {
 	width := 0
 	for range max(columns-1, 0) {
-		width = layout.Sum(width, text.Width(t.separator))
+		width = layout.Sum(width, t.separator.Width())
 	}
 	return width
 }
@@ -182,7 +182,7 @@ func (t *table) appendRow(dst []text.Wrapped, cells []text.Line, widths []int) [
 		line := make(text.Line, 0, len(widths)*3)
 		for column, width := range widths {
 			if column > 0 {
-				line = append(line, text.Span{Text: t.separator, Style: t.rail})
+				line = append(line, t.separator...)
 			}
 			var cell text.Line
 			if physical < len(wrapped[column]) {
@@ -197,15 +197,15 @@ func (t *table) appendRow(dst []text.Wrapped, cells []text.Line, widths []int) [
 
 func (t *table) ruleLine(widths []int) text.Line {
 	divider := t.divider
-	if divider == "" {
-		divider = " "
+	if len(divider) == 0 {
+		divider = text.Of(" ", t.rule)
 	}
 	out := make(text.Line, 0, len(widths)*2)
 	for i, width := range widths {
 		if i > 0 {
-			out = append(out, text.Span{Text: t.separator, Style: t.rail})
+			out = append(out, t.separator...)
 		}
-		out = append(out, text.Span{Text: text.Fill(divider, width), Style: t.rule})
+		out = append(out, divider.Fill(width)...)
 	}
 	return out
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -141,4 +142,6 @@ func pause(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func clip(s string) string { return text.Truncate(strings.TrimSpace(s), promptPreviewColumns, "…") }
+func clip(s string) string {
+	return text.Of(strings.TrimSpace(s), grid.Style{}).Truncate(promptPreviewColumns, "…").String()
+}

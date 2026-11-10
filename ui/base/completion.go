@@ -460,13 +460,12 @@ func (DefaultCompletionRenderer) DrawRow(v grid.View, candidate Candidate, selec
 	if candidate.Detail == "" {
 		return
 	}
-	detail := base.Merge(look.Subtle)
 	room := layout.Remaining(width, at, detailGap)
 	if room <= 0 {
 		return
 	}
-	v.Text(width-min(room, text.Width(candidate.Detail)), 0,
-		text.Truncate(candidate.Detail, room, look.Ellipsis), detail)
+	detail := text.Of(candidate.Detail, base.Merge(look.Subtle)).Truncate(room, look.Ellipsis)
+	detail.Draw(v, width-detail.Width(), 0)
 }
 
 func (c *Completion) rows() int {

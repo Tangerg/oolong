@@ -23,19 +23,19 @@ func TestBlockOwnsSourceAndSharesLayoutWithProjection(t *testing.T) {
 		surface := grid.NewSurface(width, len(rows))
 		block.Draw(surface.View())
 		for y, row := range rows {
-			for x, r := range row.Text {
+			for x, r := range row.Content.String() {
 				cell, ok := surface.CellAt(x, y)
 				if !ok || cell.Content() != string(r) {
-					t.Fatalf("width=%d row=%d text=%q", width, y, row.Text)
+					t.Fatalf("width=%d row=%d text=%q", width, y, row.Content.String())
 				}
 			}
 		}
 	}
-	if got := block.Rows(20)[0].Text; got != "hello world" {
+	if got := block.Rows(20)[0].Content.String(); got != "hello world" {
 		t.Fatal(got)
 	}
 	clipped := text.NewBlock(text.BlockConfig{Lines: []text.Line{{{Text: "abcdef"}}}})
-	if rows := clipped.Rows(3); len(rows) != 1 || rows[0].Text != "abc" {
+	if rows := clipped.Rows(3); len(rows) != 1 || rows[0].Content.String() != "abc" {
 		t.Fatal(rows)
 	}
 }
@@ -52,9 +52,9 @@ func TestBlockConcurrentWidthsAndReturnedRowMutation(t *testing.T) {
 					t.Fatal("inconsistent projection")
 				}
 				if len(rows) > 0 {
-					rows[0].Text = "mutated"
+					rows[0].Content[0].Text = "mutated"
 				}
-				if block.Rows(width)[0].Text == "mutated" {
+				if block.Rows(width)[0].Content.String() == "mutated" {
 					t.Fatal("cache exposed")
 				}
 				block.Draw(grid.NewSurface(width, 3).View())

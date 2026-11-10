@@ -69,7 +69,7 @@ func NewComposer(config ComposerConfig) *Composer {
 		Element: scene.ElementConfig{Measure: scene.MeasureRows(c.HeightForWidth), Paint: func(frame scene.Frame) {
 			width, height := frame.Size()
 			if c.prompt != "" {
-				frame.Text(0, 0, c.prompt, c.appearance.palette().Accent)
+				text.Of(c.prompt, c.appearance.palette().Accent).Draw(frame.View, 0, 0)
 			}
 			help := c.help()
 			rows := help.HeightForWidth(width)

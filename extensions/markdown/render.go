@@ -592,8 +592,8 @@ func (r *renderer) table(n *east.Table, in frame) {
 	r.push(Block{
 		body: &table{
 			rows: rows, aligns: columnAlignments(n.Alignments), header: header,
-			separator: text.Of(r.column(), r.look.Rail).Pad(0, layout.Start).String(),
-			divider:   text.Of(r.look.Glyphs.Divider, r.look.Rule).Pad(0, layout.Start).String(),
+			separator: text.Of(r.column(), r.look.Rail).Pad(0, layout.Start),
+			divider:   text.Of(r.look.Glyphs.Divider, r.look.Rule).Pad(0, layout.Start),
 			rail:      r.look.Rail, rule: r.look.Rule,
 		},
 	}, in)

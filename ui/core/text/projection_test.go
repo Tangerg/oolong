@@ -76,7 +76,7 @@ func TestFilteredDisplayKeepsAtomGeometryAndAppearance(t *testing.T) {
 				for _, wrap := range []bool{false, true} {
 					block := text.NewBlock(text.BlockConfig{Lines: []text.Line{line}, Wrap: wrap})
 					rows := block.Rows(width)
-					if len(rows) != 1 || rows[0].Text != tc.prefix+tc.suffix {
+					if len(rows) != 1 || rows[0].Content.String() != tc.prefix+tc.suffix {
 						t.Fatalf("Block.Rows(%t) = %+v", wrap, rows)
 					}
 				}

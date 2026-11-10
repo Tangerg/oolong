@@ -38,7 +38,6 @@ func (r *agentRun) tick() {
 	r.status.Elapsed = fmt.Sprintf(elapsedFormat, time.Since(r.started).Seconds())
 }
 
-// streaming reports whether run is the current run and still accepts backend output.
 func (a *agent) streaming(run *agentRun) bool {
 	return run != nil && a.run == run && run.phase == runStreaming
 }

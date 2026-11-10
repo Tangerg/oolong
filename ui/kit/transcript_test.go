@@ -29,7 +29,7 @@ func (s *said) Draw(v grid.View) {
 func (s *said) Rows(int) []text.Row {
 	out := make([]text.Row, len(s.rows))
 	for i, row := range s.rows {
-		out[i] = text.Row{Text: row}
+		out[i] = text.Row{Content: text.Of(row, grid.Style{})}
 	}
 	return out
 }

@@ -20,7 +20,7 @@ func (numberedGutter) Width(int) int { return 2 }
 func (numberedGutter) Draw(view grid.View, rows []text.Row) {
 	for y, row := range rows {
 		if !row.Joined {
-			view.Text(0, y, strconv.Itoa(row.Line), grid.Style{})
+			view.Text(0, y, strconv.Itoa(row.SourceLine), grid.Style{})
 		}
 	}
 }
@@ -80,7 +80,7 @@ func TestMaskedEditorDoesNotDiscloseItsValueToAGutter(t *testing.T) {
 	editor.SetText("secret")
 	paintWidget(scenes, 10, 1, editor)
 
-	if len(gutter.rows) != 1 || gutter.rows[0].Text != "••••••" {
+	if len(gutter.rows) != 1 || gutter.rows[0].Content.String() != "••••••" {
 		t.Fatalf("gutter rows = %#v, want only the displayed mask", gutter.rows)
 	}
 }
@@ -122,7 +122,7 @@ func TestZeroEditorGutterReceivesItsEmptyLogicalLine(t *testing.T) {
 	gutter := new(recordingGutter)
 	e := base.NewEditor(base.EditorConfig{Gutter: gutter})
 	paintWidget(scenes, 8, 1, e)
-	if len(gutter.rows) != 1 || gutter.rows[0].Line != 1 || gutter.rows[0].Text != "" {
+	if len(gutter.rows) != 1 || gutter.rows[0].SourceLine != 1 || gutter.rows[0].Content.String() != "" {
 		t.Fatalf("empty editor gutter rows=%v", gutter.rows)
 	}
 }

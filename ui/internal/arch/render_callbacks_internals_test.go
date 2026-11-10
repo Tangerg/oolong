@@ -78,6 +78,8 @@ var renderingCallbacks = map[string]callbackRule{
 	"ui/base:HistoryConfig.Equal":           {callbackSemantic, "construction retains duplicate detection for explicit submissions"},
 	"ui/base:choiceList.rowPainter":         {callbackProjection, "choice rows project current cursor and taken states"},
 	"ui/base:List.rowPainter":               {callbackProjection, "a list row paints only its assigned frame"},
+	"ui/base:matchColumns.next":             {callbackProjection, "search advances only its local iterator over an immutable text projection"},
+	"ui/base:matchColumns.stop":             {callbackProjection, "search releases its local text iterator without changing the source model"},
 	"ui/base:TableConfig.Row":               {callbackProjection, "a table row paints only its assigned frame"},
 	"ui/base:MultiSelect.check":             {callbackEvent, "validation follows a selection change"},
 	"ui/base:choiceList.sameIdentity":       {callbackProjection, "choice identity is a stable read-only relation"},

@@ -49,16 +49,18 @@ func (n LineNumbers) Draw(view grid.View, rows []text.Row) {
 	last := min(max(visible.Max.Y, first), min(len(rows), height))
 	for y := first; y < last; y++ {
 		row := rows[y]
-		if row.Line <= 0 || row.Joined {
+		if row.SourceLine <= 0 || row.Joined {
 			continue
 		}
-		value := layout.Sum(n.first(), max(row.Line-1, 0))
+		value := layout.Sum(n.first(), max(row.SourceLine-1, 0))
 		number := decimal(value)
 		padding := layout.Remaining(digits, len(number))
 		for x := visible.Min.X; x < min(padding, visible.Max.X); x++ {
 			view.Text(x, y, " ", n.Style)
 		}
-		view.Text(padding, y, text.Truncate(number+n.Separator, width-padding, ""), n.Style)
+		view.Text(padding, y, number, n.Style)
+		start := layout.Sum(padding, len(number))
+		text.Of(n.Separator, n.Style).Truncate(layout.Remaining(width, start), "").Draw(view, start, y)
 	}
 }
 

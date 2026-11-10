@@ -89,7 +89,7 @@ func TestEmbeddedDrawableRetainsDrawingAndBlankTextRows(t *testing.T) {
 	doc := new(markdown.Doc)
 	doc.SetBlocks(blocks)
 	projected := doc.Rows(12)
-	if len(projected) != doc.HeightForWidth(12) || projected[0].Text != "" || projected[0].Offset != 2 {
+	if len(projected) != doc.HeightForWidth(12) || projected[0].Content.String() != "" || projected[0].Offset != 2 {
 		t.Fatalf("projection=%+v", projected)
 	}
 	for _, width := range []int{0, 1, 2, 3, 20} {

@@ -142,7 +142,10 @@ func (b *Button) Error() error { return b.feedback.err }
 
 func (b *Button) HeightForWidth(int) int { return 1 }
 
-func (b *Button) Draw(frame scene.Frame) { b.Stage(frame); frame.Text(0, 0, b.label, Look{}.Text) }
+func (b *Button) Draw(frame scene.Frame) {
+	b.Stage(frame)
+	text.Of(b.label, Look{}.Text).Draw(frame.View, 0, 0)
+}
 
 // Stage derives this candidate frame's pointer extent for an alternate appearance.
 // It panics unless the button is mounted in the frame's scene outside read-only projection.

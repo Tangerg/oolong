@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -55,5 +56,5 @@ func reply(prompt string) string {
 
 func clip(s string) string {
 	const limit = 40
-	return text.Truncate(s, limit, "…")
+	return text.Of(s, grid.Style{}).Truncate(limit, "…").String()
 }

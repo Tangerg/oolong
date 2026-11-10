@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"context"
+
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -43,8 +45,9 @@ type SettingsConfig[T any] struct {
 	Label func(T) string
 	Value func(T) string
 	// Change is the event-side mutation boundary: its Value reports whether the
-	// edit was accepted and its State the application owner's outcome.
-	Change func(index int, item T, action keymap.Action) scene.ActionResult[bool]
+	// input was consumed and its State the application owner's outcome. An error
+	// does not erase Applied or Started effects.
+	Change func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)
 	// Keys browse rows; EditKeys change the selected value. Nil uses the respective defaults.
 	Keys     *keymap.Map
 	EditKeys *keymap.Map
@@ -84,11 +87,11 @@ func (s *Settings[T]) Controller() *base.Settings[T] {
 	return s.controller
 }
 
-func (s *Settings[T]) HeightForWidth(int) int {
+func (s *Settings[T]) HeightForWidth(width int) int {
 	if s == nil || s.controller == nil {
 		return 0
 	}
-	return s.controller.List().Len()
+	return s.controller.HeightForWidth(width)
 }
 
 func (s *Settings[T]) Draw(frame scene.Frame) {
@@ -98,7 +101,7 @@ func (s *Settings[T]) Draw(frame scene.Frame) {
 	width, _ := frame.Size()
 	table := s.table()
 	columns := table.Layout(width)
-	s.controller.List().DrawRows(frame, func(view grid.View, row int, _ T, selected bool) {
+	s.controller.DrawRows(frame, s.appearance.palette().Look(s.glyphs), func(view grid.View, row int, _ T, selected bool) {
 		columns.Cells(view, row, s.appearance.rowStyle(view, selected))
 	})
 }

@@ -37,7 +37,7 @@ func (b *block) Rows(width int) []text.Row {
 	}
 	out := make([]text.Row, n)
 	for y := range n {
-		out[y] = text.Row{Text: fmt.Sprintf("%s:%d", b.name, y)}
+		out[y] = text.Row{Content: text.Line{{Text: fmt.Sprintf("%s:%d", b.name, y)}}}
 	}
 	return out
 }
@@ -65,7 +65,7 @@ func rowText(view grid.View, y int) string {
 func rowTexts(rows []text.Row) []string {
 	out := make([]string, len(rows))
 	for i, row := range rows {
-		out[i] = row.Text
+		out[i] = row.Content.String()
 	}
 	return out
 }

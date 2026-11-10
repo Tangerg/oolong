@@ -36,7 +36,7 @@ Markdown 扩展钩子接收应用提供的被动渲染函数。`Look.SetRenderer
 
 这些模式有意替代此前仅区分空白的行为。旧调用方需要转义文本下划线，将上下标放入数学参数，并显式声明算子名称中的空格。文本注释被丢弃的行尾不再产生额外空格。[LaTeX 文本与数学字体](https://www.latex-project.org/help/documentation/usrguide-historic.pdf) · [AMS 算子名称](https://www.latex-project.org/help/documentation/amsldoc.pdf) · [TeX 注释扫描，第 347、350 节](https://ctan.math.illinois.edu/info/knuth-pdf/tex/tex.pdf)
 
-把一个组合字素拆到不同语法原子中，可能使终端实际列宽偏离数学布局，例如 `👩{‍💻}^2`。如果任意数学原子的列边界发生移动，`Formula.Err` 会报告不支持的几何，展示保留源码；整行总宽相同也不足以证明内部布局正确。同一个原子内的完整字素继续受到支持。`\exp` 等命名算子共用同一语法，不要求花括号参数，也不会把后面的上标当作参数消费。
+数学语法原子通过显式 `text.Line` 边界保留各自的单元格位置。在 `👩{‍💻}^2` 中，女人和笔记本分别占据两个独立的两列原子，上标跟随分组内的笔记本；单个原子内的完整 `👩‍💻` 仍是一个相连字素。`Formula.Source` 保留原表达式，`Rows` 保留渲染后的原子几何。将这些行序列化为 `Line.String()` 会提供可复制文本，但不承诺保留几何。`\exp` 等命名算子遵循同一语法，不要求花括号参数，也不会把随后脚标当成参数消耗。
 
 终端原生图片仍是活动资源。复制其单元格矩形不构成永久图片发布协议：`grid.Capture` 对原生 painter 返回 `errors.ErrUnsupported`。应用可以显式选择文本最终表示。
 
@@ -48,6 +48,6 @@ Windows 上的 Mermaid 和命令示例组合 `process.Job`。该能力独占进�
 
 ## 如实表达复制能力
 
-渲染行可提供 `text.Row` 软折行元数据，在不声称拥有通用 Markdown 源映射的情况下支持逻辑复制和重排。格式诊断属于准备阶段，解析器、网络或外部渲染器不会在 `Paint` 或 `HeightForWidth` 中执行。
+渲染行通过 `text.Row.Content` 提供 `text.Line` 投影，同时携带软折行元数据和可选的、从一开始计数的 `SourceLine`。显式字素边界会保留到折行、行快照、选择与搜索几何中。`Line.String()` 提供复制或匹配所需的字节，不承担边界的序列化。在不声称拥有通用 Markdown 源映射的情况下，这些信息支持逻辑复制和重排。格式诊断属于准备阶段，解析器、网络或外部渲染器不会在 `Paint` 或 `HeightForWidth` 中执行。
 
 每一版 Markdown blocks 拥有自己的宽度布局缓存。在 `Doc.SetBlocks` 前开始的读取使用当时的内容完成，后续读取看到替换后的版本。如果子块高度和间隔行的总和超过 int 范围，布局会在替换有效缓存前被拒绝。嵌入的 drawable 仍遵循其自身的并发约束。

@@ -15,7 +15,7 @@ func (t *Text) Element() scene.Element {
 			Key: t.key, Measure: scene.MeasureRows(t.HeightForWidth), Paint: t.Draw,
 			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, t.Handle, &t.geometry, &t.editor.geometry) }, Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleTextBox, Name: t.label, Value: t.editor.semanticValue(), Sensitive: t.Mask() != "", ContentRevision: t.Revision(), State: t.semanticState()}
+				return withFeedback(scene.Semantic{Role: scene.RoleTextBox, Name: t.label, Value: t.editor.semanticValue(), Sensitive: t.Mask() != "", ContentRevision: t.Revision()}, t.feedbackError(t.PasteError()))
 			}, Actions: []scene.ActionBinding{t.editor.fillAction()},
 		})
 	}
@@ -23,13 +23,6 @@ func (t *Text) Element() scene.Element {
 	t.editor.scroll.element = t.element
 	t.editor.keys.attach(t.element, &t.editor.matcher)
 	return t.element
-}
-
-func (f *field) semanticState() scene.SemanticState {
-	if f.Error() != nil {
-		return scene.StateInvalid
-	}
-	return 0
 }
 
 func (c *Confirm) Element() scene.Element {
@@ -43,13 +36,13 @@ func (c *Confirm) Element() scene.Element {
 			Key: c.key, Enabled: func() bool { return !c.closed }, Measure: scene.MeasureRows(c.HeightForWidth), Paint: c.Draw,
 			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, c.Handle, &c.geometry) }, Focusable: func() bool { return true }, FocusChanged: c.focusChanged,
 			Semantics: func() scene.Semantic {
-				state := c.semanticState()
+				state := scene.SemanticState(0)
 				snapshot := c.Snapshot()
 				if snapshot.Value {
 					state |= scene.StateChecked
 				}
 				semantic := scene.Semantic{Role: scene.RoleCheckBox, Name: c.label, Value: strconv.FormatBool(snapshot.Value), State: state}
-				return withFeedback(semantic, c.ChangeError())
+				return withFeedback(semantic, c.feedbackError(c.ChangeError()))
 			}, Actions: []scene.ActionBinding{set.Binding()},
 		})
 	}
@@ -79,7 +72,7 @@ func (s *Select[T]) Element() scene.Element {
 			}, Focusable: func() bool { return true }, FocusChanged: s.focusChanged,
 			Semantics: func() scene.Semantic {
 				choice, _ := s.Chosen()
-				return scene.Semantic{Role: scene.RoleList, Name: s.label, Value: choice.Label, ContentRevision: s.list.contentRevision, State: s.semanticState()}
+				return withFeedback(scene.Semantic{Role: scene.RoleList, Name: s.label, Value: choice.Label, ContentRevision: s.list.contentRevision}, s.Error())
 			}, Actions: []scene.ActionBinding{selectValue.Binding(), collectionReadAction(&s.list, unchangedItem[Option[T]])},
 		}))
 	}
@@ -94,7 +87,7 @@ func (m *MultiSelect[T]) Element() scene.Element {
 				return partEvent(e, m.Handle, &m.geometry, &m.list.geometry, &m.list.pointer.geometry)
 			}, Focusable: func() bool { return true }, FocusChanged: m.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleList, Name: m.label, Value: m.takenLabels(), ContentRevision: m.list.contentRevision, State: m.semanticState()}
+				return withFeedback(scene.Semantic{Role: scene.RoleList, Name: m.label, Value: m.takenLabels(), ContentRevision: m.list.contentRevision}, m.Error())
 			}, Actions: append(collectionActions(&m.list, m.choiceState), m.setTakenAction()),
 		}))
 	}
@@ -107,7 +100,7 @@ func (e *Editor) Element() scene.Element {
 			Measure: scene.MeasureRows(e.HeightForWidth), Paint: e.Draw,
 			Handle: func(event scene.Event) scene.EventResult { return partEvent(event, e.Handle, &e.geometry) }, Focusable: func() bool { return true }, FocusChanged: e.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleTextBox, Name: e.placeholder, Value: e.semanticValue(), Sensitive: e.Mask() != "", ContentRevision: e.Revision()}
+				return withFeedback(scene.Semantic{Role: scene.RoleTextBox, Name: e.placeholder, Value: e.semanticValue(), Sensitive: e.Mask() != "", ContentRevision: e.Revision()}, e.PasteError())
 			}, Actions: []scene.ActionBinding{e.fillAction()},
 		})
 	}
@@ -214,12 +207,12 @@ func (t *Table[T]) Element() scene.Element {
 func (s *Settings[T]) Element() scene.Element {
 	if s.list.element.IsZero() {
 		s.list.element = scene.NewElement(scene.ElementConfig{
-			Measure: scene.MeasureRows(s.list.HeightForWidth), Paint: s.list.Draw,
+			Measure: scene.MeasureRows(s.HeightForWidth), Paint: s.Draw,
 			Handle: func(e scene.Event) scene.EventResult {
 				return partEvent(e, s.Handle, &s.list.geometry, &s.list.pointer.geometry)
 			}, Focusable: func() bool { return true }, FocusChanged: s.focusChanged,
 			Semantics: func() scene.Semantic {
-				return scene.Semantic{Role: scene.RoleList, ContentRevision: s.list.contentRevision, Value: strconv.Itoa(s.list.Selected())}
+				return withFeedback(scene.Semantic{Role: scene.RoleList, ContentRevision: s.list.contentRevision, Value: strconv.Itoa(s.list.Selected())}, s.ChangeError())
 			}, Actions: append(collectionActions(&s.list, unchangedItem[T]), s.valueActions()...),
 		})
 	}

@@ -59,6 +59,45 @@ func TestCommandPreservesCancellationCause(t *testing.T) {
 	}
 }
 
+func TestCommandCanDiscardOutput(t *testing.T) {
+	if err := runCommand(t.Context(), []string{os.Args[0], "-test.run=^TestCommandProcessFixture$", "--", commandFixture, "success", "unused"}, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCommandPreservesOutputFailureAlongsideExitStatus(t *testing.T) {
+	outputFailure := errors.New("output destination refused data")
+	for _, test := range []struct {
+		name     string
+		write    func([]byte) (int, error)
+		want     error
+		wantText string
+	}{
+		{name: "refusal", write: func([]byte) (int, error) { return 0, outputFailure }, want: outputFailure},
+		{name: "full write with error", write: func(data []byte) (int, error) { return len(data), outputFailure }, want: outputFailure},
+		{name: "short write", write: func(data []byte) (int, error) { return len(data) - 1, nil }, want: io.ErrShortWrite},
+		{name: "negative count", write: func([]byte) (int, error) { return -1, outputFailure }, want: outputFailure, wantText: "run: output returned -1 bytes"},
+		{name: "excess count", write: func(data []byte) (int, error) { return len(data) + 1, nil }, wantText: "run: output returned"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := runCommand(t.Context(), []string{os.Args[0], "-test.run=^TestCommandProcessFixture$", "--", commandFixture, "failure", "unused"}, commandTestWriter(test.write))
+			if test.want != nil && (!errors.Is(err, test.want) || strings.Count(err.Error(), test.want.Error()) != 1) {
+				t.Fatalf("output failure = %v, want %v exactly once", err, test.want)
+			}
+			if test.wantText != "" && (err == nil || !strings.Contains(err.Error(), test.wantText)) {
+				t.Fatalf("output failure = %v, want %q", err, test.wantText)
+			}
+			if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != commandFixtureStatus {
+				t.Fatalf("exit identity = %v", err)
+			}
+		})
+	}
+}
+
+type commandTestWriter func([]byte) (int, error)
+
+func (write commandTestWriter) Write(data []byte) (int, error) { return write(data) }
+
 func TestCommandProcessFixture(_ *testing.T) {
 	index := slices.Index(os.Args, commandFixture)
 	if index < 0 {

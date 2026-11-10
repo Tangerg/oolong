@@ -2,6 +2,7 @@ package base
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"image"
 	"strings"
 
@@ -17,7 +18,7 @@ type transcriptTextMap struct {
 	starts      []text.Position
 	lineLayouts []*text.Layout
 	logical     *text.Layout
-	fingerprint [32]byte
+	fingerprint [sha256.Size]byte
 }
 
 func newTranscriptTextMap(rows []text.Row) *transcriptTextMap {
@@ -25,29 +26,52 @@ func newTranscriptTextMap(rows []text.Row) *transcriptTextMap {
 		return nil
 	}
 	m := &transcriptTextMap{rows: make([]text.Row, len(rows)), starts: make([]text.Position, len(rows)), lineLayouts: make([]*text.Layout, len(rows))}
-	var builders []*strings.Builder
+	var lines []text.Line
+	lineBytes := 0
 	for i, row := range rows {
-		row.Text = text.Printable(row.Text)
-		row.Gap = text.Printable(row.Gap)
+		row.Content = row.Content.Display().Clone()
+		gap := (text.Line{{Text: row.Gap, BreakBefore: true}}).Display()
+		row.Gap = strings.Clone(gap.String())
 		m.rows[i] = row
 		if i == 0 || !row.Joined {
-			builders = append(builders, new(strings.Builder))
+			lines = append(lines, nil)
+			lineBytes = 0
 		} else {
-			_, _ = builders[len(builders)-1].WriteString(row.Gap)
+			lines[len(lines)-1] = append(lines[len(lines)-1], gap...)
+			lineBytes += gap.ByteLen()
 		}
-		line := len(builders) - 1
-		m.starts[i] = text.Position{Line: line, Byte: builders[line].Len()}
-		_, _ = builders[line].WriteString(row.Text)
-		m.lineLayouts[i] = text.NewLayout(text.LayoutConfig{Lines: []string{row.Text}, Wrap: text.WrapNone})
-	}
-	lines := make([]string, len(builders))
-	for i, builder := range builders {
-		lines[i] = builder.String()
+		line := len(lines) - 1
+		m.starts[i] = text.Position{Line: line, Byte: lineBytes}
+		first := len(lines[line])
+		lines[line] = append(lines[line], row.Content...)
+		if first < len(lines[line]) {
+			// A physical row begins independently. Rejoining its copy text cannot
+			// let an earlier row or consumed gap absorb its first display atom.
+			lines[line][first].BreakBefore = true
+		}
+		lineBytes += row.Content.ByteLen()
+		m.lineLayouts[i] = text.NewLayout(text.LayoutConfig{Lines: []text.Line{row.Content}, Wrap: text.WrapNone})
 	}
 	m.logical = text.NewLayout(text.LayoutConfig{Lines: lines, Wrap: text.WrapNone})
-	m.fingerprint = sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	m.fingerprint = textFingerprint(lines)
 	return m
 }
+
+// Equal copied bytes can describe different cells when an explicit boundary
+// separates a joining grapheme. Length framing retains those boundaries without
+// making appearance or an otherwise redundant span split part of text identity.
+func textFingerprint(lines []text.Line) [sha256.Size]byte {
+	var encoded []byte
+	for _, line := range lines {
+		for cluster := range line.Clusters() {
+			encoded = binary.AppendVarint(encoded, int64(len(cluster.Text)))
+			encoded = append(encoded, cluster.Text...)
+		}
+		encoded = binary.AppendVarint(encoded, 0)
+	}
+	return sha256.Sum256(encoded)
+}
+
 func (m *transcriptTextMap) start() text.Position { return text.Position{} }
 func (m *transcriptTextMap) end() text.Position   { return m.logical.Hit(image.Pt(0, m.logical.Len())) }
 
@@ -56,7 +80,7 @@ func (m *transcriptTextMap) hit(row, col int, nearest bool) (text.Range, bool) {
 		return text.Range{}, false
 	}
 	content := m.rows[row]
-	width := text.Width(content.Text)
+	width := content.Content.Width()
 	col = layout.Relative(col, content.Offset)
 	if !nearest && (col < 0 || col >= width) {
 		return text.Range{}, false
@@ -66,7 +90,7 @@ func (m *transcriptTextMap) hit(row, col int, nearest bool) (text.Range, bool) {
 	start := m.starts[row]
 	start.Byte += point.Byte
 	end := start
-	end.Byte = m.starts[row].Byte + text.NextCluster(content.Text, point.Byte)
+	end.Byte = m.starts[row].Byte + content.Content.NextCluster(point.Byte)
 	end.Affinity = text.Backward
 	return text.Range{Start: start, End: end}, true
 }
@@ -77,7 +101,7 @@ func (m *transcriptTextMap) caret(position text.Position) (image.Point, bool) {
 	}
 	position = m.logical.Normalize(position)
 	for i, start := range m.starts {
-		end := start.Byte + len(m.rows[i].Text)
+		end := start.Byte + m.rows[i].Content.ByteLen()
 		if start.Line != position.Line || position.Byte > end {
 			continue
 		}
@@ -105,7 +129,7 @@ func (m *transcriptTextMap) rects(selected text.Range) []image.Rectangle {
 		if start.Line < selected.Start.Line || start.Line > selected.End.Line {
 			continue
 		}
-		from, to := 0, len(m.rows[i].Text)
+		from, to := 0, m.rows[i].Content.ByteLen()
 		if start.Line == selected.Start.Line {
 			from = max(from, selected.Start.Byte-start.Byte)
 		}
@@ -183,7 +207,7 @@ func (s *Selection) SelectWord(layout TranscriptLayout, point Point) bool {
 	if !ok {
 		return false
 	}
-	start, end, ok := text.WordAt(line.Text, selected.Start.Position.Byte)
+	start, end, ok := line.Content.WordAt(selected.Start.Position.Byte)
 	if !ok {
 		return false
 	}
@@ -204,7 +228,7 @@ func (s *Selection) SelectLine(layout TranscriptLayout, point Point) bool {
 	}
 	start := block.mapping.starts[row]
 	end := start
-	end.Byte += len(block.mapping.rows[row].Text)
+	end.Byte += block.mapping.rows[row].Content.ByteLen()
 	end.Affinity = text.Backward
 	if end.Byte == start.Byte {
 		return false

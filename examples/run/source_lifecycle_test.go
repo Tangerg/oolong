@@ -17,6 +17,7 @@ import (
 	"github.com/Tangerg/oolong/examples/internal/drawn"
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/text"
 	"github.com/Tangerg/oolong/ui/uitest"
 )
 
@@ -46,6 +47,7 @@ func TestCommandDescendantsStopOnCancellationAndParentExit(t *testing.T) {
 				app, err := program.NewInline(program.InlineConfig{Host: host, Build: func(runtime *program.InlineRuntime) (scene.Element, error) { //nolint:contextcheck // Run(ctx) parents this scope; cancellation through the runtime is under test.
 					r := &runner{
 						keys:    runnerKeys(),
+						out:     new(text.Decoder),
 						runtime: runtime,
 						command: []string{os.Args[0], "-test.run=^TestCommandPipeHolder$", "--", pipeHolderFixture, ending, listener.Addr().String()},
 					}

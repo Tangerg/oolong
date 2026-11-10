@@ -28,7 +28,7 @@ Fixed-cell furniture uses `kit.CellGlyph`: every `Border` edge and corner, the c
 
 `Glyphs.Rule` is a measured string pattern for horizontal rules in tabs and pinned transcript headers. It may contain several columns or graphemes; `Tabs.SetRule` retains the same contract. `Glyphs.Horizontal` supplies only the single-cell horizontal border mark. When updating custom glyph sets, construct border marks with `NewCellGlyph`, move rule patterns to `Rule`, and use `CellGlyph.String()` when passing a validated mark to a text-based consumer. Other measured text, including the multi-column ASCII ellipsis, remains a string.
 
-Kit retains its controller's typed collection actions and revision-qualified item addresses when replacing paint slots. `SettingsConfig.Change` returns `scene.ActionResult[bool]`, so a skin never translates a consumed key into an invented value change. See [typed controller actions](../base/index.md#typed-collection-and-controller-actions).
+Kit retains its controller's typed collection actions and revision-qualified item addresses when replacing paint slots. `SettingsConfig.Change` accepts a context and returns `(scene.ActionResult[bool], error)`, so the skin preserves accepted effects and failure independently. Its default feedback row is excluded from selectable list geometry and shares the controller’s error with semantic observation. See [typed controller actions](../base/index.md#typed-collection-and-controller-actions).
 
 Box title and footer placement derive their minimum width, available text width and aligned origin from one border-label inset. Corners and the adjacent border remain visible under truncation and alignment.
 

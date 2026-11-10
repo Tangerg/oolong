@@ -93,7 +93,7 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	if got := rule[0].rule().Text; got != "kept" {
 		t.Fatalf("rule glyph = %q, want owned kept", got)
 	}
-	if got := code[0].Rows(20)[0].Text; got != "kept" {
+	if got := code[0].Rows(20)[0].Content.String(); got != "kept" {
 		t.Fatalf("highlighted code = %q after callback storage changed, want owned kept", got)
 	}
 
@@ -101,7 +101,7 @@ func TestRenderOwnsLookGlyphsAndHighlighterResults(t *testing.T) {
 	sourceEnd := sourceStart + uintptr(len(source))
 	for name, value := range map[string]string{
 		"rule": rule[0].rule().Text,
-		"code": code[0].Rows(20)[0].Text,
+		"code": code[0].Rows(20)[0].Content.String(),
 	} {
 		at := uintptr(unsafe.Pointer(unsafe.StringData(value))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 		if at >= sourceStart && at < sourceEnd {

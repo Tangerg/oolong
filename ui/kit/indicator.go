@@ -32,7 +32,7 @@ func (s *Spinner) Draw(v grid.View) {
 	frames := s.Glyphs.Spinner
 	if len(frames) > 0 {
 		glyph := frames[((s.frame%len(frames))+len(frames))%len(frames)]
-		x = v.Text(0, 0, glyph, s.Theme.Accent)
+		x = text.Of(glyph, s.Theme.Accent).Draw(v, 0, 0)
 		if x < w {
 			x = layout.Sum(x, 1)
 		}
@@ -40,7 +40,7 @@ func (s *Spinner) Draw(v grid.View) {
 	if s.Label == "" || x >= w {
 		return
 	}
-	v.Text(x, 0, text.Truncate(s.Label, w-x, s.Glyphs.Ellipsis), s.Theme.Muted)
+	text.Of(s.Label, s.Theme.Muted).Truncate(w-x, s.Glyphs.Ellipsis).Draw(v, x, 0)
 }
 
 // Scrollbar shows where a window sits in something taller than itself.

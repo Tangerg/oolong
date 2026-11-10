@@ -73,26 +73,26 @@ func (p pasteTarget) current(e *Editor) bool {
 	return target.Valid() && e.element.Target() == target
 }
 
-// PasteError is the most recently delivered keyboard paste failure. Programmatic
-// requests receive their own errors through Paste's return and completion callback.
-func (e *Editor) PasteError() error { return e.pasteErr }
+// PasteError belongs to the latest keyboard paste request; older completions
+// cannot replace it. Programmatic requests return their own errors without
+// changing this feedback.
+func (e *Editor) PasteError() error { return e.pasteFeedback.err }
 
 func (e *Editor) pasteFromInput() {
-	e.setPasteError(nil)
+	turn := e.pasteFeedback.begin()
+	e.finishPasteFeedback(turn, nil)
 	if err := e.Paste(context.Background(), func(err error) {
 		if !errors.Is(err, ErrPasteStale) {
-			e.setPasteError(err)
+			e.finishPasteFeedback(turn, err)
 		}
 	}); err != nil {
-		e.setPasteError(err)
+		e.finishPasteFeedback(turn, err)
 	}
 }
 
-func (e *Editor) setPasteError(err error) {
+func (e *Editor) finishPasteFeedback(turn uint64, err error) {
 	e.requireMutable()
-	changed := e.pasteErr != nil || err != nil
-	e.pasteErr = err
-	if changed {
+	if e.pasteFeedback.finish(turn, err) {
 		e.element.Invalidate()
 	}
 }

@@ -81,7 +81,7 @@ func (f *Form) ensure() {
 	f.status = scene.Item{Element: scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
 		if problem := f.Error(); problem != nil {
 			w, _ := frame.Size()
-			frame.Text(0, 0, text.Truncate(problem.Error(), w, ""), grid.Style{})
+			text.Of(problem.Error(), grid.Style{}).Truncate(w, "").Draw(frame.View, 0, 0)
 		}
 	}, Semantics: func() scene.Semantic {
 		value := ""
@@ -131,18 +131,31 @@ func (f *Form) Set(fields ...Field) {
 	if err := f.group.CheckSet(items...); err != nil {
 		panic(err)
 	}
-	superseded := f.attempt
-	f.matcher.Reset(func() {
-		f.fields = own(f.fields, fields)
-		f.attempt = Submission{}
-		f.submitted = nil
-		f.problem = nil
-		f.cancelFeedback.clear()
-		if err := f.group.Set(items...); err != nil {
-			panic(err)
-		}
+	f.supersede(func() {
+		f.matcher.Reset(func() {
+			f.fields = own(f.fields, fields)
+			f.attempt = Submission{}
+			f.submitted = nil
+			f.problem = nil
+			f.cancelFeedback.clear()
+			if err := f.group.Set(items...); err != nil {
+				panic(err)
+			}
+		})
 	})
-	f.revoke(superseded)
+}
+
+// Once replacement revokes an attempt, publication and resolver cleanup cannot
+// revoke the obligation to notify its work. Cancellation still sees the complete
+// replacement and runs after the matcher has released the old input sequence.
+func (f *Form) supersede(change func()) {
+	superseded := f.attempt
+	defer func() {
+		if f.attempt.ID != superseded.ID {
+			f.revoke(superseded)
+		}
+	}()
+	change()
 }
 
 // revoke tells the owner of a pending attempt that a newer one superseded it.

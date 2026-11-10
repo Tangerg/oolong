@@ -5,6 +5,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
+
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -19,7 +21,7 @@ func TestFillOwnsTerminalColumnPadding(t *testing.T) {
 		{"empty", "", 3, "   "},
 		{"zero width", "\u0301", 3, "   "},
 		{"whole pattern", "ab", 5, "abab "},
-		{"resegmented pattern", "🇺🇸ा🇨", 6, "🇺🇸ा🇨   "},
+		{"independent pattern", "🇺🇸ा🇨", 6, "🇺🇸ा🇨🇺🇸ा🇨"},
 		{"wide", "界", 5, "界界 "},
 		{"wide remainder", "界", 1, " "},
 		{"tab", "a\tb", 19, "a       ba       b "},
@@ -27,11 +29,11 @@ func TestFillOwnsTerminalColumnPadding(t *testing.T) {
 		{"malformed UTF-8", "a\xffb", 5, "abab "},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got := text.Fill(test.pattern, test.width)
-			if got != test.want {
+			got := text.Of(test.pattern, grid.Style{}).Fill(test.width)
+			if got.String() != test.want {
 				t.Errorf("Fill = %q, want %q", got, test.want)
 			}
-			if measured := text.Width(got); measured != max(0, test.width) {
+			if measured := got.Width(); measured != max(0, test.width) {
 				t.Errorf("Fill uses %d columns, want %d", measured, max(0, test.width))
 			}
 		})
@@ -48,15 +50,15 @@ func FuzzFillUsesExactlyTheRequestedColumns(f *testing.F) {
 			return
 		}
 		width := int(extent) % 64
-		filled := text.Fill(pattern, width)
-		if got := text.Width(filled); got != width {
+		filled := text.Of(pattern, grid.Style{}).Fill(width)
+		if got := filled.Width(); got != width {
 			t.Fatalf("pattern %q, width %d: %q occupies %d columns", pattern, width, filled, got)
 		}
-		if !utf8.ValidString(filled) || text.Printable(filled) != filled || strings.ContainsRune(filled, '\t') {
+		if !utf8.ValidString(filled.String()) || text.Printable(filled.String()) != filled.String() || strings.ContainsRune(filled.String(), '\t') {
 			t.Fatalf("pattern %q produced non-normalized output %q", pattern, filled)
 		}
 		if pattern != "" && text.Printable(pattern) == pattern && !strings.ContainsRune(pattern, '\t') {
-			remainder := filled
+			remainder := filled.String()
 			for strings.HasPrefix(remainder, pattern) {
 				remainder = strings.TrimPrefix(remainder, pattern)
 			}

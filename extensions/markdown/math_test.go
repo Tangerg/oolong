@@ -119,7 +119,7 @@ func TestDisplayMathChecksEachFenceAtItsOwnIndent(t *testing.T) {
 		if len(blocks) != 2 || body != tc.body {
 			t.Fatalf("%q: %d blocks, math body %q, want %q followed by prose", tc.source, len(blocks), body, tc.body)
 		}
-		if prose := blocks[1].Rows(20); len(prose) != 1 || prose[0].Text != "after" {
+		if prose := blocks[1].Rows(20); len(prose) != 1 || prose[0].Content.String() != "after" {
 			t.Errorf("trailing prose = %v", prose)
 		}
 	}

@@ -22,7 +22,7 @@ func TestDecoderReleasesDecodedStorageBehindAnIncompleteSequence(t *testing.T) {
 	chunk := strings.Repeat("x", 4096) + "\x1b["
 	sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(chunk))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 	var decoder Decoder
-	decoder.Feed(chunk)
+	feedRetained(t, &decoder, chunk)
 	held := decoder.scan.Pending()
 	if held != "\x1b[" {
 		t.Fatalf("held = %q, want the incomplete sequence", held)
@@ -40,7 +40,7 @@ func TestDecoderDetachesSmallResultsFromLargeInputChunks(t *testing.T) {
 	sourceEnd := sourceStart + uintptr(len(chunk))
 
 	var decoder Decoder
-	decoder.Feed(chunk)
+	feedRetained(t, &decoder, chunk)
 	line := decoder.Open()
 	if got := line.String(); got != "keptlinked" {
 		t.Fatalf("open line = %q, want keptlinked", got)
@@ -63,7 +63,7 @@ func TestDecoderChunkingDoesNotAllocatePerChunk(t *testing.T) {
 	lineAllocs := testing.AllocsPerRun(3, func() {
 		var decoder Decoder
 		for range chunks {
-			decoder.Feed("x")
+			feedRetained(t, &decoder, "x")
 		}
 		_ = decoder.Open()
 	})
@@ -73,9 +73,9 @@ func TestDecoderChunkingDoesNotAllocatePerChunk(t *testing.T) {
 
 	sequenceAllocs := testing.AllocsPerRun(3, func() {
 		var decoder Decoder
-		decoder.Feed("\x1b]")
+		feedRetained(t, &decoder, "\x1b]")
 		for range chunks {
-			decoder.Feed("x")
+			feedRetained(t, &decoder, "x")
 		}
 	})
 	if sequenceAllocs >= 64 {
@@ -118,5 +118,12 @@ func TestCloneLinesOwnsBothCollectionLevels(t *testing.T) {
 	}
 	if got := CloneLines(nil); got != nil {
 		t.Fatalf("nil clone = %v, want nil", got)
+	}
+}
+
+func feedRetained(t *testing.T, decoder *Decoder, chunk string) {
+	t.Helper()
+	if _, err := decoder.Feed(chunk); err != nil {
+		t.Fatal(err)
 	}
 }

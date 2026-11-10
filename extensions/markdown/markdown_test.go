@@ -97,10 +97,10 @@ func TestDocumentRowsSeparateMeaningfulTextFromItsRenderedOffset(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("rows = %+v, want two wrapped rows", got)
 	}
-	if got[0].Text != "one" || got[0].Offset != 2 || got[0].Joined {
+	if got[0].Content.String() != "one" || got[0].Offset != 2 || got[0].Joined {
 		t.Fatalf("first row = %+v", got[0])
 	}
-	if got[1].Text != "two" || got[1].Offset != 2 || !got[1].Joined || got[1].Gap != " " {
+	if got[1].Content.String() != "two" || got[1].Offset != 2 || !got[1].Joined || got[1].Gap != " " {
 		t.Fatalf("continuation = %+v", got[1])
 	}
 }
@@ -111,19 +111,19 @@ func TestDocumentOwnsItsBlocksAndReturnsSnapshots(t *testing.T) {
 	doc.SetBlocks(input)
 
 	input[0] = mustRender(t, "changed input", look())[0]
-	if got := doc.Rows(40)[0].Text; got != "original" {
+	if got := doc.Rows(40)[0].Content.String(); got != "original" {
 		t.Fatalf("document text = %q after input slice mutation", got)
 	}
 	first := doc.Blocks()
 	first[0] = mustRender(t, "changed snapshot", look())[0]
-	if got := doc.Blocks()[0].Rows(40)[0].Text; got != "original" {
+	if got := doc.Blocks()[0].Rows(40)[0].Content.String(); got != "original" {
 		t.Fatalf("document text = %q after snapshot mutation", got)
 	}
 
 	appended := mustRender(t, "appended", look())
 	doc.Append(appended...)
 	appended[0] = mustRender(t, "changed append input", look())[0]
-	if got := doc.Blocks()[1].Rows(40)[0].Text; got != "appended" {
+	if got := doc.Blocks()[1].Rows(40)[0].Content.String(); got != "appended" {
 		t.Fatalf("appended text = %q after caller mutation", got)
 	}
 }
@@ -232,8 +232,8 @@ func TestATableWrapsCellsInsideAllocatedColumnsWithoutLosingLinks(t *testing.T) 
 		t.Fatalf("linked table text = %q, want documentation", got)
 	}
 	for i, row := range doc.Rows(width) {
-		if got := text.Width(row.Text); got > width {
-			t.Fatalf("row %d is %d columns wide at width %d: %q", i, got, width, row.Text)
+		if got := row.Content.Width(); got > width {
+			t.Fatalf("row %d is %d columns wide at width %d: %q", i, got, width, row.Content.String())
 		}
 	}
 }
@@ -248,8 +248,8 @@ func TestATableLayoutStaysInsideEveryUsableWidth(t *testing.T) {
 	doc.SetBlocks(blocks)
 	for width := 2; width <= 64; width++ {
 		for rowIndex, row := range doc.Rows(width) {
-			if end := row.Offset + text.Width(row.Text); end > width {
-				t.Fatalf("width %d row %d ends at %d: %q", width, rowIndex, end, row.Text)
+			if end := row.Offset + row.Content.Width(); end > width {
+				t.Fatalf("width %d row %d ends at %d: %q", width, rowIndex, end, row.Content.String())
 			}
 		}
 		surface := grid.NewSurface(width, doc.HeightForWidth(width))

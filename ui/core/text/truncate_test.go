@@ -15,13 +15,13 @@ func TestTruncateKeepsAJoiningSuffixIndependent(t *testing.T) {
 		{"ex", "\u0301"},
 	} {
 		t.Run(tc.source, func(t *testing.T) {
-			got := text.Truncate(tc.source, 1, tc.suffix)
+			got := text.Of(tc.source, grid.Style{}).Truncate(1, tc.suffix).String()
 			if got != tc.suffix || text.Width(got) != 0 {
 				t.Fatalf("Truncate(%q, 1, %q) = %q at width %d, want the independent zero-width suffix", tc.source, tc.suffix, got, text.Width(got))
 			}
 		})
 	}
-	if got := text.Truncate("❤", 1, "\ufe0f"); got != "❤" {
+	if got := text.Of("❤", grid.Style{}).Truncate(1, "\ufe0f").String(); got != "❤" {
 		t.Fatalf("a line that already fits changed to %q", got)
 	}
 }
@@ -55,7 +55,7 @@ func TestWithSuffixPreservesGraphemeAndColumnBoundaries(t *testing.T) {
 			if got.String() != tc.want || got.Width() > tc.width {
 				t.Fatalf("WithSuffix(%q, %d, %q) = %q at width %d, want %q", tc.source, tc.width, tc.suffix, got.String(), got.Width(), tc.want)
 			}
-			if plain := text.Truncate(tc.source, tc.width, tc.suffix); text.Width(tc.source) > tc.width && plain != text.ExpandTabs(got) {
+			if plain := text.Of(tc.source, grid.Style{}).Truncate(tc.width, tc.suffix).String(); text.Width(tc.source) > tc.width && plain != got.String() {
 				t.Fatalf("Truncate = %q, want the same bounded composition %q", plain, tc.want)
 			}
 		})
@@ -103,6 +103,8 @@ func FuzzWithSuffixFitsAtAnIndependentBoundary(f *testing.F) {
 		{"xक्\u200d", "क", 10},
 		{"🇦\x00🇧🇨", "🇩", 10},
 		{"a\tb", "x\ty\tz", 18},
+		{"\t\u0301X", "\ufe0f", 8},
+		{"\t\u200bX", "\ufe0f", 8},
 		{"0", "\t", 7},
 		{"A\xe2\u0301B", "!\xff", 3},
 	} {
@@ -113,15 +115,16 @@ func FuzzWithSuffixFitsAtAnIndependentBoundary(f *testing.F) {
 			return
 		}
 		width = min(max(width, 0), 64)
-		got := text.Of(source, grid.Style{}).WithSuffix(width, suffix).String()
-		if columns := text.Width(got); columns > width {
+		line := text.Of(source, grid.Style{}).WithSuffix(width, suffix)
+		got := line.String()
+		if columns := line.Width(); columns > width {
 			t.Fatalf("WithSuffix(%q, %d, %q) = %q at width %d", source, width, suffix, got, columns)
 		}
 		ending := (text.Line{}).WithSuffix(width, suffix).String()
 		if !strings.HasSuffix(got, ending) {
 			t.Fatalf("WithSuffix(%q, %d, %q) = %q, lost suffix %q", source, width, suffix, got, ending)
 		}
-		if at := len(got) - len(ending); !text.IsClusterBoundary(got, at) {
+		if at := len(got) - len(ending); at > 0 && line.NextCluster(at-1) != at {
 			t.Fatalf("WithSuffix(%q, %d, %q) = %q, suffix at %d joins retained text", source, width, suffix, got, at)
 		}
 	})

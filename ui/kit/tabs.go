@@ -6,6 +6,7 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 // TabsConfig supplies initial panes and strip appearance. Scope supplies a live theme and Appearance supplies instance overrides.
@@ -53,7 +54,7 @@ func NewTabs(config TabsConfig) *Tabs {
 			if selected {
 				style = t.appearance.palette().Accent
 			}
-			frame.Text(0, 0, tab.Title, style)
+			text.Of(tab.Title, style).Draw(frame.View, 0, 0)
 		},
 	})
 	if err := t.controller.Strip().SetPaint(func(frame scene.Frame) {

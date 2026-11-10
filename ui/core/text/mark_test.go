@@ -8,6 +8,37 @@ import (
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
+func TestShiftReleasesDestroyedMetadataFromRetainedStorage(t *testing.T) {
+	type metadata struct{ payload []byte }
+	for _, removed := range []struct {
+		name string
+		edit text.Edit
+		left int
+	}{
+		{"last", text.Edit{Start: 2, End: 4}, 1},
+		{"all", text.Edit{Start: 0, End: 4}, 0},
+	} {
+		t.Run(removed.name, func(t *testing.T) {
+			marks := []text.Mark[*metadata]{
+				{ID: 1, Start: 0, End: 2, Kind: &metadata{payload: []byte("kept")}},
+				{ID: 2, Start: 2, End: 4, Kind: &metadata{payload: make([]byte, 1<<20)}},
+			}
+			kept := removed.edit.Shift(marks, 4)
+			if len(kept) != removed.left {
+				t.Fatalf("retained %d marks, want %d", len(kept), removed.left)
+			}
+			if len(kept) != 0 && (kept[0].ID != 1 || string(kept[0].Kind.payload) != "kept") {
+				t.Fatalf("surviving mark changed: %+v", kept[0])
+			}
+			for _, slot := range marks[len(kept):] {
+				if slot != (text.Mark[*metadata]{}) {
+					t.Fatalf("destroyed mark remains in retained backing storage: %+v", slot)
+				}
+			}
+		})
+	}
+}
+
 // The property everything else rests on: a mark shifted over an edit is over the same
 // words it was over before. Stating it as "the same words" rather than as arithmetic
 // is what makes the test survive a change to how the arithmetic is done.

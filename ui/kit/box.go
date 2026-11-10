@@ -164,10 +164,9 @@ func (b Box) label(v grid.View, y, w int, label string, style grid.Style, align 
 	if label == "" || room <= 0 {
 		return
 	}
-	label = text.Truncate(label, room, b.Glyphs.Ellipsis)
-	width := text.Width(label)
-	x := borderLabelInset + align.Offset(room, width)
-	v.Text(x, y, label, style)
+	shown := text.Of(label, style).Truncate(room, b.Glyphs.Ellipsis)
+	x := borderLabelInset + align.Offset(room, shown.Width())
+	shown.Draw(v, x, y)
 }
 
 func (b Box) clone() Box {

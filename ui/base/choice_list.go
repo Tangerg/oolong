@@ -91,13 +91,13 @@ func (c *choiceList[T]) HeightForWidth(int) int {
 	if c.rowLimit > 0 {
 		rows = min(rows, c.rowLimit)
 	}
-	return layout.Sum(max(rows, 1), c.rows(c.label))
+	return layout.Sum(max(rows, 1), c.rows(c.label, nil))
 }
 
 // drawRows paints the visible options; taken reports whether an option is part
 // of the answer.
 func (c *choiceList[T]) drawRows(v scene.Frame, look Look, taken func(option Option[T], under bool) bool) {
-	c.list.DrawRows(c.frame(v, c.label, look), func(v grid.View, _ int, option Option[T], under bool) {
+	c.list.DrawRows(c.frame(v, c.label, look, nil), func(v grid.View, _ int, option Option[T], under bool) {
 		chosen := taken(option, under)
 		if c.rowPainter != nil {
 			c.rowPainter(v, option, under, chosen, look)

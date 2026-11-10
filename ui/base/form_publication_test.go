@@ -46,7 +46,7 @@ func TestInterruptedFormValidationPublishesItsNewAttempt(t *testing.T) {
 					if exit == "Goexit" {
 						runtime.Goexit()
 					}
-					panic("interrupted validation")
+					panic("interrupted callback")
 				}
 				field := &submissionProbeField{inspect: inspect}
 				cancelError := errors.New("cancellation refused")
@@ -68,7 +68,7 @@ func TestInterruptedFormValidationPublishesItsNewAttempt(t *testing.T) {
 				}
 				changed := root.Changes()
 				interrupted = true
-				runInterruptedFormValidation(t, exit, func() {
+				runInterruptedCallback(t, exit, func() {
 					if callback == "collect" || callback == "Error" {
 						_, _ = form.SubmitWith(func(field base.Field) error {
 							inspect("collect")
@@ -126,10 +126,10 @@ func TestInterruptedFormValidationPreservesItsReentrantReplacement(t *testing.T)
 					if exit == "Goexit" {
 						runtime.Goexit()
 					}
-					panic("interrupted validation")
+					panic("interrupted callback")
 				}
 				changed := root.Changes()
-				runInterruptedFormValidation(t, exit, func() { _, _ = form.Submit() })
+				runInterruptedCallback(t, exit, func() { _, _ = form.Submit() })
 				if got := form.Submission(); got != replacement || form.Error() != nil {
 					t.Fatalf("interrupted outer validation replaced the newer attempt: got %+v, want %+v", got, replacement)
 				}
@@ -162,19 +162,19 @@ func TestFormPublishesValidationFailureAfterItsCallbackReturns(t *testing.T) {
 	}
 }
 
-func runInterruptedFormValidation(t *testing.T, exit string, invoke func()) {
+func runInterruptedCallback(t *testing.T, exit string, invoke func()) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		defer func() {
 			failure := recover()
-			if exit == "panic" && failure != "interrupted validation" || exit == "Goexit" && failure != nil {
-				t.Errorf("validation exited with %v", failure)
+			if exit == "panic" && failure != "interrupted callback" || exit == "Goexit" && failure != nil {
+				t.Errorf("callback exited with %v", failure)
 			}
 		}()
 		invoke()
-		t.Error("interrupted validation returned normally")
+		t.Error("interrupted callback returned normally")
 	}()
 	<-done
 }
