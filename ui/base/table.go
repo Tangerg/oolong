@@ -15,6 +15,7 @@ import (
 // from bypassing sorting; appearance owns column geometry. The zero value is ready.
 // A Table must not be copied after first use. Comparisons must be pure; reentrant
 // ordering mutations panic and failed comparisons preserve the previous state.
+// Exhausting the collection revision panics before changing rows or sort metadata.
 type Table[T any] struct {
 	element scene.Element
 	noCopy  noCopy
@@ -68,6 +69,7 @@ func (t *Table[T]) SetSortColumns(columns func(column int) func(a, b T) int) {
 		return
 	}
 	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), compare, *t.order)
+	t.rows.requireReplacement()
 	t.rows.matcher.Reset(func() {
 		t.sortColumns = columns
 		t.replaceRows(items, selected)
@@ -97,6 +99,7 @@ func (t *Table[T]) SetSort(order SortOrder) bool {
 		return false
 	}
 	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), compare, order)
+	t.rows.requireReplacement()
 	t.rows.matcher.Reset(func() {
 		t.order = &order
 		t.replaceRows(items, selected)
@@ -146,6 +149,7 @@ func (t *Table[T]) SetItems(items []T) {
 		}
 		items, selected = t.sortRows(items, selected, compare, *t.order)
 	}
+	t.rows.requireReplacement()
 	t.rows.matcher.Reset(func() {
 		t.replaceRows(items, selected)
 	})

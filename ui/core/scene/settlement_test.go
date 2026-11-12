@@ -57,6 +57,61 @@ func TestSettlementNeverCallsApplicationProjections(t *testing.T) {
 	}
 }
 
+func TestWriterConfirmationBeforeCommitSettlesTheAdmittedFrame(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		sequence uint64
+	}{{"zero bytes", 0}, {"output", 7}} {
+		t.Run(test.name, func(t *testing.T) {
+			var projection scene.Snapshot[int]
+			hit := 0
+			r, err := scene.NewRoot(scene.RootConfig{
+				MaxPendingFrames: 1,
+				Element: scene.NewElement(scene.ElementConfig{
+					Paint: func(frame scene.Frame) { projection.Stage(frame, 42) },
+					Handle: func(event scene.Event) scene.EventResult {
+						hit, _ = event.Read(&projection)
+						return scene.EventResult{Consumed: true}
+					},
+				}),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			view := grid.NewSurface(1, 1).View()
+			candidate, err := r.Prepare(view)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Wrote(test.sequence)
+			if r.Progress().WrittenFrame != 0 {
+				t.Fatal("confirmation admitted an uncommitted frame")
+			}
+			candidate.Commit(test.sequence)
+			progress := r.Progress()
+			if progress.WrittenFrame != progress.LayoutRevision || progress.WrittenSequence != test.sequence {
+				t.Errorf("commit forgot confirmed output: %+v", progress)
+			}
+			if !r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft}) || hit != 42 {
+				t.Errorf("confirmed frame remained unavailable to input: %d", hit)
+			}
+			if next, err := r.Prepare(view); err != nil {
+				t.Errorf("confirmed frame retained pending capacity: %v", err)
+			} else {
+				next.Abort()
+			}
+			changed := r.Changes()
+			r.Wrote(test.sequence)
+			select {
+			case <-changed:
+				t.Error("repeated confirmation invented another transition")
+			default:
+			}
+		})
+	}
+}
+
 func TestTransportOnlyProgressWakesObserversOnce(t *testing.T) {
 	r := root(t, scene.NewElement(scene.ElementConfig{}))
 	draw(t, r, 1, 1, 0)

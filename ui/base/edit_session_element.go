@@ -201,19 +201,12 @@ func (s *EditSession) elementOf(m elementMark) Element {
 
 func (s *EditSession) elementRange(m elementMark) Element {
 	start := s.caretAt(m.Start)
-	end := s.caretAt(m.End)
-	if end.Line != start.Line {
-		// An element never spans a line break, so a mark that reads as though it does
-		// is reported as far as the end of the line it began on. Nothing produces one:
-		// an edit that put a break inside a mark destroyed it.
-		end = Caret{Line: start.Line, Byte: len(s.lines[start.Line])}
-	}
 	return Element{
 		ID:    ElementID{owner: s.elementOwner, serial: m.ID},
 		Kind:  m.Kind,
 		Line:  start.Line,
 		Start: start.Byte,
-		End:   end.Byte,
+		End:   start.Byte + (m.End - m.Start),
 	}
 }
 

@@ -32,9 +32,9 @@ type Settings[T any] struct {
 	// list is browsed.
 	editBindings keyBinding
 
-	matcher      keymap.Matcher
-	editRevision uint64
-	feedback     requestFeedback
+	matcher     keymap.Matcher
+	editVersion *byte
+	feedback    requestFeedback
 }
 
 type SettingsConfig[T any] struct {
@@ -68,18 +68,18 @@ func (s *Settings[T]) Handle(event input.Event) bool {
 	if !ok || !key.Down() {
 		return false
 	}
-	revision := s.list.revision
-	if s.editRevision != revision {
-		if !s.matcher.Reset(func() { s.editRevision = revision }) {
+	version := s.list.version
+	if s.editVersion != version {
+		if !s.matcher.Reset(func() { s.editVersion = version }) {
 			return true
 		}
 	}
-	if s.list.revision != revision {
+	if s.list.version != version {
 		return true
 	}
-	_, handled := s.matcher.Handle(s.editKeys(), key, keyboardReceipt(&s.list.element), func(action keymap.Action) bool {
+	_, handled := s.matcher.Handle(s.editBindings.resolve(settingsKeys), key, keyboardReceipt(&s.list.element), func(action keymap.Action) bool {
 		// A delayed value action belongs to the row where its sequence began.
-		return s.list.revision == revision && s.Do(action)
+		return s.list.version == version && s.Do(action)
 	})
 	return handled
 }
@@ -106,7 +106,7 @@ func (s *Settings[T]) Request(ctx context.Context, index int, action keymap.Acti
 
 func (s *Settings[T]) request(ctx context.Context, index int, action keymap.Action, recordError bool) (scene.ActionResult[bool], error) {
 	requireMutable(s.list.element)
-	var turn uint64
+	var turn *byte
 	if recordError {
 		turn = s.feedback.begin()
 	}
@@ -180,13 +180,6 @@ func (s *Settings[T]) valueAction(id scene.ActionID, label string, action keymap
 			return s.Request(ctx, address.Index, action)
 		},
 	}).Binding()
-}
-
-func (s *Settings[T]) editKeys() *keymap.Map {
-	if s.editBindings.current != nil {
-		return s.editBindings.current
-	}
-	return settingsKeys()
 }
 
 // List is the navigation collaborator; item values remain application-owned.

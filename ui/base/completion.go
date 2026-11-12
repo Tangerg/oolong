@@ -239,13 +239,15 @@ func NewCompletion(config CompletionConfig) *Completion {
 // changed, so which candidate was under the cursor is about a question nobody asked.
 // The completion copies the token and candidates, including match offsets; the caller
 // may reuse or change its inputs after this returns.
+// Exhausting the collection revision panics before changing the offer or token.
 func (c *Completion) Offer(t Token, candidates []Candidate) {
 	requireMutable(c.element)
+	if len(candidates) == 0 {
+		c.Dismiss()
+		return
+	}
+	c.list.requireReplacement()
 	c.matcher.Reset(func() {
-		if len(candidates) == 0 {
-			c.Dismiss()
-			return
-		}
 		c.token = cloneToken(t)
 		c.list.replaceItems(candidates, 0)
 		for i := range c.list.items {
@@ -258,8 +260,10 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 
 // Dismiss closes the completion and reports whether this dismissal retained its
 // ownership through resolver cancellation. A newer Offer or Dismiss revokes it.
+// Exhausting the collection revision panics before changing the offer or token.
 func (c *Completion) Dismiss() bool {
 	requireMutable(c.element)
+	c.list.requireReplacement()
 	return c.matcher.Reset(func() {
 		c.token = Token{}
 		c.list.replaceItems(nil, 0)

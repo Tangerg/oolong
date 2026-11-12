@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	commandFixture       = "--command-fixture"
-	commandFixtureEnv    = "OOLONG_COMMAND_FIXTURE"
-	commandFixtureStatus = 7
+	commandFixture              = "--command-fixture"
+	commandFixtureEnv           = "OOLONG_COMMAND_FIXTURE"
+	commandFixtureStatus        = 7
+	commandFixtureOutputFailure = "output-failure"
 )
 
 func TestCommandPreservesInheritedIOAndExitStatus(t *testing.T) {
@@ -80,7 +81,7 @@ func TestCommandPreservesOutputFailureAlongsideExitStatus(t *testing.T) {
 		{name: "excess count", write: func(data []byte) (int, error) { return len(data) + 1, nil }, wantText: "run: output returned"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := runCommand(t.Context(), []string{os.Args[0], "-test.run=^TestCommandProcessFixture$", "--", commandFixture, "failure", "unused"}, commandTestWriter(test.write))
+			err := runCommand(t.Context(), []string{os.Args[0], "-test.run=^TestCommandProcessFixture$", "--", commandFixture, commandFixtureOutputFailure, "unused"}, commandTestWriter(test.write))
 			if test.want != nil && (!errors.Is(err, test.want) || strings.Count(err.Error(), test.want.Error()) != 1) {
 				t.Fatalf("output failure = %v, want %v exactly once", err, test.want)
 			}
@@ -98,10 +99,17 @@ type commandTestWriter func([]byte) (int, error)
 
 func (write commandTestWriter) Write(data []byte) (int, error) { return write(data) }
 
-func TestCommandProcessFixture(_ *testing.T) {
+func TestCommandProcessFixture(t *testing.T) {
 	index := slices.Index(os.Args, commandFixture)
 	if index < 0 {
 		return
+	}
+	if os.Args[index+1] == commandFixtureOutputFailure {
+		// A later write could receive SIGPIPE after the parent refuses this output.
+		if _, err := fmt.Fprintln(os.Stdout, "output before failure"); err != nil {
+			t.Fatal(err)
+		}
+		os.Exit(commandFixtureStatus)
 	}
 	input, err := io.ReadAll(os.Stdin)
 	if err != nil {

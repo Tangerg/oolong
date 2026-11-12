@@ -100,14 +100,11 @@ func TestFormRejectsANilFieldAtTheCollectionBoundary(t *testing.T) {
 	base.NewForm(base.FormConfig{Fields: []base.Field{nil}})
 }
 
-func TestAFieldPutsWhatWasTypedWhereTheCallerKeepsIt(t *testing.T) {
-	// A field does not own what it collects. Somebody asked for a name because they
-	// have somewhere to put a name.
-	var name string
-	field := base.NewText(base.TextConfig{Label: "Name", Initial: name})
+func TestTextFieldOwnsItsTypedAnswer(t *testing.T) {
+	field := base.NewText(base.TextConfig{Label: "Name"})
 	typeInto(field, "ada")
 	if field.Text() != "ada" {
-		t.Fatalf("the caller's variable = %q", field.Text())
+		t.Fatalf("field text = %q", field.Text())
 	}
 }
 

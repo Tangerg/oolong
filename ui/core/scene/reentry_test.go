@@ -3,6 +3,7 @@ package scene_test
 import (
 	"errors"
 	"image"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -216,5 +217,48 @@ func TestPressCannotBeClaimedAfterItsDeliveryReturns(t *testing.T) {
 	r.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft})
 	if err := press.Capture(); !errors.Is(err, scene.ErrStale) {
 		t.Fatalf("retained press claimed capture: %v", err)
+	}
+}
+
+func TestEventAuthorityEndsWithItsCallback(t *testing.T) {
+	for _, exit := range []string{"return", "panic", "goexit"} {
+		t.Run(exit, func(t *testing.T) {
+			var saved scene.Event
+			element := scene.NewElement(scene.ElementConfig{
+				Focusable: func() bool { return true },
+				Handle: func(event scene.Event) scene.EventResult {
+					saved = event
+					if err := event.RequestFocus(); err != nil {
+						t.Errorf("active callback lost authority: %v", err)
+					}
+					switch exit {
+					case "panic":
+						panic("interrupted delivery")
+					case "goexit":
+						runtime.Goexit()
+					}
+					return scene.EventResult{Consumed: true}
+				},
+			})
+			r := root(t, element)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				defer func() {
+					failure := recover()
+					if exit == "panic" && failure != "interrupted delivery" || exit != "panic" && failure != nil {
+						t.Errorf("delivery exit = %v", failure)
+					}
+				}()
+				r.Handle(input.Key{Code: input.Tab})
+			}()
+			<-done
+			if saved.Target() != element.Target() {
+				t.Fatal("callback did not receive its target")
+			}
+			if err := saved.RequestFocus(); !errors.Is(err, scene.ErrStale) || saved.FocusNext(false) {
+				t.Fatalf("completed callback retained event authority: %v", err)
+			}
+		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // ErrReplyUnavailable marks a reply that repeating or correcting the spoken
@@ -146,18 +147,16 @@ type naming struct {
 }
 
 func namedBy[T any](said string, options []Option[T]) naming {
-	folded := strings.ToLower(said)
 	found := naming{exact: -1, prefix: -1}
 	for i, option := range options {
-		label := strings.ToLower(option.Label)
 		switch {
-		case label == folded:
+		case strings.EqualFold(option.Label, said):
 			if found.exact >= 0 {
 				found.ambiguousExact = true
 				continue
 			}
 			found.exact = i
-		case strings.HasPrefix(label, folded):
+		case hasFoldPrefix(option.Label, said):
 			if found.prefix >= 0 {
 				found.ambiguousPrefix = true
 				continue
@@ -166,4 +165,17 @@ func namedBy[T any](said string, options []Option[T]) naming {
 		}
 	}
 	return found
+}
+
+// Fold-equivalent runes can have different UTF-8 widths, so the prefix boundary counts runes.
+func hasFoldPrefix(value, prefix string) bool {
+	end := 0
+	for range prefix {
+		if end == len(value) {
+			return false
+		}
+		_, size := utf8.DecodeRuneInString(value[end:])
+		end += size
+	}
+	return strings.EqualFold(value[:end], prefix)
 }

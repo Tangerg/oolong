@@ -167,7 +167,7 @@ func (b *browser) show() {
 	b.previewScope = scope
 	_, err = b.runtime.Start(scope, program.Work[[]text.Line]{
 		Run: func(ctx context.Context) ([]text.Line, error) {
-			if contextErr := ctx.Err(); contextErr != nil {
+			if contextErr := context.Cause(ctx); contextErr != nil {
 				return nil, contextErr
 			}
 			return preview(selected, theme), nil

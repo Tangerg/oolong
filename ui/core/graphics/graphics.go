@@ -35,6 +35,8 @@ const (
 
 func (p Protocol) String() string {
 	switch p {
+	case None:
+		return "none"
 	case Kitty:
 		return "kitty"
 	case ITerm2:
@@ -42,7 +44,7 @@ func (p Protocol) String() string {
 	case Sixel:
 		return "sixel"
 	default:
-		return "none"
+		return "Protocol(" + strconv.Itoa(int(p)) + ")"
 	}
 }
 

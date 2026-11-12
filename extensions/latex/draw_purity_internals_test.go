@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 
@@ -38,11 +39,12 @@ func TestFormulaMeasurementAndDrawingAreObservationallyPure(t *testing.T) {
 }
 
 type formulaMeaning struct {
-	source string
-	look   Look
-	lines  []text.Line
-	width  int
-	err    string
+	source   string
+	align    layout.Align
+	ellipsis string
+	lines    []text.Line
+	width    int
+	err      string
 }
 
 func formulaMeaningOf(formula *Formula) formulaMeaning {
@@ -51,7 +53,7 @@ func formulaMeaningOf(formula *Formula) formulaMeaning {
 		err = formula.err.Error()
 	}
 	return formulaMeaning{
-		source: strings.Clone(formula.source), look: formula.look,
+		source: strings.Clone(formula.source), align: formula.align, ellipsis: strings.Clone(formula.ellipsis),
 		lines: text.CloneLines(formula.lines), width: formula.width, err: err,
 	}
 }

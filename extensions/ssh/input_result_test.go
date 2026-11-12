@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -65,5 +66,42 @@ func TestRunNormalizesOnlyBareInputEOF(t *testing.T) {
 				t.Fatalf("accepted input was lost before the terminal result: %v", component.keys)
 			}
 		})
+	}
+}
+
+type invalidCountSession struct {
+	*fakeSession
+	oversized bool
+	result    error
+}
+
+func (s invalidCountSession) Read(p []byte) (int, error) {
+	if s.oversized {
+		return len(p) + 1, s.result
+	}
+	return -1, s.result
+}
+
+func TestRunPreservesReaderErrorsWithInvalidByteCounts(t *testing.T) {
+	cause := errors.New("channel read failed")
+	for _, oversized := range []bool{false, true} {
+		for _, result := range []error{nil, io.EOF, cause} {
+			session := invalidCountSession{
+				fakeSession: &fakeSession{
+					ctx: newFakeContext(t.Context()), ptyOK: true,
+					window: charmssh.Window{Width: 80, Height: 24},
+				},
+				oversized: oversized, result: result,
+			}
+			err := runFakeSSHFixture(session, program.ScreenConfig{Build: func(*program.Runtime) (scene.Element, error) {
+				return fixtureElement(&inputResultComponent{}), nil
+			}})
+			if err == nil || !strings.Contains(err.Error(), "invalid byte count") {
+				t.Fatalf("invalid count (oversized=%v, result=%v) = %v", oversized, result, err)
+			}
+			if result != nil && !errors.Is(err, result) {
+				t.Errorf("invalid count lost reader error (oversized=%v): %v", oversized, err)
+			}
+		}
 	}
 }

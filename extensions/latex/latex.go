@@ -121,11 +121,12 @@ func (l Look) normalized() Look {
 // expression may become valid when its next chunk arrives. Prepared rows are
 // immutable so drawing and selection share the same mathematical layout.
 type Formula struct {
-	source string
-	look   Look
-	lines  []text.Line
-	width  int
-	err    error
+	source   string
+	align    layout.Align
+	ellipsis string
+	lines    []text.Line
+	width    int
+	err      error
 }
 
 // Render accepts an expression body rather than a TeX document. Bounded parser
@@ -138,7 +139,7 @@ func Render(source string, look Look) *Formula {
 		panic(err)
 	}
 	look = look.normalized()
-	f := &Formula{source: strings.Clone(source), look: look}
+	f := &Formula{source: strings.Clone(source), align: look.Align, ellipsis: strings.Clone(look.Glyphs.Ellipsis)}
 	if source == "" {
 		return f
 	}
@@ -208,7 +209,7 @@ func (f *Formula) Draw(v grid.View) {
 	last := min(max(visible.Max.Y, first), len(f.lines))
 	for y := first; y < last; y++ {
 		line := f.shown(f.lines[y], w)
-		line.Draw(v, f.look.Align.Offset(w, line.Width()), y)
+		line.Draw(v, f.align.Offset(w, line.Width()), y)
 	}
 }
 
@@ -223,7 +224,7 @@ func (f *Formula) Rows(width int) []text.Row {
 	for i, line := range f.lines {
 		shown := f.shown(line, width)
 		rows[i] = text.Row{
-			Content: shown.Clone(), Offset: f.look.Align.Offset(width, shown.Width()),
+			Content: shown.Clone(), Offset: f.align.Offset(width, shown.Width()),
 		}
 	}
 	return rows
@@ -233,7 +234,7 @@ func (f *Formula) shown(line text.Line, width int) text.Line {
 	if line.Width() <= width {
 		return line
 	}
-	return line.Truncate(max(width, 0), f.look.Glyphs.Ellipsis)
+	return line.Truncate(max(width, 0), f.ellipsis)
 }
 
 func sourceLines(source string, style grid.Style) []text.Line {

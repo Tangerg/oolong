@@ -93,9 +93,10 @@ func (a *Action[P, R]) Availability(params P) Availability {
 }
 
 // Invoke checks context and current availability before calling the owner handler.
+// Cancellation before entry returns context.Cause(ctx), retaining the request owner's reason.
 func (a *Action[P, R]) Invoke(ctx context.Context, params P) (ActionResult[R], error) {
 	var zero ActionResult[R]
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return zero, err
 	}
 	if available := a.Availability(params); available.Disabled {
@@ -106,7 +107,7 @@ func (a *Action[P, R]) Invoke(ctx context.Context, params P) (ActionResult[R], e
 
 func (a *Action[P, R]) run(ctx context.Context, params P) (ActionResult[R], error) {
 	var zero ActionResult[R]
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return zero, err
 	}
 	result, err := a.config.Run(ctx, params)
@@ -205,11 +206,12 @@ func actionParameter[T any](value any) (T, error) {
 func (a ActionBinding) ID() ActionID { return a.id }
 
 // Invoke resolves an exact current attachment, validates scope and calls its typed operation.
+// Cancellation before entry returns context.Cause(ctx), retaining the request owner's reason.
 func (r *Root) Invoke(ctx context.Context, target Target, action ActionID, params any) (Invocation, error) {
 	if err := r.mutable(); err != nil {
 		return Invocation{}, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return Invocation{}, err
 	}
 	n := r.resolve(target)

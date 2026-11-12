@@ -70,7 +70,7 @@ func (t *Transcript) press(mouse input.Mouse, p transcriptPresentation) bool {
 	if !ok {
 		return false
 	}
-	switch t.selection.press(mouse, p.revision) {
+	switch t.selection.press(mouse, p.layout.key, at) {
 	case 2:
 		if t.selection.SelectWord(p.layout, at) {
 			return true

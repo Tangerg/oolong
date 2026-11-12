@@ -18,7 +18,7 @@ Keep a `TranscriptItem` when the application needs its ID and receipt. Retiremen
 
 Use `base.VirtualWindow` for a dataset too large to mount eagerly. Implement `VirtualSource.Revision`, `Len`, `Key` and pure `Measure`. Keys represent stable item identity, independent of indices. Call `Resolve(width, height, offset)` before scene preparation; `Build(key)` creates an actual element only for materialized items.
 
-Defaults bound the dataset to 100,000 keys and 4 MiB of key bytes, and each resolution to 512 measurements. Only the current window retains measured heights. These are adjustable contracts with explicit refusal, not a promise that all datasets fit. Dataset-key indexing and row-prefix estimation remain linear in the bounded dataset size.
+Defaults bound the dataset to 100,000 keys and 4 MiB of key bytes, and each resolution to 512 measurements. Measurements survive scrolling for the current source revision and width; only visible and overscan elements remain mounted. These are adjustable contracts with explicit refusal, not a promise that all datasets fit. Dataset-key indexing and row-prefix estimation remain linear in the bounded dataset size.
 
 ## Preserve identity and honest geometry
 

@@ -30,6 +30,7 @@ import (
 // copied after first use: its source, ranked list and cursor are one mutable owner.
 // Source and pattern changes prepare their matches before publication. A projection
 // panic leaves the previous state intact; projections cannot reenter either setter.
+// Exhausting the collection revision panics before replacing the source or pattern.
 type Filter[T any] struct {
 	element scene.Element
 	noCopy  noCopy
@@ -84,6 +85,7 @@ func (f *Filter[T]) SetPattern(pattern string) {
 	}
 	pattern = strings.Clone(pattern)
 	hits := f.matches(f.items, f.text, pattern)
+	f.list.requireReplacement()
 	f.list.matcher.Reset(func() {
 		f.pattern = pattern
 		f.replaceMatches(hits)
@@ -102,6 +104,7 @@ func (f *Filter[T]) SetItems(items []T, text func(item T) string) {
 	requireMutable(f.element)
 	items = slices.Clone(items)
 	hits := f.matches(items, text, f.pattern)
+	f.list.requireReplacement()
 	f.list.matcher.Reset(func() {
 		f.items = items
 		f.text = text

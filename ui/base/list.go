@@ -14,6 +14,7 @@ import (
 // List owns one-row items, selection and scrolling. Moving the cursor keeps it
 // visible; Row supplies appearance. The zero value is ready. A List must not be
 // copied after first use. Methods panic on a nil *List.
+// Replacing items panics before mutation if the collection revision is exhausted.
 type List[T any] struct {
 	changes  subscriptions[struct{}]
 	element  scene.Element
@@ -22,8 +23,7 @@ type List[T any] struct {
 
 	// items are private so replacing them cannot bypass selection clamping or leave
 	// committed routing totals describing a collection the list no longer owns.
-	items   []T
-	itemsID *byte
+	items []T
 	// Indices distinguish equal items for row appearance. Callbacks run during drawing
 	// and must be observationally pure.
 	rowPainter func(v grid.View, at int, item T, selected bool)
@@ -32,7 +32,8 @@ type List[T any] struct {
 	// Wrap enables movement across the ends; the default stops at each end.
 	wrap bool
 
-	revision        uint64
+	// Cursor movement revokes delayed row actions without changing row addresses.
+	version         *byte
 	contentRevision uint64
 	selected        int
 	scroll          Scroll
@@ -80,7 +81,7 @@ func (l *List[T]) Select(i int) {
 	next := l.clampIndex(i)
 	if next != l.selected {
 		l.selected = next
-		l.revision++
+		l.version = new(byte)
 		l.reveal(next)
 		l.notifyChange()
 	}
@@ -98,6 +99,7 @@ func (l *List[T]) Move(n int) {
 // routing waits for its next complete frame so old geometry cannot select new items.
 func (l *List[T]) SetItems(items []T) {
 	requireMutable(l.element)
+	l.requireReplacement()
 	l.matcher.Reset(func() {
 		l.replaceItems(items, l.selected)
 		l.notifyChange()
@@ -108,11 +110,11 @@ func (l *List[T]) SetItems(items []T) {
 // control can complete its own state before publishing this one list change.
 func (l *List[T]) replaceItems(items []T, selected int) {
 	requireMutable(l.element)
-	l.revision++
+	l.requireReplacement()
+	l.version = new(byte)
 	l.contentRevision++
 	l.pointer.Left()
 	l.items = own(l.items, items)
-	l.itemsID = new(byte)
 	next := l.clampIndex(selected)
 	if len(l.items) == 0 {
 		l.scroll.toTop()
@@ -121,6 +123,8 @@ func (l *List[T]) replaceItems(items []T, selected int) {
 	}
 	l.selected = next
 }
+
+func (l *List[T]) requireReplacement() { _ = nextRevision(l.contentRevision) }
 
 // Items returns a copy of the items in list order.
 func (l *List[T]) Items() []T {
@@ -146,7 +150,7 @@ func (l *List[T]) At(index int) (T, bool) {
 // frame commits, no point hits. Hit changes neither selection nor scrolling.
 func (l *List[T]) Hit(point image.Point) (int, bool) {
 	presented := l.geometry.read(&l.presentation)
-	if presented.itemsID != l.itemsID || !point.In(presented.visible) {
+	if presented.contentRevision != l.contentRevision || !point.In(presented.visible) {
 		return 0, false
 	}
 	at := presented.first + point.Y
@@ -286,7 +290,7 @@ func (l *List[T]) DrawRows(v scene.Frame, draw func(grid.View, int, T, bool)) {
 	first := scroll.Offset()
 	visible := v.Visible()
 	l.presentation.Stage(v, listPresentation{
-		visible: visible, window: height, first: first, total: total, itemsID: l.itemsID,
+		visible: visible, window: height, first: first, total: total, contentRevision: l.contentRevision,
 	})
 	l.pointer.Stage(v, v.Bounds())
 	if draw == nil || visible.Empty() {
@@ -308,7 +312,7 @@ func (l *List[T]) reveal(at int) bool {
 }
 
 type listPresentation struct {
-	itemsID              *byte
+	contentRevision      uint64
 	visible              image.Rectangle
 	window, first, total int
 }

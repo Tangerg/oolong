@@ -11,14 +11,14 @@ type editorViewState struct {
 	cursor, anchor Caret
 	selection      editorSelection
 	rowEnd         bool
-	scrollRevision uint64
+	scrollVersion  *byte
 }
 
 func (e *Editor) viewState() editorViewState {
 	return editorViewState{
 		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor,
 		selection: e.selection, rowEnd: e.prefersRowEnd(),
-		scrollRevision: e.scroll.revision,
+		scrollVersion: e.scroll.version,
 	}
 }
 
@@ -100,7 +100,7 @@ func (e *Editor) documentChanged(before []string, change ChangeMap, initiator bo
 	// A peer's edit moves this view's caret but not its reader. Only a reveal this
 	// view still owes its own cursor follows the caret to its new place; a reader
 	// who scrolled away stays where they are.
-	if initiator || e.cursorRevealPending() {
+	if initiator || e.scroll.revealPending(e.cursorReveal) {
 		e.revealCursor()
 	}
 }

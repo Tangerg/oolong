@@ -181,7 +181,7 @@ type layoutSnapshot struct {
 	projections map[stagedState]any
 	admittedAt  time.Time
 	hasOutput   bool
-	epoch       uint64
+	epoch       *byte
 }
 
 // The index addresses paint order in this frame. Remounting can reuse a node ID,
@@ -208,6 +208,7 @@ type Prepared struct {
 // Commit atomically publishes the candidate after writer admission. Zero inherits
 // the previous writer sequence without creating transport completion. Physical
 // input still needs the writer's evidence; Wrote updates owner-side progress.
+// Completion already reported through Wrote also applies to this admission.
 // It panics if the candidate has already settled, is foreign, regresses the writer sequence, or settlement interrupts a pure phase.
 func (p *Prepared) Commit(sequence uint64) {
 	if p == nil || p.root == nil {
@@ -273,7 +274,6 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 	if len(r.frames.inFlight) >= r.maxPendingFrames {
 		return nil, ErrBusy
 	}
-	r.preparing = true
 	candidate := &layoutSnapshot{
 		model:    r.modelRevision,
 		revision: next(r.layoutRevision()),
@@ -292,6 +292,7 @@ func (r *Root) Prepare(view grid.View) (prepared *Prepared, err error) {
 			tx.abort()
 		}
 	}()
+	r.preparing = true
 	if r.content.node != nil {
 		r.paint(Item{Element: r.content}, view, tx, image.Point{}, candidate)
 	}
@@ -344,7 +345,7 @@ func (r *Root) paint(item Item, view grid.View, tx *transaction, origin image.Po
 // does not claim that a physical terminal has displayed the bytes. It panics during
 // paint or observation; report writer progress between these pure phases.
 func (r *Root) Wrote(sequence uint64) {
-	if r == nil || r.closed || sequence < r.frames.sequence {
+	if r == nil || r.closed {
 		return
 	}
 	if r.projecting() {
@@ -375,7 +376,7 @@ func (r *Root) InvalidateGeometry() {
 		panic(err)
 	}
 	r.frames.revoke()
-	r.geometryEpoch = next(r.geometryEpoch)
+	r.geometryEpoch = new(byte)
 	r.published.Store(nil)
 	if n := r.resolve(r.hover); n != nil {
 		r.revokeHover(n)

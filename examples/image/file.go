@@ -12,14 +12,19 @@ import (
 const maxPNGFileBytes = 8 << 20
 
 func readPNG(ctx context.Context, path string) (data []byte, err error) {
-	if cancelled := ctx.Err(); cancelled != nil {
-		return nil, cancelled
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
 	}
 	file, err := regularfile.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { err = errors.Join(err, file.Close()) }()
+	// A successful close must preserve a bare cancellation for task outcome classification.
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
 	info, err := file.Stat()
 	if err != nil {
 		return nil, err
@@ -29,9 +34,6 @@ func readPNG(ctx context.Context, path string) (data []byte, err error) {
 		return nil, tooLarge()
 	}
 	data, err = io.ReadAll(contextReader{ctx, io.LimitReader(file, maxPNGFileBytes+1)})
-	if cancelled := ctx.Err(); cancelled != nil {
-		return nil, cancelled
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +43,7 @@ func readPNG(ctx context.Context, path string) (data []byte, err error) {
 	return data, nil
 }
 
-// Cancellation is checked between regular-file reads. It cannot interrupt a
+// Cancellation is checked around regular-file reads. It cannot interrupt a
 // filesystem that blocks inside its own kernel read or open operation.
 type contextReader struct {
 	context context.Context //nolint:containedctx // The adapter lives within one readPNG call; io.Reader cannot accept that call's context.
@@ -49,8 +51,17 @@ type contextReader struct {
 }
 
 func (r contextReader) Read(data []byte) (int, error) {
-	if err := r.context.Err(); err != nil {
+	if err := context.Cause(r.context); err != nil {
 		return 0, err
 	}
-	return r.reader.Read(data)
+	n, err := r.reader.Read(data)
+	cause := context.Cause(r.context)
+	if cause == nil || errors.Is(err, cause) {
+		return n, err
+	}
+	// A wrapped EOF may carry an independent failure that cancellation cannot erase.
+	if err == nil || err == io.EOF {
+		return n, cause
+	}
+	return n, errors.Join(err, cause)
 }

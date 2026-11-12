@@ -66,7 +66,7 @@ func (e *Editor) drawMultiline(
 	cursorRow, cursorColumn := e.rowAt(width)
 
 	scroll := e.scroll.Stage(frame, len(rows), height)
-	if e.cursorRevealPending() {
+	if e.scroll.revealPending(e.cursorReveal) {
 		// Wrapping may have changed since navigation. Resolve the logical cursor
 		// using this frame, but only while its request has not been superseded.
 		scroll.Reveal(cursorRow, cursorRow)
@@ -136,12 +136,6 @@ func (e *Editor) placeCursor(v grid.View, x, y int) {
 
 // revealCursor is the semantic navigation boundary. A draw may refine the visual
 // row but never creates a new request; manual scrolling can therefore cancel it.
-// cursorRevealPending reports whether the scroll still owes this editor's cursor
-// the reveal its last navigation or edit requested.
-func (e *Editor) cursorRevealPending() bool {
-	return e.cursorReveal != nil && e.scroll.reveal == e.cursorReveal
-}
-
 func (e *Editor) revealCursor() {
 	if e.oneLine() {
 		return

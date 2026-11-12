@@ -18,7 +18,7 @@ Base 提供更换外观后仍可复用的行为：编辑、选择、列表、表
 
 默认字段在语义 `Description` 中提供当前验证原因，同时标记 `StateInvalid`。Text 与 Editor 从 `PasteError` 投影键盘粘贴失败，Confirm 从 `ChangeError` 投影领域失败。这些操作错误与 `Field.Error` 分别归属各自所有者，不会成为验证失败。默认呈现预留一行不可编辑的反馈，同时发生的原因在该行合并显示，语义观察保留完整文本。Editor 的 `MaxRows` 只限制文本行，反馈另占一行。
 
-`SpokenField.Reply` 依次解析、应用并验证答案。解析或接纳阶段的拒绝保留原答案；应用后的检查失败会保留已接受的草稿，便于修正。错误不代表完全没有副作用：领域控制的 Confirm 可以已应用或启动变更，同时返回错误。`ErrReplyUnavailable` 和 `ErrValidationSuperseded` 要求口头适配器停止；普通解析与验证失败允许重新回答。字段不会回滚外部领域效果。
+`SpokenField.Reply` 依次解析、应用并验证答案。选项与确认标签使用 Unicode 大小写折叠进行完整匹配与无歧义前缀匹配；完整标签优先于较长标签的前缀。解析或接纳阶段的拒绝保留原答案；应用后的检查失败会保留已接受的草稿，便于修正。错误不代表完全没有副作用：领域控制的 Confirm 可以已应用或启动变更，同时返回错误。`ErrReplyUnavailable` 和 `ErrValidationSuperseded` 要求口头适配器停止；普通解析与验证失败允许重新回答。字段不会回滚外部领域效果。
 
 初始设置放入组件的 `Config`。后续通过 `SetLabel`、`SetRows`、`SetLook`、`SetKeys` 等命令修改控制器，并通过对应的 `Label()`、`Rows()`、`Look()`、`Keys()` 读取。命令检查场景的变更阶段，并使对应元素失效，因此标签、几何与代理观察不会绕过模型修订而改变。呈现期间或帧候选尚未结算时，修改会在设置改变前被拒绝。复合控制器将共享设置交给已有所有者：Text 使用内部 Editor 的编辑设置，Table 使用内部 List 的行绘制、循环导航与绑定。
 

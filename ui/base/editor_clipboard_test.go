@@ -272,6 +272,36 @@ func TestEditorClipboardReplyRequiresItsOriginalEditLocation(t *testing.T) {
 	}
 }
 
+func TestEditorClipboardReplyUsesTheEffectiveReplacementRange(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		before func(*base.Editor)
+		change func(*base.Editor)
+	}{
+		{"begin empty selection", nil, (*base.Editor).Anchor},
+		{"clear empty selection", (*base.Editor).Anchor, (*base.Editor).SelectNone},
+		{"replace inactive anchor", nil, func(e *base.Editor) { e.Anchor(); e.SelectNone() }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &clip{}
+			editor := base.NewEditor(base.EditorConfig{Initial: "original", Clipboard: transport})
+			if test.before != nil {
+				test.before(editor)
+			}
+			completed := false
+			var result error
+			if err := editor.Paste(t.Context(), func(err error) { completed, result = true, err }); err != nil {
+				t.Fatal(err)
+			}
+			test.change(editor)
+			transport.receive(" pasted", nil)
+			if !completed || result != nil || editor.Text() != "original pasted" {
+				t.Fatalf("unchanged replacement range refused paste: text=%q completed=%t error=%v", editor.Text(), completed, result)
+			}
+		})
+	}
+}
+
 func TestStandaloneEditorPasteAndEmptyClipboardHaveExplicitResults(t *testing.T) {
 	transport := &clip{}
 	editor := base.NewEditor(base.EditorConfig{Initial: "original"})

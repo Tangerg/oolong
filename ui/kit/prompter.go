@@ -55,6 +55,8 @@ func NewPrompter(cfg PrompterConfig) (*Prompter, error) {
 // correctable parse and validation failures ask for another answer.
 // Oversized answers are discarded through their line ending before returning
 // ErrAnswerTooLong, so a later Ask can resume at the next answer.
+// Only bare io.EOF completes an unterminated answer; other input failures must
+// not turn partial input into a submitted answer.
 func (p *Prompter) Ask(form *base.Form) (scene.ActionResult[base.SubmissionID], error) {
 	if p == nil || p.input == nil {
 		return scene.ActionResult[base.SubmissionID]{}, errors.New("kit: uninitialized prompter")
@@ -81,11 +83,11 @@ func (p *Prompter) ask(field base.SpokenField) error {
 		if err := writeAnswerLines(p.output, field.Ask()); err != nil {
 			return err
 		}
-		if _, err := io.WriteString(p.output, "> "); err != nil {
+		if err := writePromptText(p.output, "> "); err != nil {
 			return err
 		}
 		answer, err := p.readAnswer()
-		if errors.Is(err, io.EOF) {
+		if err == io.EOF { //nolint:errorlint // Only bare EOF means an absent answer; wrapped and joined read failures must survive.
 			return fmt.Errorf("kit: %q was left unanswered: %w", field.Prompt(), io.ErrUnexpectedEOF)
 		}
 		if err != nil {
@@ -103,20 +105,24 @@ func (p *Prompter) ask(field base.SpokenField) error {
 
 func (p *Prompter) readAnswer() (string, error) {
 	line := answerLine{limit: p.maxAnswerBytes}
+	// ReadSlice's ErrBufferFull can also originate from its reader. ReadByte
+	// leaves that failure distinct from the framing of an answer.
 	for {
-		fragment, err := p.input.ReadSlice('\n')
-		if err == nil {
-			fragment = fragment[:len(fragment)-1]
+		value, err := p.input.ReadByte()
+		if err == io.EOF {
+			if !line.empty() {
+				return line.result()
+			}
+			return "", err
 		}
-		line.append(fragment)
-		if errors.Is(err, bufio.ErrBufferFull) {
-			continue
+		if err != nil {
+			_, limitErr := line.result()
+			return "", errors.Join(err, limitErr)
 		}
-		answer, limitErr := line.result()
-		if err == nil || errors.Is(err, io.EOF) && !line.empty() {
-			return answer, limitErr
+		if value == '\n' {
+			return line.result()
 		}
-		return "", errors.Join(err, limitErr)
+		line.append(value)
 	}
 }
 
@@ -131,32 +137,28 @@ func (l *answerLine) empty() bool {
 	return l.text.Len() == 0 && !l.carriageReturn && !l.tooLong
 }
 
-func (l *answerLine) append(fragment []byte) {
-	if len(fragment) == 0 {
-		return
-	}
+func (l *answerLine) append(value byte) {
 	if l.carriageReturn {
-		l.write([]byte{'\r'})
+		l.write('\r')
 	}
 	// Keep a possible CRLF terminator out of both the answer and its byte budget,
-	// including when the reader splits immediately before the LF.
-	l.carriageReturn = fragment[len(fragment)-1] == '\r'
-	if l.carriageReturn {
-		fragment = fragment[:len(fragment)-1]
+	// including when the next byte is not available in the current read buffer.
+	l.carriageReturn = value == '\r'
+	if !l.carriageReturn {
+		l.write(value)
 	}
-	l.write(fragment)
 }
 
-func (l *answerLine) write(fragment []byte) {
+func (l *answerLine) write(value byte) {
 	if l.tooLong {
 		return
 	}
-	if l.limit > 0 && len(fragment) > l.limit-l.text.Len() {
+	if l.limit > 0 && l.text.Len() == l.limit {
 		l.tooLong = true
 		l.text.Reset()
 		return
 	}
-	l.text.Write(fragment)
+	l.text.WriteByte(value)
 }
 
 func (l *answerLine) result() (string, error) {
@@ -170,9 +172,15 @@ func (l *answerLine) result() (string, error) {
 // applying the screen renderer's control-character policy to each one.
 func writeAnswerLines(out io.Writer, message string) error {
 	for line := range strings.SplitSeq(message, "\n") {
-		if _, err := fmt.Fprintln(out, text.Printable(line)); err != nil {
+		if err := writePromptText(out, text.Printable(line)+"\n"); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// An incomplete question or diagnostic must not consume the next answer.
+func writePromptText(out io.Writer, message string) error {
+	_, err := io.Copy(out, strings.NewReader(message))
+	return err
 }

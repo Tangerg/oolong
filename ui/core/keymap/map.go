@@ -41,9 +41,9 @@ type Matcher struct {
 	noCopy noCopy
 
 	pending *sequence
-	// ticket advances whenever matching is abandoned, so a resolver or callback
-	// from an earlier sequence can tell it has been superseded.
-	ticket uint64
+	// A fresh identity on abandonment makes a late resolver inert without a
+	// finite counter that could eventually revive it.
+	ticket *byte
 }
 
 // sequence is one partially typed chord sequence. It exists only while a prefix
@@ -129,7 +129,7 @@ func (m *Matcher) abandon() func() {
 		cancel = m.pending.cancel
 	}
 	m.pending = nil
-	m.ticket++
+	m.ticket = new(byte)
 	return cancel
 }
 
@@ -404,7 +404,7 @@ func (m *Matcher) deferExact(bindings *Map, action Action, do func(Action) bool)
 	}
 }
 
-func (m *Matcher) resolve(ticket uint64) {
+func (m *Matcher) resolve(ticket *byte) {
 	if m == nil || m.ticket != ticket {
 		return
 	}

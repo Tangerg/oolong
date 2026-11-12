@@ -50,11 +50,11 @@ type Root struct {
 	maxPendingFrames      int
 	published             atomic.Pointer[inputGeometry]
 	inputHistory          int
-	geometryEpoch         uint64
+	geometryEpoch         *byte
 	namespace             *namespace
-	delivery              uint64
-	inputTurn             uint64
-	focusTurn             uint64
+	delivery              *byte
+	inputTurn             *byte
+	focusTurn             *byte
 }
 
 type namespace struct{ _ byte }
@@ -364,7 +364,7 @@ func (r *Root) setFocus(target Target, keyboard []Target) {
 	}
 	previous := r.focus
 	r.focus = target
-	r.focusTurn = next(r.focusTurn)
+	r.focusTurn = new(byte)
 	if old := r.nodes[previous.node]; previous.root == r && old != nil && old.generation == previous.generation {
 		if notify := old.config.FocusChanged; notify != nil {
 			r.notify(old, func() { notify(false) })

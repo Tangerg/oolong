@@ -89,10 +89,10 @@ func collectionSelectAction[T, R any](list *List[T], project func(T) R) scene.Ac
 	return scene.NewAction(scene.ActionConfig[CollectionIndex, CollectionSelection[R]]{
 		ID: scene.ActionSelect, Label: "Select item", Availability: list.indexAvailability,
 		Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[CollectionSelection[R]], error) {
-			before := list.revision
+			before := list.version
 			list.Select(address.Index)
 			state := scene.Unchanged
-			if before != list.revision {
+			if before != list.version {
 				state = scene.Applied
 			}
 			selected := CollectionSelection[R]{Address: CollectionIndex{ContentRevision: list.contentRevision, Index: list.Selected()}}

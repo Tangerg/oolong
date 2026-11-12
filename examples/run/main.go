@@ -77,7 +77,7 @@ type runOutcome struct{ err error }
 
 func (o runOutcome) String() string {
 	if o.err != nil {
-		return "failed: " + o.err.Error()
+		return "failed: " + strings.ReplaceAll(o.err.Error(), "\n", "; ")
 	}
 	return "done"
 }

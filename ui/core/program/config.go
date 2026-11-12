@@ -131,6 +131,7 @@ var ErrAlreadyRun = errors.New("program: session has already run")
 
 // Run acquires the host once and restores it on every exit path. Cancellation ends
 // the session normally; transport and construction failures remain errors.
+// An already cancelled context acquires nothing and does not call Build.
 func (s *Screen) Run(ctx context.Context) error {
 	if s == nil || s.launch == nil {
 		return errors.New("program: uninitialized screen")
@@ -140,6 +141,7 @@ func (s *Screen) Run(ctx context.Context) error {
 
 // Run drains accepted permanent content before relinquishing the ordinary screen.
 // The session cannot be restarted after either success or failure.
+// An already cancelled context acquires nothing and does not call Build.
 func (i *Inline) Run(ctx context.Context) error {
 	if i == nil || i.launch == nil {
 		return errors.New("program: uninitialized inline session")

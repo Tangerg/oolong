@@ -6,6 +6,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
 // TextConfig seeds one answer. Later changes go through the returned owner.
@@ -111,15 +112,18 @@ type ConfirmConfig struct {
 }
 
 // NewConfirm constructs one owned or domain-controlled answer. Initial must be
-// false when Control is present. It panics for competing initial ownership or a
-// subscription that returns no cancellation function.
+// false when Control is present. It panics for a typed-nil Control, competing
+// initial ownership or a subscription that returns no cancellation function.
 func NewConfirm(config ConfirmConfig) *Confirm {
+	if config.Control != nil && identity.IsNil(config.Control) {
+		panic("base: nil confirm control")
+	}
 	if config.Control != nil && config.Initial {
 		panic("base: Confirm Initial and Control are mutually exclusive")
 	}
 	control := config.Control
 	if control == nil {
-		control = &localConfirm{answer: newOwnedValue(config.Initial)}
+		control = &localConfirm{answer: ConfirmSnapshot{Value: config.Initial}}
 	}
 	c := &Confirm{label: strings.Clone(config.Label), yes: strings.Clone(config.Yes), no: strings.Clone(config.No), check: config.Check, keys: keyBinding{current: config.Keys}, control: control}
 	c.key = strings.Clone(config.Key)

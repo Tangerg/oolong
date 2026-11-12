@@ -27,7 +27,7 @@ type Slider struct {
 
 	minimum, maximum int
 	step             int
-	value            ownedValue[int]
+	value            int
 	label            string
 
 	// Keys maps slider actions. Nil reads through [DefaultSliderKeys].
@@ -53,7 +53,7 @@ type SliderConfig struct {
 }
 
 func NewSlider(config SliderConfig) *Slider {
-	s := &Slider{value: newOwnedValue(config.Initial), keys: keyBinding{current: config.Keys}}
+	s := &Slider{value: config.Initial, keys: keyBinding{current: config.Keys}}
 	s.SetBounds(config.Minimum, config.Maximum)
 	if config.Step != 0 {
 		s.SetStep(config.Step)
@@ -87,7 +87,7 @@ func (s *Slider) SetBounds(minimum, maximum int) {
 	}
 	changed := s.minimum != minimum || s.maximum != maximum
 	s.minimum, s.maximum = minimum, maximum
-	if !s.Set(s.value.get()) && changed {
+	if !s.Set(s.value) && changed {
 		s.element.Invalidate()
 	}
 }
@@ -123,7 +123,7 @@ func (s *Slider) Value() int {
 	if s == nil {
 		return 0
 	}
-	return s.value.get()
+	return s.value
 }
 
 // Set changes the value, clamped to the slider's bounds, and reports whether the
@@ -136,11 +136,12 @@ func (s *Slider) Set(value int) bool {
 		return false
 	}
 	value = min(max(value, s.minimum), s.maximum)
-	changed := s.value.set(value)
-	if changed {
-		s.element.Invalidate()
+	if value == s.value {
+		return false
 	}
-	return changed
+	s.value = value
+	s.element.Invalidate()
+	return true
 }
 
 // Move changes the value by a number of steps, saturating at either bound.

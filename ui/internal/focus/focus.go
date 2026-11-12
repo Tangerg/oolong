@@ -2,30 +2,25 @@
 // It does not select focus; scene remains the only holder owner.
 package focus
 
-import "math"
-
-// State remembers only the last received notification and its callback epoch.
+// State remembers only the last received notification and its callback identity.
 // A nested notification revokes validation work started by an older one. Turn
-// zero means no notification has been received.
+// nil means no notification has been received; fresh identities cannot wrap.
 type State struct {
 	focused bool
-	turn    uint64
+	turn    *byte
 }
 
 // Receive records scene's notification before invoking dependent callbacks.
 // An implicit standalone initial focus is not a notification requiring blur validation.
-func (s *State) Receive(has bool) (turn uint64, leaving bool) {
-	received := s.turn != 0
+func (s *State) Receive(has bool) (turn *byte, leaving bool) {
+	received := s.turn != nil
 	if received && s.focused == has {
 		return s.turn, false
 	}
-	if s.turn == math.MaxUint64 {
-		panic("focus: notification epochs exhausted")
-	}
 	leaving = received && s.focused && !has
 	s.focused = has
-	s.turn++
+	s.turn = new(byte)
 	return s.turn, leaving
 }
 
-func (s *State) Superseded(turn uint64) bool { return s.turn != turn }
+func (s *State) Superseded(turn *byte) bool { return s.turn != turn }

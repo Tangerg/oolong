@@ -108,13 +108,13 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 	tree := NewTree(Node[*int]{Item: &values[0]}, Node[*int]{Item: &values[1]}, Node[*int]{Item: &values[2]})
 	tree.SetNodes(tree.Nodes()[:1])
 	for i, row := range tree.list.items[:cap(tree.list.items)] {
-		if i >= len(tree.list.items) && (row.Item != nil || row.id != 0) {
+		if i >= len(tree.list.items) && row.node != nil {
 			t.Fatalf("tree row %d retained removed node", i)
 		}
 	}
 }
 
-func TestTreeReleasesOpenIdentitiesRemovedFromItsHierarchy(t *testing.T) {
+func TestTreeReplacementReleasesRemovedHierarchy(t *testing.T) {
 	tree := NewTree(Node[string]{
 		Item: "root",
 		Children: []Node[string]{{
@@ -123,13 +123,18 @@ func TestTreeReleasesOpenIdentitiesRemovedFromItsHierarchy(t *testing.T) {
 	})
 	tree.Open(0)
 	tree.Open(1)
-	if len(tree.open) != 2 {
-		t.Fatalf("open identities = %d, want 2", len(tree.open))
+	if len(tree.Rows()) != 3 {
+		t.Fatal("opening both branches did not reveal the complete hierarchy")
 	}
 
 	tree.SetNodes([]Node[string]{{Item: "replacement"}})
-	if len(tree.open) != 0 {
-		t.Fatalf("removed hierarchy retained open identities: %v", tree.open)
+	if tree.nodes[0].open || len(tree.nodes[0].children) != 0 {
+		t.Fatal("replacement leaf retained the removed branch")
+	}
+	for _, row := range tree.list.items[:cap(tree.list.items)] {
+		if row.node != nil && row.node != &tree.nodes[0] {
+			t.Fatal("visible row storage retained the removed hierarchy")
+		}
 	}
 }
 
@@ -214,6 +219,14 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 	assertDetached("dialog title", dialog.Title())
 	dialog.SetDescription(source)
 	assertDetached("dialog description", dialog.Description())
+
+	transcript, err := NewTranscript(TranscriptConfig{Key: source, Name: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(transcript.Close)
+	assertDetached("transcript key", transcript.cfg.Key)
+	assertDetached("transcript name", transcript.cfg.Name)
 
 	slider := NewSlider(SliderConfig{Maximum: 1})
 	slider.SetLabel(source)

@@ -142,7 +142,7 @@ func TestProtocolNames(t *testing.T) {
 		graphics.Kitty:         "kitty",
 		graphics.ITerm2:        "iterm2",
 		graphics.Sixel:         "sixel",
-		graphics.Protocol(200): "none",
+		graphics.Protocol(200): "Protocol(200)",
 	} {
 		if got := p.String(); got != want {
 			t.Errorf("%d = %q, want %q", p, got, want)

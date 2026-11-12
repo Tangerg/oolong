@@ -28,17 +28,6 @@ func TestIdentityOwnersFailBeforeChangingTheirState(t *testing.T) {
 			t.Fatalf("text = %q after refused insertion, want kept", text)
 		}
 	})
-
-	t.Run("tree", func(t *testing.T) {
-		tree := &Tree[string]{nodeIDs: identitySequence{last: math.MaxUint64}}
-		got := panicFrom(func() { tree.SetNodes([]Node[string]{{Item: "new"}}) })
-		if got != "base: tree exhausted node identities" {
-			t.Fatalf("panic = %v, want the tree exhaustion contract", got)
-		}
-		if len(tree.Nodes()) != 0 {
-			t.Fatal("a refused node was installed")
-		}
-	})
 }
 
 func panicFrom(f func()) (value any) {

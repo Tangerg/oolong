@@ -21,6 +21,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/program"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/uitest/ptytest"
 )
 
 // Everything here is asserted against the bytes that reached the terminal, or against
@@ -1334,23 +1335,41 @@ func TestABurstOfUpdatesIsCoalescedIntoFewerFrames(t *testing.T) {
 func TestTheLastUpdateOfABurstIsStillDrawn(t *testing.T) {
 	// Coalescing must not lose the tail: a frame turned away for arriving too soon has
 	// to come due, or the final state of a stream is never shown.
-	r := start(t, nil)
-	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
-	for range 20 {
-		if err := r.root.runtime.Dispatcher().Post(func() { r.root.text = "middle" }); err != nil {
+	synctest.Test(t, func(t *testing.T) {
+		r := start(t, nil)
+		showing := func(value string) bool {
+			screen, err := ptytest.NewScreen(ptytest.Size{Cols: r.host.w, Rows: r.host.h})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := screen.Apply([]byte(r.host.frames.String())); err != nil {
+				t.Fatal(err)
+			}
+			if err := screen.Flush(); err != nil {
+				t.Fatal(err)
+			}
+			return strings.Contains(strings.Join(screen.Rows(), "\n"), value)
+		}
+		r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
+		for range 20 {
+			if err := r.root.runtime.Dispatcher().Post(func() { r.root.text = "middle" }); err != nil {
+				t.Error(err)
+			}
+		}
+		r.until("the intermediate update to be drawn", func() bool {
+			return showing("middle")
+		})
+		if err := r.root.runtime.Dispatcher().Post(func() { r.root.text = "final" }); err != nil {
 			t.Error(err)
 		}
-	}
-	if err := r.root.runtime.Dispatcher().Post(func() { r.root.text = "final" }); err != nil {
-		t.Error(err)
-	}
-	r.until("the last update to be drawn", func() bool {
-		return strings.Contains(r.host.frames.String(), "final")
+		r.until("the last update to be drawn", func() bool {
+			return showing("final")
+		})
+		r.quit()
+		if err := r.wait(); err != nil {
+			t.Fatalf("program: %v", err)
+		}
 	})
-	r.quit()
-	if err := r.wait(); err != nil {
-		t.Fatalf("program: %v", err)
-	}
 }
 
 func TestAFailedTerminalEndsTheProgramWithItsError(t *testing.T) {
@@ -1471,9 +1490,10 @@ func TestShutdownPreservesAFrameFailureNotYetReportedByChanges(t *testing.T) {
 		writer: &protocolWriter{changes: changes, err: cause},
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
+	defer cancel()
 	err := runFixture(ctx, program.ScreenConfig{
 		Host: host, Build: func(*program.Runtime) (scene.Element, error) {
+			cancel()
 			return fixtureElement(&component{text: "last frame"}), nil
 		},
 	})

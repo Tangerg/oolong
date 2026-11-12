@@ -268,11 +268,9 @@ func DefaultSliderKeys() *keymap.Map {
 // the embedded list's navigation; left and right adjust the current value, and the
 // conventional activation keys invoke values that open or toggle.
 func DefaultSettingsKeys() *keymap.Map {
-	m := &keymap.Map{}
+	m := DefaultActivationKeys()
 	m.Bind(Decrease, input.Chord{Code: input.Left})
 	m.Bind(Increase, input.Chord{Code: input.Right})
-	m.Bind(Activate, input.Chord{Code: input.Enter})
-	m.Bind(Activate, input.Chord{Code: input.Character, Rune: ' '})
 	return m
 }
 

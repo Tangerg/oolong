@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"math"
+	"strings"
 
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
@@ -111,6 +112,7 @@ func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
 	if cfg.KeepCompleted >= cfg.maxItems() || cfg.KeepCompleted > 0 && cfg.Retention != PublishCompleted {
 		return nil, errors.New("base: recent completion retention requires publication and space for new content")
 	}
+	cfg.Key, cfg.Name = strings.Clone(cfg.Key), strings.Clone(cfg.Name)
 	t := &Transcript{cfg: cfg, keys: keyBinding{current: cfg.Keys}}
 	// The key binding owns the map from here; the retained configuration must not
 	// keep a second reference that SetKeys would leave stale.

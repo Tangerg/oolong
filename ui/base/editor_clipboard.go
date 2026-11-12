@@ -15,14 +15,15 @@ type pasteTarget struct {
 	session    *EditSession
 	revision   uint64
 	cursor     Caret
-	anchor     Caret
-	selecting  bool
+	start, end Caret
 }
 
-// Paste binds the read to this editor's document, selection and current attachment.
-// Changing focus alone leaves that receiver intact. A different document revision,
-// selection or attachment at completion reports ErrPasteStale. A never-mounted editor
-// may complete only if it has not entered a scene lifetime; detached editors refuse.
+// Paste binds the read to this editor's document, caret, replacement range and attachment.
+// Changing focus alone leaves that receiver intact. A successful read against a
+// different document revision, caret, replacement range or attachment reports
+// ErrPasteStale. Read failures are reported unchanged without inspecting the target.
+// A never-mounted editor may complete only if it has not entered a scene lifetime;
+// detached editors refuse.
 // complete runs on this UI owner with success or failure. Caller cancellation or the
 // clipboard provider's owner ending revokes it; completion is not promised afterward.
 // A returned error means no read was accepted. complete must not be nil.
@@ -43,16 +44,17 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 	if !element.Alive() && element.HasBeenAttached() {
 		return scene.ErrDetached
 	}
+	start, end := e.replacementRange()
 	target := pasteTarget{
 		attachment: element.Attachment(), session: e.document(), revision: e.Revision(),
-		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor, selecting: e.selection != editorSelectionNone,
+		cursor: Caret{Line: e.line, Byte: e.byteOffset}, start: start, end: end,
 	}
 	return e.clipboard.Read(ctx, func(value string, err error) {
 		if ctx.Err() != nil {
 			return
 		}
-		if !target.current(e) {
-			err = errors.Join(err, ErrPasteStale)
+		if err == nil && !target.current(e) {
+			err = ErrPasteStale
 		}
 		if err == nil && value != "" {
 			e.Insert(value)
@@ -62,8 +64,9 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 }
 
 func (p pasteTarget) current(e *Editor) bool {
+	start, end := e.replacementRange()
 	if p.session != e.document() || p.revision != e.Revision() ||
-		p.cursor != (Caret{Line: e.line, Byte: e.byteOffset}) || p.anchor != e.anchor || p.selecting != (e.selection != editorSelectionNone) {
+		p.cursor != (Caret{Line: e.line, Byte: e.byteOffset}) || p.start != start || p.end != end {
 		return false
 	}
 	target := p.attachment.Target()
@@ -82,7 +85,7 @@ func (e *Editor) pasteFromInput() {
 	turn := e.pasteFeedback.begin()
 	e.finishPasteFeedback(turn, nil)
 	if err := e.Paste(context.Background(), func(err error) {
-		if !errors.Is(err, ErrPasteStale) {
+		if err != ErrPasteStale { //nolint:errorlint // Only a bare stale result is quiet; wrapped and joined provider failures must survive.
 			e.finishPasteFeedback(turn, err)
 		}
 	}); err != nil {
@@ -90,7 +93,7 @@ func (e *Editor) pasteFromInput() {
 	}
 }
 
-func (e *Editor) finishPasteFeedback(turn uint64, err error) {
+func (e *Editor) finishPasteFeedback(turn *byte, err error) {
 	e.requireMutable()
 	if e.pasteFeedback.finish(turn, err) {
 		e.element.Invalidate()

@@ -213,19 +213,6 @@ func TestLookupTakesAnAlias(t *testing.T) {
 	}
 }
 
-func TestAnExactCommandNameOutranksAnotherCommandsAlias(t *testing.T) {
-	var commands base.Commands[int]
-	commands.Add(base.Command{Name: "old", Aliases: []string{"current"}}, 1)
-	commands.Add(base.Command{Name: "current"}, 2)
-	got, value, ok := commands.Lookup("current")
-	if !ok || got.Name != "current" {
-		t.Fatalf("Lookup(current) = %+v, %v; want the exact command", got, ok)
-	}
-	if value != 2 {
-		t.Fatalf("Lookup(current) value = %d, want the exact command's value", value)
-	}
-}
-
 func TestCommandsDoNotInterpretApplicationSyntax(t *testing.T) {
 	// A slash is one application's command introducer, not part of searching a
 	// registry. The application extracts its query before it reaches this layer.

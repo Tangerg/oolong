@@ -372,9 +372,10 @@ func (t *Terminal) Events() <-chan input.Event { return t.events }
 
 // InputErr reports why [Terminal.Events] closed.
 //
-// It must be called only after Events has closed. A clean end of input and a session
-// stopped by [Terminal.Close] report nil; another read failure is preserved as its
-// cause. The channel close synchronizes the pump's write with this read.
+// It must be called only after Events has closed. A clean input end or session stop
+// reports nil unless a read failure was already observed. Such failures remain
+// visible when event delivery is interrupted. The channel close synchronizes the
+// pump's write with this read.
 func (t *Terminal) InputErr() error { return t.inputErr }
 
 func (t *Terminal) Writer() FrameSink { return t.writer.Frames() }

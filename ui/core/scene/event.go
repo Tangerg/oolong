@@ -22,7 +22,7 @@ type Event struct {
 	input    input.Event
 	target   Target
 	route    inputRoute
-	delivery uint64
+	delivery *byte
 }
 
 // A route keeps the original hit/focus as well as each callback's receiver.
@@ -31,7 +31,7 @@ type inputRoute struct {
 	root            *Root
 	origin          Target
 	layout          *layoutSnapshot
-	turn, focusTurn uint64
+	turn, focusTurn *byte
 	pointer         bool
 }
 
@@ -125,7 +125,7 @@ func (e Event) checkDelivery() error {
 	if e.route.root == nil {
 		return ErrDetached
 	}
-	if e.delivery != e.route.root.delivery {
+	if e.delivery == nil || e.delivery != e.route.root.delivery {
 		if err := e.route.root.mutable(); err != nil {
 			return err
 		}
@@ -165,7 +165,7 @@ type capture struct {
 	target  Target
 	button  input.Button
 	content contentVersion
-	press   uint64
+	press   *byte
 	phase   capturePhase
 }
 
@@ -288,7 +288,7 @@ func (r *Root) HandleInput(event CapturedInput) bool {
 		// physical edge must still end its old gesture, never a reentrant one.
 		defer r.finishCapture(held, r.resolve(held.target))
 	}
-	r.inputTurn = next(r.inputTurn)
+	r.inputTurn = new(byte)
 	turn := r.inputTurn
 	r.settleFocus()
 	r.FlushNotifications()
@@ -536,8 +536,8 @@ func (q inputRoute) dispatch(n *node, handle func(Event) EventResult, event inpu
 		event = mouse
 	}
 	r := q.root
-	r.delivery = next(r.delivery)
-	defer func() { r.delivery = next(r.delivery) }()
+	r.delivery = new(byte)
+	defer func() { r.delivery = nil }()
 	delivery := Event{input: event, target: target, route: q, delivery: r.delivery}
 	result := handle(delivery)
 	if delivery.checkDelivery() != nil {

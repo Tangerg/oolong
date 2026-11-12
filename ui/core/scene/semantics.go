@@ -315,7 +315,7 @@ func (r *Root) Progress() Progress {
 	if r == nil {
 		return Progress{}
 	}
-	p := Progress{ModelRevision: r.modelRevision, WrittenSequence: r.frames.sequence}
+	p := Progress{ModelRevision: r.modelRevision, WrittenSequence: r.frames.writtenSequence()}
 	if r.layout != nil {
 		p.LayoutRevision, p.LayoutModelRevision = r.layout.revision, r.layout.model
 	}

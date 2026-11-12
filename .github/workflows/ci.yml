@@ -286,8 +286,6 @@ jobs:
         run: |
           set -euo pipefail
           grep -rl '^func Fuzz' --include='*_test.go' . | while read -r file; do
-            package="./$(dirname "$file")"
-            module="$(cd "$(dirname "$file")" && git rev-parse --show-prefix | cut -d/ -f1)"
             grep -o '^func Fuzz[A-Za-z0-9_]*' "$file" | cut -d' ' -f2 | while read -r target; do
               echo "::group::$file $target"
               (cd "$(dirname "$file")" && go test . -run '^$' -fuzz "^${target}\$" -fuzztime=30s)

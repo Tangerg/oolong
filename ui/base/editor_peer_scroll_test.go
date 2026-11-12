@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/internal/scenetest"
 )
 
@@ -28,5 +29,42 @@ func TestAPeerEditKeepsAnotherReadersScroll(t *testing.T) {
 	paintWidget(scenes, 20, 5, reader)
 	if got := reader.Scroll().Offset(); got != 0 {
 		t.Fatalf("another view's edit scrolled the reader to %d", got)
+	}
+}
+
+func TestPeerEditsOnlyRefineAnUnconsumedCursorReveal(t *testing.T) {
+	for _, mode := range []string{"pending", "committed", "aborted"} {
+		t.Run(mode, func(t *testing.T) {
+			scenes := scenetest.New()
+			t.Cleanup(scenes.Close)
+			session := base.NewEditSession(base.EditSessionConfig{Initial: strings.Repeat("line\n", 30)})
+			writer := base.NewEditor(base.EditorConfig{Session: session})
+			reader := base.NewEditor(base.EditorConfig{Session: session})
+			paintWidget(scenes, 20, 3, reader)
+			reader.SetCursor(10, 0)
+			switch mode {
+			case "committed":
+				paintWidget(scenes, 20, 3, reader)
+			case "aborted":
+				prepared, err := scenes.Mount(reader).Prepare(grid.NewSurface(20, 3).View())
+				if err != nil {
+					t.Fatal(err)
+				}
+				prepared.Abort()
+			}
+			before := reader.Scroll().Offset()
+			writer.Insert("added\n")
+			want := before
+			if mode != "committed" {
+				want++
+			}
+			if got := reader.Scroll().Offset(); got != want {
+				t.Fatalf("peer edit changed offset %d to %d, want %d", before, got, want)
+			}
+			paintWidget(scenes, 20, 3, reader)
+			if got := reader.Scroll().Offset(); got != want {
+				t.Fatalf("peer edit's frame offset = %d, want %d", got, want)
+			}
+		})
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/identity"
 )
 
 // FormConfig keeps Submit's accepted effects independent of an accompanying error. Started
@@ -118,7 +119,7 @@ func (f *Form) Set(fields ...Field) {
 	requireMutable(f.group.Element())
 	items := make([]scene.Item, 0, len(fields)+1)
 	for _, field := range fields {
-		if field == nil {
+		if identity.IsNil(field) {
 			panic("base: nil form field")
 		}
 		item := scene.Item{Element: field.Element(), Size: layout.Measured(1, 0)}

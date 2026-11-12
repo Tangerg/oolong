@@ -54,7 +54,7 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	if config.MaxMatches < 0 {
 		return result, errors.New("base: search limit must not be negative")
 	}
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return result, err
 	}
 	if config.Query == "" {
@@ -69,7 +69,7 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 		return result, err
 	}
 	corpus := newSearchCorpus(config.Rows)
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return result, err
 	}
 	count := limit
@@ -88,7 +88,7 @@ func Scan(ctx context.Context, config ScanConfig) (Result, error) {
 	columns := matchColumns{row: -1}
 	defer columns.close()
 	for _, location := range locations {
-		if err := ctx.Err(); err != nil {
+		if err := context.Cause(ctx); err != nil {
 			return Result{Query: config.Query, Revision: config.Revision}, err
 		}
 		first := len(spans)

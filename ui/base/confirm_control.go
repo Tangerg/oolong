@@ -54,19 +54,20 @@ func (c *Confirm) owner() ConfirmControl {
 
 // localConfirm owns the answer of a Confirm that no domain owner controls,
 // through the same protocol a domain owner implements.
-type localConfirm struct{ answer ownedValue[bool] }
+type localConfirm struct{ answer ConfirmSnapshot }
 
 func (l *localConfirm) Snapshot() ConfirmSnapshot {
-	return ConfirmSnapshot{Value: l.answer.get(), Revision: l.answer.revision}
+	return l.answer
 }
 
 func (l *localConfirm) Change(_ context.Context, request ConfirmRequest) (scene.ActionResult[ConfirmSnapshot], error) {
-	if request.ExpectedRevision != l.answer.revision {
+	if request.ExpectedRevision != l.answer.Revision {
 		return scene.ActionResult[ConfirmSnapshot]{}, ErrConfirmStale
 	}
-	if !l.answer.set(request.Value) {
+	if request.Value == l.answer.Value {
 		return scene.ActionResult[ConfirmSnapshot]{State: scene.Unchanged, Value: l.Snapshot()}, nil
 	}
+	l.answer = ConfirmSnapshot{Value: request.Value, Revision: nextRevision(l.answer.Revision)}
 	return scene.ActionResult[ConfirmSnapshot]{State: scene.Applied, Value: l.Snapshot()}, nil
 }
 
@@ -77,6 +78,7 @@ func (*localConfirm) Subscribe(func()) func() { return func() {} }
 // Request applies the same semantic change used by keys, pointer input and AX.
 // External owners may return Started while performing asynchronous work; the
 // displayed answer changes only when that owner publishes its next version.
+// Exhausting a locally owned answer's revision panics before changing it.
 func (c *Confirm) Request(ctx context.Context, request ConfirmRequest) (scene.ActionResult[ConfirmSnapshot], error) {
 	return c.request(ctx, request, false)
 }
@@ -90,7 +92,7 @@ func (c *Confirm) request(ctx context.Context, request ConfirmRequest, recordErr
 			c.invalidate()
 		}
 	}()
-	var turn uint64
+	var turn *byte
 	if recordError {
 		turn = c.feedback.begin()
 	}
@@ -106,7 +108,7 @@ func (c *Confirm) applyRequest(ctx context.Context, request ConfirmRequest) (sce
 	if c.closed {
 		return scene.ActionResult[ConfirmSnapshot]{}, scene.ErrClosed
 	}
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return scene.ActionResult[ConfirmSnapshot]{}, err
 	}
 	before := c.Snapshot()

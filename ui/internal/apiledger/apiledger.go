@@ -156,7 +156,8 @@ func (c *checker) checkModule(ctx context.Context, scratch, changes, section, mo
 		return nil, err
 	}
 	if !found {
-		if _, writeErr := fmt.Fprintf(c.log, "%s: no released baseline; skipped\n", module); writeErr != nil {
+		message := module + ": no released baseline; skipped\n"
+		if _, writeErr := io.Copy(c.log, strings.NewReader(message)); writeErr != nil {
 			return nil, fmt.Errorf("report skipped module %s: %w", module, writeErr)
 		}
 		return nil, nil

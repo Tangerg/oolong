@@ -11,16 +11,16 @@ import (
 // A callback may start a newer UI request before returning. Its feedback must
 // not replace the newer request's outcome when that older callback finishes.
 type requestFeedback struct {
-	turn uint64
+	turn *byte
 	err  error
 }
 
-func (f *requestFeedback) begin() uint64 {
-	f.turn++
+func (f *requestFeedback) begin() *byte {
+	f.turn = new(byte)
 	return f.turn
 }
 
-func (f *requestFeedback) finish(turn uint64, err error) bool {
+func (f *requestFeedback) finish(turn *byte, err error) bool {
 	if turn != f.turn {
 		return false
 	}

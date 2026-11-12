@@ -116,7 +116,7 @@ func (s *eventSource) readChunks() {
 		n, err := s.in.Read(buffer)
 		at := time.Now()
 		if n < 0 || n > len(buffer) {
-			err = fmt.Errorf("ssh: reader returned invalid byte count %d", n)
+			err = errors.Join(fmt.Errorf("ssh: reader returned invalid byte count %d", n), err)
 			n = 0
 		}
 		if n > 0 {
@@ -208,13 +208,12 @@ func (s *eventSource) run() {
 }
 
 func (s *eventSource) take(stream *input.Stream, result readResult) bool {
-	if !s.deliver(stream.Feed(result.data, result.at)) {
-		return false
+	if s.deliver(stream.Feed(result.data, result.at)) {
+		if result.err == nil {
+			return true
+		}
+		s.deliver(stream.Flush(result.at))
 	}
-	if result.err == nil {
-		return true
-	}
-	s.deliver(stream.Flush(result.at))
 	if result.err != io.EOF { //nolint:errorlint // Only bare EOF ends a reader successfully; wrapped or joined failures must survive.
 		s.err = result.err
 	}

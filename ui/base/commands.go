@@ -2,6 +2,7 @@ package base
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -17,9 +18,12 @@ type Command struct {
 	Name  string
 	Title string
 	// Aliases are other names that find this command. They are matched but never
-	// listed, so a command can be renamed without the old name disappearing from
-	// under everyone who learned it.
+	// listed. Names and aliases share one registry namespace.
 	Aliases []string
+}
+
+func (c Command) hasSpelling(spelling string) bool {
+	return c.Name == spelling || slices.Contains(c.Aliases, spelling)
 }
 
 // Commands is a set of named commands that can be found by typing part of a name.
@@ -53,10 +57,22 @@ type registeredCommand[T any] struct {
 
 // Add associates value with a command, replacing both for an existing name. The
 // registry copies the command's text and aliases; value follows ordinary assignment
-// semantics for T.
+// semantics for T. An empty Name changes nothing. Replacing a command releases its
+// former aliases. Add panics for an empty alias or a spelling owned by another
+// command, before changing registrations or recency.
 func (c *Commands[T]) Add(cmd Command, value T) {
 	if cmd.Name == "" {
 		return
+	}
+	for _, spelling := range slices.Concat([]string{cmd.Name}, cmd.Aliases) {
+		if spelling == "" {
+			panic("base: empty command alias")
+		}
+		for _, entry := range c.list {
+			if entry.command.Name != cmd.Name && entry.command.hasSpelling(spelling) {
+				panic(fmt.Errorf("base: command spelling %q already belongs to %q", spelling, entry.command.Name))
+			}
+		}
 	}
 	cmd = cloneCommand(cmd)
 	for i := range c.list {
@@ -84,9 +100,7 @@ func (c *Commands[T]) Remove(name string) bool {
 
 func (c *Commands[T]) Len() int { return len(c.list) }
 
-// Lookup returns a command snapshot and its caller-owned value for exactly this name
-// or alias. An exact name wins over every alias: an older spelling must not shadow
-// the canonical name of another command.
+// Lookup returns a command snapshot and its caller-owned value for exactly this name or alias.
 func (c *Commands[T]) Lookup(name string) (Command, T, bool) {
 	entry, ok := c.lookup(name)
 	if !ok {
@@ -98,12 +112,7 @@ func (c *Commands[T]) Lookup(name string) (Command, T, bool) {
 
 func (c *Commands[T]) lookup(name string) (registeredCommand[T], bool) {
 	for _, entry := range c.list {
-		if entry.command.Name == name {
-			return entry, true
-		}
-	}
-	for _, entry := range c.list {
-		if slices.Contains(entry.command.Aliases, name) {
+		if entry.command.hasSpelling(name) {
 			return entry, true
 		}
 	}
@@ -117,10 +126,8 @@ func (c *Commands[T]) Used(name string) {
 	}
 	name = entry.command.Name
 	c.used = slices.DeleteFunc(c.used, func(s string) bool { return s == name })
-	c.used = append([]string{strings.Clone(name)}, c.used...)
-	if len(c.used) > maxRecentCommands {
-		c.used = c.used[:maxRecentCommands]
-	}
+	recent := c.used[:min(len(c.used), maxRecentCommands-1)]
+	c.used = append([]string{strings.Clone(name)}, recent...)
 }
 
 // maxRecentCommands bounds what is remembered. Past a handful, "recently" stops

@@ -207,6 +207,53 @@ func TestPrompterDoesNotReadAnAnswerAfterPromptOutputFails(t *testing.T) {
 	}
 }
 
+func TestPrompterRefusesShortPromptWritesBeforeReadingAnAnswer(t *testing.T) {
+	for _, shortText := range []string{"Name", "Required", "> "} {
+		t.Run(shortText, func(t *testing.T) {
+			output := promptWriteFunc(func(p []byte) (int, error) {
+				if strings.Contains(string(p), shortText) {
+					return len(p) - 1, nil
+				}
+				return len(p), nil
+			})
+			input := strings.NewReader("answer\n")
+			prompter := newPrompter(t, kit.PrompterConfig{Input: input, Output: output})
+			field := base.NewText(base.TextConfig{Label: "Name\nRequired", Initial: "untouched"})
+			form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
+			if _, err := prompter.Ask(form); !errors.Is(err, io.ErrShortWrite) {
+				t.Fatalf("short prompt write = %v, want io.ErrShortWrite", err)
+			}
+			if field.Text() != "untouched" || input.Len() != len("answer\n") {
+				t.Fatalf("incomplete prompt consumed input: field=%q remaining=%d", field.Text(), input.Len())
+			}
+		})
+	}
+}
+
+func TestPrompterDoesNotRetryAfterShortValidationOutput(t *testing.T) {
+	output := promptWriteFunc(func(p []byte) (int, error) {
+		if strings.Contains(string(p), "invalid") {
+			return 0, nil
+		}
+		return len(p), nil
+	})
+	field := base.NewText(base.TextConfig{Check: func(answer string) error {
+		if answer == "bad" {
+			return errors.New("invalid answer")
+		}
+		return nil
+	}})
+	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
+	prompter := newPrompter(t, kit.PrompterConfig{Input: strings.NewReader("bad\ngood\n"), Output: output})
+	if _, err := prompter.Ask(form); !errors.Is(err, io.ErrShortWrite) || field.Text() != "bad" {
+		t.Fatalf("short validation output: answer=%q err=%v", field.Text(), err)
+	}
+	result, err := prompter.Ask(form)
+	if err != nil || result.State != scene.Applied || field.Text() != "good" {
+		t.Fatalf("following answer=%q state=%v err=%v", field.Text(), result.State, err)
+	}
+}
+
 func TestPrompterPreservesTheNextAnswerWhenValidationOutputFails(t *testing.T) {
 	failure := errors.New("output failed")
 	output := promptWriteFunc(func(p []byte) (int, error) {

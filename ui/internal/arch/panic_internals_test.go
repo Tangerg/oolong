@@ -80,7 +80,7 @@ var internalAssertions = map[string]string{
 	"ui/base:Transcript.publish":          "Transcript documents refusal of unrepresentable retired row coordinates",
 	"ui/core/scene:next":                  "scene identity and revision counters never wrap because wrapping could revive stale handles or snapshots",
 	"ui/core/term:Writer.enqueue":         "Queue and QueueControl document sequence exhaustion; accepted frame identities may never wrap",
-	"ui/base:treeCopy.identityAt":         "Tree.SetNodes documents identity exhaustion for node collections",
+	"ui/base:nextRevision":                "confirmation, choice and collection owners document revision exhaustion and reserve the next revision before mutation",
 
 	// Cycle detection during the ownership copy, which Tree.SetNodes documents.
 	"ui/base:treeCopy.copyNext": "Tree.SetNodes documents the cyclic-graph panic",

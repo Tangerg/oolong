@@ -92,22 +92,24 @@ func (s *diagramScreen) rendered(result *mermaid.Image, err error) {
 		s.current.notice = "Inline images unavailable; source shown. Open Image to view the diagram."
 		return
 	}
-	work := s.current.work
-	upload, err := images.Transmit(work.Context(), result.PNG())
+	owner, ledger, png := s.runtime.Dispatcher(), s.images, result.PNG()
+	err = s.start(func(ctx context.Context) (graphics.Resource, error) {
+		var upload <-chan graphics.UploadResult
+		admissionErr := owner.Invoke(ctx, func() error {
+			var transmitErr error
+			upload, transmitErr = images.Transmit(ctx, png)
+			return transmitErr
+		})
+		if admissionErr != nil {
+			return graphics.Resource{}, admissionErr
+		}
+		return ledger.receive(ctx, upload)
+	}, func(resource graphics.Resource, err error) { s.uploaded(resource, cell, err) })
 	if err != nil {
 		s.fail(err)
 		return
 	}
 	s.current.phase = diagramUploading
-	receive := func(ctx context.Context) (graphics.Resource, error) { return s.images.receive(ctx, upload) }
-	err = s.start(receive, func(resource graphics.Resource, err error) { s.uploaded(resource, cell, err) })
-	if err != nil {
-		// The terminal accepted the upload, so its resource must still reach the
-		// ledger; the closed scope makes the receiver release it at once.
-		work.Close()
-		s.workers.Go(func() { _, _ = receive(work.Context()) })
-		s.fail(err)
-	}
 }
 
 func (s *diagramScreen) uploaded(resource graphics.Resource, cell image.Point, err error) {

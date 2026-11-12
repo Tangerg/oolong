@@ -72,19 +72,15 @@ func run(ctx context.Context, path string, host program.Host) (err error) {
 			if scopeErr != nil {
 				return scene.Element{}, scopeErr
 			}
-			result, uploadErr := images.Transmit(scope.Context(), data) //nolint:contextcheck // ScopeConfig above derives this request lifetime from ctx.
-			if uploadErr != nil {
-				return scene.Element{}, uploadErr
-			}
-			receive := func() (graphics.Resource, error) {
-				defer workers.Done()
-				outcome := <-result
-				resource = outcome.Resource
-				return outcome.Resource, outcome.Err
-			}
+			owner := runtime.Dispatcher()
 			workers.Add(1)
 			_, startErr := runtime.Start(scope, program.Work[graphics.Resource]{
-				Run: func(context.Context) (graphics.Resource, error) { return receive() },
+				Run: func(ctx context.Context) (graphics.Resource, error) {
+					defer workers.Done()
+					uploaded, uploadErr := transmitImage(ctx, owner, images, data)
+					resource = uploaded
+					return uploaded, uploadErr
+				},
 				Apply: func(uploaded graphics.Resource, uploadErr error) {
 					if uploadErr != nil {
 						picture.Alt = "PNG upload failed: " + uploadErr.Error()
@@ -95,8 +91,7 @@ func run(ctx context.Context, path string, host program.Host) (err error) {
 				},
 			})
 			if startErr != nil {
-				scope.Close()
-				go func() { _, _ = receive() }()
+				workers.Done()
 				return scene.Element{}, startErr
 			}
 			return element, nil
@@ -106,6 +101,20 @@ func run(ctx context.Context, path string, host program.Host) (err error) {
 		return err
 	}
 	return app.Run(ctx)
+}
+
+func transmitImage(ctx context.Context, owner program.Dispatcher, images program.Images, data []byte) (graphics.Resource, error) {
+	var result <-chan graphics.UploadResult
+	admissionErr := owner.Invoke(ctx, func() error {
+		var transmitErr error
+		result, transmitErr = images.Transmit(ctx, data)
+		return transmitErr
+	})
+	if admissionErr != nil {
+		return graphics.Resource{}, admissionErr
+	}
+	outcome := <-result
+	return outcome.Resource, outcome.Err
 }
 
 func viewer(picture *kit.Image, quit func()) scene.Element {

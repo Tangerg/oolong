@@ -171,9 +171,12 @@ func environmentValue(lookup func(string) (string, bool), name string) string {
 type WheelAccumulator struct {
 	wheel   Wheel
 	carried float64
+	gesture wheelGesture
+}
 
-	// The current gesture: when it began, when its last report came, and how many it
-	// has had. A gesture is a run of reports with no gap in it.
+// Timing evidence belongs to one batching policy; changing that policy ends the
+// gesture without discarding the fractional rows already earned by its reports.
+type wheelGesture struct {
 	began, last time.Time
 	reports     int
 	finger      bool
@@ -195,8 +198,14 @@ const (
 )
 
 // SetWheel replaces what the reports are worth, keeping any part of a row already
-// accumulated. It is what a caller does once, having asked [WheelFor].
-func (a *WheelAccumulator) SetWheel(w Wheel) { a.wheel = w }
+// accumulated. A changed report count starts a new gesture because prior timing
+// evidence described another batching policy. Row-distance changes keep it.
+func (a *WheelAccumulator) SetWheel(w Wheel) {
+	if a.wheel.effectiveReports() != w.effectiveReports() {
+		a.gesture = wheelGesture{}
+	}
+	a.wheel = w
+}
 
 // Accumulate adds reports in one direction at when and returns the whole rows
 // they complete.
@@ -208,10 +217,13 @@ func (a *WheelAccumulator) SetWheel(w Wheel) { a.wheel = w }
 //
 // A negative report count is upwards, which is what a caller already has: a wheel
 // event is one report in a direction, so this is normally called with plus or minus
-// one.
+// one. Zero reports provide no gesture evidence and leave state unchanged.
 func (a *WheelAccumulator) Accumulate(when time.Time, reports int) int {
+	if reports == 0 {
+		return 0
+	}
 	distance := a.wheel.Distance()
-	if a.observe(when, reports) {
+	if a.gesture.observe(when, reports, a.wheel) {
 		distance = a.wheel.TrackpadDistance()
 	}
 	a.carried += float64(reports) * distance
@@ -225,30 +237,30 @@ func (a *WheelAccumulator) Accumulate(when time.Time, reports int) int {
 // observe advances gesture identity and reports whether the current reports come
 // from a finger. Classification belongs to the gesture state itself; converting
 // reports to rows only consumes its answer.
-func (a *WheelAccumulator) observe(when time.Time, reports int) bool {
+func (g *wheelGesture) observe(when time.Time, reports int, wheel Wheel) bool {
 	if when.IsZero() {
 		return false
 	}
-	gap := when.Sub(a.last)
-	if a.last.IsZero() || gap < 0 || gap > gestureGap {
-		a.began, a.reports, a.finger = when, 0, false
+	gap := when.Sub(g.last)
+	if g.last.IsZero() || gap < 0 || gap > gestureGap {
+		g.began, g.reports, g.finger = when, 0, false
 	}
-	a.last = when
-	a.reports = addReportCount(a.reports, reports)
+	g.last = when
+	g.reports = addReportCount(g.reports, reports)
 	// A gesture is a finger once it has sent more reports, faster, than a hand
 	// could turn a wheel. It stays one until the gesture ends, because a finger
 	// slowing to a stop is still a finger.
-	if !a.finger && a.wheel.effectiveReports() == 1 && a.reports > fingerReports {
-		a.finger = withinReportRate(when.Sub(a.began), a.reports)
+	if !g.finger && wheel.effectiveReports() == 1 && g.reports > fingerReports {
+		g.finger = withinReportRate(when.Sub(g.began), g.reports)
 	}
-	return a.finger
+	return g.finger
 }
 
 // Reset drops any part of a row accumulated and forgets the gesture, which a caller
 // does when the view moves for a reason that had nothing to do with scrolling.
 func (a *WheelAccumulator) Reset() {
 	a.carried = 0
-	a.last, a.began, a.reports, a.finger = time.Time{}, time.Time{}, 0, false
+	a.gesture = wheelGesture{}
 }
 
 const (

@@ -23,14 +23,15 @@ var (
 // Closing a scope requests cooperative cancellation and revokes UI delivery.
 // A Scope must not be copied after construction.
 type Scope struct {
-	ctx        context.Context //nolint:containedctx // The scope owns cancellation for all resources attached to its lifetime.
-	external   context.Context //nolint:containedctx // Admission reads the external lifetime directly; its asynchronous cancellation bridge is only a notification.
-	cancel     context.CancelCauseFunc
-	queue      *taskQueue
-	slot       *reservation
-	attachment *scene.Attachment
-	closeOnce  sync.Once
-	stopParent func() bool
+	ctx context.Context //nolint:containedctx // The scope owns cancellation for all resources attached to its lifetime.
+	// Admission observes external cancellation directly; its bridge may run later.
+	externalDone <-chan struct{}
+	cancel       context.CancelCauseFunc
+	queue        *taskQueue
+	slot         *reservation
+	attachment   *scene.Attachment
+	closeOnce    sync.Once
+	stopParent   func() bool
 }
 
 // ScopeConfig combines an optional external lifetime with attachment lifetime.
@@ -64,9 +65,18 @@ func (r *Runtime) NewScope(cfg ScopeConfig) (*Scope, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancelCause(p.ctx)
-	scope := &Scope{ctx: ctx, external: cfg.Context, cancel: cancel, queue: p.tasks, slot: slot, attachment: attachment}
-	if cfg.Context != nil {
-		scope.stopParent = context.AfterFunc(cfg.Context, func() { cancel(context.Cause(cfg.Context)) })
+	external := cfg.Context
+	scope := &Scope{ctx: ctx, cancel: cancel, queue: p.tasks, slot: slot, attachment: attachment}
+	constructed := false
+	// External context observation can exit before the scope is returned.
+	defer func() {
+		if !constructed {
+			scope.Close()
+		}
+	}()
+	if external != nil {
+		scope.externalDone = external.Done()
+		scope.stopParent = context.AfterFunc(external, func() { cancel(context.Cause(external)) })
 	}
 	var detached <-chan struct{}
 	if attachment != nil {
@@ -80,6 +90,7 @@ func (r *Runtime) NewScope(cfg ScopeConfig) (*Scope, error) {
 		}
 		scope.Close()
 	}()
+	constructed = true
 	return scope, nil
 }
 
@@ -93,26 +104,31 @@ func (s *Scope) Context() context.Context {
 }
 
 // Close requests cancellation and revokes application of later results. It does
-// not report a worker as finished or wait for noncooperative external code.
+// not report a worker as finished or wait for workers to return.
 func (s *Scope) Close() {
 	if s == nil {
 		return
 	}
+	var stop func() bool
 	s.closeOnce.Do(func() {
 		s.cancel(ErrScopeClosed)
-		if s.stopParent != nil {
-			s.stopParent()
-		}
 		s.slot.close()
+		stop, s.stopParent = s.stopParent, nil
 	})
+	// External observation may reenter Close or exit; owned cleanup must already be complete.
+	if stop != nil {
+		stop()
+	}
 }
 
 func (s *Scope) eligible(p *program) bool {
 	if s == nil || s.queue != p.tasks || s.ctx.Err() != nil {
 		return false
 	}
-	if s.external != nil && s.external.Err() != nil {
+	select {
+	case <-s.externalDone:
 		return false
+	default:
 	}
 	return s.attachment == nil || p.root.Valid(s.attachment.Target())
 }
@@ -240,14 +256,14 @@ func (t *Task) run[T any](ctx context.Context, scope *Scope, p *program, slot *r
 			slot.close()
 			t.settle(false)
 		} else {
-			// A stopped owner can discard a queued completion. The task still settles
-			// its delivery fact without invoking application code on this goroutine.
+			// Revocation can settle delivery before the owner takes the queued
+			// completion. Its captures must not wait for another owner turn to expire.
 			select {
 			case <-t.settled:
 			case <-p.tasks.done:
 				t.settle(false)
-				slot.close()
 			}
+			slot.close()
 		}
 	}()
 	defer func() {

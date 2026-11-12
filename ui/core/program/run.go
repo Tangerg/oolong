@@ -26,6 +26,9 @@ func run(ctx context.Context, cfg runConfig) (err error) {
 	if validationErr := cfg.Validate(); validationErr != nil {
 		return validationErr
 	}
+	if ctx.Err() != nil {
+		return nil
+	}
 	session, openErr := cfg.openHost()
 	if openErr != nil {
 		return openErr
@@ -59,7 +62,7 @@ func (s hostSession) close() error {
 // newProgram binds a validated transport before invoking application code. That
 // order keeps malformed hosts from partially constructing an interface and gives a
 // component builder only resources that are ready for use.
-func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error) {
+func newProgram(ctx context.Context, cfg runConfig, host Host) (_ *program, constructionErr error) {
 	// The size is asked for once rather than waited for. A program draws before it
 	// selects, and a first frame drawn onto a screen of no size is a blank terminal.
 	width, height, err := host.Size()
@@ -95,7 +98,8 @@ func newProgram(ctx context.Context, cfg runConfig, host Host) (*program, error)
 	built := false
 	defer func() {
 		if !built {
-			p.stop()
+			defer p.stop()
+			constructionErr = errors.Join(constructionErr, p.takeFailure())
 		}
 	}()
 	sessionContext, cancel := context.WithCancel(ctx)
@@ -202,10 +206,10 @@ type program struct {
 	// is known to be unusable. Both belong to the single interface owner.
 	frameFailed  bool
 	outputFailed bool
-	// failure is a fatal frame or transport result discovered through an owner-side
-	// capability call, which has no return path into the loop of its own. It is the
-	// only record of such a result, and [program.takeFailure] is the only way to
-	// read one, so it is reported exactly once however the program ends.
+	// failure is the first fatal result discovered through an owner-side capability
+	// call, which has no return path into the loop of its own. This record and its
+	// sole reader, [program.takeFailure], preserve that cause exactly once however
+	// the program ends.
 	failure error
 }
 
@@ -213,7 +217,9 @@ type program struct {
 // hands err back to the capability's caller. The caller learning of the failure is a
 // projection: it may report or recover, but only the record ends the program.
 func (p *program) fail(err error) error {
-	p.failure = err
+	if p.failure == nil {
+		p.failure = err
+	}
 	return err
 }
 

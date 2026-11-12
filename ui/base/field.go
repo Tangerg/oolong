@@ -113,7 +113,7 @@ type field struct {
 	geometry   eventGeometry
 	element    scene.Element
 	checked    fieldCheck
-	validation uint64
+	validation *byte
 	// keyboard receives the parent's focus before answer or resolver callbacks.
 	// Answer operations cannot refuse that notification or revoke its lifetime.
 	keyboard focus.State
@@ -144,11 +144,11 @@ type fieldCheck struct {
 	validated  bool
 	err        error
 	current    func() bool
-	validation uint64
+	validation *byte
 }
 
 func (f *field) invalidateValidation() {
-	f.validation++
+	f.validation = new(byte)
 	f.checked = fieldCheck{}
 }
 
@@ -206,7 +206,7 @@ type fieldPresentation struct {
 
 func (f *field) validate(prepare func() error, revision func() uint64, check func() error) error {
 	requireMutable(f.element)
-	f.validation++
+	f.validation = new(byte)
 	turn := f.validation
 	// Revocation is observable even when a callback aborts or another request
 	// makes the rest of this validation obsolete.

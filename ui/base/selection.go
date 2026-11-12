@@ -43,12 +43,18 @@ var ErrStaleSelection = errors.New("base: selected content revision is unavailab
 // projections, so a resize cannot silently select a different word.
 // Unknown position affinities panic before changing the anchors or gesture.
 type Selection struct {
-	element scene.Element
-	clicks  Clicks
-	// clickRevision is the layout revision the current click run was counted in.
-	clickRevision  uint64
-	anchor, extent TextPoint
-	phase          selectionPhase
+	element         scene.Element
+	clicks          Clicks
+	clickProjection selectionClickProjection
+	anchor, extent  TextPoint
+	phase           selectionPhase
+}
+
+// A repaint preserves a click run; reflow or scrolling can give the same screen
+// coordinates another meaning even when the content revision stays unchanged.
+type selectionClickProjection struct {
+	layout transcriptLayoutKey
+	origin image.Point
 }
 
 // selectionPhase is where the selection stands; only a selected range can be
@@ -95,13 +101,12 @@ func (s *Selection) Done() {
 	}
 }
 
-// press counts a press in the layout revision it landed on. Presses counted in
-// an earlier revision landed on text that may have moved, so they start a new run.
-func (s *Selection) press(mouse input.Mouse, revision uint64) int {
+func (s *Selection) press(mouse input.Mouse, source transcriptLayoutKey, at Point) int {
 	requireMutable(s.element)
-	if s.clickRevision != revision {
+	projection := selectionClickProjection{layout: source, origin: mouse.Pos.Sub(image.Pt(at.Col, at.Row))}
+	if s.clickProjection != projection {
 		s.clicks.Reset()
-		s.clickRevision = revision
+		s.clickProjection = projection
 	}
 	return s.clicks.Press(mouse)
 }

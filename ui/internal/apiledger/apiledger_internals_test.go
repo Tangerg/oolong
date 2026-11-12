@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -100,6 +101,18 @@ func TestCheckerRequiresEveryPlatformBreakInTheExactModuleLedger(t *testing.T) {
 		t.Fatalf("missing exact entry error = %v", err)
 	}
 }
+
+func TestSkippedModuleReportingRefusesShortWrites(t *testing.T) {
+	checker := newChecker(Config{Root: t.TempDir(), Log: shortLogWriter{}}, &fixtureRunner{})
+	_, err := checker.checkModule(t.Context(), t.TempDir(), "", "Unreleased", "fresh")
+	if !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("incomplete skipped-module report = %v, want io.ErrShortWrite", err)
+	}
+}
+
+type shortLogWriter struct{}
+
+func (shortLogWriter) Write(p []byte) (int, error) { return len(p) - 1, nil }
 
 func TestIndependentModuleLedgersForWorkspaceAndOneRelease(t *testing.T) {
 	root := t.TempDir()

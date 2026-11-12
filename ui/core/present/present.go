@@ -44,13 +44,15 @@ func (p *Presenter) RequestFull() {
 }
 
 // RequestBy asks for a frame no sooner than minInterval after the last one, and reports
-// whether it may be drawn straight away.
+// whether pacing permits it straight away; unfinished output still holds drawing.
 //
 // It is for sources that fire faster than a terminal can usefully be redrawn — a token
 // stream, a scroll wheel held down. A request too soon still owes a frame: the interval
 // decides when it is drawn, not whether. It arms [Presenter.DueAt] so a driver that parks
 // knows when to wake, and [Presenter.Present] holds the frame until then.
 // During drawing, the unfinished frame establishes the next request's interval.
+// Coalesced requests keep their earliest deadline, so a later interval cannot
+// postpone work already due.
 func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 	p.rebaseClock(now)
 	if p.owed && p.dueAt == nil {
@@ -61,11 +63,13 @@ func (p *Presenter) RequestBy(now time.Time, minInterval time.Duration) bool {
 	if p.drawing != nil {
 		drawnAt = p.drawing
 	}
-	if drawnAt != nil && now.Sub(*drawnAt) < minInterval {
+	if drawnAt != nil {
 		deadline := drawnAt.Add(minInterval)
 		if p.dueAt == nil || deadline.Before(*p.dueAt) {
 			p.dueAt = &deadline
 		}
+	}
+	if p.dueAt != nil && now.Before(*p.dueAt) {
 		return false
 	}
 	p.dueAt = nil

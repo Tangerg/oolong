@@ -96,7 +96,7 @@ func normalize(format Format) (Format, error) {
 			return "", fmt.Errorf("content: invalid format %q", format)
 		}
 	}
-	return Format(strings.ToLower(name)), nil
+	return Format(strings.Clone(strings.ToLower(name))), nil
 }
 
 // Typed nils are possible through either renderer entry point. A missing body

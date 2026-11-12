@@ -15,36 +15,27 @@ type Node[T any] struct {
 	Children []Node[T]
 }
 
-// Shown is one row a [Tree] is showing: an item, how deep it sits, and what can be
-// done with it.
-//
-// A tree is a list of these — which is not a simplification but the whole design.
-// Everything a tree does that is not opening and closing is what a list does, and
-// building it on one is what keeps the selection, the scrolling, the wheel and the
-// click from being written a second time and getting the edges wrong.
 type Shown[T any] struct {
 	Item T
 	// Ancestor depth starts at zero for roots; visible row order does not affect it.
 	Depth        int
 	Branch, Open bool
-
-	// id is the tree-owned identity of this position. SetNodes reuses it for the node
-	// at the same position, which is how open branches survive a refresh without
-	// asking T to be comparable or retaining a path whose size grows with depth.
-	//
-	// It stays inside: a row carries the item, and where the item came from is the
-	// caller's to know from the item. Handing out this key would make an internal
-	// reconciliation mechanism part of the component contract.
-	id uint64
 }
 
-// treeNode is the hierarchy after Tree has taken ownership. Identity belongs here
-// rather than on Node: it exists only to reconcile two positional snapshots, and an
-// application cannot usefully supply or observe it.
 type treeNode[T any] struct {
 	item     T
 	children []treeNode[T]
-	id       uint64
+	open     bool
+}
+
+// Visible rows borrow their node; detached public snapshots retain no hierarchy.
+type treeRow[T any] struct {
+	node  *treeNode[T]
+	depth int
+}
+
+func (r treeRow[T]) shown() Shown[T] {
+	return Shown[T]{Item: r.node.item, Depth: r.depth, Branch: len(r.node.children) > 0, Open: r.node.open}
 }
 
 // Tree is a list of items with items under them, which can be opened and closed.
@@ -55,14 +46,13 @@ type treeNode[T any] struct {
 // which branches are open, which row the cursor is on, and what the keys do.
 //
 // The zero Tree shows nothing and answers nothing. A Tree must not be copied after
-// first use: its owned hierarchy, branch identities, rows and matcher are one mutable
+// first use: its owned hierarchy, rows and matcher are one mutable
 // owner.
+// Rebuilding rows panics before mutation if the collection revision is exhausted.
 type Tree[T any] struct {
 	element scene.Element
 	noCopy  noCopy
 
-	// nodes are private so replacing the hierarchy cannot bypass selection
-	// settlement or retain open identities that no longer name a branch.
 	nodes []treeNode[T]
 	// Row draws one row. at is where it sits among the rows on screen and selected
 	// says whether it is the one under the cursor. It runs during drawing and must be
@@ -72,11 +62,7 @@ type Tree[T any] struct {
 	// see [Tree.Do]. Nil reads through [DefaultTreeKeys].
 	keys keyBinding
 
-	list List[Shown[T]]
-	open map[uint64]bool
-	// nodeIDs owns the stable node namespace. Zero is reserved for no node, which
-	// makes accidental empty identities impossible to retain as open state.
-	nodeIDs identitySequence
+	list    List[treeRow[T]]
 	matcher keymap.Matcher
 }
 
@@ -102,9 +88,10 @@ func (t *Tree[T]) SetNodes(nodes []Node[T]) {
 	if t == nil {
 		return
 	}
+	t.list.requireReplacement()
 	t.matcher.Reset(func() {
 		t.replaceNodes(nodes)
-		t.rebuild(0)
+		t.rebuild(nil)
 	})
 }
 
@@ -122,17 +109,21 @@ func (t *Tree[T]) Nodes() []Node[T] {
 // are replaced or branches open and close. The allocation happens only when somebody
 // outside asks for a snapshot; drawing reads the owned buffer directly.
 func (t *Tree[T]) Rows() []Shown[T] {
-	if t == nil {
+	if t == nil || t.list.items == nil {
 		return nil
 	}
-	return slices.Clone(t.list.items)
+	rows := make([]Shown[T], len(t.list.items))
+	for i, row := range t.list.items {
+		rows[i] = row.shown()
+	}
+	return rows
 }
 
 // rebuild is the sole transition from the owned hierarchy and open state into the
 // visible list. Drawing reads that settled list and therefore cannot clamp selection
 // or otherwise change semantic state.
-func (t *Tree[T]) rebuild(selectedID uint64) {
-	rows := make([]Shown[T], 0, len(t.list.items))
+func (t *Tree[T]) rebuild(selectedNode *treeNode[T]) {
+	rows := make([]treeRow[T], 0, len(t.list.items))
 	selected := t.list.selected
 	type pending struct {
 		node  *treeNode[T]
@@ -147,15 +138,11 @@ func (t *Tree[T]) rebuild(selectedID uint64) {
 		current := stack[last]
 		stack = stack[:last]
 		node := current.node
-		branch := len(node.children) > 0
-		open := branch && t.open[node.id]
-		if node.id == selectedID {
+		if node == selectedNode {
 			selected = len(rows)
 		}
-		rows = append(rows, Shown[T]{
-			Item: node.item, Depth: current.depth, Branch: branch, Open: open, id: node.id,
-		})
-		if !open {
+		rows = append(rows, treeRow[T]{node: node, depth: current.depth})
+		if !node.open {
 			continue
 		}
 		for i := range slices.Backward(node.children) {
@@ -180,7 +167,11 @@ func (t *Tree[T]) Current() (T, bool) {
 // caller asks when it needs more than the item — whether it can be opened, how deep
 // it sits, where it came from.
 func (t *Tree[T]) CurrentRow() (Shown[T], bool) {
-	return t.list.Current()
+	row, ok := t.list.Current()
+	if !ok {
+		return Shown[T]{}, false
+	}
+	return row.shown(), true
 }
 
 // Select moves the cursor to a row, clamped to what is showing.
@@ -197,29 +188,23 @@ func (t *Tree[T]) Close(at int) bool { return t.set(at, false) }
 func (t *Tree[T]) set(at int, open bool) bool {
 	requireMutable(t.element)
 	rows := t.list.items
-	if at < 0 || at >= len(rows) || !rows[at].Branch || rows[at].Open == open {
+	if at < 0 || at >= len(rows) || len(rows[at].node.children) == 0 || rows[at].node.open == open {
 		return false
 	}
 	selected := t.Selected()
 	if !open {
-		for i := at + 1; i < len(rows) && rows[i].Depth > rows[at].Depth; i++ {
+		for i := at + 1; i < len(rows) && rows[i].depth > rows[at].depth; i++ {
 			if i == selected {
 				selected = at
 				break
 			}
 		}
 	}
-	selectedID := rows[selected].id
+	selectedNode := rows[selected].node
+	t.list.requireReplacement()
 	t.matcher.Reset(func() {
-		if t.open == nil {
-			t.open = map[uint64]bool{}
-		}
-		if open {
-			t.open[rows[at].id] = true
-		} else {
-			delete(t.open, rows[at].id)
-		}
-		t.rebuild(selectedID)
+		rows[at].node.open = open
+		t.rebuild(selectedNode)
 	})
 	return true
 }
@@ -271,7 +256,7 @@ func (t *Tree[T]) Do(action keymap.Action) bool {
 
 func (t *Tree[T]) into(at int) bool {
 	rows := t.list.items
-	if at < 0 || at+1 >= len(rows) || rows[at+1].Depth <= rows[at].Depth {
+	if at < 0 || at+1 >= len(rows) || rows[at+1].depth <= rows[at].depth {
 		return false
 	}
 	t.list.Select(at + 1)
@@ -280,11 +265,11 @@ func (t *Tree[T]) into(at int) bool {
 
 func (t *Tree[T]) upToParent(at int) bool {
 	rows := t.list.items
-	if at < 0 || at >= len(rows) || rows[at].Depth == 0 {
+	if at < 0 || at >= len(rows) || rows[at].depth == 0 {
 		return false
 	}
 	for i := at - 1; i >= 0; i-- {
-		if rows[i].Depth < rows[at].Depth {
+		if rows[i].depth < rows[at].depth {
 			t.list.Select(i)
 			return true
 		}
@@ -319,7 +304,13 @@ func (t *Tree[T]) Draw(v scene.Frame) {
 // replacing Row. Selection, scrolling and committed pointer geometry remain owned by
 // the tree; only the appearance of this frame is supplied by the caller.
 func (t *Tree[T]) DrawRows(v scene.Frame, draw func(grid.View, int, Shown[T], bool)) {
-	t.list.DrawRows(v, draw)
+	var paint func(grid.View, int, treeRow[T], bool)
+	if draw != nil {
+		paint = func(view grid.View, at int, row treeRow[T], selected bool) {
+			draw(view, at, row.shown(), selected)
+		}
+	}
+	t.list.DrawRows(v, paint)
 }
 
 // replaceNodes takes ownership of a hierarchy and reconciles it with the previous
@@ -329,23 +320,9 @@ func (t *Tree[T]) DrawRows(v scene.Frame, draw func(grid.View, int, Shown[T], bo
 func (t *Tree[T]) replaceNodes(nodes []Node[T]) {
 	if len(nodes) == 0 {
 		t.nodes = nil
-		t.open = nil
 		return
 	}
-	owned, nodeIDs, branches := copyTree(nodes, t.nodes, t.nodeIDs, len(t.open))
-	t.retainOpenBranches(branches)
-	t.nodes, t.nodeIDs = owned, nodeIDs
-}
-
-func (t *Tree[T]) retainOpenBranches(branches map[uint64]struct{}) {
-	for id := range t.open {
-		if _, ok := branches[id]; !ok {
-			delete(t.open, id)
-		}
-	}
-	if len(t.open) == 0 {
-		t.open = nil
-	}
+	t.nodes = copyTree(nodes, t.nodes)
 }
 
 // treeSlice identifies one caller-owned child slice by its first element and
@@ -359,10 +336,8 @@ type treeSlice[T any] struct {
 // active slice identities make a cycle an explicit state transition instead of an
 // accidental exhaustion of stack or heap.
 type treeCopy[T any] struct {
-	ids      identitySequence
-	branches map[uint64]struct{}
-	active   map[treeSlice[T]]struct{}
-	stack    []treeCopyFrame[T]
+	active map[treeSlice[T]]struct{}
+	stack  []treeCopyFrame[T]
 }
 
 type treeCopyFrame[T any] struct {
@@ -373,24 +348,17 @@ type treeCopyFrame[T any] struct {
 	key    treeSlice[T]
 }
 
-func copyTree[T any](
-	source []Node[T],
-	old []treeNode[T],
-	ids identitySequence,
-	branchCapacity int,
-) ([]treeNode[T], identitySequence, map[uint64]struct{}) {
+func copyTree[T any](source []Node[T], old []treeNode[T]) []treeNode[T] {
 	target := make([]treeNode[T], len(source))
 	rootKey := treeSlice[T]{&source[0], len(source)}
 	copying := treeCopy[T]{
-		ids:      ids,
-		branches: make(map[uint64]struct{}, branchCapacity),
-		active:   map[treeSlice[T]]struct{}{rootKey: {}},
+		active: map[treeSlice[T]]struct{}{rootKey: {}},
 		stack: []treeCopyFrame[T]{
 			{source: source, old: old, target: target, key: rootKey},
 		},
 	}
 	copying.run()
-	return target, copying.ids, copying.branches
+	return target
 }
 
 func (c *treeCopy[T]) run() {
@@ -409,12 +377,16 @@ func (c *treeCopy[T]) copyNext(current *treeCopyFrame[T]) {
 	i := current.at
 	current.at++
 	source := current.source[i]
-	id, oldChildren := c.identityAt(current.old, i)
-	current.target[i] = treeNode[T]{item: source.Item, id: id}
+	current.target[i] = treeNode[T]{item: source.Item}
 	if len(source.Children) == 0 {
 		return
 	}
-	c.branches[id] = struct{}{}
+	var oldChildren []treeNode[T]
+	if i < len(current.old) {
+		previous := &current.old[i]
+		current.target[i].open = previous.open
+		oldChildren = previous.children
+	}
 	key := treeSlice[T]{&source.Children[0], len(source.Children)}
 	if _, cyclic := c.active[key]; cyclic {
 		panic("base: cyclic tree node collection")
@@ -425,17 +397,6 @@ func (c *treeCopy[T]) copyNext(current *treeCopyFrame[T]) {
 	c.stack = append(c.stack, treeCopyFrame[T]{
 		source: source.Children, old: oldChildren, target: children, key: key,
 	})
-}
-
-func (c *treeCopy[T]) identityAt(old []treeNode[T], index int) (uint64, []treeNode[T]) {
-	if index < len(old) {
-		return old[index].id, old[index].children
-	}
-	id, ok := c.ids.next()
-	if !ok {
-		panic("base: tree exhausted node identities")
-	}
-	return id, nil
 }
 
 // exportNodes copies the owned hierarchy without making valid depth a call-stack

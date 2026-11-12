@@ -54,6 +54,7 @@ type Select[T any] struct {
 // identity does not establish that the complete payload is unchanged.
 // Required reads and identity comparisons finish before options or selection change.
 // An abnormal exit during preparation preserves the previous field.
+// Exhausting the answer or collection revision panics before either changes.
 func (s *Select[T]) SetOptions(options []Option[T]) {
 	requireMutable(s.element)
 	if len(options) > 0 && s.sameIdentity == nil {
@@ -68,14 +69,17 @@ func (s *Select[T]) SetOptions(options []Option[T]) {
 			at = found
 		}
 	}
+	revision := s.revision
+	if replacesAnswer {
+		revision = nextRevision(revision)
+	}
+	s.list.requireReplacement()
 	s.matcher.Reset(func() {
 		s.list.replaceItems(options, at)
 		for i := range s.list.items {
 			s.list.items[i].Label = strings.Clone(s.list.items[i].Label)
 		}
-		if replacesAnswer {
-			s.revision++
-		}
+		s.revision = revision
 		s.invalidateValidation()
 		s.list.notifyChange()
 	})
@@ -107,11 +111,7 @@ func (s *Select[T]) indexOf(options []Option[T], value T) (int, bool) {
 func (s *Select[T]) Handle(ev input.Event) bool {
 	requireMutable(s.element)
 	if key, ok := ev.(input.Key); ok {
-		keys := s.keys.current
-		if keys == nil {
-			keys = listKeys()
-		}
-		_, handled := s.matcher.Handle(keys, key, keyboardReceipt(&s.element), s.Do)
+		_, handled := s.matcher.Handle(s.keys.resolve(listKeys), key, keyboardReceipt(&s.element), s.Do)
 		return handled
 	}
 	if mouse, ok := ev.(input.Mouse); ok {
@@ -147,6 +147,7 @@ func (s *Select[T]) checkAnswer() error {
 func (s *Select[T]) focusChanged(has bool) { s.choiceList.focusChanged(has, s.Validate) }
 
 // Choose selects an available value using the configured identity rule.
+// Exhausting the answer revision panics before changing selection.
 func (s *Select[T]) Choose(value T) bool {
 	at, ok := s.indexOf(s.list.items, value)
 	if !ok {
@@ -159,7 +160,7 @@ func (s *Select[T]) Choose(value T) bool {
 func (s *Select[T]) selectAt(at int) {
 	requireMutable(s.element)
 	if s.list.clampIndex(at) != s.list.selected {
-		s.revision++
+		s.revision = nextRevision(s.revision)
 	}
 	s.list.Select(at)
 }

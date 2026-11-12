@@ -69,6 +69,47 @@ func TestATreeKeepsItsShapeWhenTheItemsAreReplaced(t *testing.T) {
 	}
 }
 
+func TestTreeRefreshPreservesHiddenBranchesWithoutRevivingRemovedOnes(t *testing.T) {
+	tree := base.NewTree(files()...)
+	tree.Open(0)
+	tree.Open(2)
+	tree.Close(0)
+	tree.SetNodes(files())
+	tree.Open(0)
+	if got := shape(tree); got != "core/ grid/ term/  pty/README" {
+		t.Fatalf("refresh lost a hidden open branch: %q", got)
+	}
+
+	tree.SetNodes([]base.Node[string]{{Item: "leaf"}})
+	tree.SetNodes(files())
+	if got := shape(tree); got != "core/README" {
+		t.Fatalf("replacement revived a removed branch: %q", got)
+	}
+	tree.Open(0)
+	if got := shape(tree); got != "core/ grid/ term/README" {
+		t.Fatalf("replacement revived a removed descendant: %q", got)
+	}
+}
+
+func TestTreeRowsRemainDetachedAcrossBranchChanges(t *testing.T) {
+	var empty base.Tree[string]
+	if empty.Rows() != nil {
+		t.Fatal("zero tree returned a non-nil row snapshot")
+	}
+	tree := base.NewTree(files()...)
+	before := tree.Rows()
+	tree.Open(0)
+	opened := tree.Rows()
+	current, ok := tree.CurrentRow()
+	if !ok || !current.Open || before[0].Open {
+		t.Fatalf("opening a branch changed its old snapshot: before=%+v current=%+v", before, current)
+	}
+	tree.Close(0)
+	if !opened[0].Open {
+		t.Fatal("closing a branch changed its open snapshot")
+	}
+}
+
 func TestATreeOwnsItsRecursiveNodeCollection(t *testing.T) {
 	nodes := files()
 	tree := base.NewTree(nodes...)

@@ -73,18 +73,18 @@ func (t *Tree[T]) branchAction(open bool) scene.ActionBinding {
 			if availability := t.list.indexAvailability(address); availability.Disabled {
 				return availability
 			}
-			if !t.list.items[address.Index].Branch {
+			if len(t.list.items[address.Index].node.children) == 0 {
 				return scene.Availability{Disabled: true, Reason: "item is not a branch"}
 			}
 			return scene.Availability{}
 		},
 		Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[bool], error) {
-			identity := t.list.items[address.Index].id
+			node := t.list.items[address.Index].node
 			state := scene.Unchanged
 			if t.set(address.Index, open) {
 				state = scene.Applied
 			}
-			return scene.ActionResult[bool]{State: state, Value: t.open[identity]}, nil
+			return scene.ActionResult[bool]{State: state, Value: node.open}, nil
 		},
 	}).Binding()
 }

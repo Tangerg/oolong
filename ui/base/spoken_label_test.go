@@ -9,6 +9,93 @@ import (
 
 func same(a, b string) bool { return a == b }
 
+func TestSpokenLabelsUseUnicodeCaseFolding(t *testing.T) {
+	for _, test := range []struct {
+		name, label, reply string
+	}{
+		{"final sigma", "Σ", "ς"},
+		{"final sigma prefix", "Σειρά", "ς"},
+		{"long s", "ſ", "S"},
+		{"long s prefix", "ſeed", "s"},
+		{"long s reply prefix", "Seed", "ſ"},
+		{"Kelvin prefix", "Kelvin", "k"},
+		{"Kelvin reply prefix", "kelvin", "K"},
+		{"label containing comma", "Σ, accepted", "ς, ACCEPTED"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options := base.Options("other", test.label)
+			single := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Options: options})
+			multiple := base.NewMultiSelect(base.MultiSelectConfig[string]{Same: base.Equal[string], Options: options})
+			confirm := base.NewConfirm(base.ConfirmConfig{Yes: test.label, No: "other"})
+			for _, field := range []struct {
+				name     string
+				value    base.SpokenField
+				accepted func() bool
+			}{
+				{"select", single, func() bool { return chosenValue(single) == test.label }},
+				{"multiselect", multiple, func() bool { return slices.Equal(multiple.Taken(), []string{test.label}) }},
+				{"confirm", confirm, confirm.Answer},
+			} {
+				t.Run(field.name, func(t *testing.T) {
+					if err := field.value.Reply(test.reply); err != nil {
+						t.Fatal("folded label was refused:", err)
+					}
+					if !field.accepted() {
+						t.Fatal("reply did not select its folded label")
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestFoldedSpokenAmbiguityPreservesTheAnswer(t *testing.T) {
+	for _, test := range []struct {
+		name, first, second, reply string
+	}{
+		{"sigma exact", "Σ", "ς", "Σ"},
+		{"sigma prefix", "Σfirst", "ςsecond", "σ"},
+		{"long s exact", "ſ", "s", "S"},
+		{"long s prefix", "ſeed", "Sand", "s"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options := base.Options("kept", test.first, test.second)
+			single := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Options: options})
+			multiple := base.NewMultiSelect(base.MultiSelectConfig[string]{Same: base.Equal[string], Options: options, Initial: []string{"kept"}})
+			confirm := base.NewConfirm(base.ConfirmConfig{Yes: test.first, No: test.second})
+			for _, field := range []struct {
+				name      string
+				value     base.SpokenField
+				unchanged func() bool
+			}{
+				{"select", single, func() bool { return chosenValue(single) == "kept" }},
+				{"multiselect", multiple, func() bool { return slices.Equal(multiple.Taken(), []string{"kept"}) }},
+				{"confirm", confirm, func() bool { return !confirm.Answer() }},
+			} {
+				t.Run(field.name, func(t *testing.T) {
+					before := field.value.Revision()
+					if err := field.value.Reply(test.reply); err == nil {
+						t.Fatal("ambiguous folded label was accepted")
+					}
+					if !field.unchanged() || field.value.Revision() != before {
+						t.Fatal("ambiguous reply changed the answer")
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestAnExactFoldedSpokenLabelWinsOverLongerPrefixes(t *testing.T) {
+	field := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Options: base.Options("Σeed", "Σ", "ςmore")})
+	if err := field.Reply("ς"); err != nil {
+		t.Fatal("exact folded label was refused:", err)
+	}
+	if chosenValue(field) != "Σ" {
+		t.Fatal("a prefix displaced the exact folded label")
+	}
+}
+
 // A reply was read as a number before a label, so a numeric label either could
 // not be chosen or chose a different option without a word of warning.
 func TestASpokenLabelIsWhatWasMeant(t *testing.T) {

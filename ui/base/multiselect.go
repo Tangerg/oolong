@@ -38,6 +38,7 @@ type MultiSelect[T any] struct {
 // options; construct one with Same instead.
 // Required reads and identity comparisons finish before options or selection change.
 // An abnormal exit during preparation preserves the previous field.
+// Exhausting the answer or collection revision panics before either changes.
 func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	requireMutable(m.element)
 	if len(options) > 0 && m.sameIdentity == nil {
@@ -45,15 +46,18 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 	}
 	before := m.Taken()
 	taken, _ := m.indices(options, before)
+	revision := m.revision
+	if len(before) != 0 {
+		revision = nextRevision(revision)
+	}
+	m.list.requireReplacement()
 	m.matcher.Reset(func() {
 		m.list.replaceItems(options, m.list.selected)
 		for i := range m.list.items {
 			m.list.items[i].Label = strings.Clone(m.list.items[i].Label)
 		}
 		m.taken = taken
-		if len(before) != 0 {
-			m.revision++
-		}
+		m.revision = revision
 		m.invalidateValidation()
 		m.list.notifyChange()
 	})
@@ -63,11 +67,15 @@ func (m *MultiSelect[T]) SetOptions(options []Option[T]) {
 // a negative limit is a programmer error and panics, because zero already means "no
 // limit" and there is no smaller quantity of choices for a negative one to name.
 // Lowering the limit keeps the earliest choices in option order.
+// Exhausting the answer revision panics before changing the limit or answer.
 func (m *MultiSelect[T]) SetLimit(limit int) {
 	requireMutable(m.element)
 	requireNonNegative("multi-select Limit", limit)
 	if m.limit == limit {
 		return
+	}
+	if limit != 0 && len(m.taken) > limit {
+		_ = nextRevision(m.revision)
 	}
 	m.limit = limit
 	m.invalidateValidation()
@@ -117,6 +125,7 @@ func (m *MultiSelect[T]) indices(options []Option[T], values []T) ([]int, bool) 
 
 // Toggle takes the option under the cursor, or gives it back, and reports whether
 // anything changed. Nothing changes when the limit is reached.
+// Exhausting the answer revision panics before changing it.
 func (m *MultiSelect[T]) Toggle() bool {
 	requireMutable(m.element)
 	return m.toggle()
@@ -201,6 +210,7 @@ func (m *MultiSelect[T]) focusChanged(has bool) { m.choiceList.focusChanged(has,
 // SetTaken replaces the chosen set. Unavailable and duplicate values are discarded,
 // and beyond the limit the earliest choices in option order are kept, as when the
 // limit is lowered.
+// Exhausting the answer revision panics before changing it.
 func (m *MultiSelect[T]) SetTaken(values []T) {
 	requireMutable(m.element)
 	taken, _ := m.indices(m.list.items, values)
@@ -215,8 +225,8 @@ func (m *MultiSelect[T]) store(taken []int) {
 	if slices.Equal(m.taken, taken) {
 		return
 	}
-	m.taken = taken
-	m.revision++
+	revision := nextRevision(m.revision)
+	m.taken, m.revision = taken, revision
 	m.element.Invalidate()
 }
 

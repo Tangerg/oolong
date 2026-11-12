@@ -36,19 +36,20 @@ type Button struct {
 // NewButton constructs one action owner. Nil Activate creates a disabled button with an explanatory availability reason.
 func NewButton(config ButtonConfig) *Button {
 	b := &Button{label: strings.Clone(config.Label), keys: keyBinding{current: config.Keys}}
+	activate, availability := config.Activate, config.Availability
 	b.action = scene.NewAction(scene.ActionConfig[struct{}, struct{}]{
 		ID: scene.ActionActivate, Label: "Activate",
 		Availability: func(struct{}) scene.Availability {
-			if config.Activate == nil {
+			if activate == nil {
 				return scene.Availability{Disabled: true, Reason: "no action"}
 			}
-			if config.Availability != nil {
-				return readProjection(b.element, config.Availability)
+			if availability != nil {
+				return readProjection(b.element, availability)
 			}
 			return scene.Availability{}
 		},
 		Run: func(ctx context.Context, _ struct{}) (scene.ActionResult[struct{}], error) {
-			return config.Activate(ctx)
+			return activate(ctx)
 		},
 	})
 	b.element = scene.NewElement(scene.ElementConfig{
@@ -121,7 +122,7 @@ func (b *Button) Press(ctx context.Context) (scene.ActionResult[struct{}], error
 
 func (b *Button) press(ctx context.Context, recordError bool) (scene.ActionResult[struct{}], error) {
 	requireMutable(b.element)
-	var turn uint64
+	var turn *byte
 	if recordError {
 		turn = b.feedback.begin()
 	}

@@ -252,6 +252,9 @@ func TestKindNames(t *testing.T) {
 	if got := link.File.String(); got != "file" {
 		t.Errorf("= %q", got)
 	}
+	if got := link.Kind(200).String(); got != "Kind(200)" {
+		t.Errorf("unknown link kind = %q, want Kind(200)", got)
+	}
 }
 
 func TestDetectFindsNothingInNothing(t *testing.T) {

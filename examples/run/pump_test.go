@@ -217,7 +217,8 @@ func TestCommandOutputLimitsStopTheSourceAndReportFailure(t *testing.T) {
 				rang, notified := host.attention()
 				return rang == 1 && notified == 1
 			})
-			host.Shows(t, "failed: text: decoded line limit exceeded")
+			host.Shows(t, "failed:")
+			host.Shows(t, text.ErrLineLimit.Error())
 			host.Shows(t, "open-prefix")
 			if !strings.Contains(host.Frames(), "accepted-before-limit") {
 				t.Fatal("completed prefix was lost")

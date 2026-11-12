@@ -160,7 +160,7 @@ func (t *Tree[T]) Element() scene.Element {
 			Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
 			Semantics: func() scene.Semantic {
 				return scene.Semantic{Role: scene.RoleTree, ContentRevision: t.list.contentRevision, Value: strconv.Itoa(t.Selected())}
-			}, Actions: append(collectionActions(&t.list, unchangedItem[Shown[T]]), t.branchAction(true), t.branchAction(false)),
+			}, Actions: append(collectionActions(&t.list, treeRow[T].shown), t.branchAction(true), t.branchAction(false)),
 		})
 	}
 	t.list.element, t.list.scroll.element = t.element, t.element

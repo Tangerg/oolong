@@ -20,10 +20,10 @@ func (s *Scroll) action(label string, availability func(ScrollRequest) scene.Ava
 	return scene.NewAction(scene.ActionConfig[ScrollRequest, int]{
 		ID: ActionScroll, Label: label, Availability: availability,
 		Run: func(_ context.Context, request ScrollRequest) (scene.ActionResult[int], error) {
-			before := s.revision
+			before := s.version
 			s.By(request.Rows)
 			state := scene.Unchanged
-			if s.revision != before {
+			if s.version != before {
 				state = scene.Applied
 			}
 			return scene.ActionResult[int]{State: state, Value: s.Offset()}, nil
@@ -55,7 +55,7 @@ type Scroll struct {
 	current      scrollGeometry
 	following    bool
 	reveal       *scrollRange
-	revision     uint64
+	version      *byte
 	presentation scene.Snapshot[scrollProjection]
 	// wheel turns the terminal's reports into rows, keeping the part of a row a
 	// report was worth but did not fill.
@@ -278,7 +278,7 @@ func (s *Scroll) Stage(frame scene.Frame, total, window int) ScrollLayout {
 	if s.following {
 		origin = geometry.offset
 	}
-	value := scrollProjection{geometry: geometry, revision: s.revision, reveal: s.reveal}
+	value := scrollProjection{geometry: geometry, version: s.version, reveal: s.reveal}
 	staged := s.presentation.Stage(frame, value)
 	return ScrollLayout{scroll: s, staged: staged, reveal: reveal, origin: origin}
 }
@@ -312,13 +312,20 @@ func (s *Scroll) resolved() scrollGeometry {
 // them. Both the next input and the next paint must start at that same position.
 func (s *Scroll) basis() (scrollGeometry, *scrollRange) {
 	shown := s.presentation.Value()
-	if shown.revision != s.revision {
+	if shown.version != s.version {
 		return s.current, s.reveal
 	}
 	if shown.geometry.window > 0 && shown.reveal == s.reveal {
 		return shown.geometry, nil
 	}
 	return shown.geometry, s.reveal
+}
+
+// Admission consumes a request without another input transition. Its producer
+// must observe that committed lifetime rather than the retained command pointer.
+func (s *Scroll) revealPending(request *scrollRange) bool {
+	_, pending := s.basis()
+	return pending != nil && pending == request
 }
 
 func (s *Scroll) change(apply func()) bool {
@@ -330,7 +337,7 @@ func (s *Scroll) change(apply func()) bool {
 		s.reveal = reveal
 		return false
 	}
-	s.revision++
+	s.version = new(byte)
 	return true
 }
 
@@ -340,7 +347,7 @@ func sameScrollRange(a, b *scrollRange) bool {
 
 type scrollProjection struct {
 	geometry scrollGeometry
-	revision uint64
+	version  *byte
 	reveal   *scrollRange
 }
 

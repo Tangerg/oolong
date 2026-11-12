@@ -28,6 +28,13 @@ func (r readResult) decode(stream *input.Stream) []input.Event {
 	return append(events, stream.Feed(r.data[1:], r.at)...)
 }
 
+func (r readResult) failure(deliveryErr error) error {
+	if r.err == nil || r.err == io.EOF { //nolint:errorlint // Only bare EOF denotes a clean input end.
+		return deliveryErr
+	}
+	return errors.Join(r.err, deliveryErr)
+}
+
 // pump receives transport results separately so Escape timing can be tested
 // without a real terminal or a competing input reader.
 type pump struct {
@@ -56,7 +63,6 @@ type pump struct {
 	// whoever pushed.
 	early   []input.Event
 	consume func(input.Event) (bool, error)
-	failure error
 }
 
 // run decodes until the input ends or the pump is asked to stop and reports the
@@ -64,8 +70,11 @@ type pump struct {
 // close also makes the result safe to read. EOF and an explicit stop are clean
 // endings.
 func (p *pump) run() error {
-	if !p.send(p.early) {
-		return p.failure
+	if delivered, err := p.send(p.early); !delivered {
+		if p.end != nil {
+			return p.end.failure(err)
+		}
+		return err
 	}
 	p.early = nil
 	if p.end != nil {
@@ -86,12 +95,12 @@ func (p *pump) run() error {
 			if done, err := p.drainRaw(); done {
 				return err
 			}
-			if !p.send(p.stream.Expire(time.Now())) {
-				return p.failure
+			if delivered, err := p.send(p.stream.Expire(time.Now())); !delivered {
+				return err
 			}
 		case resized := <-p.resized:
-			if !p.send([]input.Event{resized}) {
-				return p.failure
+			if delivered, err := p.send([]input.Event{resized}); !delivered {
+				return err
 			}
 		case <-p.stop:
 			return nil
@@ -104,17 +113,14 @@ func (p *pump) take(result readResult) (done bool, err error) {
 		p.stream.Reset()
 		return false, nil
 	}
-	if !p.send(result.decode(p.stream)) {
-		return true, p.failure
-	}
-	if result.err == nil {
+	delivered, deliveryErr := p.send(result.decode(p.stream))
+	if delivered && result.err == nil {
 		return false, nil
 	}
-	p.send(p.stream.Flush(result.at))
-	if result.err == io.EOF { //nolint:errorlint // Only bare EOF ends a reader successfully; wrapped or joined failures must survive.
-		return true, p.failure
+	if delivered {
+		_, deliveryErr = p.send(p.stream.Flush(result.at))
 	}
-	return true, errors.Join(result.err, p.failure)
+	return true, result.failure(deliveryErr)
 }
 
 // Queued read results precede a timer's observation of the current time.
@@ -134,13 +140,12 @@ func (p *pump) drainRaw() (done bool, err error) {
 // send passes decoded events on, reporting false when the pump was asked to stop
 // part-way through. Stopping mid-batch loses the rest, which is correct: nothing
 // downstream is listening any more.
-func (p *pump) send(events []input.Event) bool {
+func (p *pump) send(events []input.Event) (bool, error) {
 	for _, ev := range events {
 		if p.consume != nil {
 			consumed, err := p.consume(ev)
 			if err != nil {
-				p.failure = err
-				return false
+				return false, err
 			}
 			if consumed {
 				continue
@@ -155,8 +160,8 @@ func (p *pump) send(events []input.Event) bool {
 		case p.out <- ev:
 		case <-p.deliveryStopped:
 		case <-p.stop:
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }

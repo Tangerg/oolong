@@ -6,19 +6,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+## [ui/v0.29.0] — 2026-11-12
+
 ### Breaking API migration
 
 #### ui
 
+- `base.(*Commands[T]).Add` requires every command name and alias to have one owner. Empty aliases and spellings already owned by another command panic before registration or recency changes. Remove or replace the previous registration to release a spelling before assigning it elsewhere; lookup no longer arbitrates between names and aliases or registration order.
 - `core/text.Row` and `core/text.LayoutRow` carry their display projection directly. `core/text.Row.Text` is replaced by `core/text.Row.Content`, a `core/text.Line`; `core/text.Row.Line` becomes `core/text.Row.SourceLine`. `core/text.LayoutConfig.Lines` accepts `[]core/text.Line`, and `core/text.LayoutRow.Text` becomes `core/text.LayoutRow.Content`. `core/text.LayoutRow.Width` is now a method derived from that content. Keep the line projection through rendering, selection, hit testing and search; use `Line.String()` only to serialize text. Explicit `Span.BreakBefore` boundaries retain independent display atoms that cannot be reconstructed from plain bytes. Ordinary style spans keep this field false. Producers return detached row snapshots with `CloneRows` or `Line.Clone`.
 - Remove the package-level `core/text.Truncate` and `core/text.Fill` string helpers. Use `text.Of(value, style).Truncate(width, suffix)` or `line.Fill(width)` and draw the returned line. `Line.Display`, `Line.Clusters`, `Line.ColumnOf`, `Line.OffsetAt`, `Line.NextCluster`, `Line.PrevCluster`, `Line.WordAt`, `Line.ByteLen` and `Line.Slice` preserve the same projection instead of flattening and segmenting it again. A cluster reports both source byte endpoints because display filtering can remove bytes.
 - `core/text.(*Decoder).Feed` and `core/text.(*Decoder).Flush` return `([]Line, error)`. Handle returned completed lines before the error. Construct a bounded decoder with `NewDecoder(DecoderConfig{MaxLineBytes: ..., MaxLineSpans: ...})`; zero limits remain unbounded. An admission refusal matches `ErrLineLimit`, retains the accepted open prefix, and remains in force until `Reset`. Successful `Flush` transfers its final line once.
 - `base.SettingsConfig.Change`, `kit.SettingsConfig.Change`, `base.(*Settings[T]).Change` and `base.(*Settings[T]).SetChange` use `func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)`. Domain acceptance and failure are explicit; the result value only says whether physical input was consumed. Use `Settings.Request` for typed calls and read the latest physical request's `ChangeError` for presentation. Kit delegates row and feedback geometry to its base controller.
 
-The workspace callers, format extensions and examples migrate together. Development consumers pin canonical pseudo-versions of the pushed module commits so their declared dependencies also resolve without `go.work`. Release the lower modules and update consumers to those real tags before publishing them; no compatibility path or local replacement is added to published module manifests.
+The format extensions and examples migrate to the same display-projection contracts. The dependent releases below require `ui v0.29.0`; each module resolves its declared dependencies without `go.work` or local replacements.
 
 ### Fixed
 
+- Keyboard paste retains clipboard read failures after the document, caret or selection changes. Edit-location freshness only gates successful reads; it no longer adds a stale-target error to a failed read or hides a provider failure containing that sentinel.
+- Prompter preserves reader failures, including bare buffer-full errors and wrapped or joined EOF and buffer-full errors, instead of submitting partial answers or continuing to read after failure. Buffered failures remain visible after an earlier complete answer, and simultaneous answer-budget failures retain both causes.
+- Coalesced redraw requests report pacing readiness from their earliest pending deadline. A later request with a longer interval can no longer report a due frame as delayed; writer backpressure still waits for output completion independently.
+- Command output failure tests control child exit status instead of racing a second write against pipe closure, while retaining assertions for both the output failure and the requested exit code.
+- The run example separates joined error messages within its single status line. Output-limit diagnostics remain visible when Windows reports the child exit before its output failure; validation checks both failure status and the original cause without imposing a platform-specific ordering.
+- Changing wheel report batching starts fresh gesture classification without losing fractional row credit. Reports collected under the previous batching policy can no longer spuriously accelerate the first report or keep a batched wheel classified as a touchpad; changing only row distances preserves the current gesture. Zero reports no longer start or prolong a gesture.
+- Image and Mermaid examples reserve task completion capacity before starting a terminal upload. A refused task no longer transmits an image or needs an unreserved compensation worker; cancellation after admission still records and releases the accepted resource.
+- Transcript click sequences are tied to the presented text mapping, so scrolling or reflow cannot turn a click on different text into a double-click. Repainting the same mapping preserves ordinary double-click selection.
+- Directed editor paste uses the same replacement range as editing. Beginning or clearing an empty selection no longer rejects a pending paste when its caret and effective replacement range remain unchanged.
+- Forms reject typed-nil fields before changing their relation or revoking a pending submission. Confirmation rejects a typed-nil domain control before subscribing, rather than accepting an absent answer owner or failing inside its callbacks.
+- Terminal and SSH input retain an observed read failure when event delivery stops midway through the same batch. Terminal startup handoff and protocol-handler failures preserve the read cause too; only bare EOF is normalized to success. Pump delivery returns its outcome directly instead of storing a parallel failure field.
+- A session's first fatal capability failure remains its termination cause until consumed, including when its builder later fails. A later writer failure observed by publication can no longer replace an earlier frame failure; shutdown still reports the writer failure alongside it.
+- A session cancelled before Run acquires no terminal or host services and does not invoke its builder. Cancellation still ends normally and consumes the session's single launch.
+- PTY test sessions refuse an already cancelled launch with its cause and observe later cancellation through their existing ownership-release signal. Closing no longer retains caller context values or depends on an external cancellation stop hook returning before releasing the terminal and process identity.
+- Scene preparation refuses an exhausted layout revision before claiming the paint phase, so recovery leaves observation and shutdown available. Private input, focus and geometry lifetimes use fresh identities; event authority ends with its callback instead of depending on paired counter increments. Atomic editor ranges derive their end from the owned single-line mark rather than silently clipping an impossible cross-line state.
+- Scene frame admission consumes writer completion already reported before commit. Input routing and pending capacity no longer wait for a duplicate acknowledgement; the ledger distinguishes an unreported prefix from an explicitly confirmed sequence zero.
+- Spoken choices and confirmation use Unicode case folding for exact labels, prefixes and ambiguity detection. Equivalent sigma and long-s forms no longer refuse valid replies or select an ambiguous answer. Select shares the key-binding default resolver, and Settings composes its activation bindings from their existing owner.
+- Scopes retain the external cancellation signal needed for admission and release the observation callback on close. Interrupted registration releases reserved capacity; shutdown commits owned cleanup before calling external stop hooks, so reentry, panic and goroutine exit cannot strand that capacity.
+- Revoking a task's queued delivery releases its result and callback without waiting for another UI turn. The completed worker outcome remains unchanged.
+- Burst repaint coverage controls pacing and interprets visible terminal cells, so valid incremental frames no longer appear to lose the final update merely because unchanged characters were omitted from the wire.
+- Command recency admits only the bounded retained prefix, so an evicted command name cannot survive in spare storage after removal from the registry. Settings shares the key-binding owner's default resolution instead of keeping a second implementation.
+- Typed and semantic actions, confirmation, search and file-loading examples retain `context.Cause` when cancellation refuses work. Request owners' failure reasons remain visible instead of becoming generic cancellation errors.
+- PNG reads settle cancellation together with each read result at the reader boundary. Independent read failures survive concurrent cancellation, bare EOF can still settle as cancellation, and a successful close does not wrap a bare cancellation into a failed task outcome.
+- Scroll owns whether a reveal is still pending after frame admission. Shared editor views query that lifetime instead of interpreting a retained command pointer; a peer edit no longer replays a consumed cursor reveal or shifts a settled reader. An aborted candidate still preserves the pending request.
+- SSH input preserves the underlying reader error when rejecting an invalid byte count. Joined EOF and channel failures remain observable through `errors.Is` rather than disappearing behind the count diagnostic.
+- Unknown `core/link.Kind` and `core/graphics.Protocol` values print `Kind(n)` and `Protocol(n)` diagnostics, keeping malformed metadata distinguishable from a URL or no negotiated graphics capability.
+- Tree nodes own their expansion state directly. Visible rows borrow those nodes and public row snapshots remain detached; branch identity allocation, the parallel expansion map and its pruning machinery are removed.
+- Delayed input, focus notifications, validation and request feedback use fresh identities rather than wrapping counters. Confirmation, choice and collection revisions refuse exhaustion before mutation, including the complete state of composed trees, filters, tables and completions. Pointer routing uses the same collection revision as semantic row addresses. The unused slider revision and generic scalar wrapper are removed; the local confirmation owner retains its complete answer snapshot directly.
+- The prompter reports short writes before consuming an answer, including incomplete validation output. Accepted invalid drafts remain available without consuming the next reply. API-ledger progress reporting also refuses short writes instead of declaring a partial report successful.
+- Button callbacks, task cancellation bridges, normalized content formats and transcript metadata no longer retain obsolete constructor data or the backing allocation of a discarded string suffix.
 - Text components, decorative rules, Markdown tables and LaTeX layout share `text.Line` geometry. Control filtering, tab stops, truncation, wrapping and suffixes no longer disagree with painted cells. Materialized tab spaces retain their boundary from an independent modifier; row snapshots, transcript identity and search preserve it across reflow.
 - `core/input.Chord.Validate` owns legal chord identity. Keymap binding checks it before admitting a change or notifying borrowers, and malformed chords report their actual code, rune and modifiers. `core/scene.ActionState.Validate` similarly owns the accepted state vocabulary for semantic actions, Confirm, Settings and Form boundaries; invalid callback states preserve the original error while reporting `scene.ErrInvalid`.
 - Superseding a form attempt cancels the retired request after publishing its replacement, even when publication or a resolver panics or exits its goroutine. Reentrant cancellation cannot retire the replacement attempt. Spoken field replies retain an accepted draft when later validation fails, and the prompter stops on unavailable or superseded replies instead of replaying an answer.
@@ -26,6 +59,55 @@ The workspace callers, format extensions and examples migrate together. Developm
 - The run example bounds each open decoded output line to 64 KiB and 1,024 style/link spans, cancels an over-limit producer, and drains its already accepted completed prefix. Independent output failures and short writes remain observable when cancellation also kills the command.
 - The terminal test screen applies vertical cursor movement within the appropriate scroll region, treats LF, VT and FF consistently, preserves deferred wrap through NUL, BEL, DEL and a tab at the right margin, and rejects unsupported controls explicitly.
 - Removing text marks clears the discarded backing-array tail so retired owners are not retained. Redundant narration comments are removed from the reviewed example and extension paths.
+
+## [extensions/highlight/v0.27.1] — 2026-11-12
+
+### Changed
+
+- Require `ui v0.29.0` instead of a development pseudo-version. Highlighting APIs are unchanged; returned lines use the released display-projection contracts.
+
+## [extensions/latex/v0.29.0] — 2026-11-12
+
+### Breaking API migration
+
+#### extensions/latex
+
+- Require `ui v0.29.0`. `Formula.Rows` returns detached `core/text.Row` projections: read `Row.Content`, a `text.Line`, instead of `Row.Text`, and `Row.SourceLine` instead of `Row.Line` when consuming the shared row type. Keep the styled projection through drawing, selection and search; use `Line.String()` only when serializing text.
+
+### Fixed
+
+- Mathematical atoms retain independent display boundaries. Joining graphemes, control filtering and rule filling preserve the columns used by prepared formula geometry.
+- Prepared formulas retain their rows and owned alignment/clipping policy instead of the complete parsing appearance. Unused construction glyphs and a short clipping marker no longer retain the caller's backing storage.
+
+## [extensions/markdown/v0.29.0] — 2026-11-12
+
+### Breaking API migration
+
+#### extensions/markdown
+
+- Require `ui v0.29.0`. `Snapshot.Rows` returns detached `core/text.Row` projections: read `Row.Content`, a `text.Line`, instead of `Row.Text`, and `Row.SourceLine` instead of `Row.Line` when consuming the shared row type. Embedded projectors must preserve independent display atoms rather than flattening and reconstructing their rows.
+
+### Fixed
+
+- List items and embedded content return owned row projections, so edits to returned style spans cannot change retained document layout.
+- Tables and decorative rules retain styled display atoms through measurement, wrapping, padding and filling. Independent modifiers and materialized tab spaces no longer change columns when adjacent content is composed.
+
+## [extensions/mermaid/v0.28.1] — 2026-11-12
+
+### Changed
+
+- Require `ui v0.29.0` instead of a development pseudo-version. Rendering APIs and the official Mermaid CLI integration are unchanged.
+
+## [extensions/ssh/v0.28.1] — 2026-11-12
+
+### Changed
+
+- Require `ui v0.29.0` instead of a development pseudo-version. Session APIs are unchanged.
+
+### Fixed
+
+- Input delivery preserves an observed reader failure when the same event batch is interrupted. Only bare EOF ends input successfully.
+- Invalid reader byte counts retain the underlying reader error, including wrapped or joined EOF and channel failures.
 
 ## [ui/v0.28.0] — 2026-11-10
 

@@ -83,9 +83,8 @@ type Session struct {
 	reapDone chan struct{}
 	reapErr  error
 
-	stopCancel func() bool
-	closeOnce  sync.Once
-	closeErr   error
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // Start runs a command on a new pty.
@@ -93,6 +92,7 @@ type Session struct {
 // Cancelling ctx closes the session and kills its process group, even if
 // descendants retain the terminal after the direct child exits. Call Close to
 // collect teardown errors or to end the session before ctx.
+// An already cancelled context returns its cause before acquiring a PTY.
 func Start(ctx context.Context, cfg Config, name string, args ...string) (*Session, error) {
 	size := cfg.Size
 	if size == (Size{}) {
@@ -101,6 +101,10 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 	if err := size.check(); err != nil {
 		return nil, err
 	}
+	if cause := context.Cause(ctx); cause != nil {
+		return nil, cause
+	}
+	cancelled := ctx.Done()
 
 	primary, replica, err := openPTY()
 	if err != nil {
@@ -140,7 +144,13 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 	}
 	go s.read()
 	go s.wait(cmd)
-	s.stopCancel = context.AfterFunc(ctx, s.close)
+	go func() {
+		select {
+		case <-cancelled:
+			s.close()
+		case <-s.release:
+		}
+	}()
 	return s, nil
 }
 
@@ -234,9 +244,6 @@ func (s *Session) Drain(ctx context.Context) error {
 // process, reader and teardown errors. Failed group termination closes the PTY and
 // returns the failure without waiting indefinitely for an unstopped process.
 func (s *Session) Close() error {
-	if s.stopCancel != nil {
-		s.stopCancel()
-	}
 	s.close()
 	return s.closeErr
 }

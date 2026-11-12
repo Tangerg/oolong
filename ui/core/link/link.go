@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -18,10 +19,14 @@ const (
 )
 
 func (k Kind) String() string {
-	if k == File {
+	switch k {
+	case URL:
+		return "url"
+	case File:
 		return "file"
+	default:
+		return "Kind(" + strconv.Itoa(int(k)) + ")"
 	}
-	return "url"
 }
 
 type Link struct {

@@ -26,7 +26,7 @@ func newNotificationSettings() *notificationSettings {
 func (s *notificationSettings) Snapshot() base.ConfirmSnapshot { return s.state }
 
 func (s *notificationSettings) Change(ctx context.Context, request base.ConfirmRequest) (scene.ActionResult[base.ConfirmSnapshot], error) {
-	if err := ctx.Err(); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return scene.ActionResult[base.ConfirmSnapshot]{}, err
 	}
 	if request.ExpectedRevision != s.state.Revision {
