@@ -10,8 +10,8 @@ github.com/Tangerg/oolong/extensions/markdown v0.28.1-0.20261110123514-f1584334e
 github.com/Tangerg/oolong/extensions/markdown v0.28.1-0.20261110123514-f1584334e196/go.mod h1:m8gKKL/aHB9DjbacVPj3unOkYgBFmO4cPQPWHeI8To0=
 github.com/Tangerg/oolong/extensions/mermaid v0.28.0 h1:Mps3fe2fVOX44ALJPfdNln5RV4qwzVRTNuNxa+20NS4=
 github.com/Tangerg/oolong/extensions/mermaid v0.28.0/go.mod h1:824whWWSMOZyn4/6hBkCZ31713YwvMz8eAJiMcHxqOY=
-github.com/Tangerg/oolong/ui v0.28.1-0.20261110123116-1763edcb488e h1:e6Fza/dvOv3E1StmkGlqMu/UV8IL2GiG+Y31TcguGwY=
-github.com/Tangerg/oolong/ui v0.28.1-0.20261110123116-1763edcb488e/go.mod h1:FJu71l8ji9ykCrdMqVrsYGZXvN+0VffoN7W2K/+BdVY=
+github.com/Tangerg/oolong/ui v0.29.0 h1:deu04GpFHJSR6DFPRkwSR1RuVFBwX7uPg687Vj35wO4=
+github.com/Tangerg/oolong/ui v0.29.0/go.mod h1:FJu71l8ji9ykCrdMqVrsYGZXvN+0VffoN7W2K/+BdVY=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
 github.com/alecthomas/assert/v2 v2.11.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/chroma/v2 v2.27.0 h1:FodwmyOBgJULFYmDqibcp9pvfDLWdtPRh9v/r5BXYZs=
