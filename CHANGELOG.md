@@ -4,6 +4,8 @@ Current public modules are independently versioned. `ui` contains the UI layers;
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). These modules are pre-1.0; incompatible changes are explicit migration decisions. The [release guide](docs/guides/releasing.md) describes the current procedure.
 
+## [Unreleased]
+
 ## [ui/v0.30.0] — 2026-11-23
 
 ### Breaking API migration
