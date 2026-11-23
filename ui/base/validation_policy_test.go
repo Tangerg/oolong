@@ -169,9 +169,7 @@ func TestFieldPolicyCannotChangeDuringProjection(t *testing.T) {
 				if phase == "observation" {
 					field.Element().ReadOnly(mutate)
 				} else {
-					if err := field.Element().SetPaint(func(frame scene.Frame) { mutate(); field.Draw(frame) }); err != nil {
-						t.Fatal(err)
-					}
+					field.Element().SetPaint(func(frame scene.Frame) { mutate(); field.Draw(frame) })
 					scenes := scenetest.New()
 					t.Cleanup(scenes.Close)
 					scenes.Mount(field).Draw(grid.NewSurface(20, 1).View())

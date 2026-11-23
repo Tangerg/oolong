@@ -22,10 +22,7 @@ func (benchmarkBlock) Draw(grid.View) {}
 
 func BenchmarkTranscriptCommittedStream(b *testing.B) {
 	p := transcriptPublisher(b)
-	transcript, err := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted})
-	if err != nil {
-		b.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted})
 	block := benchmarkBlock{bytes: 4 << 10}
 	sequence := uint64(0)
 	b.ReportAllocs()
@@ -46,20 +43,15 @@ func BenchmarkTranscriptCommittedStream(b *testing.B) {
 func BenchmarkTranscriptRetainedReflow(b *testing.B) {
 	for _, blocks := range []int{100, 10_000} {
 		b.Run(fmt.Sprintf("blocks=%d", blocks), func(b *testing.B) {
-			transcript, err := NewTranscript(TranscriptConfig{MaxItems: blocks})
-			if err != nil {
-				b.Fatal(err)
-			}
+			transcript := NewTranscript(TranscriptConfig{MaxItems: blocks})
 			for range blocks {
-				if _, err = transcript.Add(benchmarkBlock{bytes: 240}); err != nil {
+				if _, err := transcript.Add(benchmarkBlock{bytes: 240}); err != nil {
 					b.Fatal(err)
 				}
 			}
 			width := 80
 			element := transcript.Element()
-			if setErr := element.SetPaint(func(frame scene.Frame) { transcript.Stage(frame, width) }); setErr != nil {
-				b.Fatal(setErr)
-			}
+			element.SetPaint(func(frame scene.Frame) { transcript.Stage(frame, width) })
 			root, err := scene.NewRoot(scene.RootConfig{Element: element})
 			if err != nil {
 				b.Fatal(err)
@@ -86,10 +78,7 @@ func BenchmarkTranscriptRetainedReflow(b *testing.B) {
 func BenchmarkTranscriptSteadyTextProjection(b *testing.B) {
 	for _, kib := range []int{4, 16, 64, 256} {
 		b.Run(fmt.Sprintf("%dKiB", kib), func(b *testing.B) {
-			transcript, err := NewTranscript(TranscriptConfig{})
-			if err != nil {
-				b.Fatal(err)
-			}
+			transcript := NewTranscript(TranscriptConfig{})
 			defer transcript.Close()
 			line := strings.Repeat("abcdefghijklmnopqrstuvwxyz ", (kib*1024)/27+1)
 			body := text.NewBlock(text.BlockConfig{Lines: []text.Line{text.Of(line, grid.Style{})}, Wrap: true})
@@ -97,9 +86,7 @@ func BenchmarkTranscriptSteadyTextProjection(b *testing.B) {
 				b.Fatal(addErr)
 			}
 			element := transcript.Element()
-			if paintErr := element.SetPaint(func(frame scene.Frame) { transcript.Stage(frame, 80) }); paintErr != nil {
-				b.Fatal(paintErr)
-			}
+			element.SetPaint(func(frame scene.Frame) { transcript.Stage(frame, 80) })
 			root, err := scene.NewRoot(scene.RootConfig{Element: element})
 			if err != nil {
 				b.Fatal(err)

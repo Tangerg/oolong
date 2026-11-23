@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -81,6 +82,7 @@ func TestDialogResolverCannotCloseANewerOpening(t *testing.T) {
 	closes := 0
 	dialog = base.NewDialog(base.DialogConfig{Initial: true, Keys: &keys, Content: scene.NewElement(scene.ElementConfig{}), Dismissed: func() { closes++ }})
 	r := scenes.Mount(dialog)
+	r.Draw(grid.NewSurface(8, 2).View())
 	r.Handle(input.Key{Rune: 'g'})
 	dialog.Dismiss()
 	if !dialog.Open() || closes != 1 {
@@ -107,7 +109,7 @@ func TestStandaloneQueriesUseTheSamePurePhaseAsSceneQueries(t *testing.T) {
 	}})
 	b.Availability()
 	var w *base.VirtualWindow
-	w, err := base.NewVirtualWindow(base.VirtualConfig{Source: guardedVirtual{measure: func() {
+	w = base.NewVirtualWindow(base.VirtualConfig{Source: guardedVirtual{measure: func() {
 		if e := w.Element().CheckMutation(); !errors.Is(e, scene.ErrBusy) {
 			t.Errorf("virtual measurement runs in writable phase: %v", e)
 		}
@@ -117,10 +119,7 @@ func TestStandaloneQueriesUseTheSamePurePhaseAsSceneQueries(t *testing.T) {
 		}
 		return scene.NewElement(scene.ElementConfig{})
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = w.Resolve(10, 2, 0); err != nil {
+	if _, err := w.Resolve(10, 2, 0); err != nil {
 		t.Fatal(err)
 	}
 }

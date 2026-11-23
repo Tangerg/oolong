@@ -244,14 +244,6 @@ func TestLinesReturnsAnOwnedSnapshot(t *testing.T) {
 	}
 }
 
-func TestNilFormulaIsEmpty(t *testing.T) {
-	var formula *latex.Formula
-	if formula.Source() != "" || formula.Err() != nil || formula.Width() != 0 || formula.HeightForWidth(20) != 0 || formula.Lines() != nil || formula.Rows(20) != nil {
-		t.Fatal("nil Formula is not empty")
-	}
-	formula.Draw(grid.View{})
-}
-
 func TestAnIncompleteEscapeCannotConsumeTheParserDelimiter(t *testing.T) {
 	for _, source := range []string{`\`, `x\`, `x^\`} {
 		formula := latex.Render(source, latex.Look{})

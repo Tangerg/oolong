@@ -56,9 +56,7 @@ func TestTranscriptPlacementRequiresOneLiveFrameOwner(t *testing.T) {
 			var saved scene.Frame
 			run := func(frame scene.Frame) { saved = frame; transcript.Stage(frame, 20) }
 			element := transcript.Element()
-			if err := element.SetPaint(func(frame scene.Frame) { run(frame) }); err != nil {
-				t.Fatal(err)
-			}
+			element.SetPaint(func(frame scene.Frame) { run(frame) })
 			root, err := scene.NewRoot(scene.RootConfig{Element: element})
 			if err != nil {
 				t.Fatal(err)

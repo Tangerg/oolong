@@ -3,6 +3,7 @@ package base
 import (
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 // Handle answers keys, pastes and pointer selection, reporting whether it consumed
@@ -50,8 +51,6 @@ func (e *Editor) handleKey(key input.Key, do func(keymap.Action) bool, typed fun
 	return handled
 }
 
-// Do runs one of the field's actions by name, reporting whether it was one this field
-// knows. See [Doer] for why a widget answers to a name at all.
 func (e *Editor) Do(action keymap.Action) bool {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
@@ -77,21 +76,12 @@ func (e *Editor) Do(action keymap.Action) bool {
 }
 
 func (e *Editor) typed(key input.Key) bool {
-	if key.Mods&^input.Shift != 0 {
+	typed := key.Typed()
+	if typed == "" {
 		return false
 	}
-	// What the terminal says the key produced wins over the key's own code. The code is
-	// the unshifted key on the physical keyboard: on a layout where the key beside "1"
-	// produces "@", inserting the code would type "2".
-	if key.Text != "" {
-		e.insert(key.Text, true)
-		return true
-	}
-	if r := key.FallbackRune(); r != 0 {
-		e.InsertRune(r)
-		return true
-	}
-	return false
+	e.insert(text.Printable(typed), true)
+	return true
 }
 
 func (e *Editor) resolvedKeys() *keymap.Map { return e.keys.resolve(editorKeys) }
@@ -99,7 +89,7 @@ func (e *Editor) resolvedKeys() *keymap.Map { return e.keys.resolve(editorKeys) 
 // KeysFor returns the sequences bound to action in the map this editor handles
 // keys with, including its defaults when no map is set, so help text can never
 // describe bindings the editor does not use.
-func (e *Editor) KeysFor(action keymap.Action) []input.Keys { return e.resolvedKeys().Keys(action) }
+func (e *Editor) KeysFor(action keymap.Action) []input.Keys { return e.keys.bound(editorKeys, action) }
 
 // Losing the keyboard ends transient input. Cursor painting reads scene focus directly.
 func (e *Editor) focusChanged(has bool) {
@@ -129,7 +119,7 @@ var editorActions = map[keymap.Action]func(*Editor){
 	Undo:           (*Editor).Undo,
 	Redo:           (*Editor).Redo,
 	SelectAll:      (*Editor).SelectAll,
-	Copy:           func(e *Editor) { e.Copy() },
-	Cut:            func(e *Editor) { e.Cut() },
+	Copy:           func(e *Editor) { e.recordClipboard(e.Copy()) },
+	Cut:            func(e *Editor) { e.recordClipboard(e.Cut()) },
 	Paste:          (*Editor).pasteFromInput,
 }

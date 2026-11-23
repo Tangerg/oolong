@@ -30,10 +30,7 @@ func transcriptPublisher(tb testing.TB) *publication.Publisher {
 
 func TestTranscriptIdentityExhaustionCannotReuseAnOldIdentity(t *testing.T) {
 	p := transcriptPublisher(t)
-	transcript, err := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted})
 	transcript.next = BlockID(math.MaxUint64 - 1)
 	item, err := transcript.Add(identityBlock{})
 	if err != nil {
@@ -60,10 +57,7 @@ func TestTranscriptRetirementPreservesTheLastRepresentableOrigin(t *testing.T) {
 	if _, err := publisher.TryPublish(identityBlock{}); err != nil {
 		t.Fatal(err)
 	}
-	transcript, err := NewTranscript(TranscriptConfig{Publisher: publisher, Retention: PublishCompleted})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{Publisher: publisher, Retention: PublishCompleted})
 	t.Cleanup(transcript.Close)
 	transcript.startRow = math.MaxInt - 1
 	last, err := transcript.Add(retirementBoundaryBlock(1))
@@ -98,10 +92,7 @@ func TestTranscriptReleasesTheFullAllocationAfterPrefixRetires(t *testing.T) {
 	if _, err := p.TryPublish(identityBlock{}); err != nil {
 		t.Fatal(err)
 	}
-	transcript, err := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted, MaxItems: 2000})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted, MaxItems: 2000})
 	for range 2000 {
 		if _, err := transcript.Add(identityBlock{}); err != nil {
 			t.Fatal(err)

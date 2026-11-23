@@ -61,7 +61,7 @@ func TestProgressChangesWaitWhileAnotherProcessOwnsTheTerminal(t *testing.T) {
 	if len(written) != 1 {
 		t.Fatalf("wrote while paused: %q", written)
 	}
-	if got := p.leave(); got != progressClear {
+	if got := p.leave(); got != clearedProgress {
 		t.Fatalf("leave = %q, want progress cleared", got)
 	}
 	if err := p.restore(queue); err != nil {
@@ -75,7 +75,7 @@ func TestProgressChangesWaitWhileAnotherProcessOwnsTheTerminal(t *testing.T) {
 	if err := p.restore(queue); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(written, []string{"\x1b]9;4;1;20\x07", "\x1b]9;4;2;100\x07", progressClear}) {
+	if !slices.Equal(written, []string{"\x1b]9;4;1;20\x07", "\x1b]9;4;2;100\x07", clearedProgress}) {
 		t.Fatalf("restored writes = %q", written)
 	}
 }
@@ -149,14 +149,14 @@ func TestPausedClearStillClearsPublishedProgressBeforeHandover(t *testing.T) {
 	if err := p.to(Progress{}, queue); err != nil {
 		t.Error(err)
 	}
-	if got := p.leave(); got != progressClear {
+	if got := p.leave(); got != clearedProgress {
 		t.Fatalf("leave=%q", got)
 	}
 	var restored string
 	if err := p.restore(func(b []byte) (uint64, error) { restored = string(b); return 2, nil }); err != nil {
 		t.Fatal(err)
 	}
-	if restored != progressClear {
+	if restored != clearedProgress {
 		t.Fatalf("restore=%q", restored)
 	}
 }
@@ -208,7 +208,7 @@ func TestRefusedProgressCannotAdvancePublishedState(t *testing.T) {
 		t.Error("refused operation reported success")
 	}
 	for range 2 {
-		if got := p.leave(); got != progressClear {
+		if got := p.leave(); got != clearedProgress {
 			t.Fatalf("an unadmitted clear erased an existing cleanup obligation: %q", got)
 		}
 	}
@@ -236,7 +236,7 @@ func TestProgressRetriesOwedClearWithoutAnExtraKeepalive(t *testing.T) {
 	if err := p.to(Progress{}, queue); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(written, []string{active.sequence(), progressClear}) {
+	if !slices.Equal(written, []string{active.sequence(), clearedProgress}) {
 		t.Fatalf("retry left progress displayed: %q", written)
 	}
 	p.repeat(queue)
@@ -244,3 +244,6 @@ func TestProgressRetriesOwedClearWithoutAnExtraKeepalive(t *testing.T) {
 		t.Fatalf("settled clear was repeated: %q", written)
 	}
 }
+
+// clearedProgress is the OSC 9;4 removal a session owes after showing progress.
+const clearedProgress = "\x1b]9;4;0\x07"

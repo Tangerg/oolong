@@ -2,6 +2,7 @@ package base
 
 import (
 	"context"
+	"errors"
 	"image"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // DialogConfig supplies open state, semantic text and one content relation. Place and Backdrop are pure presentation callbacks; keys and outside presses request the same Dismiss transition.
@@ -41,10 +43,14 @@ type Dialog struct {
 	presentation   scene.Snapshot[image.Rectangle]
 }
 
+// errNoDialogContent refuses a dialog with nothing to show: a modal that hides the
+// interface behind it must give the user something to answer.
+var errNoDialogContent = errors.New("base: dialog requires content")
+
 // NewDialog constructs a modal controller. It panics for empty content or, when initially open, content already owned by another scene relation.
 func NewDialog(config DialogConfig) *Dialog {
 	if config.Content.IsZero() {
-		panic("base: dialog requires content")
+		panic(errNoDialogContent)
 	}
 	d := &Dialog{title: strings.Clone(config.Title), detail: strings.Clone(config.Description), parked: config.Content, place: config.Place, backdrop: config.Backdrop, dismissOutside: config.DismissOutside, dismissed: config.Dismissed, keys: keyBinding{current: config.Keys}}
 	d.ensure()
@@ -59,10 +65,12 @@ func (d *Dialog) ensure() {
 		return
 	}
 	dismiss := scene.NewAction(scene.ActionConfig[struct{}, struct{}]{ID: scene.ActionDismiss, Label: "Dismiss", Availability: func(struct{}) scene.Availability {
-		return scene.Availability{Disabled: !d.Open(), Reason: "dialog is closed"}
+		if !d.Open() {
+			return scene.Unavailable("dialog is closed")
+		}
+		return scene.Availability{}
 	}, Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
-		d.Dismiss()
-		return scene.ActionResult[struct{}]{State: scene.Applied}, nil
+		return scene.ActionResult[struct{}]{State: scene.AppliedIf(d.Dismiss())}, nil
 	}})
 	d.group = scene.NewGroup(scene.GroupConfig{
 		Overlay: true, Modal: true,
@@ -107,26 +115,24 @@ func (d *Dialog) Element() scene.Element {
 	return d.group.Element()
 }
 
-// Open reports the current open policy. A nil dialog is closed.
+// Open reports the current open policy.
 func (d *Dialog) Open() bool {
-	if d == nil {
-		return false
-	}
 	_, open := d.group.At(0)
 	return open
 }
 
-// Show opens the content and requests modal focus settlement. It panics for missing or foreign-owned content, or during presentation or observation.
+// Show opens the content, requests modal focus settlement and reports whether the
+// dialog was closed before. It panics for missing or foreign-owned content, or during presentation or observation.
 // It also panics with [scene.ErrCleanupPending] when the content was detached in the same owner turn and its
 // lifecycle callbacks have not been flushed: reopening must wait for that cleanup, and an open dialog replaces
 // its content through [Dialog.SetContent] instead of Dismiss followed by Show.
-func (d *Dialog) Show() {
-	if d == nil || d.Open() {
-		return
+func (d *Dialog) Show() bool {
+	if d.Open() {
+		return false
 	}
 	d.ensure()
 	if d.parked.IsZero() {
-		panic("base: dialog requires content")
+		panic(errNoDialogContent)
 	}
 	requireMutable(d.Element())
 	child := d.parked
@@ -135,12 +141,14 @@ func (d *Dialog) Show() {
 		d.parked = child
 		panic(err)
 	}
+	return true
 }
 
-// Dismiss closes the modal group and lets scene restore valid focus. It panics during presentation or observation.
-func (d *Dialog) Dismiss() {
-	if d == nil || !d.Open() {
-		return
+// Dismiss closes the modal group, lets scene restore valid focus and reports
+// whether the dialog was open. It panics during presentation or observation.
+func (d *Dialog) Dismiss() bool {
+	if !d.Open() {
+		return false
 	}
 	requireMutable(d.Element())
 	d.matcher.Reset(func() {
@@ -158,13 +166,11 @@ func (d *Dialog) Dismiss() {
 			panic(err)
 		}
 	})
+	return !d.Open()
 }
 
 // Content is the one child owned by this dialog while open.
 func (d *Dialog) Content() scene.Element {
-	if d == nil {
-		return scene.Element{}
-	}
 	if item, ok := d.group.At(0); ok {
 		return item.Element
 	}
@@ -175,7 +181,7 @@ func (d *Dialog) Content() scene.Element {
 func (d *Dialog) SetContent(content scene.Element) {
 	requireMutable(d.Element())
 	if content.IsZero() {
-		panic("base: dialog requires content")
+		panic(errNoDialogContent)
 	}
 	if d.Open() {
 		if err := d.group.Set(scene.Item{Element: content, Size: layout.Flex(1)}); err != nil {
@@ -191,29 +197,20 @@ func (d *Dialog) Title() string { return d.title }
 
 // SetTitle replaces the owned semantic name. It panics during presentation or observation.
 func (d *Dialog) SetTitle(title string) {
-	requireMutable(d.Element())
-	d.title = strings.Clone(title)
-	d.Element().Invalidate()
+	setting.Assign(d.Element(), &d.title, strings.Clone(title))
 }
 
 func (d *Dialog) Description() string { return d.detail }
 
 // SetDescription replaces the owned explanation. It panics during presentation or observation.
 func (d *Dialog) SetDescription(description string) {
-	requireMutable(d.Element())
-	d.detail = strings.Clone(description)
-	d.Element().Invalidate()
+	setting.Assign(d.Element(), &d.detail, strings.Clone(description))
 }
 
 // Trigger creates an ordinary button whose action requests Show; the dialog remains the only open-state owner.
 func (d *Dialog) Trigger(label string) *Button {
 	return NewButton(ButtonConfig{Label: label, Activate: func(context.Context) (scene.ActionResult[struct{}], error) {
-		state := scene.Unchanged
-		if !d.Open() {
-			d.Show()
-			state = scene.Applied
-		}
-		return scene.ActionResult[struct{}]{State: state}, nil
+		return scene.ActionResult[struct{}]{State: scene.AppliedIf(d.Show())}, nil
 	}})
 }
 
@@ -223,29 +220,13 @@ func (d *Dialog) handleEvent(event scene.Event) scene.EventResult {
 	}
 	if mouse, ok := event.Input().(input.Mouse); ok {
 		area, valid := event.Read(&d.presentation)
-		if valid && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft && !mouse.Pos.In(area) && d.dismissOutside {
+		if valid && mouse.Presses(input.ButtonLeft) && !mouse.Pos.In(area) && d.dismissOutside {
 			d.Dismiss()
 			return scene.EventResult{Consumed: true}
 		}
 		return scene.EventResult{}
 	}
-	key, ok := event.Input().(input.Key)
-	if !ok || !key.Down() {
-		return scene.EventResult{}
-	}
-	keyboard := d.Element().KeyboardLease()
-	_, handled := d.matcher.Handle(d.keys.resolve(dialogKeys), key, keyboard.Valid, func(action keymap.Action) bool {
-		switch action {
-		case FocusNext:
-			return keyboard.FocusNext(false)
-		case FocusPrev:
-			return keyboard.FocusNext(true)
-		case Close:
-			d.Dismiss()
-			return true
-		default:
-			return false
-		}
+	return containerKey(event, d.Element(), &d.matcher, d.keys.resolve(dialogKeys), func(action keymap.Action) bool {
+		return action == Close && d.Dismiss()
 	})
-	return scene.EventResult{Consumed: handled}
 }

@@ -23,10 +23,7 @@ func expectTranscriptRevisionExhaustion(t *testing.T, change func()) {
 func TestTranscriptRevisionExhaustionPreservesOwnedReferences(t *testing.T) {
 	for _, operation := range []string{"add", "accept", "close"} {
 		t.Run(operation, func(t *testing.T) {
-			transcript, err := NewTranscript(TranscriptConfig{})
-			if err != nil {
-				t.Fatal(err)
-			}
+			transcript := NewTranscript(TranscriptConfig{})
 			t.Cleanup(func() { transcript.revision = 0; transcript.Close() })
 			item, err := transcript.Add(identityBlock{})
 			if err != nil {
@@ -71,10 +68,7 @@ func TestTranscriptReservesRevisionsBeforeTransferringPublication(t *testing.T) 
 	for _, operation := range []string{"immediate add", "resume prefix"} {
 		t.Run(operation, func(t *testing.T) {
 			publisher := &countingTranscriptPublisher{Publisher: transcriptPublisher(t)}
-			transcript, err := NewTranscript(TranscriptConfig{Publisher: publisher, Retention: PublishCompleted})
-			if err != nil {
-				t.Fatal(err)
-			}
+			transcript := NewTranscript(TranscriptConfig{Publisher: publisher, Retention: PublishCompleted})
 			t.Cleanup(func() { transcript.revision = 0; transcript.Close() })
 			if operation == "resume prefix" {
 				if _, err := publisher.TryPublish(identityBlock{}); err != nil {
@@ -109,10 +103,7 @@ func TestTranscriptReservesRevisionsBeforeTransferringPublication(t *testing.T) 
 }
 
 func TestTranscriptCanUseItsLastRepresentableRevision(t *testing.T) {
-	transcript, err := NewTranscript(TranscriptConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{})
 	t.Cleanup(func() { transcript.revision = 0; transcript.Close() })
 	transcript.revision = math.MaxUint64 - 1
 	item, err := transcript.Add(identityBlock{})

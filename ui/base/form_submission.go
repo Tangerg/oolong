@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/enum"
 )
 
 // SubmissionID identifies one validated attempt, independently of the worker
@@ -26,6 +27,15 @@ const (
 	SubmissionFailed
 	SubmissionCancelled
 )
+
+var submissionStateNames = [...]string{
+	SubmissionIdle: "idle", SubmissionPending: "pending", SubmissionSucceeded: "succeeded",
+	SubmissionFailed: "failed", SubmissionCancelled: "cancelled",
+}
+
+func (s SubmissionState) String() string {
+	return enum.Name(submissionStateNames[:], s, "SubmissionState")
+}
 
 // SubmissionOutcome settles one asynchronous attempt. Cancellation and failure do not imply successful submission.
 type SubmissionOutcome struct {
@@ -202,7 +212,7 @@ func (f *Form) cancelAction() scene.ActionBinding {
 		ID: ActionCancel, Label: "Cancel submission",
 		Availability: func(id SubmissionID) scene.Availability {
 			if !f.canCancel() || id != f.attempt.ID {
-				return scene.Availability{Disabled: true, Reason: "submission is not current or cancellable"}
+				return scene.Unavailable("submission is not current or cancellable")
 			}
 			return scene.Availability{}
 		},

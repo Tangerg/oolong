@@ -65,7 +65,7 @@ type agent struct {
 
 	conversation *conversation
 	workflow     workflow
-	composer     *kit.Composer
+	composer     *kit.Editor
 	commands     base.Commands[commandAction]
 	completion   *base.Completion
 	planningMode planningMode
@@ -91,23 +91,12 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, err
 		runtime: runtime, backend: backend, theme: theme, glyphs: glyphs,
 		workflow: newWorkflow(theme, glyphs), planningMode: planningCareful,
 	}
-	if err := a.buildReview(); err != nil {
-		return nil, err
-	}
+	a.buildReview()
 	keys := base.DefaultEditorKeys()
 	keys.Bind(sendPrompt, input.Chord{Code: input.Enter})
 	keys.Bind(cancelSource, input.Ctrl.Rune('x'))
 	keys.Bind(quitAgent, input.Ctrl.Rune('c'))
-	a.composer = kit.NewComposer(kit.ComposerConfig{
-		Theme:       theme,
-		Glyphs:      glyphs,
-		Prompt:      glyphs.Marker + " ",
-		Hints:       []keymap.Action{sendPrompt, cancelSource, quitAgent},
-		MaxRows:     composerMaxRows,
-		Placeholder: "Ask the mock agent to change something",
-		Keys:        keys,
-		Clipboard:   runtime.Clipboard(),
-	})
+	a.composer = kit.NewEditor(kit.EditorConfig{Behavior: base.EditorConfig{MaxRows: composerMaxRows, Placeholder: "Ask the mock agent to change something", Keys: keys, Clipboard: runtime.Clipboard()}, Theme: theme, Glyphs: glyphs, Prompt: glyphs.Marker + " ", Hints: []keymap.Action{sendPrompt, cancelSource, quitAgent}})
 	a.completion = a.newCommandCompletion()
 	a.registerCommands()
 
@@ -116,16 +105,13 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, err
 		return nil, err
 	}
 	a.scope = scope
-	a.conversation, err = newConversation(conversationConfig{Runtime: runtime.Runtime, Scope: scope, Theme: theme, Glyphs: glyphs, Wheel: environment.Wheel(), Publisher: runtime.Publisher()})
+	a.conversation, err = newConversation(conversationConfig{Runtime: runtime.Runtime, Scope: scope, Theme: theme, Glyphs: glyphs, Locale: environment.Locale(), Wheel: environment.Wheel(), Publisher: runtime.Publisher()})
 	if err != nil {
 		scope.Close()
 		return nil, err
 	}
 
-	workflow := scene.NewElement(scene.ElementConfig{
-		Paint:   func(frame scene.Frame) { a.workflow.Draw(frame.View) },
-		Measure: scene.MeasureRows(a.workflow.HeightForWidth),
-	})
+	workflow := scene.NewElement(scene.Passive(&a.workflow))
 	status := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { a.drawStatus(frame.View) }})
 	body := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 		{Size: layout.Flex(1), Element: a.conversation.Element()},
@@ -135,8 +121,11 @@ func newAgent(runtime *program.InlineRuntime, backend agentBackend) (*agent, err
 	}})
 	unsubscribe := a.composer.Controller().Session().Subscribe(func(base.ChangeMap) { a.refreshCompletion() })
 	a.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
-		Key:     agentKey,
-		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: a.Handle(event.Input())} },
+		Key: agentKey,
+		// Session commands are shortcuts: they still answer behind an open review,
+		// which every other key of the conversation must leave alone.
+		Shortcut: func(event scene.Event) scene.EventResult { return event.Result(a.sessionKey(event.Input())) },
+		Preview:  func(event scene.Event) scene.EventResult { return event.Result(a.Handle(event.Input())) },
 		Detached: func() {
 			unsubscribe()
 			a.withdrawReview(program.ErrScopeClosed)
@@ -157,9 +146,6 @@ func (a *agent) Handle(event input.Event) bool {
 		return false
 	}
 	action, _ := a.composer.Controller().Keys().ActionFor(key)
-	if a.sessionAction(action) {
-		return true
-	}
 	if a.completion.Handle(event) {
 		return true
 	}
@@ -170,9 +156,11 @@ func (a *agent) Handle(event input.Event) bool {
 	return false
 }
 
-// The root and the review pane opt into the same session commands. Other
-// root shortcuts must not run behind an open review.
-func (a *agent) sessionKey(key input.Key) bool {
+func (a *agent) sessionKey(event input.Event) bool {
+	key, ok := event.(input.Key)
+	if !ok || !key.Down() {
+		return false
+	}
 	action, _ := a.composer.Controller().Keys().ActionFor(key)
 	return a.sessionAction(action)
 }
@@ -212,7 +200,7 @@ func (a *agent) submit() {
 // inform reports a message on the status line through its current owner.
 func (a *agent) inform(message string) {
 	if a.run != nil {
-		a.run.status.Doing = message
+		a.run.status.Label = message
 		return
 	}
 	a.outcome = sessionOutcome{detail: message}

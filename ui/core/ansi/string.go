@@ -1,5 +1,7 @@
 package ansi
 
+import "strconv"
+
 type StringFamily byte
 
 const (
@@ -9,6 +11,35 @@ const (
 	PM  StringFamily = '^'
 	SOS StringFamily = 'X'
 )
+
+// Each introducer is Escape followed by its family byte above.
+const (
+	OSCIntroducer = escapeText + string(OSC)
+	DCSIntroducer = escapeText + string(DCS)
+	APCIntroducer = escapeText + string(APC)
+)
+
+// OSC commands the framework sends or reads. Encoders, decoders and output models
+// share these numbers, as they share SGR parameters.
+const (
+	// OSCTitle sets the icon and window titles together, so destinations that tell
+	// them apart cannot keep inconsistent names.
+	OSCTitle     = 0
+	OSCDirectory = 7
+	// OSCHyperlink opens and closes a hyperlink.
+	OSCHyperlink = 8
+	// OSCNotify posts a notification. ConEmu also reads task progress from it.
+	OSCNotify     = 9
+	OSCForeground = 10
+	OSCBackground = 11
+	OSCClipboard  = 52
+	// OSCInlineFile is iTerm2's inline image transfer.
+	OSCInlineFile = 1337
+)
+
+// OSCPrefix starts an OSC sequence for command, up to its first parameter. The
+// caller adds the parameters and a terminator.
+func OSCPrefix(command int) string { return OSCIntroducer + strconv.Itoa(command) + ";" }
 
 func (f StringFamily) Valid() bool {
 	switch f {
@@ -46,7 +77,7 @@ func (f StringFamily) Step(current, next byte, hasNext bool) (int, StringResult)
 		return 1, StringContent
 	case !hasNext:
 		return 0, StringIncomplete
-	case next == '\\':
+	case next == stringTerminatorFinal:
 		return 2, StringTerminated
 	default:
 		return 0, StringCanceled

@@ -1,14 +1,12 @@
 package kit
 
 import (
-	"errors"
-	"math"
 	"slices"
-	"weak"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
-
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/counter"
+	"github.com/Tangerg/oolong/ui/internal/weakset"
 )
 
 // ThemeSnapshot is one immutable palette and the application theme version that
@@ -25,7 +23,7 @@ type ThemeOwner struct {
 	noCopy    noCopy
 	palette   Theme
 	revision  uint64
-	consumers []weak.Pointer[themeConsumer]
+	consumers weakset.Set[themeConsumer]
 }
 
 // NewThemeOwner installs the application's initial palette. A zero palette keeps
@@ -48,29 +46,21 @@ func (o *ThemeOwner) Set(palette Theme) bool {
 	if o.palette == palette {
 		return false
 	}
-	if o.revision == math.MaxUint64 {
+	if _, ok := counter.Next(o.revision); !ok {
 		panic("kit: theme revision exhausted")
 	}
-	live := make([]weak.Pointer[themeConsumer], 0, len(o.consumers))
-	for _, weakConsumer := range o.consumers {
-		consumer := weakConsumer.Value()
-		if consumer == nil {
-			continue
-		}
+	live := o.consumers.Live()
+	for _, consumer := range live {
 		if err := consumer.element.CheckMutation(); err != nil {
 			panic(err)
 		}
-		live = append(live, weakConsumer)
 	}
-	clear(o.consumers[len(live):])
-	o.consumers = live
+	o.consumers.Prune(nil)
 	o.palette = palette
 	o.revision++
 	// Register every wake before a scene predicate can interrupt publication.
-	for _, weakConsumer := range slices.Backward(live) {
-		if consumer := weakConsumer.Value(); consumer != nil {
-			defer consumer.element.Invalidate()
-		}
+	for _, consumer := range slices.Backward(live) {
+		defer consumer.element.Invalidate()
 	}
 	return true
 }
@@ -105,18 +95,19 @@ type appearance struct {
 
 // newAppearance accepts either an application's scope or a complete static
 // palette. The latter receives a private owner; no component stores a writable
-// copy of a live application palette.
-func newAppearance(palette Theme, scope *ThemeScope, override ThemeOverride) (appearance, error) {
+// copy of a live application palette. Competing palette sources and a scope with
+// no owner are wiring errors every constructor refuses the same way: it panics.
+func newAppearance(palette Theme, scope *ThemeScope, override ThemeOverride) appearance {
 	if scope != nil && palette != (Theme{}) {
-		return appearance{}, errors.New("kit: Theme and Scope are mutually exclusive")
+		panic("kit: Theme and Scope are mutually exclusive")
 	}
 	if scope == nil {
 		scope = NewThemeOwner(palette).Scope()
 	}
 	if scope.owner == nil {
-		return appearance{}, errors.New("kit: theme scope has no owner")
+		panic("kit: theme scope has no owner")
 	}
-	return appearance{scope: *scope.With(override)}, nil
+	return appearance{scope: *scope.With(override)}
 }
 
 func (a *appearance) bind(element scene.Element) {
@@ -143,16 +134,4 @@ func (a *appearance) palette() Theme {
 	return a.scope.Snapshot().Palette
 }
 
-func (o *ThemeOwner) retain(consumer *themeConsumer) {
-	if len(o.consumers) == cap(o.consumers) {
-		live := o.consumers[:0]
-		for _, reference := range o.consumers {
-			if reference.Value() != nil {
-				live = append(live, reference)
-			}
-		}
-		clear(o.consumers[len(live):])
-		o.consumers = live
-	}
-	o.consumers = append(o.consumers, weak.Make(consumer))
-}
+func (o *ThemeOwner) retain(consumer *themeConsumer) { o.consumers.Add(consumer) }

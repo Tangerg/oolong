@@ -3,24 +3,21 @@ package base
 import (
 	"context"
 	"slices"
+	"strconv"
 
+	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
-
-	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/input"
-	"github.com/Tangerg/oolong/ui/core/keymap"
 )
 
-// Table owns rows and their sort order. Its private List prevents replacement
-// from bypassing sorting; appearance owns column geometry. The zero value is ready.
+// Table owns rows and their sort order. Its SetItems reapplies the active sort, so
+// replacement cannot bypass sorting; appearance owns column geometry. Navigation,
+// hit testing and subscription are a [List]'s. The zero value is ready.
 // A Table must not be copied after first use. Comparisons must be pure; reentrant
 // ordering mutations panic and failed comparisons preserve the previous state.
 // Exhausting the collection revision panics before changing rows or sort metadata.
 type Table[T any] struct {
-	element scene.Element
-	noCopy  noCopy
-
-	rows List[T]
+	rows[T]
+	noCopy noCopy
 
 	sortColumns func(column int) func(a, b T) int
 
@@ -32,16 +29,14 @@ type SortOrder struct {
 	Descending bool
 }
 
+// TableConfig is a [ListConfig]: a table's rows take the same settings as a list's.
 type TableConfig[T any] struct {
-	Items []T
-	Row   func(grid.View, int, T, bool)
-	Keys  *keymap.Map
-	Wrap  bool
+	ListConfig[T]
 }
 
 func NewTable[T any](config TableConfig[T]) *Table[T] {
 	t := &Table[T]{}
-	t.rows.rowPainter, t.rows.keys.current, t.rows.wrap = config.Row, config.Keys, config.Wrap
+	t.configure(config.ListConfig)
 	t.SetItems(config.Items)
 	return t
 }
@@ -68,9 +63,9 @@ func (t *Table[T]) SetSortColumns(columns func(column int) func(a, b T) int) {
 		t.ClearSort()
 		return
 	}
-	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), compare, *t.order)
-	t.rows.requireReplacement()
-	t.rows.matcher.Reset(func() {
+	items, selected := t.sortRows(t.Items(), t.Selected(), compare, *t.order)
+	t.requireReplacement()
+	t.matcher.Reset(func() {
 		t.sortColumns = columns
 		t.replaceRows(items, selected)
 	})
@@ -98,9 +93,9 @@ func (t *Table[T]) SetSort(order SortOrder) bool {
 	if compare == nil {
 		return false
 	}
-	items, selected := t.sortRows(t.rows.Items(), t.rows.Selected(), compare, order)
-	t.rows.requireReplacement()
-	t.rows.matcher.Reset(func() {
+	items, selected := t.sortRows(t.Items(), t.Selected(), compare, order)
+	t.requireReplacement()
+	t.matcher.Reset(func() {
 		t.order = &order
 		t.replaceRows(items, selected)
 	})
@@ -118,22 +113,24 @@ func (t *Table[T]) columnComparator(columns func(int) func(T, T) int, column int
 	return readProjection(t.Element(), func() func(T, T) int { return columns(column) })
 }
 
-// Sorted returns the sort column, reverse flag and whether sorting is active.
-// An unsorted table returns (0, false, false).
-func (t *Table[T]) Sorted() (column int, descending, ok bool) {
+// Sorted returns the active order and whether the rows are sorted at all.
+func (t *Table[T]) Sorted() (SortOrder, bool) {
 	if t.order == nil {
-		return 0, false, false
+		return SortOrder{}, false
 	}
-	return t.order.Column, t.order.Descending, true
+	return *t.order, true
 }
 
-// ClearSort clears sort metadata without moving rows.
-func (t *Table[T]) ClearSort() {
+// ClearSort clears sort metadata without moving rows and reports whether the
+// rows were sorted.
+func (t *Table[T]) ClearSort() bool {
 	requireMutable(t.element)
-	if t.order != nil {
-		t.order = nil
-		t.element.Invalidate()
+	if t.order == nil {
+		return false
 	}
+	t.order = nil
+	t.element.Invalidate()
+	return true
 }
 
 // SetItems reapplies the active sort before publishing rows. A lookup that revokes
@@ -141,7 +138,7 @@ func (t *Table[T]) ClearSort() {
 func (t *Table[T]) SetItems(items []T) {
 	requireMutable(t.element)
 	items = slices.Clone(items)
-	selected := min(max(t.rows.selected, 0), max(len(items)-1, 0))
+	selected := t.followed(items, min(max(t.selected, 0), max(len(items)-1, 0)))
 	if t.order != nil {
 		compare := t.columnComparator(t.sortColumns, t.order.Column)
 		if compare == nil {
@@ -149,50 +146,15 @@ func (t *Table[T]) SetItems(items []T) {
 		}
 		items, selected = t.sortRows(items, selected, compare, *t.order)
 	}
-	t.rows.requireReplacement()
-	t.rows.matcher.Reset(func() {
+	t.requireReplacement()
+	t.matcher.Reset(func() {
 		t.replaceRows(items, selected)
 	})
 }
 
-func (t *Table[T]) Items() []T { return t.rows.Items() }
-
-func (t *Table[T]) Len() int { return t.rows.Len() }
-
-func (t *Table[T]) At(index int) (T, bool) { return t.rows.At(index) }
-
-// Selected is the index of the row under the cursor, or -1.
-func (t *Table[T]) Selected() int { return t.rows.Selected() }
-
-func (t *Table[T]) Current() (T, bool) { return t.rows.Current() }
-
-func (t *Table[T]) Select(i int) { t.rows.Select(i) }
-
-func (t *Table[T]) Move(n int) { t.rows.Move(n) }
-
-func (t *Table[T]) Scroll() *Scroll { return t.rows.Scroll() }
-
-func (t *Table[T]) focusChanged(has bool) { t.rows.focusChanged(has) }
-
-func (t *Table[T]) Focused() bool { return t.rows.Focused() }
-
-func (t *Table[T]) Handle(ev input.Event) bool { return t.rows.Handle(ev) }
-
-func (t *Table[T]) Do(action keymap.Action) bool { return t.rows.Do(action) }
-
-func (t *Table[T]) HeightForWidth(width int) int { return t.rows.HeightForWidth(width) }
-
-func (t *Table[T]) Draw(v scene.Frame) { t.rows.Draw(v) }
-
-// DrawRows paints the rows that fit with a caller's own row painter — see
-// [List.DrawRows].
-func (t *Table[T]) DrawRows(v scene.Frame, draw func(grid.View, int, T, bool)) {
-	t.rows.DrawRows(v, draw)
-}
-
 func (t *Table[T]) replaceRows(items []T, selected int) {
-	t.rows.replaceItems(items, selected)
-	t.rows.notifyChange()
+	t.replaceItems(items, selected)
+	t.notifyChange()
 }
 
 // Sorting a permutation preserves the selected row without requiring T equality.
@@ -233,19 +195,15 @@ func (t *Table[T]) sortAction() scene.ActionBinding {
 		ID: ActionSort, Label: "Set sort order",
 		Availability: func(order SortOrder) scene.Availability {
 			if !t.canSort(order.Column) {
-				return scene.Availability{Disabled: true, Reason: "sort order is not available"}
+				return scene.Unavailable("sort order is not available")
 			}
 			return scene.Availability{}
 		},
 		Run: func(_ context.Context, order SortOrder) (scene.ActionResult[*SortOrder], error) {
-			state := scene.Unchanged
-			if t.SetSort(order) {
-				state = scene.Applied
-			}
+			state := scene.AppliedIf(t.SetSort(order))
 			var current *SortOrder
-			if t.order != nil {
-				orderSnapshot := *t.order
-				current = &orderSnapshot
+			if order, sorted := t.Sorted(); sorted {
+				current = &order
 			}
 			return scene.ActionResult[*SortOrder]{State: state, Value: current}, nil
 		},
@@ -256,33 +214,24 @@ func (t *Table[T]) clearSortAction() scene.ActionBinding {
 	return scene.NewAction(scene.ActionConfig[struct{}, struct{}]{
 		ID: ActionClearSort, Label: "Clear sort order",
 		Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
-			state := scene.Unchanged
-			if t.order != nil {
-				t.ClearSort()
-				state = scene.Applied
-			}
-			return scene.ActionResult[struct{}]{State: state}, nil
+			return scene.ActionResult[struct{}]{State: scene.AppliedIf(t.ClearSort())}, nil
 		},
 	}).Binding()
 }
 
-func (t *Table[T]) Row() func(grid.View, int, T, bool) { return t.rows.Row() }
-
-func (t *Table[T]) SetRow(value func(grid.View, int, T, bool)) {
-	t.Element()
-	t.rows.SetRow(value)
-}
-
-func (t *Table[T]) Keys() *keymap.Map { return t.rows.Keys() }
-
-func (t *Table[T]) SetKeys(value *keymap.Map) {
-	t.Element()
-	t.rows.SetKeys(value)
-}
-
-func (t *Table[T]) Wrap() bool { return t.rows.Wrap() }
-
-func (t *Table[T]) SetWrap(value bool) {
-	t.Element()
-	t.rows.SetWrap(value)
+func (t *Table[T]) Element() scene.Element {
+	if t.element.IsZero() {
+		t.element = scene.NewElement(scene.ElementConfig{
+			Measure: layout.MeasureRows(t.HeightForWidth), Paint: t.Draw,
+			Handle: func(event scene.Event) scene.EventResult {
+				return partEvent(event, t.Handle, &t.geometry, &t.pointer.geometry)
+			},
+			Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
+			Semantics: func() scene.Semantic {
+				return scene.Semantic{Role: scene.RoleTable, ContentRevision: t.contentRevision, Value: strconv.Itoa(t.Selected())}
+			}, Actions: append(collectionActions(&t.rows, unchangedItem[T]), collectionActivateAction(&t.rows), t.sortAction(), t.clearSortAction()),
+		})
+	}
+	t.adopt(t.element)
+	return t.element
 }

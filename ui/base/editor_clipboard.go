@@ -47,7 +47,7 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 	start, end := e.replacementRange()
 	target := pasteTarget{
 		attachment: element.Attachment(), session: e.document(), revision: e.Revision(),
-		cursor: Caret{Line: e.line, Byte: e.byteOffset}, start: start, end: end,
+		cursor: e.caret, start: start, end: end,
 	}
 	return e.clipboard.Read(ctx, func(value string, err error) {
 		if ctx.Err() != nil {
@@ -66,7 +66,7 @@ func (e *Editor) Paste(ctx context.Context, complete func(error)) error {
 func (p pasteTarget) current(e *Editor) bool {
 	start, end := e.replacementRange()
 	if p.session != e.document() || p.revision != e.Revision() ||
-		p.cursor != (Caret{Line: e.line, Byte: e.byteOffset}) || p.start != start || p.end != end {
+		p.cursor != e.caret || p.start != start || p.end != end {
 		return false
 	}
 	target := p.attachment.Target()
@@ -76,26 +76,31 @@ func (p pasteTarget) current(e *Editor) bool {
 	return target.Valid() && e.element.Target() == target
 }
 
-// PasteError belongs to the latest keyboard paste request; older completions
-// cannot replace it. Programmatic requests return their own errors without
-// changing this feedback.
-func (e *Editor) PasteError() error { return e.pasteFeedback.err }
+// ClipboardError belongs to the latest keyboard copy, cut or paste; an older
+// paste completion cannot replace it. Programmatic requests return their own
+// errors without changing this feedback.
+func (e *Editor) ClipboardError() error { return e.clipboardFeedback.err }
 
 func (e *Editor) pasteFromInput() {
-	turn := e.pasteFeedback.begin()
-	e.finishPasteFeedback(turn, nil)
+	turn := e.clipboardFeedback.begin()
+	e.finishClipboardFeedback(turn, nil)
 	if err := e.Paste(context.Background(), func(err error) {
 		if err != ErrPasteStale { //nolint:errorlint // Only a bare stale result is quiet; wrapped and joined provider failures must survive.
-			e.finishPasteFeedback(turn, err)
+			e.finishClipboardFeedback(turn, err)
 		}
 	}); err != nil {
-		e.finishPasteFeedback(turn, err)
+		e.finishClipboardFeedback(turn, err)
 	}
 }
 
-func (e *Editor) finishPasteFeedback(turn *byte, err error) {
+// recordClipboard is the feedback of a keyboard copy or cut, which settles at once.
+func (e *Editor) recordClipboard(err error) {
+	e.finishClipboardFeedback(e.clipboardFeedback.begin(), err)
+}
+
+func (e *Editor) finishClipboardFeedback(turn *byte, err error) {
 	e.requireMutable()
-	if e.pasteFeedback.finish(turn, err) {
+	if e.clipboardFeedback.finish(turn, err) {
 		e.element.Invalidate()
 	}
 }
@@ -105,9 +110,9 @@ func (e *Editor) finishPasteFeedback(turn *byte, err error) {
 // A runtime adapter commonly provides it, but the interface is declared here where
 // it is consumed. A caller with somewhere else to put text is equally valid.
 type Clipboard interface {
-	// Copy puts text where a paste would find it, reporting false for text it will
-	// not carry.
-	Copy(text string) bool
+	// Copy puts text where a paste would find it. A returned error means nothing was
+	// put there.
+	Copy(text string) error
 	// Read accepts a directed read. receive runs on the caller's UI owner sequence,
 	// including for failure; it must never be invoked by a background worker.
 	// Caller cancellation or this provider's owner ending revokes receive; no

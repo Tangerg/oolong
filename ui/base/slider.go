@@ -1,14 +1,16 @@
 package base
 
 import (
+	"context"
 	"image"
+	"strconv"
 	"strings"
-
-	"github.com/Tangerg/oolong/ui/core/scene"
 
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // Slider owns one integer constrained to a range and the interactions that change it.
@@ -64,9 +66,6 @@ func NewSlider(config SliderConfig) *Slider {
 
 // Bounds returns the inclusive minimum and maximum.
 func (s *Slider) Bounds() (minimum, maximum int) {
-	if s == nil {
-		return 0, 0
-	}
 	return s.minimum, s.maximum
 }
 
@@ -76,12 +75,7 @@ func (s *Slider) Bounds() (minimum, maximum int) {
 // error and panics. The latter cannot be mapped onto a finite terminal extent without
 // giving the same position two incompatible integer meanings.
 func (s *Slider) SetBounds(minimum, maximum int) {
-	if s != nil {
-		requireMutable(s.element)
-	}
-	if s == nil {
-		return
-	}
+	requireMutable(s.element)
 	if maximum < minimum || maximum-minimum < 0 {
 		panic("base: slider bounds have an invalid span")
 	}
@@ -95,7 +89,7 @@ func (s *Slider) SetBounds(minimum, maximum int) {
 // Step returns how much one increase or decrease changes the value. The zero Slider
 // uses one.
 func (s *Slider) Step() int {
-	if s == nil || s.step <= 0 {
+	if s.step <= 0 {
 		return 1
 	}
 	return s.step
@@ -106,13 +100,11 @@ func (s *Slider) Step() int {
 // it move the value the way the other arrow does, neither of which a slider can
 // report to the user as anything but being broken.
 func (s *Slider) SetStep(step int) {
-	if s != nil {
-		requireMutable(s.element)
-	}
 	if step <= 0 {
 		panic("base: slider step must be positive")
 	}
-	if s != nil && s.Step() != step {
+	requireMutable(s.element)
+	if s.Step() != step {
 		s.step = step
 		s.element.Invalidate()
 	}
@@ -120,21 +112,13 @@ func (s *Slider) SetStep(step int) {
 
 // Value returns the current value, clamped to the slider's bounds.
 func (s *Slider) Value() int {
-	if s == nil {
-		return 0
-	}
 	return s.value
 }
 
 // Set changes the value, clamped to the slider's bounds, and reports whether the
 // stored value changed.
 func (s *Slider) Set(value int) bool {
-	if s != nil {
-		requireMutable(s.element)
-	}
-	if s == nil {
-		return false
-	}
+	requireMutable(s.element)
 	value = min(max(value, s.minimum), s.maximum)
 	if value == s.value {
 		return false
@@ -146,7 +130,7 @@ func (s *Slider) Set(value int) bool {
 
 // Move changes the value by a number of steps, saturating at either bound.
 func (s *Slider) Move(steps int) bool {
-	if s == nil || steps == 0 {
+	if steps == 0 {
 		return false
 	}
 	value, step := s.Value(), s.Step()
@@ -165,25 +149,16 @@ func (s *Slider) Move(steps int) bool {
 }
 
 func (s *Slider) Label() string {
-	if s == nil {
-		return ""
-	}
 	return s.label
 }
 
 func (s *Slider) SetLabel(label string) {
-	if s != nil {
-		requireMutable(s.element)
-	}
-	if s != nil && s.label != label {
-		s.label = strings.Clone(label)
-		s.element.Invalidate()
-	}
+	setting.Assign(s.element, &s.label, strings.Clone(label))
 }
 
 // Position maps the current value onto cells positions from zero through cells-1.
 func (s *Slider) Position(cells int) int {
-	if s == nil || cells <= 1 || s.maximum == s.minimum {
+	if cells <= 1 || s.maximum == s.minimum {
 		return 0
 	}
 	return layout.Scale(cells-1, s.Value()-s.minimum, s.maximum-s.minimum)
@@ -194,18 +169,12 @@ func (s *Slider) Position(cells int) int {
 // complete root frame commits.
 // It panics unless the slider is mounted in the frame's scene outside read-only projection.
 func (s *Slider) Stage(frame scene.Frame, track image.Rectangle) {
-	if s == nil {
-		return
-	}
 	requireProjection(s.element, frame)
 	s.pointer.Stage(frame, track)
 }
 
 // Handle applies bound keys and a left-button drag to the value.
 func (s *Slider) Handle(event input.Event) bool {
-	if s == nil {
-		return false
-	}
 	requireMutable(s.element)
 	if mouse, ok := event.(input.Mouse); ok {
 		return s.mouse(mouse)
@@ -271,6 +240,37 @@ func (s *Slider) resolvedKeys() *keymap.Map { return s.keys.resolve(sliderKeys) 
 
 func (s *Slider) Keys() *keymap.Map { return s.keys.current }
 
+// KeysFor is what the effective key map binds to action, defaults included.
+func (s *Slider) KeysFor(action keymap.Action) []input.Keys { return s.keys.bound(sliderKeys, action) }
+
 func (s *Slider) SetKeys(keys *keymap.Map) {
-	s.keys.set(s.Element(), &s.matcher, keys)
+	s.keys.set(s.element, &s.matcher, keys)
+}
+
+func (s *Slider) Element() scene.Element {
+	if s.element.IsZero() {
+		set := scene.NewAction(scene.ActionConfig[int, int]{ID: scene.ActionSetValue, Label: "Set value", Run: func(_ context.Context, value int) (scene.ActionResult[int], error) {
+			state := scene.AppliedIf(s.Set(value))
+			return scene.ActionResult[int]{State: state, Value: s.Value()}, nil
+		}})
+		s.element = scene.NewElement(scene.ElementConfig{
+			Focusable: func() bool { return true }, FocusChanged: s.focusChanged,
+			Measure: func(axis layout.Axis, _ int) int {
+				if axis == layout.Down {
+					return 1
+				}
+				return 0
+			},
+			Paint: func(frame scene.Frame) {
+				s.Stage(frame, frame.Bounds())
+				frame.Text(0, 0, strconv.Itoa(s.Value()), Look{}.Text)
+			},
+			Handle: func(e scene.Event) scene.EventResult { return partEvent(e, s.Handle, &s.pointer.geometry) },
+			Semantics: func() scene.Semantic {
+				return scene.Semantic{Role: scene.RoleSlider, Name: s.Label(), Value: strconv.Itoa(s.Value())}
+			}, Actions: []scene.ActionBinding{set.Binding()},
+		})
+	}
+	s.keys.attach(s.element, &s.matcher)
+	return s.element
 }

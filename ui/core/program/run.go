@@ -136,14 +136,13 @@ func (p *program) buildInterface(cfg runConfig, width, height int, depth grid.De
 	}
 	if cfg.inline {
 		p.inline = target.Inline(width, height)
-		p.canvas = p.inline
 	} else {
-		p.canvas = target.Screen(width, height)
+		p.screen = target.Screen(width, height)
 	}
 	// Construction may publish inline output. Its canvas must already interpret
 	// default colours against the same startup facts given to the component.
-	p.canvas.SetDepth(depth)
-	p.canvas.SetGround(p.environment.Ground())
+	p.canvas().SetDepth(depth)
+	p.canvas().SetGround(p.environment.Ground())
 	if cfg.inline {
 		publisher, err := publication.New(publication.Config{Limits: cfg.publication, Width: width, Ground: p.environment.Ground()})
 		if err != nil {
@@ -176,10 +175,10 @@ type program struct {
 	nextTask    uint64
 	host        hostServices
 	inputPipe   *inputPipe
-	canvas      canvas
-	// inline is the canvas again when the interface is drawn in the terminal's own
-	// screen, and nil when it has a screen to itself. It is what printing needs and
-	// a screen cannot offer.
+	// Exactly one of screen and inline is set: the interface either has a screen
+	// to itself or draws a block in the terminal's own output, which is what
+	// printing needs and a screen cannot offer.
+	screen *grid.Screen
 	inline *grid.Inline
 	writer FrameWriter
 	// queued is the last sequence this program received. Other users of the same
@@ -358,41 +357,34 @@ func (p *program) answerRepaint(request *repaintRequest) error {
 // runTasks takes one scheduling turn. Work posted while this batch runs leaves
 // another wake-up, so a burst already waiting cannot keep input out of the select.
 func (p *program) runTasks() {
-	for _, task := range p.tasks.take() {
+	tasks, refresh := p.tasks.take()
+	for _, task := range tasks {
 		p.apply(task)
 		if p.quit.Load() {
 			return
 		}
 	}
+	if refresh {
+		p.present.RequestBy(time.Now(), p.frameInterval)
+	}
 }
 
 func (p *program) writerChanged(open bool) error {
 	p.wrote(p.writer.Written())
-	if !open {
-		p.outputFailed = true
-		if err := p.writer.Err(); err != nil {
-			p.failPublications(err)
-			return err
-		}
-		err := fmt.Errorf("program: frame writer changes channel closed: %w", term.ErrClosed)
-		p.failPublications(err)
-		return err
+	err := p.writer.Err()
+	if err == nil && !open {
+		err = fmt.Errorf("program: frame writer changes channel closed: %w", term.ErrClosed)
 	}
-	if err := p.writer.Err(); err != nil {
-		p.outputFailed = true
-		p.failPublications(err)
-		// A terminal that has failed a write does not recover, and an interface that
-		// cannot reach its terminal has nothing left to do.
-		return err
+	if err == nil {
+		return nil
 	}
-	return nil
+	// A terminal that has failed a write does not recover, and an interface that
+	// cannot reach its terminal has nothing left to do.
+	p.failOutput(err)
+	return err
 }
 
 func (p *program) apply(task func() bool) {
-	if task == nil {
-		p.present.RequestBy(time.Now(), p.frameInterval)
-		return
-	}
 	before := p.root.Progress().ModelRevision
 	invalidate := task()
 	// An invalidating task always settles the scene: a revision it advanced may
@@ -411,7 +403,7 @@ func (p *program) handleInput(ev scene.CapturedInput) error {
 		if err := grid.ValidateTerminalSize(e.Width, e.Height); err != nil {
 			return err
 		}
-		p.canvas.Resize(e.Width, e.Height)
+		p.canvas().Resize(e.Width, e.Height)
 		if p.publisher != nil {
 			if err := p.publisher.SetGeometry(e.Width, p.environment.Ground()); err != nil {
 				return err
@@ -421,9 +413,10 @@ func (p *program) handleInput(ev scene.CapturedInput) error {
 		p.present.RequestFull()
 		return nil
 	case input.FocusIn:
+		// A terminal regaining focus may have been drawn over, so it gets a complete
+		// frame; the application still hears about it, as it hears about FocusOut.
 		p.root.InvalidateGeometry()
 		p.present.RequestFull()
-		return nil
 	}
 	// Consumption controls propagation, not whether handling changed application state.
 	p.root.HandleInput(ev)
@@ -452,7 +445,7 @@ func (p *program) flushNotifications() {
 	}
 	if changed {
 		p.present.RequestBy(time.Now(), p.frameInterval)
-		_ = p.tasks.post(nil)
+		p.tasks.requestFrame()
 	}
 }
 
@@ -461,7 +454,7 @@ func (p *program) stop() {
 	// unwinds it must not keep the host, frame buffers or queued input reachable.
 	defer func() {
 		p.host = hostServices{}
-		p.root, p.canvas, p.inline, p.publisher = nil, nil, nil, nil
+		p.root, p.screen, p.inline, p.publisher = nil, nil, nil, nil
 		p.writer, p.changes, p.inputPipe = nil, nil, nil
 		p.ctx, p.cancel = nil, nil
 		p.framePreparation, p.pendingRepaint = nil, nil

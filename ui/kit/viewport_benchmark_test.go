@@ -105,7 +105,7 @@ func BenchmarkEntryClippedDraw(b *testing.B) {
 		rows    = 10_000
 		visible = 40
 	)
-	entry := kit.Entry{Label: "source", Body: strings.Repeat("content\n", rows)}
+	entry := kit.Entry{Label: "source", Body: kit.NewParagraph(strings.Repeat("content\n", rows), grid.Style{})}
 	height := entry.HeightForWidth(80)
 	surface := grid.NewSurface(80, visible)
 	view := surface.View().Sub(grid.Area(0, -height/2, 80, height))

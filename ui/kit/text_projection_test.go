@@ -26,7 +26,7 @@ func TestTabsDrawTheirMeasuredTitleProjection(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			scenes := scenetest.New()
 			t.Cleanup(scenes.Close)
-			tabs := kit.NewTabs(kit.TabsConfig{NoRule: true, Items: []base.Tab{{Title: test.title}}})
+			tabs := kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{{Title: test.title}}}, NoRule: true})
 			if got := tabs.Element().Measure(layout.Across, 1); got != test.width {
 				t.Fatalf("width = %d, want %d", got, test.width)
 			}
@@ -66,18 +66,18 @@ func TestButtonKeepsItsBracketsOutsideTheLabelProjection(t *testing.T) {
 	}
 }
 
-func TestComposerPromptSharesTheEditorInset(t *testing.T) {
+func TestEditorPromptSharesTheBaseEditorInset(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
-	composer := kit.NewComposer(kit.ComposerConfig{Initial: "Z"})
+	editor := kit.NewEditor(kit.EditorConfig{Behavior: base.EditorConfig{Initial: "Z"}})
 	for _, test := range []struct{ prompt, shown string }{
 		{prompt: "a\tb", shown: "a       bZ"},
 		{prompt: "❤\n\ufe0fX", shown: "❤XZ"},
 		{prompt: "a\x00\u0301X", shown: "aXZ"},
 	} {
-		composer.SetPrompt(test.prompt)
+		editor.SetPrompt(test.prompt)
 		surface := grid.NewSurface(15, 1)
-		scenes.Mount(composer).Draw(surface.View().Sub(grid.Area(3, 0, 12, 1)))
+		scenes.Mount(editor).Draw(surface.View().Sub(grid.Area(3, 0, 12, 1)))
 		if got, want := surface.Rows()[0], "   "+test.shown; got != want {
 			t.Fatalf("prompt %q: drawn %q, want %q", test.prompt, got, want)
 		}
@@ -192,10 +192,10 @@ func TestTreeMarksAlignBranchesAndLeavesAfterProjection(t *testing.T) {
 	t.Cleanup(scenes.Close)
 	tree := kit.NewTree(kit.TreeConfig[string]{
 		Glyphs: kit.Glyphs{Expanded: "\t+", Collapsed: "❤\n\ufe0fX"},
-		Nodes: []base.Node[string]{
+		Behavior: base.TreeConfig[string]{Nodes: []base.Node[string]{
 			{Item: "root", Children: []base.Node[string]{{Item: "child"}}},
 			{Item: "tail"},
-		},
+		}},
 		Text: func(value string) string { return value },
 	})
 	root := scenes.Mount(tree)

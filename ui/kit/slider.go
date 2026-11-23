@@ -3,12 +3,12 @@ package kit
 import (
 	"strconv"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // Slider is the polished one-row appearance of a [base.Slider].
@@ -42,41 +42,27 @@ type SliderConfig struct {
 // NewSlider constructs the kit appearance and its sole base controller.
 // It panics when Theme and Scope both declare palette sources, or when its base configuration is invalid.
 func NewSlider(config SliderConfig) *Slider {
-	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
-	if appearanceErr != nil {
-		panic(appearanceErr)
-	}
+	look := newAppearance(config.Theme, config.Scope, config.Appearance)
 	slider := &Slider{
 		controller: base.NewSlider(config.Behavior),
 		appearance: look,
 		glyphs:     config.Glyphs.clone(),
 		format:     config.Format,
 	}
-	if err := slider.controller.Element().SetPaint(slider.Draw); err != nil {
-		panic(err)
-	}
+	slider.controller.Element().SetPaint(slider.Draw)
 	slider.appearance.bind(slider.Element())
 	return slider
 }
 
 func (s *Slider) Controller() *base.Slider {
-	if s == nil {
-		return nil
-	}
 	return s.controller
 }
 
 func (s *Slider) HeightForWidth(int) int {
-	if s == nil || s.controller == nil {
-		return 0
-	}
 	return 1
 }
 
 func (s *Slider) Draw(frame scene.Frame) {
-	if s == nil || s.controller == nil {
-		return
-	}
 	width, height := frame.Size()
 	if width <= 0 || height <= 0 {
 		s.controller.Stage(frame, grid.Area(0, 0, 0, 0))
@@ -130,9 +116,6 @@ func (s *Slider) formatValue(value int) string {
 }
 
 func (s *Slider) Element() scene.Element {
-	if s == nil || s.controller == nil {
-		return scene.Element{}
-	}
 	return s.controller.Element()
 }
 
@@ -140,7 +123,7 @@ func (s *Slider) Glyphs() Glyphs { return s.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (s *Slider) SetGlyphs(value Glyphs) { replaceGlyphs(s.Element(), &s.glyphs, value) }
+func (s *Slider) SetGlyphs(value Glyphs) { setting.Replace(s.Element(), &s.glyphs, value.clone()) }
 
 func (s *Slider) Format() func(int) string { return s.format }
 

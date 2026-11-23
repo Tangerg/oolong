@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/ansi"
 	"github.com/Tangerg/oolong/ui/core/clipboard"
 )
 
@@ -143,11 +144,11 @@ func (s *Stream) settle(received []receivedEvent) []Event {
 	for _, item := range received {
 		switch event := item.event.(type) {
 		case OSC:
-			if event.Command == clipboard.Command && s.clipboard.Answer(event.Params, item.started, item.completed) {
+			if event.Command == ansi.OSCClipboard && s.clipboard.Answer(event.Params, item.started, item.completed) {
 				continue
 			}
 		case OSCRejection:
-			if event.Command == clipboard.Command && s.clipboard.Reject(event.Prefix, item.started, item.completed) {
+			if event.Command == ansi.OSCClipboard && s.clipboard.Reject(event.Prefix, item.started, item.completed) {
 				continue
 			}
 		}

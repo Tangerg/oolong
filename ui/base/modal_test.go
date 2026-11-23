@@ -28,7 +28,7 @@ func TestDialogOutsideDismissPolicyAndCoordinateTranslation(t *testing.T) {
 			dialog.Show()
 			root.Draw(grid.NewSurface(12, 5).View())
 			root.Handle(regionPress(3, 1))
-			_, col := body.Cursor()
+			col := body.Cursor().Byte
 			if col != 1 {
 				t.Fatalf("local coordinate=%d", col)
 			}

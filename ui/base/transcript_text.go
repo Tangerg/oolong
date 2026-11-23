@@ -29,9 +29,9 @@ func newTranscriptTextMap(rows []text.Row) *transcriptTextMap {
 	var lines []text.Line
 	lineBytes := 0
 	for i, row := range rows {
-		row.Content = row.Content.Display().Clone()
-		gap := (text.Line{{Text: row.Gap, BreakBefore: true}}).Display()
-		row.Gap = strings.Clone(gap.String())
+		row = row.Display()
+		row.Content, row.Gap = row.Content.Clone(), strings.Clone(row.Gap)
+		gap := text.Line{{Text: row.Gap, BreakBefore: true}}
 		m.rows[i] = row
 		if i == 0 || !row.Joined {
 			lines = append(lines, nil)
@@ -146,6 +146,49 @@ func (m *transcriptTextMap) rects(selected text.Range) []image.Rectangle {
 	return out
 }
 
+// Text is the logical text of every block, joined as a selection over all of them
+// copies it, so copying with nothing selected copies what selecting all would.
+func (l TranscriptLayout) Text() string {
+	return l.logicalText(func(block placed) (text.Range, bool) { return block.whole(), true })
+}
+
+// BlockText is the logical text of one item, as a selection over all of it copies
+// it, and whether this layout holds the item. Content that projects no text reads
+// as empty. It is what copying the current item takes.
+func (l TranscriptLayout) BlockText(id BlockID) (string, bool) {
+	if _, ok := l.placed(id); !ok {
+		return "", false
+	}
+	return l.logicalText(func(block placed) (text.Range, bool) { return block.whole(), block.id == id }), true
+}
+
+// logicalText joins what span takes from each block that projects text, one block
+// per line: the one rule by which a selection and a whole layout become copied text.
+func (l TranscriptLayout) logicalText(span func(placed) (text.Range, bool)) string {
+	var out strings.Builder
+	wrote := false
+	for _, block := range l.blocks {
+		if block.mapping == nil {
+			continue
+		}
+		taken, ok := span(block)
+		if !ok {
+			continue
+		}
+		if wrote {
+			out.WriteByte('\n')
+		}
+		wrote = true
+		out.WriteString(block.mapping.logical.Text(taken))
+	}
+	return out.String()
+}
+
+// whole is the logical range of all of a block's text.
+func (b placed) whole() text.Range {
+	return text.Range{Start: b.mapping.start(), End: b.mapping.end()}
+}
+
 func (l TranscriptLayout) placed(id BlockID) (placed, bool) {
 	// IDs are allocated consecutively and retirement removes only a prefix.
 	if id < l.first || id-l.first >= BlockID(len(l.blocks)) {
@@ -252,7 +295,9 @@ func (t *Transcript) ReadingAnchor() (ReadingAnchor, bool) {
 		return ReadingAnchor{FollowingEnd: true}, true
 	}
 	scroll := t.scroll.resolved()
-	window := t.viewport(current, scroll.offset, scroll.window)
+	// The offset counts from the current row origin, which retirement may have moved
+	// past the committed layout's origin; read it in that layout's coordinates.
+	window := t.viewport(current, layout.Sum(scroll.offset, t.startRow-current.StartRow()), scroll.window)
 	id, row, ok := current.At(window.bodyFrom())
 	if !ok {
 		return ReadingAnchor{}, false

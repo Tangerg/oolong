@@ -47,10 +47,9 @@ func BenchmarkByteIngressProducerBurst(b *testing.B) {
 
 				for !final {
 					<-queue.wake
-					for _, task := range queue.take() {
-						if task != nil {
-							task()
-						}
+					tasks, _ := queue.take()
+					for _, task := range tasks {
+						task()
 					}
 				}
 				if err := <-produced; err != nil {

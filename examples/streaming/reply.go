@@ -13,9 +13,9 @@ import (
 )
 
 func (c *chat) startReply(prompt string) {
-	_, err := c.content.Add(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
+	_, err := c.content.Add(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: kit.NewParagraph(prompt, c.theme.Text)})
 	if err != nil {
-		c.status.Doing = "failed: " + err.Error()
+		c.status.Label = "failed: " + err.Error()
 		c.element.Invalidate()
 		return
 	}
@@ -31,7 +31,7 @@ func (c *chat) startReply(prompt string) {
 		c.setOutcome(err)
 		return
 	}
-	c.status.Doing = "receiving"
+	c.status.Label = "receiving"
 	_ = c.runtime.Session().SetTitle("receiving")
 	document := c.document
 	ingress, err := program.NewByteIngress(program.ByteIngressConfig{Dispatcher: c.runtime.Dispatcher(), Limit: ingressLimit, Consume: func(batch program.ByteBatch) { c.accept(document, batch) }})
@@ -86,7 +86,7 @@ func (c *chat) finishReply(err error) {
 		c.setOutcome(errors.Join(err, endErr))
 		return
 	}
-	c.status.Doing = "preparing final answer"
+	c.status.Label = "preparing final answer"
 	c.prepare()
 }
 
@@ -114,12 +114,12 @@ func (c *chat) setOutcome(err error) {
 
 	switch {
 	case err == context.Canceled: //nolint:errorlint // Joined cancellation retains its failure diagnostics.
-		c.status.Doing = "cancelled"
+		c.status.Label = "cancelled"
 	case err != nil:
-		_, appendErr := c.content.Add(&kit.Entry{Theme: c.theme, Label: "source", Body: err.Error()})
-		c.status.Doing = "failed: " + errors.Join(err, appendErr).Error()
+		_, appendErr := c.content.Add(&kit.Entry{Theme: c.theme, Label: "source", Body: kit.NewParagraph(err.Error(), c.theme.Text)})
+		c.status.Label = "failed: " + errors.Join(err, appendErr).Error()
 	default:
-		c.status.Doing = "complete"
+		c.status.Label = "complete"
 		_ = c.runtime.Session().Notify("the answer is complete")
 	}
 	_ = c.runtime.Session().SetTitle("streaming")
@@ -130,6 +130,6 @@ func (c *chat) stopSource() {
 	if !c.producer.Cancel() {
 		return
 	}
-	c.status.Doing = "cancelling"
+	c.status.Label = "cancelling"
 	c.element.Invalidate()
 }

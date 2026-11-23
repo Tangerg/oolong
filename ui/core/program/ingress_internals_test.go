@@ -25,7 +25,7 @@ func TestByteIngressBurstOccupiesOneOwnerTask(t *testing.T) {
 		}
 	}
 
-	queued := tasks.take()
+	queued, _ := tasks.take()
 	if len(queued) != 1 {
 		t.Fatalf("burst queued %d owner tasks, want 1", len(queued))
 	}
@@ -37,7 +37,7 @@ func TestByteIngressBurstOccupiesOneOwnerTask(t *testing.T) {
 	if err := ingress.Close(); err != nil {
 		t.Fatal(err)
 	}
-	queued = tasks.take()
+	queued, _ = tasks.take()
 	if len(queued) != 1 {
 		t.Fatalf("close queued %d owner tasks, want 1", len(queued))
 	}
@@ -99,7 +99,7 @@ func TestByteIngressFinalDeliverySettlesCrossBoundaryReferences(t *testing.T) {
 	if err := ingress.CloseWithError(cause); err != nil {
 		t.Fatal(err)
 	}
-	queued := tasks.take()
+	queued, _ := tasks.take()
 	if len(queued) != 1 {
 		t.Fatalf("close queued %d tasks, want 1", len(queued))
 	}
@@ -129,7 +129,7 @@ func TestFinalIngressConsumerUnwindSettlesBeforeOwnerShutdown(t *testing.T) {
 	if err := ingress.Close(); err != nil {
 		t.Fatal(err)
 	}
-	queued := tasks.take()
+	queued, _ := tasks.take()
 	if len(queued) != 1 {
 		t.Fatalf("close queued %d tasks, want 1", len(queued))
 	}
@@ -187,7 +187,7 @@ func TestIngressClaimedDrainAlsoOwnsTheFinalBatch(t *testing.T) {
 	if _, err = i.Write([]byte("a")); err != nil {
 		t.Fatal(err)
 	}
-	batch := q.take()
+	batch, _ := q.take()
 	if _, err = i.Write([]byte("b")); err != nil {
 		t.Fatal(err)
 	}

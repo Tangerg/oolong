@@ -6,8 +6,9 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
-
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // TranscriptConfig configures one base reading controller and the appearance of its existing scene element.
@@ -30,43 +31,35 @@ type Transcript struct {
 	glyphs     Glyphs
 }
 
-// NewTranscript creates one controller and fills its paint slot before it can be attached.
-// A nonzero static Theme and a live Scope are mutually exclusive.
-func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
-	look, err := newAppearance(cfg.Theme, cfg.Scope, cfg.Appearance)
-	if err != nil {
-		return nil, err
+// NewTranscript creates one controller and fills its paint slot before it can be
+// attached. It panics if Theme and Scope are both specified, and for a Behavior
+// [base.TranscriptConfig.Validate] refuses.
+func NewTranscript(cfg TranscriptConfig) *Transcript {
+	t := &Transcript{
+		controller: base.NewTranscript(cfg.Behavior),
+		appearance: newAppearance(cfg.Theme, cfg.Scope, cfg.Appearance),
+		glyphs:     cfg.Glyphs.clone(),
 	}
-	controller, err := base.NewTranscript(cfg.Behavior)
-	if err != nil {
-		return nil, err
-	}
-	t := &Transcript{controller: controller, appearance: look, glyphs: cfg.Glyphs.clone()}
-	t.appearance.bind(controller.Element())
-	if err := controller.Element().SetPaint(t.Draw); err != nil {
-		return nil, err
-	}
-	return t, nil
+	element := t.controller.Element()
+	t.appearance.bind(element)
+	element.SetPaint(func(frame scene.Frame) { t.Draw(frame) })
+	return t
 }
 
 func (t *Transcript) Controller() *base.Transcript {
-	if t == nil {
-		return nil
-	}
 	return t.controller
 }
 
 func (t *Transcript) Element() scene.Element {
-	if t == nil || t.controller == nil {
-		return scene.Element{}
-	}
 	return t.controller.Element()
 }
 
-func (t *Transcript) Draw(frame scene.Frame) {
-	if t == nil || t.controller == nil {
-		return
-	}
+// Draw paints the transcript and returns the window it staged, as [Box.Draw] returns
+// its interior. A paint slot that decorates the transcript — a marker beside the
+// current item, a placeholder while it is empty — draws over those rows instead of
+// staging a second window, which the frame forbids, or repainting selection and
+// matches itself.
+func (t *Transcript) Draw(frame scene.Frame) base.TranscriptView {
 	window := t.controller.StageWindow(frame)
 	if window.Pinned.Rows > 0 {
 		t.drawHeader(window, frame.View)
@@ -76,6 +69,7 @@ func (t *Transcript) Draw(frame scene.Frame) {
 	}
 	window.Content.Draw(window.Body, window.BodyFrom)
 	t.mark(window.Body, window.BodyFrom, window.Content)
+	return window
 }
 
 func (t *Transcript) drawHeader(window base.TranscriptView, view grid.View) {
@@ -90,7 +84,7 @@ func (t *Transcript) drawHeader(window base.TranscriptView, view grid.View) {
 	view.Fade(visible, 1-window.Pinned.Fade)
 	headerRows := window.Pinned.Visible()
 	if window.Pinned.Rows > headerRows {
-		drawRule(view, headerRows, t.glyphs.Rule, palette.Divider)
+		text.Of(t.glyphs.Rule, palette.Divider).Tile(view, headerRows)
 	}
 }
 
@@ -144,4 +138,4 @@ func (t *Transcript) Glyphs() Glyphs { return t.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (t *Transcript) SetGlyphs(value Glyphs) { replaceGlyphs(t.Element(), &t.glyphs, value) }
+func (t *Transcript) SetGlyphs(value Glyphs) { setting.Replace(t.Element(), &t.glyphs, value.clone()) }

@@ -3,12 +3,12 @@ package kit
 import (
 	"strings"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // treeIndent is how many columns a level is worth when nothing else is said. Two:
@@ -32,13 +32,14 @@ type Tree[T any] struct {
 	controller *base.Tree[T]
 }
 
+// TreeConfig carries the base tree configuration in Behavior; the skin draws the
+// rows, so Behavior.Row must be nil.
 type TreeConfig[T any] struct {
+	Behavior   base.TreeConfig[T]
 	Scope      *ThemeScope
 	Appearance ThemeOverride
 	Theme      Theme
 	Glyphs     Glyphs
-	// Nodes supplies the initial hierarchy owned by the controller.
-	Nodes []base.Node[T]
 	// Text projects an item into its row label. Nil produces an empty label. It runs
 	// during drawing and must be observationally pure.
 	Text func(item T) string
@@ -46,40 +47,27 @@ type TreeConfig[T any] struct {
 	Indent int
 }
 
-// NewTree panics for negative Indent, cyclic node collections, or competing
-// Theme and Scope palette sources.
+// NewTree panics for negative Indent, cyclic node collections, a row painter in
+// Behavior, or competing Theme and Scope palette sources.
 func NewTree[T any](config TreeConfig[T]) *Tree[T] {
-	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
-	if appearanceErr != nil {
-		panic(appearanceErr)
-	}
-	tree := &Tree[T]{appearance: look, glyphs: config.Glyphs.clone(), text: config.Text, controller: base.NewTree(config.Nodes...)}
+	look := newAppearance(config.Theme, config.Scope, config.Appearance)
+	requireSkinOwned("tree Behavior.Row", config.Behavior.Row == nil)
+	tree := &Tree[T]{appearance: look, glyphs: config.Glyphs.clone(), text: config.Text, controller: base.NewTree(config.Behavior)}
 	tree.SetIndent(config.Indent)
-	if err := tree.controller.Element().SetPaint(tree.Draw); err != nil {
-		panic(err)
-	}
+	tree.controller.Element().SetPaint(tree.Draw)
 	tree.appearance.bind(tree.Element())
 	return tree
 }
 
 func (t *Tree[T]) Controller() *base.Tree[T] {
-	if t == nil {
-		return nil
-	}
 	return t.controller
 }
 
 func (t *Tree[T]) HeightForWidth(across int) int {
-	if t == nil || t.controller == nil {
-		return 0
-	}
 	return t.controller.HeightForWidth(across)
 }
 
 func (t *Tree[T]) Draw(v scene.Frame) {
-	if t == nil || t.controller == nil {
-		return
-	}
 	t.controller.DrawRows(v, t.row)
 }
 
@@ -132,9 +120,6 @@ func (t *Tree[T]) mark(row base.Shown[T]) string {
 }
 
 func (t *Tree[T]) Element() scene.Element {
-	if t == nil || t.controller == nil {
-		return scene.Element{}
-	}
 	return t.controller.Element()
 }
 
@@ -143,38 +128,22 @@ func (t *Tree[T]) Text() func(item T) string { return t.text }
 // SetText panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
 func (t *Tree[T]) SetText(value func(item T) string) {
-	element := t.Element()
-	if err := element.CheckMutation(); err != nil {
-		panic(err)
-	}
-	if t.text == nil && value == nil {
-		return
-	}
-	t.text = value
-	element.Invalidate()
+	setting.Replace(t.Element(), &t.text, value)
 }
 
 func (t *Tree[T]) Glyphs() Glyphs { return t.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (t *Tree[T]) SetGlyphs(value Glyphs) { replaceGlyphs(t.Element(), &t.glyphs, value) }
+func (t *Tree[T]) SetGlyphs(value Glyphs) { setting.Replace(t.Element(), &t.glyphs, value.clone()) }
 
 func (t *Tree[T]) Indent() int { return t.indent }
 
 // SetIndent panics for negative indentation or with scene.ErrBusy outside
 // owner mutation, before the retained presentation can change.
 func (t *Tree[T]) SetIndent(value int) {
-	element := t.Element()
-	if err := element.CheckMutation(); err != nil {
-		panic(err)
-	}
 	if value < 0 {
 		panic("kit: Indent must be non-negative")
 	}
-	if t.indent == value {
-		return
-	}
-	t.indent = value
-	element.Invalidate()
+	setting.Assign(t.Element(), &t.indent, value)
 }

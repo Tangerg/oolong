@@ -202,7 +202,7 @@ func TestOldDeliveryCannotMoveCurrentFocus(t *testing.T) {
 		}
 	}
 	r.Handle(input.Key{Code: input.Tab})
-	if saved.FocusNext(false) || !b.element.Focused() {
+	if saved.FocusNext() || !b.element.Focused() {
 		t.Fatal("an expired key traversed focus")
 	}
 }
@@ -256,7 +256,7 @@ func TestEventAuthorityEndsWithItsCallback(t *testing.T) {
 			if saved.Target() != element.Target() {
 				t.Fatal("callback did not receive its target")
 			}
-			if err := saved.RequestFocus(); !errors.Is(err, scene.ErrStale) || saved.FocusNext(false) {
+			if err := saved.RequestFocus(); !errors.Is(err, scene.ErrStale) || saved.FocusNext() {
 				t.Fatalf("completed callback retained event authority: %v", err)
 			}
 		})

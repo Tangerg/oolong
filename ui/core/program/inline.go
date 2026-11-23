@@ -26,8 +26,8 @@ type Publisher struct{ runtime *Runtime }
 // TryPublish accepts a complete capture and schedules its frame. A stopped session,
 // or a known writer failure, refuses before measurement or drawing. A written receipt
 // is settled from the actual writer watermark, including on a later transport failure.
-func (sink Publisher) TryPublish(body grid.Drawable) (publication.Receipt, error) {
-	p := sink.runtime.owner()
+func (publisher Publisher) TryPublish(body grid.Drawable) (publication.Receipt, error) {
+	p := publisher.runtime.owner()
 	if p == nil {
 		return publication.Receipt{}, ErrStopped
 	}
@@ -35,21 +35,20 @@ func (sink Publisher) TryPublish(body grid.Drawable) (publication.Receipt, error
 		return publication.Receipt{}, errors.ErrUnsupported
 	}
 	if err := p.writer.Err(); err != nil {
-		p.outputFailed = true
-		p.failPublications(err)
+		p.failOutput(err)
 		_ = p.fail(err)
 	}
 	receipt, err := p.publisher.TryPublish(body)
 	if err == nil {
-		sink.runtime.Refresh()
+		publisher.runtime.Refresh()
 	}
 	return receipt, err
 }
 
 // Subscribe observes settled progress on the UI owner. The returned cancellation
 // is idempotent; stopped and non-inline sessions register no callback.
-func (sink Publisher) Subscribe(fn func()) func() {
-	if p := sink.runtime.owner(); p != nil && p.publisher != nil {
+func (publisher Publisher) Subscribe(fn func()) func() {
+	if p := publisher.runtime.owner(); p != nil && p.publisher != nil {
 		return p.publisher.Subscribe(fn)
 	}
 	return func() {}

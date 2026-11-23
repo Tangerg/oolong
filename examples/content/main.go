@@ -69,7 +69,7 @@ const (
 
 func newContent(runtime *program.Runtime) (*contentScreen, error) {
 	theme := kit.Suited(runtime.Environment().Ground())
-	look := markdownlook.New(theme, kit.GlyphsFor(runtime.Environment().Locale()))
+	look := markdownlook.New(theme, runtime.Environment().Locale())
 	highlighter := highlight.New("github-dark")
 	formulaLook := latexlook.New(theme, runtime.Environment().Locale())
 	screen := &contentScreen{runtime: runtime, theme: theme}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"strings"
 )
 
@@ -38,6 +37,15 @@ const (
 	Started
 )
 
+// AppliedIf is the outcome of an action that finished synchronously: Applied when
+// it changed its owner, Unchanged when it did not.
+func AppliedIf(changed bool) ActionState {
+	if changed {
+		return Applied
+	}
+	return Unchanged
+}
+
 // Validate lets typed and semantic request boundaries share the same admission
 // rule for owner-reported outcomes.
 func (s ActionState) Validate() error {
@@ -53,12 +61,24 @@ type ActionResult[T any] struct {
 	Value T
 }
 
-// Availability is a pure precondition projection. Zero allows the operation;
-// execution still checks it immediately before calling its owner.
-type Availability struct {
-	Disabled bool
-	Reason   string
+// Availability is a pure precondition projection; execution still checks it
+// immediately before calling its owner. The zero value allows the operation, and
+// a refusal always carries the reason its caller is shown, so an available
+// operation cannot report one.
+type Availability struct{ reason string }
+
+// Unavailable refuses an operation. It panics for an empty reason, which would be
+// indistinguishable from availability.
+func Unavailable(reason string) Availability {
+	if reason == "" {
+		panic("scene: an unavailable operation requires a reason")
+	}
+	return Availability{reason: strings.Clone(reason)}
 }
+
+func (a Availability) Disabled() bool { return a.reason != "" }
+
+func (a Availability) Reason() string { return a.reason }
 
 // ActionConfig supplies one operation and its pure availability projection.
 type ActionConfig[P, R any] struct {
@@ -84,7 +104,7 @@ func NewAction[P, R any](cfg ActionConfig[P, R]) *Action[P, R] {
 // Availability projects whether these parameters can currently execute without changing state.
 func (a *Action[P, R]) Availability(params P) Availability {
 	if a == nil {
-		return Availability{Disabled: true, Reason: "missing action"}
+		return Unavailable("missing action")
 	}
 	if a.config.Availability != nil {
 		return a.config.Availability(params)
@@ -99,8 +119,8 @@ func (a *Action[P, R]) Invoke(ctx context.Context, params P) (ActionResult[R], e
 	if err := context.Cause(ctx); err != nil {
 		return zero, err
 	}
-	if available := a.Availability(params); available.Disabled {
-		return zero, &UnavailableError{Action: a.ID(), Reason: available.Reason}
+	if available := a.Availability(params); available.Disabled() {
+		return zero, &UnavailableError{Action: a.ID(), Reason: available.Reason()}
 	}
 	return a.run(ctx, params)
 }
@@ -186,14 +206,20 @@ func (a *Action[P, R]) Binding() ActionBinding {
 
 func unitParameter(t reflect.Type) bool { return t.Kind() == reflect.Struct && t.NumField() == 0 }
 
+// nilable reports whether an untyped nil names this kind's zero value.
+func nilable(kind reflect.Kind) bool {
+	switch kind {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+		return true
+	default:
+		return false
+	}
+}
+
 func actionParameter[T any](value any) (T, error) {
 	var zero T
 	if value == nil {
-		typ := reflect.TypeFor[T]()
-		if unitParameter(typ) {
-			return zero, nil
-		}
-		if slices.Contains([]reflect.Kind{reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer}, typ.Kind()) {
+		if typ := reflect.TypeFor[T](); unitParameter(typ) || nilable(typ.Kind()) {
 			return zero, nil
 		}
 	}
@@ -234,8 +260,8 @@ func (r *Root) Invoke(ctx context.Context, target Target, action ActionID, param
 		if queryErr != nil {
 			return Invocation{}, queryErr
 		}
-		if availability.Disabled {
-			return Invocation{}, &UnavailableError{Action: action, Reason: availability.Reason}
+		if availability.Disabled() {
+			return Invocation{}, &UnavailableError{Action: action, Reason: availability.Reason()}
 		}
 		result, err := binding.invoke(ctx, params)
 		// A changed outcome always settles here, even when the action already

@@ -39,9 +39,9 @@ func TestReadOnlyBorrowsOneCompositionAcrossAttachmentLifetimes(t *testing.T) {
 						if err := group.Set(item("b", b)); !errors.Is(err, scene.ErrBusy) {
 							t.Errorf("borrow changed its parent relation: %v", err)
 						}
-						for _, err := range []error{a.SetPaint(nil), a.SetMeasure(nil), a.SetFocusable(nil)} {
-							if !errors.Is(err, scene.ErrBusy) {
-								t.Errorf("borrow changed an element capability: %v", err)
+						for _, fill := range []func(){func() { a.SetPaint(nil) }, func() { a.SetMeasure(nil) }, func() { a.SetFocusable(nil) }} {
+							if got := recoveredPanic(fill); !errors.Is(got, scene.ErrBusy) {
+								t.Errorf("borrow changed an element capability: %v", got)
 							}
 						}
 						if mounted == nil {
@@ -259,4 +259,11 @@ func TestNestedReadOnlyCannotStageOrRefineActiveGeometry(t *testing.T) {
 			}
 		})
 	}
+}
+
+// recoveredPanic runs fill and returns the error it panicked with, or nil.
+func recoveredPanic(fill func()) (err error) {
+	defer func() { err, _ = recover().(error) }()
+	fill()
+	return nil
 }

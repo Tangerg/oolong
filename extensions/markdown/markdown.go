@@ -25,7 +25,8 @@ type Doc struct{ view *Snapshot }
 
 // Snapshot retains one immutable block sequence and a bounded single-width layout
 // memo. A delayed preparation can populate only its own version, never a later
-// Doc replacement. The zero value is empty; a Snapshot must not be copied after use.
+// Doc replacement. The zero value and a nil Snapshot are empty, so a zero Doc
+// projects nothing. A Snapshot must not be copied after use.
 // Concurrent projections may replace the width memo but cannot alter an already
 // returned layout. Embedded drawables must also support concurrent reads when used
 // this way, and retain the immutable-content contract of Block.
@@ -59,7 +60,7 @@ func (d *Doc) Append(blocks ...Block) {
 }
 
 func (d *Doc) Len() int {
-	if d == nil || d.view == nil {
+	if d.view == nil {
 		return 0
 	}
 	return len(d.view.blocks)
@@ -67,7 +68,7 @@ func (d *Doc) Len() int {
 
 // Blocks detaches its slice so callers can reorder their copy without changing the document.
 func (d *Doc) Blocks() []Block {
-	if d == nil || d.view == nil {
+	if d.view == nil {
 		return nil
 	}
 	return slices.Clone(d.view.blocks)
@@ -356,12 +357,33 @@ func (l *Look) SetRenderer(extension Extension, renderer Renderer) {
 func (l *Look) renderer(extension Extension) Renderer { return l.extensions[extension] }
 
 // Glyphs keeps structural spacing at its zero value without assuming the terminal can
-// draw decorative characters. The caller owns that capability decision.
+// draw decorative characters. [GlyphsFor] makes that capability decision from the
+// terminal's locale, as the other format extensions do.
 type Glyphs struct {
 	Bullet             string
 	Bar                string
 	Divider            string
 	Checked, Unchecked string
+}
+
+func Unicode() Glyphs {
+	return Glyphs{Bullet: "•", Bar: "│", Divider: "─", Checked: "●", Unchecked: "○"}
+}
+
+// ASCII spells task boxes the way Markdown source does, which every reader of the
+// format already knows.
+func ASCII() Glyphs {
+	return Glyphs{Bullet: "*", Bar: "|", Divider: "-", Checked: "[x]", Unchecked: "[ ]"}
+}
+
+// GlyphsFor uses the transport-resolved locale because the transport owns the terminal
+// environment. An unspecified locale keeps Unicode; an explicit non-UTF encoding
+// selects ASCII.
+func GlyphsFor(locale string) Glyphs {
+	if text.PrefersUnicode(locale) {
+		return Unicode()
+	}
+	return ASCII()
 }
 
 func (l *Look) heading(level int) grid.Style {

@@ -17,7 +17,7 @@ func TestInputStandaloneUsesOneOwnerForAXKeysAndLiveTheme(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	owner := kit.NewThemeOwner(kit.Dark())
-	field := kit.NewInput(kit.InputConfig{Key: "project.name", Label: "Name", Initial: "初始", Scope: owner.Scope()})
+	field := kit.NewInput(kit.InputConfig{Behavior: base.TextConfig{Key: "project.name", Label: "Name", Initial: "初始"}, Scope: owner.Scope()})
 	if field.Element() != field.Controller().Element() {
 		t.Fatal("input skin allocated a second behaviour identity")
 	}
@@ -55,8 +55,8 @@ func TestInputControllerAsFormFieldUsesTheFormsExplicitPresentation(t *testing.T
 	t.Cleanup(scenes.Close)
 
 	red := grid.Style{FG: grid.RGBColor(255, 0, 0)}
-	input := kit.NewInput(kit.InputConfig{Initial: "shared", Appearance: kit.ThemeOverride{Text: &red}})
-	form := kit.NewForm(kit.FormConfig{Theme: kit.Light(), Fields: []base.Field{input.Controller()}})
+	input := kit.NewInput(kit.InputConfig{Behavior: base.TextConfig{Initial: "shared"}, Appearance: kit.ThemeOverride{Text: &red}})
+	form := kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Fields: []base.Field{input.Controller()}}, Theme: kit.Light()})
 	surface := grid.NewSurface(12, 1)
 	scenes.Mount(form).Draw(surface.View())
 	if form.Controller().Fields()[0] != input.Controller() || input.Controller().Text() != "shared" {

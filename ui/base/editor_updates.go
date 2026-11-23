@@ -16,7 +16,7 @@ type editorViewState struct {
 
 func (e *Editor) viewState() editorViewState {
 	return editorViewState{
-		cursor: Caret{Line: e.line, Byte: e.byteOffset}, anchor: e.anchor,
+		cursor: e.caret, anchor: e.anchor,
 		selection: e.selection, rowEnd: e.prefersRowEnd(),
 		scrollVersion: e.scroll.version,
 	}
@@ -51,7 +51,7 @@ func (e *Editor) replacementRange() (Caret, Caret) {
 	if start, end, selected := e.Selection(); selected {
 		return start, end
 	}
-	caret := Caret{Line: e.line, Byte: e.byteOffset}
+	caret := e.caret
 	return caret, caret
 }
 
@@ -74,23 +74,23 @@ func (e *Editor) finishReplacement(at Caret, changed bool) {
 		e.layout.stale = true
 	}
 	e.selection = editorSelectionNone
-	e.line = min(max(at.Line, 0), len(e.document().lines)-1)
-	e.byteOffset = e.document().snapElement(e.line, at.Byte, true)
+	e.caret.Line = min(max(at.Line, 0), len(e.document().lines)-1)
+	e.caret.Byte = e.document().snapElement(e.caret.Line, at.Byte, true)
 	e.desiredColumn = editorColumn{}
 	e.revealCursor()
 }
 
 func (e *Editor) restoreCaret(at Caret) {
-	e.line, e.byteOffset = at.Line, at.Byte
+	e.caret = at
 	e.selection = editorSelectionNone
 }
 
 func (e *Editor) documentChanged(before []string, change ChangeMap, initiator bool) {
 	if !initiator {
-		cursor := change.Position(offsetInLines(before, Caret{Line: e.line, Byte: e.byteOffset}))
+		cursor := change.Position(offsetInLines(before, e.caret))
 		anchor := change.Position(offsetInLines(before, e.anchor))
 		position := e.document().caretAt(cursor)
-		e.line, e.byteOffset = position.Line, e.document().snapElement(position.Line, position.Byte, true)
+		e.caret.Line, e.caret.Byte = position.Line, e.document().snapElement(position.Line, position.Byte, true)
 		e.anchor = e.document().caretAt(anchor)
 		e.anchor.Byte = e.document().snapElement(e.anchor.Line, e.anchor.Byte, false)
 		e.endTyping()

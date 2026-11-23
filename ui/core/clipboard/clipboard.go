@@ -6,15 +6,17 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
 const (
-	Command      = 52
 	queryPayload = "?"
+	escape       = string(rune(ansi.Escape))
 )
 
 // Selection uses wire identities so encoding and reply matching cannot drift.
@@ -47,6 +49,7 @@ const MaxPayload = 100_000
 const responseTimeout = 10 * time.Second
 
 var (
+	ErrTooLarge    = errors.New("clipboard: text exceeds MaxPayload")
 	ErrPending     = errors.New("clipboard: an earlier query remains unanswered")
 	ErrSelection   = errors.New("clipboard: unsupported selection")
 	ErrResponse    = errors.New("clipboard: invalid response")
@@ -86,13 +89,19 @@ func New(cfg Config) *Channel { return &Channel{passthrough: cfg.TmuxPassthrough
 // text — pasted, downloaded, or produced by something hostile upstream — can end
 // the sequence early and have the rest of itself read as commands.
 //
-// It reports false for text too large to carry. See [MaxPayload].
-func (c *Channel) Copy(sel Selection, text string) (string, bool) {
+// A nil Channel refuses with [errors.ErrUnsupported], like [Channel.Read]; text
+// larger than [MaxPayload] is refused with [ErrTooLarge].
+func (c *Channel) Copy(sel Selection, text string) (string, error) {
 	selection, valid := normalized(sel)
-	if c == nil || !valid || len(text) > MaxPayload {
-		return "", false
+	switch {
+	case c == nil:
+		return "", errors.ErrUnsupported
+	case !valid:
+		return "", ErrSelection
+	case len(text) > MaxPayload:
+		return "", ErrTooLarge
 	}
-	return c.wrap(encode(selection, base64.StdEncoding.EncodeToString([]byte(text)))), true
+	return c.wrap(encode(selection, base64.StdEncoding.EncodeToString([]byte(text)))), nil
 }
 
 // Read waits for one query's result, caller cancellation, or the response deadline.
@@ -236,8 +245,8 @@ func (c *Channel) wrap(sequence string) string {
 	// tmux DCS passthrough doubles every escape in the inner sequence. This stays
 	// here rather than becoming a generic terminal wrapper: it is a property of this
 	// capability, and unrelated protocols have different transport contracts.
-	inner := strings.ReplaceAll(sequence, "\x1b", "\x1b\x1b")
-	return "\x1bPtmux;" + inner + "\x1b\\"
+	inner := strings.ReplaceAll(sequence, escape, escape+escape)
+	return ansi.DCSIntroducer + "tmux;" + inner + ansi.ST
 }
 
 func normalized(sel Selection) (Selection, bool) {
@@ -268,7 +277,7 @@ func decodePayload(payload string) (string, error) {
 	if err != nil || len(raw) > MaxPayload {
 		return "", ErrResponse
 	}
-	value := strings.ToValidUTF8(string(raw), "�")
+	value := strings.ToValidUTF8(string(raw), string(utf8.RuneError))
 	if len(value) > MaxPayload {
 		return "", ErrResponse
 	}
@@ -279,12 +288,10 @@ func decodePayload(payload string) (string, error) {
 // BEL because multiplexers recognise the standard-named terminator more reliably.
 func encode(sel Selection, payload string) string {
 	var b strings.Builder
-	b.WriteString("\x1b]")
-	b.WriteString(strconv.Itoa(Command))
-	b.WriteByte(';')
+	b.WriteString(ansi.OSCPrefix(ansi.OSCClipboard))
 	b.WriteByte(byte(sel))
 	b.WriteByte(';')
 	b.WriteString(payload)
-	b.WriteString("\x1b\\")
+	b.WriteString(ansi.ST)
 	return b.String()
 }

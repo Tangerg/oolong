@@ -355,7 +355,7 @@ func TestPrompterValidatesItsInputBoundary(t *testing.T) {
 			t.Fatalf("invalid construction returned %v, %v", prompter, err)
 		}
 	}
-	for _, prompter := range []*kit.Prompter{nil, {}} {
+	for _, prompter := range []*kit.Prompter{{}} {
 		if _, err := prompter.Ask(nil); err == nil {
 			t.Fatal("uninitialized prompter accepted a call")
 		}

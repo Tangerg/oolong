@@ -12,9 +12,7 @@ func (t *Transcript) handle(event scene.Event) scene.EventResult {
 		return scene.EventResult{}
 	}
 	presented, valid := event.Read(&t.presentation)
-	consumed := t.handleInput(event.Input(), presented, valid)
-	mouse, ok := event.Input().(input.Mouse)
-	return scene.EventResult{Consumed: consumed, Capture: consumed && ok && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft, Focus: consumed && ok && mouse.Action == input.MouseDown}
+	return event.Result(t.handleInput(event.Input(), presented, valid))
 }
 
 // Handle changes reading intent through the same owner used by scene actions.
@@ -25,24 +23,23 @@ func (t *Transcript) Handle(event input.Event) bool {
 
 func (t *Transcript) handleInput(event input.Event, presented transcriptPresentation, valid bool) bool {
 	t.assertMutable()
-	if t.scroll.Handle(event, t.keys.current) {
-		return true
+	if key, ok := event.(input.Key); ok {
+		_, handled := t.matcher.Handle(t.keys.resolve(scrollKeys), key, keyboardReceipt(&t.element), t.Do)
+		return handled
 	}
 	mouse, ok := event.(input.Mouse)
 	if !ok {
 		return false
+	}
+	if t.scroll.Handle(mouse, nil) {
+		return true
 	}
 	switch mouse.Action {
 	case input.MouseCancel:
 		t.selection.cancel()
 		return false
 	case input.MouseUp:
-		if mouse.Releases(input.ButtonLeft) {
-			was := t.selection.Dragging()
-			t.selection.Done()
-			return was
-		}
-		return false
+		return mouse.Releases(input.ButtonLeft) && t.selection.release()
 	case input.MouseDown:
 		if !valid {
 			return false
@@ -70,12 +67,15 @@ func (t *Transcript) press(mouse input.Mouse, p transcriptPresentation) bool {
 	if !ok {
 		return false
 	}
+	if pressed, _, found := p.layout.At(at.Row); found {
+		t.SetCurrent(pressed)
+	}
 	switch t.selection.press(mouse, p.layout.key, at) {
-	case 2:
+	case wordClicks:
 		if t.selection.SelectWord(p.layout, at) {
 			return true
 		}
-	case 3:
+	case lineClicks:
 		if t.selection.SelectLine(p.layout, at) {
 			return true
 		}
@@ -84,7 +84,7 @@ func (t *Transcript) press(mouse input.Mouse, p transcriptPresentation) bool {
 	if !ok {
 		return false
 	}
-	if t.selection.setRange(selected, true) {
+	if t.selection.pressAt(selected) {
 		t.element.Invalidate()
 	}
 	return true

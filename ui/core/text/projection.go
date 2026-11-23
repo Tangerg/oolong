@@ -136,22 +136,14 @@ func (p displayProjection) match(cluster Cluster, offsets []int) (bool, []int) {
 
 func (l Line) clusters() iter.Seq2[Cluster, *Span] {
 	return func(yield func(Cluster, *Span) bool) {
-		offset := 0
-		for start := 0; start < len(l); {
-			end := l.sectionEnd(start)
-			section := l[start:end]
-			display := projectDisplay(section.String())
-			appearance := spanCursor{spans: section, end: len(section[0].Text)}
-			for cluster := range display.clusters() {
-				span := appearance.at(cluster.From)
+		for offset, section := range l.sections() {
+			for cluster, span := range styledClusters(section, projectDisplay(section.String())) {
 				cluster.From += offset
 				cluster.To += offset
 				if !yield(cluster, span) {
 					return
 				}
 			}
-			offset += section.ByteLen()
-			start = end
 		}
 	}
 }

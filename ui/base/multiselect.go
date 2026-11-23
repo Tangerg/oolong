@@ -4,10 +4,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
 // MultiSelect is a field holding any number of choices out of several.
@@ -29,6 +30,40 @@ type MultiSelect[T any] struct {
 	taken []int
 	limit int
 	check func([]T) error
+}
+
+// MultiSelectConfig supplies available options and an initial chosen set. Unknown values and duplicates are removed at the owner boundary.
+type MultiSelectConfig[T any] struct {
+	Key     string
+	Initial []T
+	Options []Option[T]
+	Label   string
+	// Same has the same lifetime and purity contract as SelectConfig.Same.
+	Same  func(T, T) bool
+	Check func([]T) error
+	Rows  int
+	// Limit is how many choices may be taken at once; zero allows every option.
+	// It applies before Initial, which must respect it.
+	Limit int
+	Keys  *keymap.Map
+	Row   func(grid.View, Option[T], bool, bool, Look)
+}
+
+// NewMultiSelect panics for negative Rows or Limit, an Initial set larger than
+// Limit, or non-empty Options without Same. Its chosen set is canonical; returned
+// slices are detached observations.
+func NewMultiSelect[T any](config MultiSelectConfig[T]) *MultiSelect[T] {
+	requireNonNegative("choice Rows", config.Rows)
+	requireNonNegative("multi-select Limit", config.Limit)
+	m := &MultiSelect[T]{check: config.Check, limit: config.Limit}
+	m.initialize(config.Label, config.Same, config.Rows, config.Keys, config.Row)
+	m.key = strings.Clone(config.Key)
+	m.SetOptions(config.Options)
+	if taken, _ := m.indices(m.list.items, config.Initial); !m.admits(len(taken)) {
+		panic("base: multi-select Initial exceeds its Limit")
+	}
+	m.SetTaken(config.Initial)
+	return m
 }
 
 // SetOptions replaces what is on offer. MultiSelect owns the slice and preserves
@@ -74,21 +109,24 @@ func (m *MultiSelect[T]) SetLimit(limit int) {
 	if m.limit == limit {
 		return
 	}
-	if limit != 0 && len(m.taken) > limit {
+	truncate := !limitAdmits(limit, len(m.taken))
+	if truncate {
 		_ = nextRevision(m.revision)
 	}
 	m.limit = limit
 	m.invalidateValidation()
-	if !m.admits(len(m.taken)) {
+	if truncate {
 		m.store(m.taken[:limit])
 		return
 	}
 	m.element.Invalidate()
 }
 
-// admits is the one choice-limit rule. Interactive paths refuse a count it does
-// not admit; programmatic replacement keeps the earliest choices it does.
-func (m *MultiSelect[T]) admits(count int) bool { return m.limit == 0 || count <= m.limit }
+// limitAdmits is the one choice-limit rule. Interactive paths refuse a count it
+// does not admit; programmatic replacement keeps the earliest choices it does.
+func limitAdmits(limit, count int) bool { return limit == 0 || count <= limit }
+
+func (m *MultiSelect[T]) admits(count int) bool { return limitAdmits(m.limit, count) }
 
 // Limit reports how many choices may be taken at once. Zero allows every option.
 func (m *MultiSelect[T]) Limit() int {
@@ -231,3 +269,23 @@ func (m *MultiSelect[T]) store(taken []int) {
 }
 
 func (m *MultiSelect[T]) resolvedKeys() *keymap.Map { return m.keys.resolve(multiSelectKeys) }
+
+// KeysFor is what the effective key map binds to action, defaults included.
+func (m *MultiSelect[T]) KeysFor(action keymap.Action) []input.Keys {
+	return m.keys.bound(multiSelectKeys, action)
+}
+
+func (m *MultiSelect[T]) Element() scene.Element {
+	if m.element.IsZero() {
+		m.adopt(scene.NewElement(scene.ElementConfig{
+			Key: m.key, Measure: layout.MeasureRows(m.HeightForWidth), Paint: m.Draw,
+			Handle: func(e scene.Event) scene.EventResult {
+				return partEvent(e, m.Handle, &m.geometry, &m.list.geometry, &m.list.pointer.geometry)
+			}, Focusable: func() bool { return true }, FocusChanged: m.focusChanged,
+			Semantics: func() scene.Semantic {
+				return withFeedback(scene.Semantic{Role: scene.RoleList, Name: m.label, Value: m.takenLabels(), ContentRevision: m.list.contentRevision}, m.Error())
+			}, Actions: append(collectionActions(&m.list, m.choiceState), m.setTakenAction()),
+		}))
+	}
+	return m.element
+}

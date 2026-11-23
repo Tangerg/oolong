@@ -135,12 +135,12 @@ func TestCancelSourceDoesNotMisreportFinalPreparation(t *testing.T) {
 		synctest.Wait()
 		if err := bridge.dispatch.Invoke(t.Context(), func() error {
 			a := bridge.owner
-			if a.run != bridge.run || a.run.phase != runFinishing || a.run.task.Snapshot().State != program.TaskSucceeded || a.run.status.Doing != "preparing final answer" {
+			if a.run != bridge.run || a.run.phase != runFinishing || a.run.task.Snapshot().State != program.TaskSucceeded || a.run.status.Label != "preparing final answer" {
 				t.Errorf("source EOF did not enter final preparation: run=%+v", a.run)
 			}
-			before := a.run.status.Doing
+			before := a.run.status.Label
 			a.stopSource()
-			if a.run != bridge.run || a.run.status.Doing != before || a.outcome != (sessionOutcome{}) {
+			if a.run != bridge.run || a.run.status.Label != before || a.outcome != (sessionOutcome{}) {
 				t.Errorf("cancel-source changed finished source: run=%+v outcome=%+v", a.run, a.outcome)
 			}
 			return nil

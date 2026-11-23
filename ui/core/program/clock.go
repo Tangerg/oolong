@@ -48,15 +48,9 @@ func (r *Runtime) Every(scope *Scope, interval time.Duration, fn func()) (*Timer
 }
 
 func (r *Runtime) schedule(scope *Scope, delay time.Duration, repeat bool, fn func()) (*Timer, error) {
-	p := r.owner()
-	if p == nil {
-		return nil, ErrStopped
-	}
-	if scope == nil || scope.queue != p.tasks {
-		return nil, ErrForeignScope
-	}
-	if !scope.eligible(p) {
-		return nil, ErrScopeClosed
+	p, err := r.admit(scope)
+	if err != nil {
+		return nil, err
 	}
 	if fn == nil {
 		return nil, errors.New("program: timer requires callback")

@@ -3,7 +3,6 @@ package grid
 import (
 	"image"
 	"slices"
-	"strconv"
 	"unicode"
 	"unicode/utf8"
 
@@ -12,19 +11,24 @@ import (
 )
 
 const (
-	sgrReset  = "\x1b[0m"
-	osc8Open  = "\x1b]8;;"
-	osc8Close = "\x1b]8;;\x1b\\"
-	stringEnd = "\x1b\\"
+	sgrReset = ansi.CSI + "0" + string(ansi.SGR)
 
 	// Rendition changes do not end a grapheme. A relative cursor round trip
 	// preserves an atom boundary without assuming the row's screen position.
-	atomBoundary = "\x1b[D\x1b[C"
+	atomBoundary = ansi.CSI + string(ansi.CUB) + ansi.CSI + string(ansi.CUF)
+)
+
+var (
+	osc8Open  = ansi.OSCPrefix(ansi.OSCHyperlink) + ";"
+	osc8Close = osc8Open + ansi.ST
 
 	// Synchronized output. A frame wrapped in these is applied by the terminal in
 	// one go, which is what keeps a multiplexer from showing a half-drawn frame.
-	beginSync = "\x1b[?2026h"
-	endSync   = "\x1b[?2026l"
+	beginSync = ansi.ModeSynchronizedOutput.Set()
+	endSync   = ansi.ModeSynchronizedOutput.Reset()
+
+	showCursor = ansi.ModeCursorVisible.Set()
+	hideCursor = ansi.ModeCursorVisible.Reset()
 )
 
 // painter owns established style, hyperlink, and cursor state while encoding
@@ -32,14 +36,19 @@ const (
 // transitions cannot diverge.
 type painter struct {
 	out []byte
+	// Color depth is applied only at this wire boundary; stored cells stay
+	// truecolor so rendering never depends on the destination palette.
+	depth Depth
+	wire  wireState
+}
+
+// wireState is what the terminal is believed to hold after the bytes in out.
+type wireState struct {
 	// sourceStyle avoids quantizing an unchanged logical style for every cell;
 	// style is the state actually established after that quantization.
 	sourceStyle Style
 	style       wireStyle
 	link        string
-	// Color depth is applied only at this wire boundary; stored cells stay
-	// truecolor so rendering never depends on the destination palette.
-	depth Depth
 	// previous retains the last atom on an uninterrupted text run. Cursor
 	// positioning ends that run; SGR and OSC do not.
 	previous string
@@ -50,71 +59,54 @@ type painter struct {
 
 func (p *painter) restart() {
 	p.out = p.out[:0]
-	p.sourceStyle = Style{}
-	p.style = wireStyle{}
-	p.link = ""
-	p.previous = ""
-	p.known = false
-	p.begun = false
+	p.wire = wireState{}
 }
 
 func (p *painter) adoptDepth(depth Depth) { p.depth = depth }
 
 // Other programs may change terminal style between frames; establish the baseline before emitting cells.
 func (p *painter) begin() {
-	if p.begun {
+	if p.wire.begun {
 		return
 	}
-	p.begun = true
 	p.out = append(p.out, osc8Close...)
 	p.out = append(p.out, sgrReset...)
-	p.sourceStyle = Style{}
-	p.style = wireStyle{}
-	p.known = false
-	p.previous = ""
+	p.wire = wireState{begun: true}
 }
 
 // end leaves the terminal with no hyperlink open and the default style, so
 // whatever writes next — this program or the shell after it — starts clean.
 func (p *painter) end() {
-	if !p.begun {
+	if !p.wire.begun {
 		return
 	}
 	p.closeLink()
 	p.out = append(p.out, sgrReset...)
-	p.sourceStyle = Style{}
-	p.style = wireStyle{}
+	p.wire.sourceStyle = Style{}
+	p.wire.style = wireStyle{}
 }
 
 func (p *painter) adopt(other *painter) {
-	p.sourceStyle = other.sourceStyle
-	p.style = other.style
-	p.link = other.link
-	p.previous = other.previous
-	p.at = other.at
-	p.known = other.known
-	p.begun = p.begun || other.begun
+	begun := p.wire.begun || other.wire.begun
+	p.wire = other.wire
+	p.wire.begun = begun
 }
 
 // forcePos makes the next moveTo emit even if it targets where the cursor is
 // believed to be. Sequences whose landing position is terminal-specific — a
 // scrolling-region change, for one — leave that belief unfounded.
-func (p *painter) forcePos() { p.known = false }
+func (p *painter) forcePos() { p.wire.known = false }
 
 func (p *painter) moveToPoint(at image.Point) { p.moveTo(at.X, at.Y) }
 
 func (p *painter) moveTo(x, y int) {
-	if p.known && p.at.X == x && p.at.Y == y {
+	if p.wire.known && p.wire.at.X == x && p.wire.at.Y == y {
 		return
 	}
-	p.out = append(p.out, '\x1b', '[')
-	p.out = strconv.AppendInt(p.out, int64(y)+1, 10)
-	p.out = append(p.out, ';')
-	p.out = strconv.AppendInt(p.out, int64(x)+1, 10)
-	p.out = append(p.out, 'H')
-	p.at = image.Pt(x, y)
-	p.known = true
-	p.previous = ""
+	p.out = ansi.AppendCSI(p.out, ansi.CUP, y+1, x+1)
+	p.wire.at = image.Pt(x, y)
+	p.wire.known = true
+	p.wire.previous = ""
 }
 
 // The cursor must already be positioned at this atom's head.
@@ -123,14 +115,14 @@ func (p *painter) cell(c *Cell, width int) {
 	if content == "" {
 		content = " "
 	}
-	if previous := p.previous; previous != "" &&
+	if previous := p.wire.previous; previous != "" &&
 		(previous[len(previous)-1] >= utf8.RuneSelf || content[0] >= utf8.RuneSelf) && joinsAtoms(previous, content) {
 		p.out = append(p.out, atomBoundary...)
 	}
-	if c.Style != p.sourceStyle {
-		p.sourceStyle = c.Style
+	if c.Style != p.wire.sourceStyle {
+		p.wire.sourceStyle = c.Style
 		next := styleOnWire(c.Style, p.depth)
-		if next != p.style {
+		if next != p.wire.style {
 			p.appendStyle(next)
 		}
 	}
@@ -142,8 +134,8 @@ func (p *painter) cell(c *Cell, width int) {
 	} else {
 		p.out = append(p.out, c.content...)
 	}
-	p.previous = content
-	p.at.X += width
+	p.wire.previous = content
+	p.wire.at.X += width
 }
 
 func joinsAtoms(left, right string) bool {
@@ -158,26 +150,29 @@ func joinsAtoms(left, right string) bool {
 
 // Reset complete styles because terminals disagree on per-attribute reset behavior.
 func (p *painter) appendStyle(next wireStyle) {
-	p.style = next
+	p.wire.style = next
 	if next == (wireStyle{}) {
 		p.out = append(p.out, sgrReset...)
 		return
 	}
-	p.out = append(p.out, "\x1b[0"...)
+	params := make([]int, 0, maxSGRParams)
+	params = append(params, ansi.SGRReset)
 	for _, a := range attrCodes {
 		if next.attr.Has(a.attr) {
-			p.out = append(p.out, ';')
-			p.out = strconv.AppendInt(p.out, a.code, 10)
+			params = append(params, a.code)
 		}
 	}
-	if next.fg.kind != defaultWireColor {
-		p.appendColor(foregroundLayer, next.fg)
-	}
-	if next.bg.kind != defaultWireColor {
-		p.appendColor(backgroundLayer, next.bg)
-	}
-	p.out = append(p.out, 'm')
+	params = foregroundLayer.append(params, next.fg)
+	params = backgroundLayer.append(params, next.bg)
+	p.out = ansi.AppendCSI(p.out, ansi.SGR, params...)
 }
+
+const (
+	// truecolorParams is an extended code, a colour mode and three channels.
+	truecolorParams = 5
+	// maxSGRParams is a reset, every attribute, and both layers in truecolor.
+	maxSGRParams = 1 + len(attrCodes) + 2*truecolorParams
+)
 
 // wireStyle is the terminal state established by one SGR at a particular depth.
 // It deliberately is not Style: two truecolor values can become one palette index,
@@ -253,64 +248,46 @@ func paletteOnWire(index uint8, depth Depth) wireColor {
 // colorLayer names the SGR codes of one colour layer. Foreground and background
 // each have their own standard, bright and extended codes; none is derived from
 // another by arithmetic over the ECMA-48 table.
-type colorLayer struct{ standard, bright, extended int64 }
+type colorLayer struct{ standard, bright, extended int }
 
 var (
 	foregroundLayer = colorLayer{standard: ansi.SGRForegroundFirst, bright: ansi.SGRBrightForegroundFirst, extended: ansi.SGRForeground}
 	backgroundLayer = colorLayer{standard: ansi.SGRBackgroundFirst, bright: ansi.SGRBrightBackgroundFirst, extended: ansi.SGRBackground}
 )
 
-func (p *painter) appendColor(layer colorLayer, color wireColor) {
+func (layer colorLayer) append(params []int, color wireColor) []int {
 	switch color.kind {
-	case defaultWireColor:
-		// appendStyle excludes defaults; keep the representation exhaustive so a
-		// new wire colour kind cannot silently acquire truecolor semantics.
 	case indexed16WireColor:
 		first := layer.standard
 		if color.index >= ansi.ColorsPerIntensity {
 			first = layer.bright
 		}
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, first+int64(color.index%ansi.ColorsPerIntensity), 10)
-
+		return append(params, first+int(color.index%ansi.ColorsPerIntensity))
 	case indexed256WireColor:
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, layer.extended, 10)
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, ansi.SGRColorIndexed, 10)
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, int64(color.index), 10)
-
+		return append(params, layer.extended, ansi.SGRColorIndexed, int(color.index))
 	case truecolorWireColor:
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, layer.extended, 10)
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, ansi.SGRColorRGB, 10)
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, int64(color.rgb.R), 10)
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, int64(color.rgb.G), 10)
-		p.out = append(p.out, ';')
-		p.out = strconv.AppendInt(p.out, int64(color.rgb.B), 10)
+		return append(params, layer.extended, ansi.SGRColorRGB, int(color.rgb.R), int(color.rgb.G), int(color.rgb.B))
+	default:
+		return params
 	}
 }
 
 // Control bytes can terminate OSC 8 and inject terminal commands; refuse such hyperlink targets.
 func (p *painter) appendLink(target string) {
-	if target == p.link {
+	if target == p.wire.link {
 		return
 	}
-	if p.link != "" {
+	if p.wire.link != "" {
 		p.out = append(p.out, osc8Close...)
 	}
-	p.link = ""
+	p.wire.link = ""
 	if LinkTarget(target) == "" {
 		return
 	}
 	p.out = append(p.out, osc8Open...)
 	p.out = append(p.out, target...)
-	p.out = append(p.out, stringEnd...)
-	p.link = target
+	p.out = append(p.out, ansi.ST...)
+	p.wire.link = target
 }
 
 func (p *painter) closeLink() { p.appendLink("") }
@@ -391,7 +368,7 @@ func everything(int, int) bool { return true }
 
 var attrCodes = [...]struct {
 	attr Attr
-	code int64
+	code int
 }{
 	{Bold, ansi.SGRBold},
 	{Dim, ansi.SGRFaint},
@@ -438,7 +415,7 @@ func encodeCells(cells []Cell, depth Depth) string {
 	p := painter{depth: depth}
 	p.paintCells(cells)
 	p.closeLink()
-	if p.style != (wireStyle{}) {
+	if p.wire.style != (wireStyle{}) {
 		p.out = append(p.out, sgrReset...)
 	}
 	return string(p.out)
@@ -469,9 +446,9 @@ func (p *painter) scroll(next *Surface, shift verticalShift) {
 		p.setScrollRegion(shift.top, shift.bottom)
 	}
 	if shift.delta > 0 {
-		p.csi(shift.delta, 'S')
+		p.out = ansi.AppendCSI(p.out, ansi.SU, shift.delta)
 	} else {
-		p.csi(-shift.delta, 'T')
+		p.out = ansi.AppendCSI(p.out, ansi.SD, -shift.delta)
 	}
 	if region {
 		// Margins are dropped straight away: where the cursor ends up after a
@@ -486,15 +463,7 @@ func (p *painter) scroll(next *Surface, shift verticalShift) {
 }
 
 func (p *painter) setScrollRegion(top, bottom int) {
-	p.out = append(p.out, '\x1b', '[')
-	p.out = strconv.AppendInt(p.out, int64(top)+1, 10)
-	p.out = append(p.out, ';')
-	p.out = strconv.AppendInt(p.out, int64(bottom), 10)
-	p.out = append(p.out, 'r')
+	p.out = ansi.AppendCSI(p.out, ansi.DECSTBM, top+1, bottom)
 }
 
-func (p *painter) dropScrollRegion() { p.out = append(p.out, "\x1b[r"...) }
-
-func (p *painter) csi(n int, final byte) {
-	p.out = appendCSI(p.out, n, final)
-}
+func (p *painter) dropScrollRegion() { p.out = ansi.AppendCSI(p.out, ansi.DECSTBM) }

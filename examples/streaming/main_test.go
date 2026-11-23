@@ -49,7 +49,7 @@ func (h *host) Err() error                  { return nil }
 func (h *host) Writer() program.FrameWriter { return h.writer }
 func (h *host) Size() (int, int, error)     { return 60, 12, nil }
 func (h *host) Ground() grid.Ground         { return grid.Ground{} }
-func (h *host) Copy(string) bool            { return false }
+func (h *host) Copy(string) error           { return errors.ErrUnsupported }
 func (h *host) Wheel() input.Wheel          { return input.Wheel{} }
 
 func (h *host) Keyboard() (input.KeyboardFeatures, bool) {
@@ -129,7 +129,7 @@ func stateOf(t *testing.T, c *chat) state {
 		result = state{
 			active: c.document != nil, open: c.item != nil && c.item.State() == base.ContentLive,
 			dialog: c.dialog.Controller().Open(), blocks: c.content.Len(), first: c.content.FirstBlock(),
-			status: c.status.Doing, prompt: c.composer.Controller().Text(),
+			status: c.status.Label, prompt: c.composer.Controller().Text(),
 			written: c.item != nil && c.item.Receipt().Snapshot().State == publication.Written,
 		}
 		return nil
@@ -416,8 +416,8 @@ func TestLateIngressCannotChangeTheNextReply(t *testing.T) {
 	<-started
 	<-first.Done()
 	if err := owner.Dispatch(t.Context(), func() error {
-		if c.document == nil || c.document.Snapshot().Final() || c.document.Snapshot().Text() != "" || !strings.Contains(c.status.Doing, "receiving") {
-			t.Errorf("old bytes or EOF changed next reply: %s", c.status.Doing)
+		if c.document == nil || c.document.Snapshot().Final() || c.document.Snapshot().Text() != "" || !strings.Contains(c.status.Label, "receiving") {
+			t.Errorf("old bytes or EOF changed next reply: %s", c.status.Label)
 		}
 		return nil
 	}); err != nil {

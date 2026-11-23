@@ -15,11 +15,15 @@ The design has one rule that applies at every level: every fact has one owner th
 | Attached identity, focus, modal eligibility and pointer capture | `scene.Root` | Elements, targets, semantic observations and written frame history |
 | Editable text, revision and undo history | `base.EditSession` | Editor layouts, selections, rendered cells and change maps |
 | Streamed source, EOF and accepted preparation | `content.StreamDocument` | Immutable source snapshots and renderer results |
-| Retained conversation references and reading policy | `base.Transcript` | Transcript layout, logical reading anchor, selection rectangles and skin |
+| Retained conversation references, their passive revisions and reading policy | `base.Transcript` | Transcript layout, logical reading anchor, selection rectangles and skin |
 | Publication admission and pending responsibilities | `publication.Publisher` | Frozen content, batches and read-only receipts |
 | Encoded output admission and writer completion | `term.Writer` | Queued and written sequence watermarks |
 | Runtime work delivery and attachment lifetime | `program.Runtime` scopes | Worker result and settlement observations |
 | Application theme palette | `kit.ThemeOwner` | Immutable scopes, instance overrides and resolved palette snapshots |
+| Terminal identity read from a session environment or a reported name | `termenv.Lookup.Terminal` and `termenv.Recognize` | Wheel batching, image protocol and keyboard compatibility policies |
+| Control sequences, OSC command numbers and session requests | `core/ansi` | Terminal encoders, input decoders and the PTY screen model |
+| Whether a reported terminal background is light | `grid.Ground.Light` | Default themes and application syntax or diagram themes |
+| Text a keystroke enters | `input.Key.Typed` | Editor insertion and application routing of typed text |
 
 An owner boundary is justified by its guarantee, not by how many implementations currently exist. No compatibility layer copies an old model alongside the new owner.
 
@@ -28,6 +32,8 @@ An owner boundary is justified by its guarantee, not by how many implementations
 Core provides terminal-neutral values, cell drawing, Unicode geometry, scene attachment, typed actions and runtime composition. It cannot import base or kit. Base composes these primitives into editing, forms, choices, overlays, reading and virtualization. Kit fills appearance slots on those existing behavioral elements and combines components through scene groups.
 
 A skin shares the same element identity and controller as its base behavior. It cannot create a second route by wrapping Draw and Handle methods. Focusability and semantic availability belong to the scene and behavior; a color token cannot decide whether an action is allowed. Application, subtree and instance theme values resolve through immutable scopes from one mutable palette owner.
+
+Configuration errors are wiring errors. Base and kit constructors panic for a configuration they refuse, and a `Validate` method on the configuration answers the same question for settings read from outside the program. A nil controller or component pointer is likewise a programming error rather than an empty value, so no method reads one as empty or ignores a change made through it. List-shaped controllers embed one set of rows that has no element of its own; the controller that embeds them supplies the single identity its scene sees.
 
 Extensions consume small core content or host contracts. Markdown, code highlighting, mathematics and diagrams are not implemented as branches inside core. Each dependency-heavy extension is independently versioned.
 

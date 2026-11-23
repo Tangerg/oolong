@@ -157,5 +157,5 @@ func (t *terminalBinding) open(cfg term.Config) (*Host, error) {
 	return newHost(t.session.Context().Done(), exactly(t.session), t.windows,
 		modes, clipboard.New(cfg.Features.Clipboard),
 		term.DetectLocale(env.lookup), term.DetectDepth(env.lookup),
-		input.WheelFor(env.lookup, ""))
+		input.WheelFor(env.lookup))
 }

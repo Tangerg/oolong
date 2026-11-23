@@ -5,6 +5,9 @@ package scene
 type frameLedger struct {
 	inFlight []*layoutSnapshot
 	written  *layoutSnapshot
+	// shown is the newest confirmed frame. Unlike written, geometry revocation keeps
+	// it: a resize or regained focus moves what the user saw without unseeing it.
+	shown *layoutSnapshot
 	// Nil distinguishes no confirmation from a confirmed zero-byte prefix.
 	completion *uint64
 }
@@ -52,6 +55,7 @@ func (l *frameLedger) settle() bool {
 		return false
 	}
 	l.written = l.inFlight[covered-1]
+	l.shown = l.written
 	clear(l.inFlight[:covered])
 	l.inFlight = l.inFlight[covered:]
 	if len(l.inFlight) == 0 {

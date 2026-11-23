@@ -161,46 +161,31 @@ func Render(source string, look Look) *Formula {
 }
 
 func (f *Formula) Source() string {
-	if f == nil {
-		return ""
-	}
 	return f.source
 }
 
 func (f *Formula) Err() error {
-	if f == nil {
-		return nil
-	}
 	return f.err
 }
 
 // Lines detaches span storage so callers can compose rows without mutating the formula.
 func (f *Formula) Lines() []text.Line {
-	if f == nil {
-		return nil
-	}
 	return text.CloneLines(f.lines)
 }
 
 func (f *Formula) Width() int {
-	if f == nil {
-		return 0
-	}
 	return f.width
 }
 
 // HeightForWidth preserves prepared rows because changing mathematical line breaks
 // changes the expression; narrow views therefore clip instead of wrapping.
 func (f *Formula) HeightForWidth(int) int {
-	if f == nil {
-		return 0
-	}
 	return len(f.lines)
 }
 
 // Draw consumes prepared rows so it cannot advance parsing or semantic state.
 func (f *Formula) Draw(v grid.View) {
-	if f == nil || v.Empty() {
+	if v.Empty() {
 		return
 	}
 	w, _ := v.Size()
@@ -216,9 +201,6 @@ func (f *Formula) Draw(v grid.View) {
 // Rows preserves the drawn two-dimensional form for selection. Formula.Source
 // remains available separately when callers need the original TeX.
 func (f *Formula) Rows(width int) []text.Row {
-	if f == nil {
-		return nil
-	}
 	width = max(width, 1)
 	rows := make([]text.Row, len(f.lines))
 	for i, line := range f.lines {

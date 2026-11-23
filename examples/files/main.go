@@ -85,22 +85,20 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 	// The dressed tree retains its controller's scene identity, so this container
 	// can delegate input without duplicating tree behavior.
 	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
-	b.dressed = kit.NewTree(kit.TreeConfig[entry]{
-		Theme: theme, Glyphs: glyphs, Nodes: nodes,
-		Text: func(e entry) string { return e.name },
-	})
-	b.tree = b.dressed.Controller()
 	keys := base.DefaultTreeKeys()
 	for _, binding := range base.DefaultFocusKeys().Bindings() {
 		keys.Bind(binding.Action, binding.Keys...)
 	}
 	keys.Bind(quitBrowser, input.Chord{Rune: 'q'})
-	b.tree.SetKeys(keys)
-	previewElement := scene.NewElement(scene.ElementConfig{
-		Key:     "file-preview",
-		Paint:   func(frame scene.Frame) { b.preview.Draw(frame.View) },
-		Measure: scene.MeasureRows(b.preview.HeightForWidth),
+	b.dressed = kit.NewTree(kit.TreeConfig[entry]{
+		Behavior: base.TreeConfig[entry]{Nodes: nodes, Keys: keys},
+		Theme:    theme, Glyphs: glyphs,
+		Text: func(e entry) string { return e.name },
 	})
+	b.tree = b.dressed.Controller()
+	preview := scene.Passive(b.preview)
+	preview.Key = "file-preview"
+	previewElement := scene.NewElement(preview)
 	b.window = base.NewViewport(base.ViewportConfig{Content: previewElement})
 	b.treeBox = kit.NewPanel(kit.PanelConfig{Theme: theme, Box: kit.Box{Glyphs: glyphs, Title: "files"}, Content: b.dressed.Element()})
 	b.viewBox = kit.NewPanel(kit.PanelConfig{Theme: theme, Box: kit.Box{Glyphs: glyphs, Title: "preview"}, Content: b.window.Element()})
@@ -113,18 +111,21 @@ func newBrowser(runtime *program.Runtime, nodes []base.Node[entry]) *browser {
 		if b.tree.Element().FocusedWithin() {
 			actions = []keymap.Action{base.FocusNext, base.Expand, base.Collapse, quitBrowser}
 		}
-		kit.Help{Theme: b.theme, Keys: b.tree.Keys(), Show: actions}.Draw(frame.View)
+		kit.Help{Theme: b.theme, Keys: kit.KeysFunc(b.tree.KeysFor), Show: actions}.Draw(frame.View)
 	}})
 	unsubscribe := b.tree.Subscribe(b.show)
 	b.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
 		Key: "files",
 		Preview: func(event scene.Event) scene.EventResult {
 			if key, ok := event.Input().(input.Key); ok {
-				if action, bound := b.tree.Keys().ActionFor(key); bound && (action == base.FocusNext || action == base.FocusPrev) {
-					return scene.EventResult{Consumed: event.FocusNext(action == base.FocusPrev)}
+				switch action, _ := b.tree.Keys().ActionFor(key); action {
+				case base.FocusNext:
+					return scene.EventResult{Consumed: event.FocusNext()}
+				case base.FocusPrev:
+					return scene.EventResult{Consumed: event.FocusPrev()}
 				}
 			}
-			return scene.EventResult{Consumed: b.Handle(event.Input())}
+			return event.Result(b.Handle(event.Input()))
 		},
 		Detached: func() {
 			unsubscribe()

@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
@@ -18,6 +17,10 @@ import (
 const DefaultEscapeTimeout = 30 * time.Millisecond
 
 const esc = ansi.Escape
+
+// introducerLen is how many bytes open a sequence: Escape and the byte that
+// selects its family.
+const introducerLen = 2
 
 const (
 	// Rejected OSC replies keep only a complete correlation header within the
@@ -30,27 +33,11 @@ const (
 	// far is delivered as one Paste event and accumulation begins again, so the
 	// allocation stays bounded without interpreting any of the payload as input.
 	// Each malformed input byte can expand to a UTF-8 replacement rune.
-	maxPaste = (MaxDecodedEventBytes - eventOverhead) / len("�")
+	maxPaste = (MaxDecodedEventBytes - eventOverhead) / len(replacement)
 )
 
-// Only the exact framing sequences may change whether subsequent bytes are keys or text.
-const pasteOpen = "\x1b[200~"
-
-var pasteClose = []byte{esc, '[', '2', '0', '1', '~'}
-
-// Dropping retains oversized-sequence framing so later payload bytes cannot
-// be interpreted as keystrokes.
-type dropping uint8
-
-const (
-	droppingNothing dropping = iota
-	// droppingParams is a control sequence whose parameter section overran. It
-	// ends at the first byte a sequence could have ended with.
-	droppingParams
-	// Refusing a control string's body cannot grant its remaining bytes keyboard
-	// authority; its framing and bounded correlation header must survive.
-	droppingString
-)
+// replacement stands in for malformed bytes where untrusted input becomes text.
+const replacement = string(utf8.RuneError)
 
 // KeyboardDialect owns overlapping wire meanings; enhancement flags do not
 // change a protocol family's modifier namespace.
@@ -86,19 +73,19 @@ func NewParser(cfg ParserConfig) *Parser {
 
 // Once a payload introducer is complete, its bytes cannot regain keyboard
 // meaning through a timeout. One frame kind owns that interpretation until the
-// payload ends; paste, mouse and control-string bodies are mutually exclusive.
+// payload ends; paste, mouse, overrun and control-string bodies are mutually
+// exclusive.
 type frameKind uint8
 
 const (
 	noFrame frameKind = iota
 	pasteFrame
 	x10MouseFrame
-)
-
-const (
-	oscFrame = frameKind(ansi.OSC)
-	dcsFrame = frameKind(ansi.DCS)
-	apcFrame = frameKind(ansi.APC)
+	// overrunFrame is a control sequence whose parameter section overran what one
+	// may hold. It ends at the first byte a sequence could have ended with.
+	overrunFrame
+	// stringFrame accumulates [Parser.str].
+	stringFrame
 )
 
 // Parser retains ambiguous bytes across arbitrary chunks so split escape sequences
@@ -113,14 +100,10 @@ type Parser struct {
 	controlAt int
 	frame     frameKind
 	paste     []byte
-	oscCmd    int
-	strBody   []byte
+	str       controlString
 	arrivals  []arrivedBytes
 	origin    arrival
 	hasOrigin bool
-	// dropping is set when a sequence overran what one can hold, and stays set
-	// until that sequence ends.
-	dropping dropping
 }
 
 // noCopy makes the parser's single-owner contract visible to go vet. Its methods
@@ -159,13 +142,13 @@ func (p *Parser) Flush() []Event { return eventsOnly(p.drain(inputEnded)) }
 // so a report drawn from the buffer alone would say a paste that had not reached
 // its terminator was nothing at all.
 func (p *Parser) Pending() bool {
-	return len(p.buf) > 0 || p.dropping != droppingNothing || p.frame != noFrame
+	return len(p.buf) > 0 || p.frame != noFrame
 }
 
 // Ambiguous reports whether an Escape timeout can resolve pending input.
 // Incomplete UTF-8 and recognized paste, mouse or string payloads must wait for more bytes.
 func (p *Parser) Ambiguous() bool {
-	return p.dropping == droppingNothing && p.frame == noFrame && len(p.buf) > 0 && p.buf[0] == esc
+	return p.frame == noFrame && len(p.buf) > 0 && p.buf[0] == esc
 }
 
 // Expire resolves Escape ambiguity without declaring the byte stream finished.
@@ -210,7 +193,7 @@ func (p *Parser) drain(trigger parseTrigger) (events []receivedEvent) {
 		if event != nil {
 			events = append(events, receivedEvent{event: event, arrival: p.origin})
 		}
-		if p.frame == noFrame && p.dropping == droppingNothing {
+		if p.frame == noFrame {
 			p.origin, p.hasOrigin = arrival{}, false
 		}
 	}
@@ -219,27 +202,26 @@ func (p *Parser) drain(trigger parseTrigger) (events []receivedEvent) {
 // advance makes one state transition. Its boolean distinguishes waiting from
 // consuming bytes that deliberately produce no event.
 func (p *Parser) advance(trigger parseTrigger) (Event, bool) {
-	if p.dropping == droppingParams {
-		return p.advanceControlDiscard(trigger)
-	}
 	switch p.frame {
 	case pasteFrame:
 		return p.advancePaste()
 	case x10MouseFrame:
 		return p.advanceX10Mouse(trigger)
-	case oscFrame, dcsFrame, apcFrame:
+	case overrunFrame:
+		return p.advanceOverrun(trigger)
+	case stringFrame:
 		return p.advanceString(trigger)
 	default:
 		return p.advanceInput(trigger)
 	}
 }
 
-func (p *Parser) advanceControlDiscard(trigger parseTrigger) (Event, bool) {
+func (p *Parser) advanceOverrun(trigger parseTrigger) (Event, bool) {
 	if p.skipParams() {
 		return nil, true
 	}
 	if trigger == inputEnded {
-		p.dropping = droppingNothing
+		p.frame = noFrame
 		return nil, true
 	}
 	return nil, false
@@ -267,7 +249,7 @@ func (p *Parser) advancePaste() (Event, bool) {
 	// Invalid UTF-8 is replaced rather than passed on, for the same reason a control
 	// character is dropped at the cell: this is where untrusted bytes stop being
 	// untrusted.
-	return Paste{Text: strings.ToValidUTF8(text, "\uFFFD")}, true
+	return Paste{Text: strings.ToValidUTF8(text, replacement)}, true
 }
 
 func (p *Parser) advanceInput(trigger parseTrigger) (Event, bool) {
@@ -314,7 +296,7 @@ func (p *Parser) skipParams() bool {
 		i++
 	}
 	p.take(i)
-	p.dropping = droppingNothing
+	p.frame = noFrame
 	return true
 }
 
@@ -327,481 +309,4 @@ func (p *Parser) take(n int) {
 	if len(p.buf) == 0 {
 		p.buf = nil
 	}
-}
-
-func (p *Parser) readPaste() (string, bool) {
-	i := 0
-	for i < len(p.buf) {
-		if p.buf[i] == esc {
-			rest := p.buf[i:]
-			switch shared := commonPrefix(rest, pasteClose); {
-			case shared == len(pasteClose):
-				p.take(i + len(pasteClose))
-				return p.closePaste(), true
-			case shared == len(rest):
-				p.take(i)
-				return "", false
-			}
-		}
-		p.paste = append(p.paste, p.buf[i])
-		i++
-		if len(p.paste) >= maxPaste {
-			end := len(p.paste) - 1
-			for end > 0 && !utf8.RuneStart(p.paste[end]) {
-				end--
-			}
-			if utf8.FullRune(p.paste[end:]) {
-				end = len(p.paste)
-			}
-			text := string(p.paste[:end])
-			p.paste = bytes.Clone(p.paste[end:])
-			p.take(i)
-			return text, true
-		}
-	}
-	p.take(len(p.buf))
-	return "", false
-}
-
-// takePaste publishes the bounded payload accumulated so far without ending paste
-// mode. A large paste is therefore a sequence of Paste events, never text re-read as
-// keystrokes merely because it crossed an allocation bound.
-func (p *Parser) takePaste() string {
-	text := string(p.paste)
-	p.paste = nil
-	return text
-}
-
-func (p *Parser) closePaste() string {
-	p.frame = noFrame
-	return p.takePaste()
-}
-
-// decode consumes nothing when more bytes may change the result. A nil event
-// with consumed bytes means recognized input that deliberately produces no event.
-func (p *Parser) decode(b []byte, trigger parseTrigger) (n int, ev Event, done bool) {
-	switch c := b[0]; {
-	case c == esc:
-		return p.decodeEscape(b, trigger)
-	case c == '\r':
-		return 1, Key{Code: Enter}, true
-	case c == '\t':
-		return 1, Key{Code: Tab}, true
-	case c == deleteByte, c == '\b':
-		return 1, Key{Code: Backspace}, true
-	case c >= 0x01 && c <= 0x1a:
-		// Ctrl with a letter, which is what the terminal sends for it. Enter, Tab
-		// and Backspace fall in this range too and are answered above, where their
-		// own names are the truer report.
-		return 1, Key{Code: Character, Rune: rune('a' + c - 1), Mods: Ctrl}, true
-	case c < 0x20:
-		// The rest of the C0 block. Each is Ctrl with a punctuation key, and
-		// naming them is what makes those chords bindable at all.
-		return 1, Key{Code: Character, Rune: c0Rune(c), Mods: Ctrl}, true
-	default:
-		if !utf8.FullRune(b) {
-			return 0, nil, false
-		}
-		r, size := utf8.DecodeRune(b)
-		if r == utf8.RuneError && size == 1 || unicode.IsControl(r) {
-			// Invalid UTF-8, and the C1 controls and DEL that no key types, are
-			// dropped rather than reported as printable keys.
-			return size, nil, true
-		}
-		return size, Key{Code: Character, Rune: r}, true
-	}
-}
-
-func c0Rune(c byte) rune {
-	switch c {
-	case 0x00:
-		return ' '
-	case 0x1c:
-		return '\\'
-	case 0x1d:
-		return ']'
-	case 0x1e:
-		return '^'
-	case 0x1f:
-		return '_'
-	default:
-		return rune('a' + c - 1)
-	}
-}
-
-func (p *Parser) decodeEscape(b []byte, trigger parseTrigger) (n int, ev Event, done bool) {
-	if len(b) == 1 {
-		return 0, nil, false
-	}
-	n, ev, done = p.decodeIntroduced(b)
-	if done || trigger == inputAvailable {
-		return n, ev, done
-	}
-	return p.expireIntroduced(b, trigger)
-}
-
-// expireIntroduced settles an introducer whose sequence did not complete. A bare
-// introducer is an Alt chord: ESC [ names Alt+[ as well as a CSI prefix. When the
-// Escape wait expires after body bytes arrived inside it, those bytes are part of
-// a protocol unit the transport split, not keys anybody pressed, so they are never
-// replayed as typing: a control sequence is discarded through its final byte, and
-// a string head is discarded on its own. At the end of input there is no timing
-// evidence, and the bytes are read as the Alt chord and keys they spell.
-func (p *Parser) expireIntroduced(b []byte, trigger parseTrigger) (int, Event, bool) {
-	const introducer = 2
-	switch second := b[1]; {
-	case second == esc:
-		return 1, Key{Code: Esc}, true
-	case len(b) == introducer, trigger == inputEnded:
-		return decodeAlt(b)
-	case second == '[':
-		p.dropping = droppingParams
-		return len(b), nil, true
-	case second == byte(ansi.OSC), second == byte(ansi.DCS), second == byte(ansi.APC):
-		return len(b), nil, true
-	default:
-		return decodeAlt(b)
-	}
-}
-
-func (p *Parser) decodeIntroduced(b []byte) (n int, ev Event, done bool) {
-	switch second := b[1]; {
-	case second == '[':
-		return p.decodeControl(b)
-	case second == byte(ansi.OSC):
-		cmd, size := oscHead(b)
-		return p.introduceString(b, oscFrame, cmd, size)
-	case second == byte(ansi.DCS):
-		return p.introduceString(b, dcsFrame, 0, dcsHead(b))
-	case second == byte(ansi.APC):
-		return p.introduceString(b, apcFrame, 0, graphicsHead(b))
-	case second == 'O':
-		return decodeSS3(b)
-	case second == esc:
-		return p.decodeMetaPrefixed(b)
-	case second < 0x20, second == deleteByte:
-		consumed, event, ready := p.decode(b[1:], inputAvailable)
-		if key, ok := event.(Key); ok {
-			key.Mods |= Alt
-			event = key
-		}
-		return consumed + 1, event, ready
-	default:
-		return decodeAlt(b)
-	}
-}
-
-// decodeSS3 reads ESC O <final>, and the legacy form that carries an xterm
-// modifier parameter as one digit before the final. A byte that cannot continue
-// the sequence proves ESC O was Alt+O; it is left to be read on its own terms.
-func decodeSS3(b []byte) (n int, ev Event, done bool) {
-	const introducer = 2
-	if len(b) <= introducer {
-		return 0, nil, false
-	}
-	at, mods := introducer, Mods(0)
-	if digit := b[at]; digit >= '1' && digit <= '9' {
-		if len(b) <= at+1 {
-			return 0, nil, false
-		}
-		modifiers, ok := XTermKeyboard.modifiers(int(digit - '1'))
-		if !ok {
-			return decodeAlt(b)
-		}
-		at, mods = at+1, modifiers
-	}
-	if !ansi.Final(b[at]) {
-		return decodeAlt(b)
-	}
-	code, ok := finalByteKeys[b[at]]
-	if !ok {
-		return at + 1, nil, true
-	}
-	return at + 1, Key{Code: code, Mods: mods}, true
-}
-
-// decodeMetaPrefixed reads two Escapes in a row: terminals that send Meta as an
-// Escape prefix report Alt+Up as an Escape before ESC [ A. Only a following CSI or
-// SS3 introducer makes the first Escape a modifier; otherwise it is a key of its own.
-func (p *Parser) decodeMetaPrefixed(b []byte) (n int, ev Event, done bool) {
-	const prefixed = 3
-	if len(b) < prefixed {
-		return 0, nil, false
-	}
-	if b[2] != '[' && b[2] != 'O' {
-		return 1, Key{Code: Esc}, true
-	}
-	consumed, event, ready := p.decodeIntroduced(b[1:])
-	if !ready {
-		return 0, nil, false
-	}
-	if key, ok := event.(Key); ok {
-		key.Mods |= Alt
-		event = key
-	}
-	return consumed + 1, event, true
-}
-
-func decodeAlt(b []byte) (n int, ev Event, done bool) {
-	if !utf8.FullRune(b[1:]) {
-		return 0, nil, false
-	}
-	r, size := utf8.DecodeRune(b[1:])
-	if r == utf8.RuneError && size == 1 || unicode.IsControl(r) {
-		return 1, Key{Code: Esc}, true
-	}
-	return 1 + size, Key{Code: Character, Rune: r, Mods: Alt}, true
-}
-
-func (p *Parser) decodeControl(b []byte) (n int, ev Event, done bool) {
-	i := max(2, p.controlAt)
-	for i < len(b) && ansi.Body(b[i]) {
-		if b[i] == rxvtShifted && rxvtKeyNumber(b[2:i]) {
-			return i + 1, parseParams(string(b[2:i])).numberedKey(p.keyboard, Shift), true
-		}
-		i++
-	}
-	if i-2 > maxParameterBytes {
-		// Overran what one may hold. The check does not wait to see whether a
-		// final byte happens to be in this chunk, and it does not drop "whatever
-		// is buffered": either would make the cap depend on where the read split,
-		// and the same bytes would decode differently for arriving in different
-		// pieces. What is dropped is the introducer and the body seen so far, and
-		// [Parser.skipParams] drops the rest wherever it turns up.
-		p.dropping = droppingParams
-		return i, nil, true
-	}
-	if i >= len(b) {
-		p.controlAt = i
-		return 0, nil, false
-	}
-	final := b[i]
-	if !ansi.Final(final) {
-		// A byte that cannot appear in a control sequence. Drop the malformed
-		// prefix and start again at the byte that proved it malformed.
-		return i, nil, true
-	}
-	n = i + 1
-	switch string(b[:n]) {
-	case pasteOpen:
-		p.frame = pasteFrame
-		return n, nil, true
-	case x10MouseIntro:
-		p.frame = x10MouseFrame
-		return n, nil, true
-	}
-	piece, _, valid := ansi.Next(string(b[:n]))
-	if !valid || piece.Kind != ansi.Control || piece.Intermediates != "" {
-		return n, nil, true
-	}
-	ps := parseParams(piece.Parameters)
-
-	return n, p.controlEvent(ps, final), true
-}
-
-func (p *Parser) controlEvent(ps params, final byte) Event {
-	// A private marker says the sequence is a report and not a key, because a key
-	// never carries one. Dispatching on the final byte alone let a keyboard-flags
-	// reply — "CSI ? 31 u" — decode as a keystroke of an invisible control character.
-	if ps.Marker() != 0 {
-		event := ps.report(final)
-		if _, ok := event.(KeyboardFlags); ok {
-			p.keyboard = KittyKeyboard
-		}
-		return event
-	}
-
-	// Everything past here turns a sequence into a keystroke, and a keystroke nobody
-	// pressed is worse than none — so the whole parameter section has to be readable,
-	// not merely the groups this form looks at. The group a form ignores is the one
-	// something pretending to be a terminal is free to fill.
-	//
-	// A report is the other way round: an extension nobody can read is a claim nobody
-	// can act on, and the rest of the list is still worth having. See
-	// [params.deviceAttributes].
-	if !ps.Valid() {
-		return nil
-	}
-
-	switch {
-	case ps.Len() == 0 && final == 'I':
-		return FocusIn{}
-	case ps.Len() == 0 && final == 'O':
-		return FocusOut{}
-	}
-
-	switch final {
-	case 'R':
-		if p.keyboard != XTermKeyboard {
-			return nil
-		}
-		return ps.legacyF3()
-	case 'u':
-		return ps.extendedKey()
-	case '~':
-		return ps.numberedKey(p.keyboard, 0)
-	case rxvtControl, rxvtControlShifted:
-		return ps.numberedKey(p.keyboard, rxvtModifiers(final))
-	case 'Z':
-		// Shift and tab, not a key of its own. A terminal speaking the Kitty protocol
-		// reports the same keystroke as tab with shift held, and one keystroke that
-		// arrives under two names is one nothing can be bound to.
-		return ps.modifiedKey(Tab, Shift, p.keyboard)
-	default:
-		code, ok := finalByteKeys[final]
-		if !ok {
-			return nil
-		}
-		return ps.modifiedKey(code, 0, p.keyboard)
-	}
-}
-
-// rxvt reports a modified numbered key by replacing its tilde: '$' adds Shift,
-// '^' Ctrl and '@' both. '$' is an intermediate byte, so without this reading the
-// sequence would never complete and its bytes would wait for an unrelated final.
-const (
-	rxvtShifted        = '$'
-	rxvtControl        = '^'
-	rxvtControlShifted = '@'
-)
-
-func rxvtModifiers(final byte) Mods {
-	if final == rxvtControlShifted {
-		return Ctrl | Shift
-	}
-	return Ctrl
-}
-
-func rxvtKeyNumber(body []byte) bool {
-	if len(body) == 0 {
-		return false
-	}
-	for _, c := range body {
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func (ps params) numberedKey(dialect KeyboardDialect, extra Mods) Event {
-	code, ok := tildeKeyNumbers[ps.At(0)]
-	if !ok || ps.Group(0).Len() != 1 {
-		return nil
-	}
-	return ps.functionalKey(code, extra, dialect)
-}
-
-// Unknown Kitty private-use key numbers are refused so unsupported keys do not
-// insert glyphs the user never typed.
-func extendedKeyCode(num int) (Code, rune, bool) {
-	if code, ok := kittyKeyNumbers[num]; ok {
-		return code, 0, true
-	}
-	// Kitty numbers the function row and then the keypad consecutively.
-	if offset := num - kittyF1; offset >= 0 && offset <= int(KeypadBegin-F1) {
-		return F1 + Code(offset), 0, true
-	}
-	// The private use area is where a terminal puts keys that are not characters,
-	// and this function has already taken the ones it knows about.
-	r, ok := codePoint(num)
-	if !ok || r != 0 && unicode.IsControl(r) || (num >= kittyFunctionKeysFrom && num <= kittyFunctionKeysTo) {
-		return 0, 0, false
-	}
-	return Character, r, true
-}
-
-func commonPrefix(a, b []byte) int {
-	n := min(len(a), len(b))
-	for i := range n {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	return n
-}
-
-func (p *Parser) introduceString(b []byte, kind frameKind, cmd, size int) (int, Event, bool) {
-	switch {
-	case size < 0:
-		return decodeAlt(b)
-	case size == 0:
-		return 0, nil, false
-	default:
-		p.frame, p.oscCmd, p.strBody = kind, cmd, nil
-		return size, nil, true
-	}
-}
-
-func (p *Parser) readString() (Event, bool) {
-	for i := 0; i < len(p.buf); {
-		n, result := ansi.StringFamily(p.frame).Step(p.buf[i], p.buf[min(i+1, len(p.buf)-1)], i+1 < len(p.buf))
-		switch result {
-		case ansi.StringTerminated:
-			p.take(i + n)
-			return p.endString(), true
-		case ansi.StringIncomplete:
-			p.take(i)
-			return nil, false
-		case ansi.StringCanceled:
-			p.take(i + n)
-			p.abandonString()
-			return nil, true
-		case ansi.StringContent:
-			if p.dropping != droppingString {
-				p.strBody = append(p.strBody, p.buf[i])
-			}
-			i++
-			if p.dropping != droppingString && len(p.strBody) >= maxStringBody {
-				// Overran what one may hold. The rest is dropped wherever it turns up
-				// rather than read as text, for the same reason a runaway control
-				// sequence is: a flood of keystrokes is a worse answer to a malformed
-				// sequence than silence, and one a hostile terminal could aim.
-				p.take(i)
-				p.discardString()
-				return nil, true
-			}
-		}
-	}
-	p.take(len(p.buf))
-	return nil, false
-}
-
-func (p *Parser) discardString() {
-	var header []byte
-	if p.frame == oscFrame {
-		if end := bytes.IndexByte(p.strBody, ';'); end >= 0 && end < maxParameterBytes {
-			header = bytes.Clone(p.strBody[:end+1])
-		}
-	}
-	p.strBody = header
-	p.dropping = droppingString
-}
-
-// Reply bodies become text at this boundary; replace invalid UTF-8 before
-// consumers can treat the result as displayable text.
-func (p *Parser) endString() Event {
-	body := strings.ToValidUTF8(string(p.strBody), "�")
-	kind, cmd := p.frame, p.oscCmd
-	rejected := p.dropping == droppingString
-	p.abandonString()
-	if rejected {
-		if kind == oscFrame {
-			return OSCRejection{Command: cmd, Prefix: body}
-		}
-		return nil
-	}
-	switch kind {
-	case apcFrame:
-		return APC{Body: body}
-	case dcsFrame:
-		return DCS{Body: body}
-	default:
-		return OSC{Command: cmd, Params: body}
-	}
-}
-
-func (p *Parser) abandonString() {
-	p.frame, p.oscCmd, p.strBody = noFrame, 0, nil
-	p.dropping = droppingNothing
 }

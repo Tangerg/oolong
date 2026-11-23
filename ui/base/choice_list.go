@@ -8,6 +8,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // choiceList is what Select and MultiSelect share: a labelled list of options
@@ -24,7 +25,7 @@ type choiceList[T any] struct {
 	// rowPainter optionally draws a one-row choice with its cursor and taken
 	// states. Nil uses Look's default choice row. Like Draw, it must be pure.
 	rowPainter   func(grid.View, Option[T], bool, bool, Look)
-	list         List[Option[T]]
+	list         rows[Option[T]]
 	matcher      keymap.Matcher
 	sameIdentity func(T, T) bool
 	revision     uint64
@@ -38,22 +39,14 @@ func (c *choiceList[T]) initialize(label string, same func(T, T) bool, rows int,
 // adopt makes element the identity of the field and of the list it draws with.
 func (c *choiceList[T]) adopt(element scene.Element) {
 	c.element = element
-	c.list.element = element
-	c.list.scroll.element = element
+	c.list.adopt(element)
 	c.keys.attach(element, &c.matcher)
 }
-
-func (c *choiceList[T]) Prompt() string { return c.label }
 
 func (c *choiceList[T]) Label() string { return c.label }
 
 func (c *choiceList[T]) SetLabel(value string) {
-	requireMutable(c.element)
-	if c.label == value {
-		return
-	}
-	c.label = strings.Clone(value)
-	c.element.Invalidate()
+	setting.Assign(c.element, &c.label, strings.Clone(value))
 }
 
 // Options returns a copy of what is on offer.
@@ -75,9 +68,7 @@ func (c *choiceList[T]) SetRows(value int) {
 func (c *choiceList[T]) Row() func(grid.View, Option[T], bool, bool, Look) { return c.rowPainter }
 
 func (c *choiceList[T]) SetRow(value func(grid.View, Option[T], bool, bool, Look)) {
-	requireMutable(c.element)
-	c.rowPainter = value
-	c.element.Invalidate()
+	setting.Replace(c.element, &c.rowPainter, value)
 }
 
 func (c *choiceList[T]) Keys() *keymap.Map { return c.keys.current }

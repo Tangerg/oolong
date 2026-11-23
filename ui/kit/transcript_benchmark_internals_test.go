@@ -27,10 +27,7 @@ func BenchmarkTranscriptMarkCommittedHistory(b *testing.B) {
 			for i := range matches {
 				matches[i] = base.Match{Row: i, Spans: []base.Span{{Width: 1}}}
 			}
-			transcript, err := NewTranscript(TranscriptConfig{})
-			if err != nil {
-				b.Fatal(err)
-			}
+			transcript := NewTranscript(TranscriptConfig{})
 			if _, err := transcript.Controller().Add(transcriptSearchRows(count)); err != nil {
 				b.Fatal(err)
 			}
@@ -58,10 +55,7 @@ func TestVisibleMatchesIncludesTheOneCrossingTheViewportEdge(t *testing.T) {
 		{Row: 6, Spans: []base.Span{{Width: 1}}},
 		{Row: 20, Spans: []base.Span{{Width: 1}}},
 	}
-	transcript, err := base.NewTranscript(base.TranscriptConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := base.NewTranscript(base.TranscriptConfig{})
 	if _, err := transcript.Add(transcriptSearchRows(21)); err != nil {
 		t.Fatal(err)
 	}

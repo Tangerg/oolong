@@ -5,10 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/publication"
-
-	"github.com/Tangerg/oolong/ui/base"
 )
 
 // A transcript is the one numbering a scroll offset, the ends of a selection, a

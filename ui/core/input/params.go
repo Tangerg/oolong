@@ -13,6 +13,34 @@ type params struct{ ansi.Params }
 
 func parseParams(body string) params { return params{ansi.Parse(body)} }
 
+// A key report's parameter groups: the key, then its modifiers and event type,
+// then the text it produced. Only a Kitty report carries text.
+const (
+	keyField = iota
+	modifierField
+	textField
+	keyReportFields
+)
+
+// functionalKeyFields is a key and its modifiers: a functional key produces no text.
+const functionalKeyFields = textField
+
+// The values in a Kitty report's key field: the key, the same key shifted in the
+// active layout, and the key in the standard PC-101 layout.
+const (
+	keyCode = iota
+	shiftedKey
+	baseKey
+	keyIdentities
+)
+
+// The values in a modifier field: the modifier bits plus one, then the event type.
+const (
+	modifierBits = iota
+	eventType
+	modifierValues
+)
+
 // Malformed capability claims are omitted independently: unlike malformed key
 // modifiers, an unreadable claim cannot trigger an unintended user action.
 func (ps params) deviceAttributes() DeviceAttributes {
@@ -29,7 +57,7 @@ func (ps params) deviceAttributes() DeviceAttributes {
 // Final-byte keys permit only an absent or one-valued leading group. Other
 // values may identify unrelated replies and must not become keystrokes.
 func (ps params) namesNoKey() bool {
-	group := ps.Group(0)
+	group := ps.Group(keyField)
 	if group.Len() == 0 {
 		return true
 	}
@@ -39,16 +67,16 @@ func (ps params) namesNoKey() bool {
 // keyMeta rejects malformed metadata because guessed modifiers could execute
 // a binding the user did not press.
 func (ps params) keyMeta(dialect KeyboardDialect) (Mods, Transition, bool) {
-	group := ps.Group(1)
+	group := ps.Group(modifierField)
 	if group.Len() == 0 {
 		return 0, Press, true
 	}
-	if group.Len() > 2 {
+	if group.Len() > modifierValues {
 		return 0, Press, false
 	}
 
 	var mods Mods
-	if group.At(0) > 1 {
+	if group.At(modifierBits) > 1 {
 		// The encoding is the modifier bits plus one, so that a parameter of one
 		// means no modifiers and the field is never empty.
 		//
@@ -57,32 +85,40 @@ func (ps params) keyMeta(dialect KeyboardDialect) (Mods, Transition, bool) {
 		// nobody held — the same class of mistake as reading a rune out of an
 		// integer and asking afterwards whether it was one.
 		var ok bool
-		mods, ok = dialect.modifiers(group.At(0) - 1)
+		mods, ok = dialect.modifiers(group.At(modifierBits) - 1)
 		if !ok {
 			return 0, Press, false
 		}
 	}
-	if group.Len() < 2 {
+	if group.Len() <= eventType {
 		return mods, Press, true
 	}
-	switch group.At(1) {
-	case 0, 1:
+	switch group.At(eventType) {
+	case kittyEventDefault, kittyEventPress:
 		return mods, Press, true
-	case 2:
+	case kittyEventRepeat:
 		return mods, Repeat, true
-	case 3:
+	case kittyEventRelease:
 		return mods, Release, true
 	default:
 		return 0, Press, false
 	}
 }
 
+// Kitty event types follow the modifier field; an omitted type is a press.
+const (
+	kittyEventDefault = iota
+	kittyEventPress
+	kittyEventRepeat
+	kittyEventRelease
+)
+
 func (ps params) text() (string, bool) {
-	if ps.Len() < 3 {
+	if ps.Len() <= textField {
 		return "", true
 	}
 	var b strings.Builder
-	for cp := range ps.Group(2).Values() {
+	for cp := range ps.Group(textField).Values() {
 		r, ok := codePoint(cp)
 		if !ok || !associatedTextRune(r) {
 			return "", false
@@ -113,21 +149,21 @@ func (ps params) modifiedKey(code Code, extra Mods, dialect KeyboardDialect) Eve
 
 func (ps params) functionalKey(code Code, extra Mods, dialect KeyboardDialect) Event {
 	mods, transition, ok := ps.keyMeta(dialect)
-	if !ok || ps.Len() > 2 {
+	if !ok || ps.Len() > functionalKeyFields {
 		return nil
 	}
 	return Key{Code: code, Mods: mods | extra, Transition: transition}
 }
 
 func (ps params) extendedKey() Event {
-	if ps.Len() > 3 {
+	if ps.Len() > keyReportFields {
 		return nil
 	}
 	mods, transition, ok := ps.keyMeta(KittyKeyboard)
 	if !ok {
 		return nil
 	}
-	key, ok := primaryKey(ps.Group(0), mods)
+	key, ok := primaryKey(ps.Group(keyField), mods)
 	if !ok {
 		return nil
 	}
@@ -140,12 +176,12 @@ func (ps params) extendedKey() Event {
 }
 
 func primaryKey(group ansi.Parameter, mods Mods) (Key, bool) {
-	if group.Len() == 0 || group.Len() > 3 {
+	if group.Len() == 0 || group.Len() > keyIdentities {
 		return Key{}, false
 	}
-	code, r, ok := extendedKeyCode(group.At(0))
-	shifted, shiftedOK := codePoint(group.At(1))
-	base, baseOK := codePoint(group.At(2))
+	code, r, ok := extendedKeyCode(group.At(keyCode))
+	shifted, shiftedOK := codePoint(group.At(shiftedKey))
+	base, baseOK := codePoint(group.At(baseKey))
 	if !ok || !shiftedOK || !baseOK {
 		return Key{}, false
 	}
@@ -177,21 +213,30 @@ func (ps params) sgrMouse(final byte) Event {
 // through to keys without injecting unsolicited text into the focused control.
 func (ps params) report(final byte) Event {
 	switch {
-	case ps.Marker() == '<' && (final == sgrMousePress || final == sgrMouseRelease):
+	case ps.Marker() == sgrMouseMarker && (final == sgrMousePress || final == sgrMouseRelease):
 		return ps.sgrMouse(final)
-	case ps.Marker() == '?' && final == 'c':
+	case ps.Marker() == privateReplyMarker && final == deviceReplyFinal:
 		return ps.deviceAttributes()
-	case ps.Marker() == '?' && final == 'u' && ps.scalars(1):
+	case ps.Marker() == privateReplyMarker && final == kittyKeyFinal && ps.scalars(1):
 		return KeyboardFlags{Features: KeyboardFeatures(ps.At(0))}
-	case ps.Marker() == '>' && final == 'c' && ps.scalars(3):
+	case ps.Marker() == versionReplyMarker && final == deviceReplyFinal && ps.scalars(deviceVersionFields):
 		return DeviceVersion{Kind: ps.At(0), Version: ps.At(1), Patch: ps.At(2)}
 	default:
 		return nil
 	}
 }
 
+// Private markers that open terminal reports rather than keystrokes.
+const (
+	sgrMouseMarker     = '<'
+	privateReplyMarker = ansi.DECPrivate
+	versionReplyMarker = '>'
+
+	deviceVersionFields = 3
+)
+
 func (ps params) legacyF3() Event {
-	if !ps.scalars(2) || ps.At(0) != 1 || ps.At(1) <= 1 {
+	if !ps.scalars(functionalKeyFields) || ps.At(keyField) != 1 || ps.At(modifierField) <= 1 {
 		return nil
 	}
 	return ps.functionalKey(F3, 0, XTermKeyboard)

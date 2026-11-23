@@ -22,6 +22,27 @@ type canvas interface {
 	Frame() grid.View
 }
 
+func (p *program) canvas() canvas {
+	switch {
+	case p.inline != nil:
+		return p.inline
+	case p.screen != nil:
+		return p.screen
+	default:
+		return nil
+	}
+}
+
+// drainWriter waits for accepted frames and projects the resulting watermark,
+// which every display transition needs before it can rely on the terminal state.
+func (p *program) drainWriter() error {
+	if err := p.writer.Drain(term.DrainGrace); err != nil {
+		return frameDrainError(p.writer, err)
+	}
+	p.wrote(p.writer.Written())
+	return nil
+}
+
 func (p *program) draw() error {
 	_, err := p.present.Present(time.Now(), p.compose)
 	return err
@@ -39,9 +60,9 @@ func (p *program) compose(full bool) (uint64, error) {
 		return 0, errFrameNotReady
 	}
 	if full {
-		p.canvas.Invalidate()
+		p.canvas().Invalidate()
 	}
-	prepared, err := p.root.Prepare(p.canvas.Frame())
+	prepared, err := p.root.Prepare(p.canvas().Frame())
 	if err != nil {
 		return 0, err
 	}
@@ -52,11 +73,7 @@ func (p *program) compose(full bool) (uint64, error) {
 		batch = p.publisher.Prepare()
 		output, err = p.prepareInline(batch)
 	} else {
-		screen, ok := p.canvas.(*grid.Screen)
-		if !ok {
-			return 0, errors.New("program: screen canvas is missing")
-		}
-		output, err = screen.Prepare()
+		output, err = p.screen.Prepare()
 	}
 	if err != nil {
 		return 0, fmt.Errorf("program: construct frame: %w", err)
@@ -131,8 +148,7 @@ func (p *program) queue(frame []byte, batch publication.Batch) (uint64, error) {
 			err = fatal
 		}
 		if !errors.Is(err, term.ErrQueueFull) {
-			p.outputFailed = true
-			p.failPublications(err)
+			p.failOutput(err)
 		}
 		return 0, err
 	}
@@ -213,10 +229,9 @@ func (p *program) finishPreparedOutput() error {
 	if batch.Len() == 0 {
 		return p.finishBlock()
 	}
-	if err := p.writer.Drain(term.DrainGrace); err != nil {
-		return frameDrainError(p.writer, err)
+	if err := p.drainWriter(); err != nil {
+		return err
 	}
-	p.wrote(p.writer.Written())
 	p.inline.Frame()
 	output, err := p.prepareInline(batch)
 	if err != nil {
@@ -237,10 +252,9 @@ func (p *program) finishPreparedOutput() error {
 // construction is where it is discovered; no caller has to remember to record it.
 func (p *program) renderBlock() error {
 	// Shutdown may finish only after the previous frame has left the writer.
-	if err := p.writer.Drain(term.DrainGrace); err != nil {
-		return frameDrainError(p.writer, err)
+	if err := p.drainWriter(); err != nil {
+		return err
 	}
-	p.wrote(p.writer.Written())
 	_, err := p.compose(false)
 	if err != nil && !errors.Is(err, errFrameNotReady) {
 		p.frameFailed = true
@@ -251,10 +265,9 @@ func (p *program) renderBlock() error {
 func (p *program) finishBlock() error {
 	// The final live frame can occupy all ordinary writer capacity. Cleanup must
 	// wait for that frame rather than lose the cursor restoration to backpressure.
-	if err := p.writer.Drain(term.DrainGrace); err != nil {
-		return frameDrainError(p.writer, err)
+	if err := p.drainWriter(); err != nil {
+		return err
 	}
-	p.wrote(p.writer.Written())
 	output, err := p.inline.PrepareFinish()
 	if err != nil {
 		return fmt.Errorf("program: finish inline block: %w", err)
@@ -273,13 +286,12 @@ func (p *program) repaint() error {
 	if err := p.takeFailure(); err != nil {
 		return err
 	}
-	if err := p.writer.Drain(term.DrainGrace); err != nil {
-		return frameDrainError(p.writer, err)
+	if err := p.drainWriter(); err != nil {
+		return err
 	}
 	if err := p.writer.Err(); err != nil {
 		return err
 	}
-	p.wrote(p.writer.Written())
 	p.present.RequestFull()
 	if err := p.draw(); err != nil {
 		return err
@@ -310,9 +322,16 @@ func frameDrainError(writer FrameWriter, drainErr error) error {
 	return errors.Join(ErrFrameTimeout, drainErr, writer.Err())
 }
 
+// failOutput records that the transport is unusable and settles every
+// publication it carried; queue refuses any later frame.
+func (p *program) failOutput(err error) {
+	p.outputFailed = true
+	p.failPublications(err)
+}
+
 func (p *program) failPublications(err error) {
 	if p.publisher != nil {
 		p.publisher.Written(p.writer.Written())
-		p.publisher.Fail(err, true)
+		p.publisher.Close(err)
 	}
 }

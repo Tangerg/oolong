@@ -68,8 +68,8 @@ func TestHostClipboardTargetsTheClientTerminal(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var output strings.Builder
 		host := &Host{writer: term.NewWriter(term.WriterConfig{Destination: &output}), clip: &clipboard.Channel{}}
-		if !host.Copy("copied remotely") {
-			t.Fatal("a small copy was refused")
+		if err := host.Copy("copied remotely"); err != nil {
+			t.Fatalf("a small copy was refused: %v", err)
 		}
 		result := make(chan error, 1)
 		go func() { _, err := host.ReadClipboard(t.Context()); result <- err }()
@@ -100,7 +100,7 @@ func TestHostCannotAcceptClipboardCommandsAfterWriterClose(t *testing.T) {
 	if err := h.writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if h.Copy("must remain selected") {
+	if err := h.Copy("must remain selected"); err == nil {
 		t.Fatal("a closed SSH writer accepted a clipboard command")
 	}
 	if _, err := h.ReadClipboard(t.Context()); err == nil {

@@ -3,3 +3,11 @@
 // capabilities. Zero values use terminal colors and draw no furniture, avoiding
 // assumptions about the host. Text labels accept explicit styles for contextual roles.
 package kit
+
+// requireSkinOwned refuses a Behavior field that names an appearance slot the skin
+// fills itself. Accepting it would leave a configured value that nothing ever reads.
+func requireSkinOwned(field string, unset bool) {
+	if !unset {
+		panic("kit: " + field + " belongs to the skin's appearance and must be left unset")
+	}
+}

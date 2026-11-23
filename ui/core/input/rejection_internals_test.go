@@ -33,8 +33,8 @@ func TestOSCRejectionRetainsOnlyTheCompleteBoundedHeader(t *testing.T) {
 	} {
 		var parser Parser
 		parser.Feed([]byte("\x1b]52;" + tc.header + strings.Repeat("A", maxStringBody)))
-		if len(parser.strBody) > maxParameterBytes || cap(parser.strBody) > maxParameterBytes {
-			t.Fatalf("discard retained %d bytes, capacity %d", len(parser.strBody), cap(parser.strBody))
+		if len(parser.str.body) > maxParameterBytes || cap(parser.str.body) > maxParameterBytes {
+			t.Fatalf("discard retained %d bytes, capacity %d", len(parser.str.body), cap(parser.str.body))
 		}
 		events := parser.Feed([]byte("\x07"))
 		want := OSCRejection{Command: 52, Prefix: tc.want}
@@ -44,7 +44,7 @@ func TestOSCRejectionRetainsOnlyTheCompleteBoundedHeader(t *testing.T) {
 		if !utf8.ValidString(events[0].(OSCRejection).Prefix) || ByteSize(events[0]) != eventOverhead+len(tc.want) || ByteSize(events[0]) > MaxDecodedEventBytes {
 			t.Fatal("rejection escaped the immutable decoded-event contract")
 		}
-		if parser.strBody != nil || parser.Pending() {
+		if parser.str.body != nil || parser.Pending() {
 			t.Fatal("settled rejection retained framing")
 		}
 	}

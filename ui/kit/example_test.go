@@ -38,7 +38,7 @@ func showWidget(scenes *scenetest.Scope, w, h int, widget any) {
 	show(w, h, scenes.Mount(widget).Draw)
 }
 
-func ExampleComposer() {
+func ExampleEditor() {
 	scenes := scenetest.New()
 	defer scenes.Close()
 
@@ -47,7 +47,7 @@ func ExampleComposer() {
 	keys := base.DefaultEditorKeys()
 	keys.Bind("send", input.Chord{Code: input.Enter})
 
-	c := kit.NewComposer(kit.ComposerConfig{
+	c := kit.NewEditor(kit.EditorConfig{
 		Prompt: "› ",
 		Hints:  []keymap.Action{"send"},
 	})
@@ -60,11 +60,11 @@ func ExampleComposer() {
 	// |enter send                  |
 }
 
-func ExampleComposer_typing() {
+func ExampleEditor_typing() {
 	scenes := scenetest.New()
 	defer scenes.Close()
 
-	c := kit.NewComposer(kit.ComposerConfig{})
+	c := kit.NewEditor(kit.EditorConfig{})
 	c.SetPrompt("› ")
 	for _, r := range "hello" {
 		scenes.Mount(c).Handle(input.Key{Code: input.Character, Rune: r})
@@ -78,7 +78,7 @@ func ExampleComposer_typing() {
 }
 
 func ExampleEntry() {
-	m := kit.Entry{Label: "build", Body: "what changed"}
+	m := kit.Entry{Label: "build", Body: kit.NewParagraph("what changed", grid.Style{})}
 	show(20, m.HeightForWidth(20), m.Draw)
 
 	// Output:
@@ -105,7 +105,7 @@ func ExampleForm() {
 
 	name := base.NewText(base.TextConfig{Label: "Name", Placeholder: "who?"})
 	model := base.NewSelect(base.SelectConfig[string]{Label: "Model", Same: base.Equal[string], Options: base.Options("fast", "good")})
-	view := kit.NewForm(kit.FormConfig{Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "New session", Fields: []base.Field{name, model}, Hints: []keymap.Action{base.Submit}})
+	view := kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Title: "New session", Fields: []base.Field{name, model}}, Theme: kit.Dark(), Glyphs: kit.ASCII(), Hints: []keymap.Action{base.Submit}})
 	showWidget(scenes, 22, view.HeightForWidth(22), view)
 	// Output:
 	// |New session           |
@@ -136,10 +136,7 @@ func ExampleProgress() {
 
 func ExampleNewTabs_selection() {
 	selected := 1
-	tabs := kit.NewTabs(kit.TabsConfig{
-		Glyphs: kit.ASCII(), Initial: selected,
-		Items: []base.Tab{{Title: "one"}, {Title: "two"}},
-	})
+	tabs := kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Initial: selected, Items: []base.Tab{{Title: "one"}, {Title: "two"}}}, Glyphs: kit.ASCII()})
 	fmt.Println(tabs.Controller().Selected())
 	tabs.Controller().Select(0)
 	fmt.Println(tabs.Controller().Selected())
@@ -169,10 +166,7 @@ func ExampleNewDialog_open() {
 	scenes := scenetest.New()
 	defer scenes.Close()
 
-	dialog := kit.NewDialog(kit.DialogConfig{
-		Glyphs: kit.ASCII(),
-		Title:  "Confirm", Body: scenes.Element(kit.Label{Text: "Continue?"}),
-	})
+	dialog := kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Title: "Confirm", Content: scenes.Element(kit.Label{Text: "Continue?"})}, Glyphs: kit.ASCII()})
 	dialog.Controller().Show()
 	fmt.Println(dialog.Controller().Open())
 

@@ -165,3 +165,62 @@ func (p *pump) send(events []input.Event) (bool, error) {
 	}
 	return true, nil
 }
+
+// read is the sole input consumer. The platform atom owns waiting and reading
+// together: console readiness can describe records that produce no characters.
+// Returning to this loop after each bounded read lets handover and shutdown claim
+// input without cancelling a kernel read or leaving a second consumer behind.
+func (t *Terminal) read(raw chan<- readResult) {
+	defer close(t.readerDone)
+	defer t.inputReader.close()
+	for {
+		// Bytes already removed from the terminal precede the handover boundary.
+		// Drain that bounded platform buffer before confirming that input parked;
+		// only then may the child own the next kernel read.
+		if !t.inputReader.buffered() {
+			t.handed.park(t.stop)
+		}
+		if t.stopped() {
+			return
+		}
+		if t.restartInput.Swap(false) {
+			t.inputReader.reset()
+			if !t.sendRead(raw, readResult{restart: true}) {
+				return
+			}
+		}
+
+		result := t.inputReader.read(t.in)
+		if len(result.data) > 0 || result.err != nil {
+			if !t.sendRead(raw, result) {
+				return
+			}
+		}
+		if result.err != nil {
+			return
+		}
+		if t.stopped() {
+			return
+		}
+	}
+}
+
+// stopped reports whether Close has begun. Callers that must not start work
+// on a closing session check it before each irreversible step.
+func (t *Terminal) stopped() bool {
+	select {
+	case <-t.stop:
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *Terminal) sendRead(raw chan<- readResult, result readResult) bool {
+	select {
+	case raw <- result:
+		return true
+	case <-t.stop:
+		return false
+	}
+}

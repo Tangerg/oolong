@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/term"
+	"github.com/Tangerg/oolong/ui/internal/known"
 )
 
 // EventSource is one ordered input stream and its terminal result.
@@ -129,7 +130,7 @@ type DirectoryHost interface {
 	ReportDirectory(path string) error
 }
 
-type CopyHost interface{ Copy(text string) bool }
+type CopyHost interface{ Copy(text string) error }
 
 // ClipboardReader returns a solicited result to its caller, never through Events.
 // ReadClipboard may block and must return when ctx is cancelled. It is invoked on
@@ -164,7 +165,8 @@ type NotifyHost interface{ Notify(text string) error }
 // them. These methods form one capability: a handle from Transmit cannot be placed
 // without the protocol and cell geometry that interpret it. ReleaseImage ends the
 // transmitted resource lifetime and removes its placements. NativeTarget must
-// identify the same stable destination as Transmit and ReleaseImage.
+// identify the same stable destination as Transmit and ReleaseImage. Every method
+// must be safe for concurrent use, because [Images] may be used from workers.
 type ImageHost interface {
 	NativeTarget() grid.NativeTarget
 	Graphics() graphics.Protocol
@@ -233,11 +235,14 @@ func (s hostServices) wheel() input.Wheel {
 	return s.wheelHost.Wheel()
 }
 
-func (s hostServices) keyboard() (input.KeyboardFeatures, bool) {
+func (s hostServices) keyboard() known.Value[input.KeyboardFeatures] {
 	if s.keyboardHost == nil {
-		return 0, false
+		return known.Value[input.KeyboardFeatures]{}
 	}
-	return s.keyboardHost.Keyboard()
+	if features, ok := s.keyboardHost.Keyboard(); ok {
+		return known.Of(features)
+	}
+	return known.Value[input.KeyboardFeatures]{}
 }
 
 func (s hostServices) locale() string {
@@ -254,8 +259,11 @@ func (s hostServices) reportDirectory(path string) error {
 	return s.directory.ReportDirectory(path)
 }
 
-func (s hostServices) copy(text string) bool {
-	return s.copyHost != nil && s.copyHost.Copy(text)
+func (s hostServices) copy(text string) error {
+	if s.copyHost == nil {
+		return errors.ErrUnsupported
+	}
+	return s.copyHost.Copy(text)
 }
 
 func (s hostServices) hand(prepare, run func() error) error {
@@ -278,9 +286,6 @@ func (s hostServices) setTitle(title string) error {
 }
 
 func (s hostServices) setProgress(progress term.Progress) error {
-	if err := progress.State.Validate(); err != nil {
-		return err
-	}
 	if s.progressHost == nil {
 		return errors.ErrUnsupported
 	}

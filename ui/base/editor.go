@@ -1,12 +1,14 @@
 package base
 
 import (
+	"context"
 	"strings"
-
-	"github.com/Tangerg/oolong/ui/core/scene"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // Editor is one view of an EditSession, with its own caret, selection and navigation.
@@ -24,11 +26,11 @@ type Editor struct {
 	gutter      RowGutter
 	cursorStyle grid.CursorStyle
 
-	session          *EditSession
-	local            EditSession
-	registered       bool
-	updates          editorViewUpdates
-	line, byteOffset int
+	session    *EditSession
+	local      EditSession
+	registered bool
+	updates    editorViewUpdates
+	caret      Caret
 	// Short rows and atomic elements must not replace the intended visual column.
 	desiredColumn editorColumn
 
@@ -44,8 +46,8 @@ type Editor struct {
 	kills        editorKillRing
 	continuation editorContinuation
 
-	matcher       keymap.Matcher
-	pasteFeedback requestFeedback
+	matcher           keymap.Matcher
+	clipboardFeedback requestFeedback
 
 	scroll Scroll
 	// Scroll owns request consumption and cancellation; drawing only resolves its visual row.
@@ -64,7 +66,10 @@ type EditorConfig struct {
 	// a paste failure adds its own feedback row outside this content limit.
 	MaxRows    int
 	SingleLine bool
-	Look       Look
+	// Mask presents every character as itself, for a password, as
+	// [EditSessionConfig.Mask] does for the editor's own document.
+	Mask string
+	Look Look
 	// Keys of nil uses [DefaultEditorKeys].
 	Keys *keymap.Map
 	// Clipboard of nil disables clipboard actions.
@@ -75,20 +80,20 @@ type EditorConfig struct {
 	CursorStyle grid.CursorStyle
 }
 
-// NewEditor panics for negative MaxRows, an invalid CursorStyle.Shape, or a
-// Session combined with Initial or SingleLine, which would supply competing
-// document owners.
+// NewEditor panics for negative MaxRows, an invalid CursorStyle.Shape, an invisible
+// or joining Mask, or a Session combined with Initial, SingleLine or Mask, which
+// would supply competing document owners.
 func NewEditor(config EditorConfig) *Editor {
 	requireNonNegative("editor MaxRows", config.MaxRows)
 	if err := config.CursorStyle.Shape.Validate(); err != nil {
 		panic(err)
 	}
-	if config.Session != nil && (config.Initial != "" || config.SingleLine) {
-		panic("base: editor Session cannot be combined with Initial or SingleLine")
+	if config.Session != nil && (config.Initial != "" || config.SingleLine || config.Mask != "") {
+		panic("base: editor Session cannot be combined with Initial, SingleLine or Mask")
 	}
 	e := &Editor{session: config.Session, placeholder: strings.Clone(config.Placeholder), maxRows: config.MaxRows, look: config.Look, keys: keyBinding{current: config.Keys}, clipboard: config.Clipboard, gutter: config.Gutter, cursorStyle: config.CursorStyle}
 	if e.session == nil {
-		e.local.initialize(EditSessionConfig{Initial: config.Initial, SingleLine: config.SingleLine})
+		e.local.initialize(EditSessionConfig{Initial: config.Initial, SingleLine: config.SingleLine, Mask: config.Mask})
 		e.finishReplacement(e.local.end(), true)
 	}
 	e.connect()
@@ -167,20 +172,20 @@ func (e *Editor) Clear() {
 	e.document().replace(e, editReplacement{end: e.document().end()}, e.finishReplacement)
 }
 
-// Cursor returns the logical line and byte offset.
-func (e *Editor) Cursor() (line, byteOffset int) { return e.line, e.byteOffset }
+// Cursor is where the next edit happens.
+func (e *Editor) Cursor() Caret { return e.caret }
 
-// SetCursor clamps the logical line and byte offset, snapping backward to a grapheme boundary.
-func (e *Editor) SetCursor(line, byteOffset int) {
+// SetCursor moves the cursor to at, clamped into the text and snapped backward to a
+// grapheme and element boundary.
+func (e *Editor) SetCursor(at Caret) {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	defer e.revealCursor()
 	e.ensure()
 	e.endTyping()
-	e.line = min(max(line, 0), len(e.document().lines)-1)
-	current := e.document().lines[e.line]
-	byteOffset = min(max(byteOffset, 0), len(current))
-	e.byteOffset = e.document().snapElement(e.line, byteOffset, false)
+	e.caret.Line = min(max(at.Line, 0), len(e.document().lines)-1)
+	current := e.document().lines[e.caret.Line]
+	e.caret.Byte = e.document().snapElement(e.caret.Line, min(max(at.Byte, 0), len(current)), false)
 	e.desiredColumn = editorColumn{}
 }
 
@@ -189,8 +194,8 @@ func (e *Editor) oneLine() bool { return e.document().oneLine() }
 func (e *Editor) ensure() {
 	e.connect()
 	e.document().ensure()
-	e.line = min(max(e.line, 0), len(e.document().lines)-1)
-	e.byteOffset = min(max(e.byteOffset, 0), len(e.document().lines[e.line]))
+	e.caret.Line = min(max(e.caret.Line, 0), len(e.document().lines)-1)
+	e.caret.Byte = min(max(e.caret.Byte, 0), len(e.document().lines[e.caret.Line]))
 }
 
 // Movement and editing share this boundary so typing, drag and soft-break affinity cannot drift.
@@ -202,25 +207,13 @@ func (e *Editor) endTyping() {
 func (e *Editor) Placeholder() string { return e.placeholder }
 
 func (e *Editor) SetPlaceholder(value string) {
-	element := e.Element()
-	requireMutable(element)
-	if e.placeholder == value {
-		return
-	}
-	e.placeholder = strings.Clone(value)
-	element.Invalidate()
+	setting.Assign(e.element, &e.placeholder, strings.Clone(value))
 }
 
 func (e *Editor) Look() Look { return e.look }
 
 func (e *Editor) SetLook(value Look) {
-	element := e.Element()
-	requireMutable(element)
-	if e.look == value {
-		return
-	}
-	e.look = value
-	element.Invalidate()
+	setting.Assign(e.element, &e.look, value)
 }
 
 func (e *Editor) MaxRows() int { return e.maxRows }
@@ -228,39 +221,27 @@ func (e *Editor) MaxRows() int { return e.maxRows }
 // SetMaxRows limits text rows; operation feedback has its own row. It panics for
 // a negative limit. Zero leaves text height uncapped.
 func (e *Editor) SetMaxRows(value int) {
-	element := e.Element()
-	requireMutable(element)
 	requireNonNegative("editor MaxRows", value)
-	if e.maxRows == value {
-		return
-	}
-	e.maxRows = value
-	element.Invalidate()
+	setting.Assign(e.element, &e.maxRows, value)
 }
 
 func (e *Editor) Clipboard() Clipboard { return e.clipboard }
 
 func (e *Editor) SetClipboard(value Clipboard) {
-	element := e.Element()
-	requireMutable(element)
-	e.clipboard = value
-	element.Invalidate()
+	setting.Replace(e.element, &e.clipboard, value)
 }
 
 func (e *Editor) Gutter() RowGutter { return e.gutter }
 
 func (e *Editor) SetGutter(value RowGutter) {
-	element := e.Element()
-	requireMutable(element)
-	e.gutter = value
-	element.Invalidate()
+	setting.Replace(e.element, &e.gutter, value)
 }
 
 func (e *Editor) CursorStyle() grid.CursorStyle { return e.cursorStyle }
 
 // SetCursorStyle panics for an unknown cursor shape before changing presentation.
 func (e *Editor) SetCursorStyle(value grid.CursorStyle) {
-	element := e.Element()
+	element := e.element
 	requireMutable(element)
 	if err := value.Shape.Validate(); err != nil {
 		panic(err)
@@ -275,7 +256,7 @@ func (e *Editor) SetCursorStyle(value grid.CursorStyle) {
 func (e *Editor) Keys() *keymap.Map { return e.keys.current }
 
 func (e *Editor) SetKeys(keys *keymap.Map) {
-	e.keys.set(e.Element(), &e.matcher, keys)
+	e.keys.set(e.element, &e.matcher, keys)
 }
 
 // Caret is a position in an editor's text: a logical line, and a byte offset into it.
@@ -289,4 +270,45 @@ type Caret struct{ Line, Byte int }
 
 func (c Caret) Before(d Caret) bool {
 	return c.Line < d.Line || (c.Line == d.Line && c.Byte < d.Byte)
+}
+
+func (e *Editor) Element() scene.Element {
+	if e.element.IsZero() {
+		e.element = scene.NewElement(scene.ElementConfig{
+			Measure: layout.MeasureRows(e.HeightForWidth), Paint: e.Draw,
+			Handle: func(event scene.Event) scene.EventResult { return partEvent(event, e.Handle, &e.geometry) }, Focusable: func() bool { return true }, FocusChanged: e.focusChanged,
+			Semantics: func() scene.Semantic {
+				return withFeedback(scene.Semantic{Role: scene.RoleTextBox, Name: e.placeholder, Value: e.semanticValue(), Sensitive: e.Mask() != "", ContentRevision: e.Revision()}, e.ClipboardError())
+			}, Actions: []scene.ActionBinding{e.fillAction()},
+		})
+	}
+	e.scroll.element = e.element
+	e.keys.attach(e.element, &e.matcher)
+	return e.element
+}
+
+// A synchronous edit subscriber may replace the answer or change its masking policy.
+func (e *Editor) fillAction() scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[string, string]{
+		ID: scene.ActionFill, Label: "Fill", Run: func(_ context.Context, value string) (scene.ActionResult[string], error) {
+			masked := e.Mask() != ""
+			before := e.Revision()
+			e.SetText(value)
+			result := scene.ActionResult[string]{}
+			if e.Revision() != before {
+				result.State = scene.Applied
+			}
+			if !masked {
+				result.Value = e.semanticValue()
+			}
+			return result, nil
+		},
+	}).Binding()
+}
+
+func (e *Editor) semanticValue() string {
+	if e.Mask() != "" {
+		return ""
+	}
+	return e.Text()
 }

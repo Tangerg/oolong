@@ -6,14 +6,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
 	"github.com/Tangerg/oolong/ui/internal/identity"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // FormConfig keeps Submit's accepted effects independent of an accompanying error. Started
@@ -93,7 +93,9 @@ func (f *Form) ensure() {
 	}})}
 	f.group = scene.NewGroup(scene.GroupConfig{
 		Items: []scene.Item{f.status},
-		Element: scene.ElementConfig{Key: f.key, Measure: scene.MeasureRows(f.HeightForWidth), Handle: f.handleEvent, Semantics: func() scene.Semantic {
+		// A form without fields is still answered, by its submit and cancel keys, so
+		// it takes the keyboard itself rather than leave them nowhere to go.
+		Element: scene.ElementConfig{Key: f.key, Measure: layout.MeasureRows(f.HeightForWidth), Handle: f.handleEvent, Focusable: func() bool { return len(f.fields) == 0 }, Semantics: func() scene.Semantic {
 			state := scene.SemanticState(0)
 			if f.attempt.State == SubmissionPending {
 				state |= scene.StateBusy
@@ -225,22 +227,7 @@ func (f *Form) fieldLayout(items []scene.Item) (layout.Flow, []layout.Slot, int)
 }
 
 func (f *Form) handleEvent(event scene.Event) scene.EventResult {
-	key, ok := event.Input().(input.Key)
-	if !ok {
-		return scene.EventResult{}
-	}
-	keyboard := f.Element().KeyboardLease()
-	_, handled := f.matcher.Handle(f.resolvedKeys(), key, keyboard.Valid, func(action keymap.Action) bool {
-		switch action {
-		case FocusNext:
-			return keyboard.FocusNext(false)
-		case FocusPrev:
-			return keyboard.FocusNext(true)
-		default:
-			return f.Do(action)
-		}
-	})
-	return scene.EventResult{Consumed: handled}
+	return containerKey(event, f.Element(), &f.matcher, f.resolvedKeys(), f.Do)
 }
 
 // Do executes a named submit or cancel request through the same attempt owner.
@@ -270,30 +257,22 @@ func (f *Form) resolvedKeys() *keymap.Map { return f.keys.resolve(formKeys) }
 // KeysFor returns the sequences bound to action in the map this form handles keys
 // with, including its defaults when no map is set, so help text can never describe
 // bindings the form does not use.
-func (f *Form) KeysFor(action keymap.Action) []input.Keys { return f.resolvedKeys().Keys(action) }
+func (f *Form) KeysFor(action keymap.Action) []input.Keys { return f.keys.bound(formKeys, action) }
 
 func (f *Form) Title() string { return f.title }
 
 // SetTitle changes the semantic name and invalidates the same form identity.
 // It panics if the scene is being presented or observed.
 func (f *Form) SetTitle(title string) {
-	requireMutable(f.Element())
-	f.title = strings.Clone(title)
-	f.Element().Invalidate()
+	setting.Assign(f.Element(), &f.title, strings.Clone(title))
 }
 
 func (f *Form) Gap() int { return f.gap }
 
 // SetGap panics for a negative gap before changing layout or publishing a revision.
 func (f *Form) SetGap(value int) {
-	element := f.Element()
-	requireMutable(element)
 	requireNonNegative("form Gap", value)
-	if f.gap == value {
-		return
-	}
-	f.gap = value
-	element.Invalidate()
+	setting.Assign(f.Element(), &f.gap, value)
 }
 
 func (f *Form) Keys() *keymap.Map { return f.keys.current }

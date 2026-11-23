@@ -77,15 +77,14 @@ type Writer struct {
 
 	// Admission is nonblocking and charges queued plus in-flight bytes. Control
 	// output has separate reserved capacity but shares FIFO wire order.
-	queueMu                                   sync.Mutex
-	queue                                     fifo.Queue[frame]
-	wake                                      chan struct{}
-	closed                                    bool
-	admission                                 admission
-	sealCause                                 error
-	pendingBytes, pendingFrames               int
-	controlBytes, controlFrames               int
-	maxFrames, maxFrameBytes, maxPendingBytes int
+	queueMu   sync.Mutex
+	queue     fifo.Queue[frame]
+	wake      chan struct{}
+	closed    bool
+	admission admission
+	sealCause error
+	ordinary  frameBudget
+	control   frameBudget
 
 	// changes holds at most one pending wake-up: a consumer that has not yet noticed
 	// the last advance does not need to be told twice. It has exactly one consumer,
@@ -120,6 +119,30 @@ type frame struct {
 	control bool
 }
 
+// frameBudget charges admitted frames until the worker settles them. A frame
+// larger than maxFrameBytes can never fit; one that does not fit now may later.
+type frameBudget struct {
+	frames, bytes                   int
+	maxFrames, maxFrameBytes, limit int
+}
+
+func (b *frameBudget) admit(n int) error {
+	if n > b.maxFrameBytes {
+		return ErrPayloadTooLarge
+	}
+	if b.frames >= b.maxFrames || n > b.limit-b.bytes {
+		return ErrQueueFull
+	}
+	b.frames++
+	b.bytes += n
+	return nil
+}
+
+func (b *frameBudget) settle(n int) {
+	b.frames--
+	b.bytes -= n
+}
+
 // NewWriter starts a writer over cfg.Destination. The caller ends it with [Writer.Close].
 // Negative budgets or a frame limit exceeding the pending byte limit panic.
 //
@@ -150,8 +173,9 @@ func NewWriter(cfg WriterConfig) *Writer {
 		panic("term: nil writer")
 	}
 	w := &Writer{
-		dst:       cfg.Destination,
-		maxFrames: cfg.MaxFrames, maxFrameBytes: cfg.MaxFrameBytes, maxPendingBytes: cfg.MaxPendingBytes,
+		dst:        cfg.Destination,
+		ordinary:   frameBudget{maxFrames: cfg.MaxFrames, maxFrameBytes: cfg.MaxFrameBytes, limit: cfg.MaxPendingBytes},
+		control:    frameBudget{maxFrames: controlFrameLimit, maxFrameBytes: controlByteLimit, limit: controlByteLimit},
 		wake:       make(chan struct{}, 1),
 		changes:    make(chan struct{}, 1),
 		advanced:   make(chan struct{}),
@@ -238,7 +262,14 @@ func (w *Writer) resumeAdmission() {
 
 // fits reports whether one frame of n bytes is within the per-frame budget,
 // which is fixed at construction.
-func (w *Writer) fits(n int) bool { return n <= w.maxFrameBytes }
+func (w *Writer) fits(n int) bool { return n <= w.ordinary.maxFrameBytes }
+
+func (w *Writer) budget(control bool) *frameBudget {
+	if control {
+		return &w.control
+	}
+	return &w.ordinary
+}
 
 func (w *Writer) refusal() error {
 	switch w.admission {
@@ -266,53 +297,21 @@ func (w *Writer) enqueue(data []byte, control bool) (uint64, error) {
 	if err := w.Err(); err != nil && (!control || (!errors.Is(err, ErrFrameRefused) && !errors.Is(err, ErrClosed))) {
 		return 0, err
 	}
-	if err := w.capacity(len(data), control); err != nil {
+	if err := w.budget(control).admit(len(data)); err != nil {
 		return 0, err
 	}
 	seq, ok := w.queued.next(math.MaxUint64)
 	if !ok {
 		panic("term: writer exhausted frame sequences")
 	}
-	if control {
-		w.controlBytes += len(data)
-		w.controlFrames++
-	} else {
-		w.pendingBytes += len(data)
-		w.pendingFrames++
-	}
 	w.queue.Push(frame{seq: seq, data: data, control: control})
 	w.signal()
 	return seq, nil
 }
 
-func (w *Writer) capacity(bytes int, control bool) error {
-	if control {
-		if bytes > controlByteLimit {
-			return ErrPayloadTooLarge
-		}
-		if w.controlFrames >= controlFrameLimit || bytes > controlByteLimit-w.controlBytes {
-			return ErrQueueFull
-		}
-	} else {
-		if !w.fits(bytes) {
-			return ErrPayloadTooLarge
-		}
-		if w.pendingFrames >= w.maxFrames || bytes > w.maxPendingBytes-w.pendingBytes {
-			return ErrQueueFull
-		}
-	}
-	return nil
-}
-
 func (w *Writer) release(f frame) {
 	w.queueMu.Lock()
-	if f.control {
-		w.controlBytes -= len(f.data)
-		w.controlFrames--
-	} else {
-		w.pendingBytes -= len(f.data)
-		w.pendingFrames--
-	}
+	w.budget(f.control).settle(len(f.data))
 	w.queueMu.Unlock()
 }
 
@@ -445,7 +444,7 @@ func (w *Writer) run() {
 			w.queueMu.Lock()
 			w.closed = true
 			w.queue.Clear()
-			w.pendingBytes, w.pendingFrames, w.controlBytes, w.controlFrames = 0, 0, 0, 0
+			w.ordinary.frames, w.ordinary.bytes, w.control.frames, w.control.bytes = 0, 0, 0, 0
 			w.finish(w.queued.current(), errWriteInterrupted, false)
 			w.queueMu.Unlock()
 		}

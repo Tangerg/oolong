@@ -31,6 +31,11 @@ const (
 
 // Syntax boundaries precede Unicode segmentation: a Prepend character must not
 // absorb a brace or command into its display cluster and hide that syntax.
+
+// errMathDelimiter refuses a nested display or inline delimiter: the formula's own
+// delimiters belong to the document that embeds it.
+var errMathDelimiter = errors.New("source must not contain math delimiters")
+
 func classifyFormulaRune(value rune) formulaToken {
 	if isFormulaSpace(value) {
 		return formulaSpace
@@ -147,7 +152,7 @@ func (p *formulaParser) atom(context formulaContext, single bool) (box, error) {
 		}
 		return box{}, errors.New("script has no base or atom")
 	case formulaMathDelimiter:
-		return box{}, errors.New("source must not contain math delimiters")
+		return box{}, errMathDelimiter
 	case formulaUnsupported, formulaComment:
 		return box{}, fmt.Errorf("unsupported formula character %q", value)
 	case formulaSpace:

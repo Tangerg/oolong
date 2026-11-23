@@ -80,12 +80,10 @@ func TestFormPaintBelongsToTheFieldRelation(t *testing.T) {
 
 	field := base.NewText(base.TextConfig{Initial: "value"})
 	var painted []string
-	if err := field.Element().SetPaint(func(frame scene.Frame) {
+	field.Element().SetPaint(func(frame scene.Frame) {
 		painted = append(painted, "standalone")
 		field.Draw(frame)
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}, PaintField: func(frame scene.Frame, child base.Field) {
 		painted = append(painted, "form")
 		child.Draw(frame)

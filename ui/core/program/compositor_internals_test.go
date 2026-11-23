@@ -79,7 +79,7 @@ func TestRefusedFrameAdvancesNoneOfTheComposedOwners(t *testing.T) {
 				t.Fatal(err)
 			}
 			writer := &admissionWriter{refuse: test.refuse, changes: make(chan struct{})}
-			p := &program{root: root, canvas: inline, inline: inline, publisher: publisher, writer: writer, tasks: newTaskQueue()}
+			p := &program{root: root, inline: inline, publisher: publisher, writer: writer, tasks: newTaskQueue()}
 			t.Cleanup(p.stop)
 			if _, err := p.compose(false); !errors.Is(err, test.cause) {
 				t.Fatalf("admission = %v", err)
@@ -179,7 +179,7 @@ func TestInlineShutdownDrainsItsLastFrameBeforeCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	writer := &drainingWriter{changes: make(chan struct{}, 1)}
-	p := &program{root: root, canvas: inline, inline: inline, publisher: publisher, writer: writer, tasks: newTaskQueue()}
+	p := &program{root: root, inline: inline, publisher: publisher, writer: writer, tasks: newTaskQueue()}
 	t.Cleanup(p.stop)
 	if err := p.finish(); err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func TestOrderedRepaintCannotReportUnadmittedOutput(t *testing.T) {
 	}
 	t.Cleanup(root.Close)
 	writer := &admissionWriter{refuse: true, changes: make(chan struct{}, 1)}
-	p := &program{root: root, canvas: grid.NewScreen(10, 1), writer: writer}
+	p := &program{root: root, screen: grid.NewScreen(10, 1), writer: writer}
 	var replied bool
 	err = p.answerRepaint(&repaintRequest{reply: func(_, _ int, result error) {
 		replied = true
@@ -250,7 +250,7 @@ func TestClaimedRepaintAnswersWhenPaintDoesNotReturn(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(root.Close)
-			p := &program{root: root, canvas: grid.NewScreen(10, 1), writer: &admissionWriter{}}
+			p := &program{root: root, screen: grid.NewScreen(10, 1), writer: &admissionWriter{}}
 			var receipt error
 			var recovered any
 			done := make(chan struct{})

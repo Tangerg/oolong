@@ -39,10 +39,7 @@ type Panel struct {
 // a Box.Theme, competing Theme and Scope sources or a child already owned by an
 // incompatible scene relation.
 func NewPanel(config PanelConfig) *Panel {
-	look, err := newAppearance(config.Theme, config.Scope, config.Appearance)
-	if err != nil {
-		panic(err)
-	}
+	look := newAppearance(config.Theme, config.Scope, config.Appearance)
 	return newPanel(look, config.Box, config.Content, nil)
 }
 
@@ -79,9 +76,15 @@ func (p *Panel) admit(box Box) error {
 	return nil
 }
 
+// presented is the box as this frame draws it. While the keyboard is inside the
+// panel its border takes the accent, so the region that receives keys is the one
+// that is marked.
 func (p *Panel) presented() Box {
 	box := p.box
 	box.Theme = p.appearance.palette()
+	if p.Element().FocusedWithin() {
+		box.Theme.Border = box.Theme.Accent
+	}
 	if p.title != nil {
 		box.Title = p.title()
 	}

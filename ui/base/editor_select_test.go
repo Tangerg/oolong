@@ -18,13 +18,15 @@ type clip struct {
 	receive func(string, error)
 }
 
-func (c *clip) Copy(text string) bool {
+func (c *clip) Copy(text string) error {
 	if c.refuse {
-		return false
+		return errClipboardRefused
 	}
 	c.held = text
-	return true
+	return nil
 }
+
+var errClipboardRefused = errors.New("clipboard refused")
 
 func (c *clip) Read(ctx context.Context, receive func(string, error)) error {
 	if c.refuse {
@@ -47,7 +49,7 @@ func shift(code input.Code) input.Key {
 func editorWith(text string) *base.Editor {
 	e := &base.Editor{}
 	e.SetText(text)
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	return e
 }
 
@@ -72,7 +74,7 @@ func TestEditorHonorsExplicitShiftBinding(t *testing.T) {
 	keys.Bind(base.DeleteForward, input.Shift.With(input.Left))
 	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
 	editor.SetKeys(keys)
-	editor.SetCursor(0, 2)
+	editor.SetCursor(base.Caret{Byte: 2})
 	if !editor.Handle(shift(input.Left)) || editor.Text() != "abd" {
 		t.Fatalf("explicit shifted deletion produced %q, want abd", editor.Text())
 	}
@@ -83,9 +85,9 @@ func TestEditorShiftPrefixReachesMatcher(t *testing.T) {
 	keys.Bind(base.SelectAll, input.Shift.With(input.Left), input.Ctrl.Rune('a'))
 	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
 	editor.SetKeys(keys)
-	editor.SetCursor(0, 2)
+	editor.SetCursor(base.Caret{Byte: 2})
 	editor.Handle(shift(input.Left))
-	if _, offset := editor.Cursor(); offset != 2 || editor.Selected() != "" {
+	if offset := editor.Cursor().Byte; offset != 2 || editor.Selected() != "" {
 		t.Fatal("unfinished shifted sequence changed the selection")
 	}
 	editor.Handle(input.Key{Code: input.Character, Rune: 'a', Mods: input.Ctrl})
@@ -100,11 +102,11 @@ func TestEditorSelectionExtensionBelongsToTheAction(t *testing.T) {
 	keys.Bind(base.ExtendLeft, input.Ctrl.Rune('b'))
 	editor := base.NewEditor(base.EditorConfig{Initial: "abcd"})
 	editor.SetKeys(keys)
-	editor.SetCursor(0, 2)
+	editor.SetCursor(base.Caret{Byte: 2})
 	if editor.Handle(shift(input.Left)) {
 		t.Fatal("unbound shifted movement was consumed")
 	}
-	if _, offset := editor.Cursor(); offset != 2 || editor.Selected() != "" {
+	if offset := editor.Cursor().Byte; offset != 2 || editor.Selected() != "" {
 		t.Fatal("unbound shifted movement changed the selection")
 	}
 	if !editor.Handle(input.Key{Rune: 'b', Mods: input.Ctrl}) || editor.Selected() != "b" {
@@ -117,7 +119,7 @@ func TestEditorSelectionExtensionBelongsToTheAction(t *testing.T) {
 
 func TestEditorSelectsBackwards(t *testing.T) {
 	e := editorWith("hello world")
-	e.SetCursor(0, 5)
+	e.SetCursor(base.Caret{Byte: 5})
 	for range 5 {
 		e.Handle(shift(input.Left))
 	}
@@ -128,7 +130,7 @@ func TestEditorSelectsBackwards(t *testing.T) {
 
 func TestEditorSelectsAcrossLines(t *testing.T) {
 	e := editorWith("first\nsecond\nthird")
-	e.SetCursor(0, 2)
+	e.SetCursor(base.Caret{Byte: 2})
 	e.Handle(shift(input.Down))
 	e.Handle(shift(input.Down))
 	if got, want := e.Selected(), "rst\nsecond\nth"; got != want {
@@ -194,9 +196,9 @@ func TestEditorSelectAll(t *testing.T) {
 // always put it and a text field that moved it would be wrong everywhere at once.
 func TestSelectAllDoesNotTakeTheStartOfTheLine(t *testing.T) {
 	e := editorWith("hello")
-	e.SetCursor(0, 5)
+	e.SetCursor(base.Caret{Byte: 5})
 	e.Handle(input.Key{Code: input.Character, Rune: 'a', Mods: input.Ctrl})
-	if _, col := e.Cursor(); col != 0 {
+	if col := e.Cursor().Byte; col != 0 {
 		t.Errorf("the cursor is at column %d, want the start of the line", col)
 	}
 	if got := e.Selected(); got != "" {
@@ -256,7 +258,7 @@ func TestDeletingWithASelectionTakesTheSelection(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := editorWith("hello world")
-			e.SetCursor(0, 6)
+			e.SetCursor(base.Caret{Byte: 6})
 			for range 5 {
 				e.Handle(shift(input.Right))
 			}
@@ -312,8 +314,8 @@ func TestCutKeepsTheTextWhenTheClipboardRefusesIt(t *testing.T) {
 	for range 5 {
 		e.Handle(shift(input.Right))
 	}
-	if e.Cut() {
-		t.Error("a refused cut reported success")
+	if err := e.Cut(); !errors.Is(err, errClipboardRefused) {
+		t.Errorf("a refused cut reported %v", err)
 	}
 	if got, want := e.Text(), "hello world"; got != want {
 		t.Errorf("text = %q, want it untouched", got)
@@ -334,14 +336,14 @@ func TestEditorAsksTheClipboardForAPaste(t *testing.T) {
 	}
 }
 
-func TestEditorWithoutAClipboardDoesNothingQuietly(t *testing.T) {
+func TestEditorWithoutAClipboardRefusesEveryDirection(t *testing.T) {
 	e := editorWith("hello")
 	e.SelectAll()
-	if e.Copy() {
-		t.Error("a copy with nowhere to put it reported success")
+	if err := e.Copy(); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("copy without a clipboard = %v", err)
 	}
-	if e.Cut() {
-		t.Error("a cut with nowhere to put it reported success")
+	if err := e.Cut(); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("cut without a clipboard = %v", err)
 	}
 	if err := e.Paste(t.Context(), func(error) {}); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("paste without a clipboard = %v", err)
@@ -381,12 +383,12 @@ func TestMaskedEditorCannotExportTheSelectionFromAnyView(t *testing.T) {
 	view.SetClipboard(clipboard)
 	owner.SetMask("*")
 	view.SelectAll()
-	if view.Copy() || view.Cut() || clipboard.held != "unchanged" || view.Text() != "secret" {
+	if view.Copy() != nil || view.Cut() != nil || clipboard.held != "unchanged" || view.Text() != "secret" {
 		t.Fatal("masked selection escaped to clipboard or was deleted")
 	}
 	owner.SetMask("")
-	if !view.Copy() || clipboard.held != "secret" {
-		t.Fatal("visible selection failed to copy")
+	if err := view.Copy(); err != nil || clipboard.held != "secret" {
+		t.Fatalf("visible selection failed to copy: %v", err)
 	}
 }
 
@@ -400,5 +402,22 @@ func TestCopyDuringObservationNeverInvokesClipboard(t *testing.T) {
 			t.Fatal("clipboard export was not refused during observation")
 		}
 	}()
-	editor.Element().ReadOnly(func() { editor.Copy() })
+	editor.Element().ReadOnly(func() { _ = editor.Copy() })
+}
+
+func TestKeyboardCopyReportsARefusalUntilACopySucceeds(t *testing.T) {
+	c := &clip{refuse: true}
+	e := editorWith("hello")
+	e.SetClipboard(c)
+	e.SelectAll()
+	copyKey := input.Key{Code: input.Character, Rune: 'c', Mods: input.Alt}
+	e.Handle(copyKey)
+	if !errors.Is(e.ClipboardError(), errClipboardRefused) {
+		t.Fatalf("refused keyboard copy left feedback %v", e.ClipboardError())
+	}
+	c.refuse = false
+	e.Handle(copyKey)
+	if e.ClipboardError() != nil || c.held != "hello" {
+		t.Fatalf("successful copy left feedback %v and clipboard %q", e.ClipboardError(), c.held)
+	}
 }

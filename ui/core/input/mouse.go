@@ -1,6 +1,10 @@
 package input
 
-import "image"
+import (
+	"image"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
+)
 
 // Both report encodings carry the same three fields with the same button layout;
 // they differ only in framing and in how a release is told apart from a press.
@@ -37,7 +41,7 @@ const (
 // encoding: each field is one raw byte offset by a space. The report is framed
 // by its length, and a coordinate past what a byte can hold arrives out of range.
 const (
-	x10MouseIntro  = "\x1b[M"
+	x10MouseIntro  = ansi.CSI + "M"
 	x10MouseOffset = ' '
 )
 

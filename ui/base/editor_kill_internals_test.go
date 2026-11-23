@@ -88,7 +88,7 @@ func TestEditorKillsDetachTheSurvivingHalfLine(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			editor := &Editor{}
 			editor.SetText(tc.text)
-			editor.SetCursor(0, tc.col)
+			editor.SetCursor(Caret{Byte: tc.col})
 			source := editor.document().lines[0]
 			sourceStart := uintptr(unsafe.Pointer(unsafe.StringData(source))) //nolint:gosec // Test compares allocation identity and never dereferences the address.
 			sourceEnd := sourceStart + uintptr(len(source))

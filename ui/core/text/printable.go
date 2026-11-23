@@ -22,9 +22,21 @@ func Printable(s string) string {
 	return b.String()
 }
 
-var lineEndings = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+var (
+	lineEndings        = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+	lineEndingsAsSpace = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+)
 
 // NormalizeLineEndings turns CRLF and lone CR into LF. Every source format reads
 // lines the same way, so a document written on any platform splits into the same
 // lines everywhere it is parsed or edited.
 func NormalizeLineEndings(s string) string { return lineEndings.Replace(s) }
+
+// SingleLine turns each line ending into one space, so text from several source
+// lines reads as one line without joining the words on either side of a break.
+func SingleLine(s string) string {
+	if !strings.ContainsAny(s, "\n\r") {
+		return s
+	}
+	return lineEndingsAsSpace.Replace(s)
+}

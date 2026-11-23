@@ -1,10 +1,11 @@
 package base
 
 import (
-	"math"
 	"slices"
 	"strings"
-	"weak"
+
+	"github.com/Tangerg/oolong/ui/internal/counter"
+	"github.com/Tangerg/oolong/ui/internal/weakset"
 )
 
 // ChangeMap maps byte positions from one document revision to its successor.
@@ -43,17 +44,23 @@ type EditSession struct {
 	revision     uint64
 	singleLine   bool
 	mask         string
-	views        []weak.Pointer[Editor]
+	views        weakset.Set[Editor]
 	lastChange   ChangeMap
 }
 
-// EditSessionConfig supplies the initial document and its single-line policy. Views sharing a session cannot configure a second document policy.
+// EditSessionConfig supplies the initial document and its single-line and masking
+// policy. Views sharing a session cannot configure a second document policy.
 type EditSessionConfig struct {
 	Initial    string
 	SingleLine bool
+	// Mask presents every character as itself, for a password; empty shows the text.
+	// A masked document holds one line.
+	Mask string
 }
 
-// NewEditSession creates the sole document, revision and undo-history owner. Each Editor keeps its own selection and scroll intent.
+// NewEditSession creates the sole document, revision and undo-history owner. Each
+// Editor keeps its own selection and scroll intent. It panics for a Mask that is
+// invisible or joins a copy of itself.
 func NewEditSession(config EditSessionConfig) *EditSession {
 	s := &EditSession{}
 	s.initialize(config)
@@ -62,34 +69,22 @@ func NewEditSession(config EditSessionConfig) *EditSession {
 
 // Text returns the complete current document without mutating its revision.
 func (s *EditSession) Text() string {
-	if s == nil {
-		return ""
-	}
 	return strings.Join(s.lines, "\n")
 }
 
 // Revision identifies one committed document state; caret and scroll changes do not advance it.
 func (s *EditSession) Revision() uint64 {
-	if s == nil {
-		return 0
-	}
 	return s.revision
 }
 
 // LastChange returns the mapping for the most recent committed text transaction.
 func (s *EditSession) LastChange() ChangeMap {
-	if s == nil {
-		return ChangeMap{}
-	}
 	return s.lastChange
 }
 
 // Reset replaces the document and starts a new undo sequence. Existing views are
 // mapped by the same transaction as a normal edit, never synchronized afterward.
 func (s *EditSession) Reset(value string) {
-	if s == nil {
-		return
-	}
 	s.replace(nil, editReplacement{text: value, whole: true, history: discardEdits}, nil)
 }
 
@@ -100,17 +95,10 @@ func (s *EditSession) commit(initiator *Editor, oldLines []string, change Change
 	if extendHistory {
 		s.history.extend(change)
 	}
-	kept := s.views[:0]
-	for _, reference := range s.views {
-		view := reference.Value()
-		if view == nil {
-			continue
-		}
-		kept = append(kept, reference)
+	for _, view := range s.views.Live() {
 		view.documentChanged(oldLines, change, view == initiator)
 	}
-	clear(s.views[len(kept):])
-	s.views = kept
+	s.views.Prune(nil)
 	s.lastChange = change
 	s.revision = change.After
 	s.changes.publish(change, s.invalidateViews)
@@ -118,18 +106,14 @@ func (s *EditSession) commit(initiator *Editor, oldLines []string, change Change
 
 func (s *EditSession) invalidateViews() {
 	// Register all wakes before the first focus predicate can interrupt delivery.
-	for _, reference := range slices.Backward(s.views) {
-		if view := reference.Value(); view != nil {
-			defer view.publishViewUpdate()
-		}
+	for _, view := range slices.Backward(s.views.Live()) {
+		defer view.publishViewUpdate()
 	}
 }
 
 func (s *EditSession) requireMutable() {
-	for _, reference := range s.views {
-		if view := reference.Value(); view != nil {
-			requireMutable(view.element)
-		}
+	for _, view := range s.views.Live() {
+		requireMutable(view.element)
 	}
 }
 
@@ -144,23 +128,12 @@ func (s *EditSession) Subscribe(callback func(ChangeMap)) func() {
 }
 
 func (s *EditSession) initialize(config EditSessionConfig) {
-	s.singleLine = config.SingleLine
+	requireMaskable(config.Mask)
+	s.singleLine, s.mask = config.SingleLine, strings.Clone(config.Mask)
 	s.Reset(config.Initial)
 }
 
-func (s *EditSession) attach(view *Editor) {
-	if len(s.views) == cap(s.views) {
-		live := s.views[:0]
-		for _, reference := range s.views {
-			if reference.Value() != nil {
-				live = append(live, reference)
-			}
-		}
-		clear(s.views[len(live):])
-		s.views = live
-	}
-	s.views = append(s.views, weak.Make(view))
-}
+func (s *EditSession) attach(view *Editor) { s.views.Add(view) }
 
 func (s *EditSession) ensure() {
 	if len(s.lines) == 0 {
@@ -182,7 +155,7 @@ func (s *EditSession) oneLine() bool { return s.singleLine || s.mask != "" }
 // so recovering a panic cannot expose a partial transaction under an old revision.
 func (s *EditSession) requireRevision() {
 	s.requireMutable()
-	if s.revision == math.MaxUint64 {
+	if _, ok := counter.Next(s.revision); !ok {
 		panic("base: edit session exhausted revisions")
 	}
 }

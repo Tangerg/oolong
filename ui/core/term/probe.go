@@ -2,8 +2,9 @@ package term
 
 import (
 	"errors"
-	"fmt"
 	"io"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,23 +13,10 @@ import (
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/internal/known"
 )
 
 const (
-	foregroundCommand = 10
-	backgroundCommand = 11
-
-	// A direct name reply describes the destination; environment hints can
-	// instead describe an outer terminal or the remote host.
-	queryVersion = "\x1b[>0q"
-
-	// Numeric identity probes cover peers that omit a human-readable name.
-	queryDeviceVersion = "\x1b[>0c"
-
-	// Send DA1 last so its reply can settle earlier unanswered queries
-	// without spending the full timeout. Silent peers still need answerGrace.
-	queryAttributes = "\x1b[c"
-
 	// Bound startup even when a terminal ignores or filters every query.
 	answerGrace = 200 * time.Millisecond
 
@@ -74,25 +62,25 @@ const (
 )
 
 type answers struct {
-	kitty      graphicsProbeResult
-	background grid.RGB
-	hasBg      bool
-	foreground grid.RGB
-	hasFg      bool
-	attributes input.DeviceAttributes
-	hasAttrs   bool
+	kitty graphicsProbeResult
+	// ground keeps an unanswered or unreadable color as the terminal default,
+	// which is exactly what blending must not guess past.
+	ground     grid.Ground
+	attributes known.Value[input.DeviceAttributes]
 	// name is what the terminal called itself, which outranks anything the
 	// environment says.
-	name       string
-	hasName    bool
-	version    input.DeviceVersion
-	hasVersion bool
+	name    known.Value[string]
+	version known.Value[input.DeviceVersion]
 	// keyboard is which of the Kitty protocol's enhancements are on, which is not
 	// the same as which were asked for.
-	keyboard    input.KeyboardFeatures
-	hasKeyboard bool
-	cursor      ansi.CursorStyle
-	hasCursor   bool
+	keyboard known.Value[input.KeyboardFeatures]
+	cursor   known.Value[ansi.CursorStyle]
+}
+
+// answered reports the DA1 reply, which ends the exchange because DA1 is asked last.
+func (a answers) answered() bool {
+	_, ok := a.attributes.Get()
+	return ok
 }
 
 // Missing replies leave capabilities unknown. A transport failure cannot safely
@@ -114,8 +102,8 @@ func (p *probe) run() (got answers, err error) {
 	if queryErr := graphics.QueryPNG(&query, p.graphicsQueryID); queryErr != nil {
 		return got, queryErr
 	}
-	sequence := colorQuery(backgroundCommand) + colorQuery(foregroundCommand) + queryVersion +
-		queryDeviceVersion + ansi.QueryCursorStyle + query.String() + queryAttributes
+	sequence := colorQuery(ansi.OSCBackground) + colorQuery(ansi.OSCForeground) + ansi.QueryTerminalVersion +
+		ansi.QuerySecondaryAttributes + ansi.QueryCursorStyle + query.String() + ansi.QueryPrimaryAttributes
 	written, err := p.out.WriteString(sequence)
 	if err != nil {
 		return got, err
@@ -134,7 +122,7 @@ func (p *probe) run() (got answers, err error) {
 	// an escape past every byte that followed it.
 	due := deadline.NewTimer()
 	defer due.Stop()
-	for !got.hasAttrs {
+	for !got.answered() {
 		due.Schedule(p.stream.DueAt())
 		select {
 		case result := <-p.raw:
@@ -168,7 +156,7 @@ func (p *probe) read(result readResult, got *answers) bool {
 }
 
 func (p *probe) drainRaw(got *answers) bool {
-	for !got.hasAttrs {
+	for !got.answered() {
 		select {
 		case result := <-p.raw:
 			if !p.read(result, got) {
@@ -183,18 +171,18 @@ func (p *probe) drainRaw(got *answers) bool {
 
 func (p *probe) take(ev input.Event, got *answers) {
 	// The marker ends the exchange even in the middle of one transport read.
-	if got.hasAttrs {
+	if got.answered() {
 		p.early = append(p.early, ev)
 		return
 	}
 	switch ev := ev.(type) {
 	case input.OSC:
 		switch ev.Command {
-		case foregroundCommand:
-			got.foreground, got.hasFg = parseXParseColor(ev.Params)
+		case ansi.OSCForeground:
+			got.ground.FG = reportedColor(ev.Params)
 			return
-		case backgroundCommand:
-			got.background, got.hasBg = parseXParseColor(ev.Params)
+		case ansi.OSCBackground:
+			got.ground.BG = reportedColor(ev.Params)
 			return
 		}
 		// An answer to a question this program did not ask. It is still addressed
@@ -202,13 +190,13 @@ func (p *probe) take(ev input.Event, got *answers) {
 		p.early = append(p.early, ev)
 	case input.DCS:
 		if style, ok := ansi.ParseCursorStyleReply(ev.Body); ok {
-			if !got.hasCursor {
-				got.cursor, got.hasCursor = style, true
+			if _, learned := got.cursor.Get(); !learned {
+				got.cursor = known.Of(style)
 			}
 			return
 		}
 		if name, found := strings.CutPrefix(ev.Body, ">|"); found {
-			got.name, got.hasName = name, true
+			got.name = known.Of(name)
 			return
 		}
 		p.early = append(p.early, ev)
@@ -220,11 +208,11 @@ func (p *probe) take(ev input.Event, got *answers) {
 		}
 		got.kitty = result
 	case input.DeviceVersion:
-		got.version, got.hasVersion = ev, true
+		got.version = known.Of(ev)
 	case input.KeyboardFlags:
-		got.keyboard, got.hasKeyboard = ev.Features, true
+		got.keyboard = known.Of(ev.Features)
 	case input.DeviceAttributes:
-		got.attributes, got.hasAttrs = ev, true
+		got.attributes = known.Of(ev)
 	default:
 		p.early = append(p.early, ev)
 	}
@@ -241,7 +229,9 @@ func (p *probe) graphicsResult(body string) graphicsProbeResult {
 	return graphicsAccepted
 }
 
-func colorQuery(command int) string { return fmt.Sprintf("\x1b]%d;?\x07", command) }
+func colorQuery(command int) string {
+	return ansi.OSCPrefix(command) + "?" + commandEnd
+}
 
 // sixelAttribute is the DA1 attribute a terminal reports for Sixel graphics.
 const sixelAttribute = 4
@@ -252,15 +242,25 @@ func (a answers) graphics(hint graphics.Protocol) graphics.Protocol {
 	if a.kitty == graphicsAccepted {
 		return graphics.Kitty
 	}
-	sixel := a.hasAttrs && a.attributes.Has(sixelAttribute)
-	protocol := hint.Negotiated(a.name, sixel)
-	if protocol == graphics.Kitty && (a.hasAttrs || a.kitty == graphicsRejected) {
+	attributes, answered := a.attributes.Get()
+	sixel := answered && attributes.Has(sixelAttribute)
+	name, _ := a.name.Get()
+	protocol := hint.Negotiated(name, sixel)
+	if protocol == graphics.Kitty && (answered || a.kitty == graphicsRejected) {
 		if sixel {
 			return graphics.Sixel
 		}
 		return graphics.None
 	}
 	return protocol
+}
+
+func reportedColor(spec string) grid.Color {
+	rgb, ok := parseXParseColor(spec)
+	if !ok {
+		return grid.Color{}
+	}
+	return grid.RGBColor(rgb.R, rgb.G, rgb.B)
 }
 
 // X color channels encode precision in their digit count: f and ffff both
@@ -271,66 +271,42 @@ func parseXParseColor(spec string) (grid.RGB, bool) {
 		return grid.RGB{}, false
 	}
 	parts := strings.Split(body, "/")
-	if len(parts) != 3 {
+	var channels [3]uint8
+	if len(parts) != len(channels) {
 		return grid.RGB{}, false
 	}
-	var c grid.RGB
-	for i, channel := range parts {
-		v, ok := parseChannel(channel)
-		if !ok {
+	for i, part := range parts {
+		if channels[i], ok = parseChannel(part); !ok {
 			return grid.RGB{}, false
 		}
-		switch i {
-		case 0:
-			c.R = v
-		case 1:
-			c.G = v
-		case 2:
-			c.B = v
-		}
 	}
-	return c, true
+	return grid.RGB{R: channels[0], G: channels[1], B: channels[2]}, true
 }
 
+// maxChannelDigits is the widest XParseColor channel: sixteen bits of hex.
+const (
+	maxChannelDigits = 4
+	hexDigitBits     = 4
+)
+
 func parseChannel(s string) (uint8, bool) {
-	if len(s) == 0 || len(s) > 4 {
+	if len(s) == 0 || len(s) > maxChannelDigits {
 		return 0, false
 	}
-	value, full := 0, 0
-	for i := range len(s) {
-		digit, ok := hexDigit(s[i])
-		if !ok {
-			return 0, false
-		}
-		value = value*16 + digit
-		full = full*16 + 15
+	value, err := strconv.ParseUint(s, 16, hexDigitBits*maxChannelDigits)
+	if err != nil {
+		return 0, false
 	}
+	full := uint64(1)<<(hexDigitBits*len(s)) - 1
 	return scaleChannel(value, full), true
 }
 
 // Round channel scaling to nearest to avoid a systematic downward bias. Clamp
 // before narrowing so the returned byte cannot wrap.
-func scaleChannel(value, full int) uint8 {
-	scaled := (value*255 + full/2) / full
-	switch {
-	case scaled <= 0:
-		return 0
-	case scaled >= 255:
-		return 255
-	default:
-		return uint8(scaled)
+func scaleChannel(value, full uint64) uint8 {
+	scaled := (value*math.MaxUint8 + full/2) / full
+	if scaled >= math.MaxUint8 {
+		return math.MaxUint8
 	}
-}
-
-func hexDigit(c byte) (int, bool) {
-	switch {
-	case c >= '0' && c <= '9':
-		return int(c - '0'), true
-	case c >= 'a' && c <= 'f':
-		return int(c-'a') + 10, true
-	case c >= 'A' && c <= 'F':
-		return int(c-'A') + 10, true
-	default:
-		return 0, false
-	}
+	return uint8(scaled)
 }

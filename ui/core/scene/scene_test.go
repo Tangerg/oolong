@@ -87,6 +87,27 @@ func TestAttachmentIdentitySurvivesMoveButNotUnmount(t *testing.T) {
 	}
 }
 
+// Filling a capability slot is assembly: a slot on nothing or on an element
+// already in a scene has no caller that could recover, so it panics.
+func TestCapabilitySlotsAreFilledBeforeMounting(t *testing.T) {
+	var zero scene.Element
+	if got := recoveredPanic(func() { zero.SetPaint(nil) }); !errors.Is(got, scene.ErrInvalid) {
+		t.Fatalf("zero element paint: %v", got)
+	}
+	mounted := scene.NewElement(scene.ElementConfig{})
+	root(t, mounted)
+	for name, fill := range map[string]func(){
+		"paint":     func() { mounted.SetPaint(nil) },
+		"measure":   func() { mounted.SetMeasure(nil) },
+		"focusable": func() { mounted.SetFocusable(nil) },
+		"autofocus": func() { mounted.SetAutofocus(true) },
+	} {
+		if got := recoveredPanic(fill); !errors.Is(got, scene.ErrMounted) {
+			t.Errorf("mounted %s: %v", name, got)
+		}
+	}
+}
+
 func TestOneElementCannotHaveTwoParentsOrRoots(t *testing.T) {
 	e := scene.NewElement(scene.ElementConfig{})
 	first := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{item("same", e)}})
@@ -304,7 +325,12 @@ func TestObservationIsPureBoundedAndRedactsSensitiveValues(t *testing.T) {
 
 func TestTypedActionRejectsParametersAndReportsExplicitResult(t *testing.T) {
 	value := 0
-	set := scene.NewAction(scene.ActionConfig[int, int]{ID: scene.ActionSetValue, Availability: func(next int) scene.Availability { return scene.Availability{Disabled: next < 0, Reason: "negative"} }, Run: func(_ context.Context, next int) (scene.ActionResult[int], error) {
+	set := scene.NewAction(scene.ActionConfig[int, int]{ID: scene.ActionSetValue, Availability: func(next int) scene.Availability {
+		if next < 0 {
+			return scene.Unavailable("negative")
+		}
+		return scene.Availability{}
+	}, Run: func(_ context.Context, next int) (scene.ActionResult[int], error) {
 		if value == next {
 			return scene.ActionResult[int]{State: scene.Unchanged, Value: value}, nil
 		}

@@ -1,13 +1,15 @@
 package base
 
 import (
+	"context"
 	"slices"
 	"strings"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
 // Option values may contain references; copying an option does not copy its domain data.
@@ -44,6 +46,34 @@ type Select[T any] struct {
 
 	choiceList[T]
 	check func(T) error
+}
+
+// SelectConfig fixes identity matching for the field's lifetime. Validation and
+// row callbacks have distinct roles: checks may request changes, rows must be pure.
+type SelectConfig[T any] struct {
+	Key     string
+	Initial T
+	Options []Option[T]
+	Label   string
+	// Same is required for non-empty options and must remain a pure, stable
+	// identity relation. It does not compare the complete payload for validation.
+	Same  func(T, T) bool
+	Check func(T) error
+	Rows  int
+	Keys  *keymap.Map
+	Row   func(grid.View, Option[T], bool, bool, Look)
+}
+
+// NewSelect panics for negative Rows or non-empty Options without Same.
+// An unavailable Initial leaves the first available option selected.
+func NewSelect[T any](config SelectConfig[T]) *Select[T] {
+	requireNonNegative("choice Rows", config.Rows)
+	s := &Select[T]{check: config.Check}
+	s.initialize(config.Label, config.Same, config.Rows, config.Keys, config.Row)
+	s.key = strings.Clone(config.Key)
+	s.SetOptions(config.Options)
+	s.Choose(config.Initial)
+	return s
 }
 
 // SetOptions replaces what is on offer. Select owns the slice. If the selected
@@ -163,4 +193,35 @@ func (s *Select[T]) selectAt(at int) {
 		s.revision = nextRevision(s.revision)
 	}
 	s.list.Select(at)
+}
+
+// KeysFor is what the effective key map binds to action, defaults included.
+func (s *Select[T]) KeysFor(action keymap.Action) []input.Keys { return s.keys.bound(listKeys, action) }
+
+func (s *Select[T]) Element() scene.Element {
+	if s.element.IsZero() {
+		selectValue := scene.NewAction(scene.ActionConfig[T, T]{ID: scene.ActionSelect, Label: "Select", Availability: func(value T) scene.Availability {
+			if _, ok := s.indexOf(s.list.items, value); !ok {
+				return scene.Unavailable(unavailableValue)
+			}
+			return scene.Availability{}
+		}, Run: func(_ context.Context, value T) (scene.ActionResult[T], error) {
+			before := s.selected()
+			s.Choose(value)
+			state := scene.AppliedIf(before != s.selected())
+			selected, _ := s.Chosen()
+			return scene.ActionResult[T]{State: state, Value: selected.Value}, nil
+		}})
+		s.adopt(scene.NewElement(scene.ElementConfig{
+			Key: s.key, Measure: layout.MeasureRows(s.HeightForWidth), Paint: s.Draw,
+			Handle: func(e scene.Event) scene.EventResult {
+				return partEvent(e, s.Handle, &s.geometry, &s.list.geometry, &s.list.pointer.geometry)
+			}, Focusable: func() bool { return true }, FocusChanged: s.focusChanged,
+			Semantics: func() scene.Semantic {
+				choice, _ := s.Chosen()
+				return withFeedback(scene.Semantic{Role: scene.RoleList, Name: s.label, Value: choice.Label, ContentRevision: s.list.contentRevision}, s.Error())
+			}, Actions: []scene.ActionBinding{selectValue.Binding(), collectionReadAction(&s.list, unchangedItem[Option[T]])},
+		}))
+	}
+	return s.element
 }

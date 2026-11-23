@@ -67,15 +67,13 @@ func TestCommittedEditorChangeSurvivesAnInterruptedSceneWake(t *testing.T) {
 	defer after.Root.Close()
 	wake := after.Changes()
 	armed := false
-	if err := editor.Element().SetFocusable(func() bool {
+	editor.Element().SetFocusable(func() bool {
 		if armed {
 			armed = false
 			panic("predicate")
 		}
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	root := scenes.Mount(editor.Element())
 	defer root.Root.Close()
 	armed = true

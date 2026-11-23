@@ -26,7 +26,7 @@ func preparationOwner(t *testing.T, element scene.Element) (*program, *Runtime, 
 	pipe := &inputPipe{events: make(chan ownerInput, 2), consumed: make(chan int, 2), done: make(chan struct{})}
 	var stopInput sync.Once
 	p := &program{
-		root: root, canvas: grid.NewScreen(20, 4), writer: writer, tasks: newTaskQueue(), inputPipe: pipe,
+		root: root, screen: grid.NewScreen(20, 4), writer: writer, tasks: newTaskQueue(), inputPipe: pipe,
 		cancel: func() { stopInput.Do(func() { close(pipe.done) }) },
 	}
 	t.Cleanup(p.stop)
@@ -159,7 +159,6 @@ func TestPendingPreparationFinishesAcceptedInlineOutputInOrder(t *testing.T) {
 		}})
 		p, runtime, writer := preparationOwner(t, element)
 		p.inline = grid.NewInline(40, 6)
-		p.canvas = p.inline
 		var publisherErr error
 		p.publisher, publisherErr = publication.New(publication.Config{Width: 40})
 		if publisherErr != nil {
@@ -221,7 +220,6 @@ func TestUnpreparedShutdownDoesNotPublishTheRetiredLiveProjectionAgain(t *testin
 		}})
 		p, runtime, writer := preparationOwner(t, element)
 		p.inline = grid.NewInline(30, 6)
-		p.canvas = p.inline
 		var publisherErr error
 		p.publisher, publisherErr = publication.New(publication.Config{Width: 30})
 		if publisherErr != nil {

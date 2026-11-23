@@ -9,7 +9,7 @@ import (
 )
 
 func TestTreeBranchChangesPreserveTheSelectedNode(t *testing.T) {
-	tree := base.NewTree(files()...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 	tree.Select(1)
 	var observed []string
 	tree.Subscribe(func() {
@@ -39,7 +39,7 @@ func TestTreeBranchChangesPreserveTheSelectedNode(t *testing.T) {
 }
 
 func TestTreeCollapseSelectsTheAncestorOfAHiddenNode(t *testing.T) {
-	tree := base.NewTree(files()...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 	tree.Open(0)
 	tree.Open(2)
 	tree.Select(3)
@@ -61,7 +61,7 @@ func TestTreeBranchChangesCancelDeferredNavigation(t *testing.T) {
 	}{{"open", true}, {"close", false}} {
 		t.Run(test.name, func(t *testing.T) {
 			keys, resolve := deferredKeys(base.SelectNext, base.SelectLast)
-			tree := base.NewTree(files()...)
+			tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 			tree.SetKeys(keys)
 			if !test.open {
 				tree.Open(0)

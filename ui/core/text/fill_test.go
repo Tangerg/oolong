@@ -6,7 +6,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
-
 	"github.com/Tangerg/oolong/ui/core/text"
 )
 

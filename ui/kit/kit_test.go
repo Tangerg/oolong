@@ -250,6 +250,19 @@ func TestPanelIsTheLiveCounterpartToBox(t *testing.T) {
 	}
 }
 
+// A popup sized around its candidates asks the panel, which adds its own frame,
+// instead of adding the frame to the candidates' width by hand.
+func TestPanelMeasuresAcrossAroundACompletion(t *testing.T) {
+	completion := base.NewCompletion(base.CompletionConfig{})
+	completion.Offer(base.Token{}, []base.Candidate{{Text: "short"}, {Text: "longest"}})
+	hint := scene.NewElement(scene.ElementConfig{})
+	body := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{{Element: completion.Element(), Size: layout.Measured(0, 0)}, {Element: hint, Size: layout.Fixed(1)}}})
+	panel := kit.NewPanel(kit.PanelConfig{Box: kit.Box{Glyphs: kit.Unicode(), Padding: layout.Symmetric(0, 1)}, Content: body.Element()})
+	if got, want := panel.Element().Measure(layout.Across, 10), completion.Width()+panel.Box().Overhead().X; got != want {
+		t.Fatalf("panel across = %d, want the widest candidate plus the frame, %d", got, want)
+	}
+}
+
 func TestPanelPreservesFocusAndTranslatesPointerCoordinates(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
@@ -779,14 +792,14 @@ func TestTableCapsAContentFittedColumn(t *testing.T) {
 func TestTableFitMeasuresOnlyTheSortMarkItDraws(t *testing.T) {
 	table := kit.Table{
 		Columns: []kit.Column{{Title: "x", Size: layout.Measured(0, 0)}, {Size: layout.Flex(1)}},
-		Sorted:  func() (int, bool, bool) { return 0, false, false },
+		Sorted:  func() (base.SortOrder, bool) { return base.SortOrder{}, false },
 		Glyphs:  kit.Glyphs{Ascending: "very-wide", Descending: "also-wide"},
 	}
 	if got := table.Layout(12).Widths(); !reflect.DeepEqual(got, []int{1, 10}) {
 		t.Fatalf("widths = %v, want only the visible title measured", got)
 	}
 
-	table.Sorted = func() (int, bool, bool) { return 0, false, true }
+	table.Sorted = func() (base.SortOrder, bool) { return base.SortOrder{}, true }
 	if got := table.Layout(20).Widths()[0]; got != len("xvery-wide") {
 		t.Fatalf("sorted fitted width = %d, want the title and its visible mark", got)
 	}
@@ -1116,17 +1129,17 @@ func TestParagraphCopiesAWordItHadToBreak(t *testing.T) {
 	}
 }
 
-// TestTheComposerShowsASelection. Behaviour with no appearance is the arrangement
+// TestTheEditorShowsASelection. Behaviour with no appearance is the arrangement
 // between the two packages; a selection nobody can see is not that arrangement, it is
 // a feature half finished.
-func TestTheComposerShowsASelection(t *testing.T) {
+func TestTheEditorShowsASelection(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
 	th := kit.Dark()
-	c := kit.NewComposer(kit.ComposerConfig{Theme: th, Prompt: "> "})
+	c := kit.NewEditor(kit.EditorConfig{Theme: th, Prompt: "> "})
 	c.Controller().SetText("hello world")
-	c.Controller().SetCursor(0, 0)
+	c.Controller().SetCursor(base.Caret{})
 	for range 5 {
 		scenes.Mount(c).Handle(input.Key{Code: input.Right, Mods: input.Shift})
 	}
@@ -1147,11 +1160,11 @@ func TestTheComposerShowsASelection(t *testing.T) {
 	}
 }
 
-// TestParagraphMakesAPathClickable. In an agent's output the file is the commoner
+// TestParagraphMakesAPathClickable. In program output the file is the commoner
 // destination, and the line number after it is the useful half.
 func TestParagraphMakesAPathClickable(t *testing.T) {
 	s := grid.NewSurface(40, 3)
-	p := kit.NewParagraph("edited src/main.go:42 for you", grid.Style{})
+	p := kit.NewParagraph("failed at src/main.go:42 just now", grid.Style{})
 	lookups := 0
 	p.SetLinks(kit.LinkConfig{
 		Enabled: true,
@@ -1164,7 +1177,7 @@ func TestParagraphMakesAPathClickable(t *testing.T) {
 	p.HeightForWidth(40)
 	p.Draw(s.View())
 
-	destination, ok := p.LinkAt(len("edited "), 0, 40)
+	destination, ok := p.LinkAt(len("failed at "), 0, 40)
 	if !ok {
 		t.Fatal("the path was not recorded")
 	}
@@ -1217,35 +1230,35 @@ func TestParagraphStillHyperlinksAURL(t *testing.T) {
 	}
 }
 
-// TestTheComposerCanBeClickedInto. The field learned the mouse; a composer that did
+// TestTheEditorCanBeClickedInto. The field learned the mouse; an editor that did
 // not pass it on would leave the default widget unable to do the first thing anybody
 // tries.
-func TestTheComposerCanBeClickedInto(t *testing.T) {
+func TestTheEditorCanBeClickedInto(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	c := kit.NewComposer(kit.ComposerConfig{Theme: kit.Dark(), Prompt: "> "})
+	c := kit.NewEditor(kit.EditorConfig{Theme: kit.Dark(), Prompt: "> "})
 	c.Controller().SetText("hello world")
-	c.Controller().SetCursor(0, 0)
+	c.Controller().SetCursor(base.Caret{})
 
 	s := grid.NewSurface(30, 3)
 	scenes.Mount(c).Draw(s.View())
 
 	// Column 8 on screen is column 6 of the field, because the marker takes two.
 	if !scenes.Mount(c).Handle(input.Mouse{Pos: image.Pt(8, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
-		t.Fatal("the composer ignored a click")
+		t.Fatal("the editor ignored a click")
 	}
-	if _, col := c.Controller().Cursor(); col != 6 {
+	if col := c.Controller().Cursor().Byte; col != 6 {
 		t.Errorf("the cursor is at %d, want 6 — the marker's width was not taken off", col)
 	}
 }
 
-func TestTheComposerIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
+func TestTheEditorIgnoresAClickBeforeItHasBeenDrawn(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
 	// A click is about a frame, and there has not been one.
-	c := kit.NewComposer(kit.ComposerConfig{Theme: kit.Dark()})
+	c := kit.NewEditor(kit.EditorConfig{Theme: kit.Dark()})
 	c.Controller().SetText("hello")
 	if scenes.Mount(c).Handle(input.Mouse{Pos: image.Pt(2, 0), Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Error("it answered a click about a frame that was never drawn")
@@ -1256,15 +1269,12 @@ func TestTheStripSaysWhichPaneIsShowingAndAPressChangesIt(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	tabs := kit.NewTabs(kit.TabsConfig{
-		Theme: kit.Dark(), Glyphs: kit.ASCII(),
-		Items: []base.Tab{
-			{Title: "chat", Content: scenes.Element(kit.Label{Text: "one"})},
-			{Title: "files", Content: scenes.Element(kit.Label{Text: "two"})},
-		},
-	})
+	tabs := kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{
+		{Title: "logs", Content: scenes.Element(kit.Label{Text: "one"})},
+		{Title: "files", Content: scenes.Element(kit.Label{Text: "two"})},
+	}}, Theme: kit.Dark(), Glyphs: kit.ASCII()})
 	equalRows(t, paintWidget(scenes, 14, 4, tabs), []string{
-		"chat..files...",
+		"logs..files...",
 		"--------------",
 		"one...........",
 		"..............",
@@ -1287,13 +1297,10 @@ func TestNewTabsProvidesTheFinishedStripAndItsController(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	tabs := kit.NewTabs(kit.TabsConfig{
-		Theme: kit.Dark(), Glyphs: kit.ASCII(),
-		Items: []base.Tab{
-			{Title: "chat", Content: scenes.Element(kit.Label{Text: "one"})},
-			{Title: "files", Content: scenes.Element(kit.Label{Text: "two"})},
-		},
-	})
+	tabs := kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{
+		{Title: "logs", Content: scenes.Element(kit.Label{Text: "one"})},
+		{Title: "files", Content: scenes.Element(kit.Label{Text: "two"})},
+	}}, Theme: kit.Dark(), Glyphs: kit.ASCII()})
 	if tabs.Controller() == nil || tabs.Rule() == "" {
 		t.Fatal("the short constructor omitted its controller or finished default rule")
 	}
@@ -1307,13 +1314,13 @@ func TestATreeIsDrawnAsFarInAsItIsDeep(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	tree := base.NewTree(
-		base.Node[string]{Item: "core", Children: []base.Node[string]{{Item: "grid"}}},
-		base.Node[string]{Item: "README"},
-	)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: []base.Node[string]{
+		{Item: "core", Children: []base.Node[string]{{Item: "grid"}}},
+		{Item: "README"},
+	}})
 	tree.Open(0)
 	view := kit.NewTree(kit.TreeConfig[string]{
-		Theme: kit.Dark(), Glyphs: kit.ASCII(), Nodes: tree.Nodes(),
+		Behavior: base.TreeConfig[string]{Nodes: tree.Nodes()}, Theme: kit.Dark(), Glyphs: kit.ASCII(),
 		Text: func(s string) string { return s },
 	})
 	view.Controller().Open(0)
@@ -1332,15 +1339,15 @@ func TestATreeAlignsTextAcrossTurnMarksOfDifferentWidths(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	tree := base.NewTree(
-		base.Node[string]{Item: "core", Children: []base.Node[string]{{Item: "grid"}}},
-		base.Node[string]{Item: "docs", Children: []base.Node[string]{{Item: "guide"}}},
-		base.Node[string]{Item: "README"},
-	)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: []base.Node[string]{
+		{Item: "core", Children: []base.Node[string]{{Item: "grid"}}},
+		{Item: "docs", Children: []base.Node[string]{{Item: "guide"}}},
+		{Item: "README"},
+	}})
 	glyphs := kit.ASCII()
 	glyphs.Expanded, glyphs.Collapsed = "[-]", "+"
 	view := kit.NewTree(kit.TreeConfig[string]{
-		Theme: kit.Dark(), Glyphs: glyphs, Nodes: tree.Nodes(), Indent: 4,
+		Behavior: base.TreeConfig[string]{Nodes: tree.Nodes()}, Theme: kit.Dark(), Glyphs: glyphs, Indent: 4,
 		Text: func(s string) string { return s },
 	})
 	view.Controller().Open(0)
@@ -1358,12 +1365,12 @@ func TestATreeIndentsByTheWidthItWasGiven(t *testing.T) {
 
 	// Two columns is what the zero value means, not a floor under every width below
 	// it: a caller who asked for one column meant one.
-	tree := base.NewTree(
-		base.Node[string]{Item: "core", Children: []base.Node[string]{{Item: "grid"}}},
-	)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: []base.Node[string]{
+		{Item: "core", Children: []base.Node[string]{{Item: "grid"}}},
+	}})
 	tree.Open(0)
 	view := kit.NewTree(kit.TreeConfig[string]{
-		Theme: kit.Dark(), Nodes: tree.Nodes(), Indent: 1,
+		Behavior: base.TreeConfig[string]{Nodes: tree.Nodes()}, Theme: kit.Dark(), Indent: 1,
 		Text: func(s string) string { return s },
 	})
 	view.Controller().Open(0)
@@ -1373,29 +1380,16 @@ func TestATreeIndentsByTheWidthItWasGiven(t *testing.T) {
 	})
 }
 
-func TestNilTreeIsAnEmptyWidget(t *testing.T) {
-	var tree *kit.Tree[string]
-	if tree.Controller() != nil || !tree.Element().IsZero() {
-		t.Fatal("a nil tree reported controller, focus, or handled input")
-	}
-	if got := tree.HeightForWidth(20); got != 0 {
-		t.Fatalf("nil tree measured %d rows, want zero", got)
-	}
-	paint(20, 1, func(view grid.View) { tree.Draw(scene.Frame{View: view}) })
-}
-
 func TestADressedTreeDoesNotReplaceTheControllersRenderer(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
 	called := 0
-	dressed := kit.NewTree(kit.TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root"}}, Text: func(item string) string { return item }})
+	dressed := kit.NewTree(kit.TreeConfig[string]{Behavior: base.TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root"}}}, Text: func(item string) string { return item }})
 	controller := dressed.Controller()
 	controller.SetRow(func(grid.View, int, base.Shown[string], bool) { called++ })
 	draw := dressed.Draw
-	if err := controller.Element().SetPaint(func(frame scene.Frame) { draw(frame) }); err != nil {
-		t.Fatal(err)
-	}
+	controller.Element().SetPaint(func(frame scene.Frame) { draw(frame) })
 	paintWidget(scenes, 8, 1, dressed)
 	if called != 0 {
 		t.Fatal("skin used the controller's independent renderer")
@@ -1428,7 +1422,7 @@ func TestAFormCanBeAnsweredWithoutAScreen(t *testing.T) {
 	}
 	for _, want := range []string{"Model: 1) fast 2) good", "Sure? (yes/no)", "a name is needed"} {
 		if !strings.Contains(out.String(), want) {
-			t.Fatalf("conversation %q missing %q", out.String(), want)
+			t.Fatalf("prompted %q, missing %q", out.String(), want)
 		}
 	}
 }
@@ -1541,7 +1535,7 @@ func TestDialogPassesKeyboardOwnershipToItsContent(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	body := &spy{}
-	dialog := kit.NewDialog(kit.DialogConfig{Initial: true, Theme: kit.Dark(), Glyphs: kit.ASCII(), Title: "sure?", Body: scenes.Element(body)})
+	dialog := kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Initial: true, Title: "sure?", Content: scenes.Element(body)}, Theme: kit.Dark(), Glyphs: kit.ASCII()})
 	root := scenes.Mount(dialog)
 	if !body.focused {
 		t.Fatal("dialog content did not gain focus")

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -147,7 +148,7 @@ func (d *Decoder) piece(p ansi.Piece) ([]Line, error) {
 	case ansi.Plain:
 		return d.write(p.Raw)
 	case ansi.Control:
-		if p.Final == 'm' && p.Intermediates == "" {
+		if p.Final == byte(ansi.SGR) && p.Intermediates == "" {
 			// A private marker makes this somebody else's command that happens to end
 			// in m — XTerm's modifyOtherKeys is CSI > Ps m — and reading its numbers as
 			// select-graphic-rendition would style the text that follows by accident.
@@ -164,10 +165,12 @@ func (d *Decoder) piece(p ansi.Piece) ([]Line, error) {
 	return nil, nil
 }
 
+var hyperlinkCommand = strconv.Itoa(ansi.OSCHyperlink)
+
 // Output hyperlinks may affect text; terminal metadata commands must not survive into repainted content.
 func (d *Decoder) osc(body string) error {
 	command, rest, found := strings.Cut(body, ";")
-	if !found || command != "8" {
+	if !found || command != hyperlinkCommand {
 		return nil
 	}
 	_, target, found := strings.Cut(rest, ";")
@@ -314,6 +317,13 @@ func (d *Decoder) sgr(ps ansi.Params) {
 	}
 }
 
+// maxColourArguments is the longest semicolon-form colour: 2;r;g;b. Reading
+// further would consume the next independent SGR parameter.
+const (
+	rgbChannels        = 3
+	maxColourArguments = 1 + rgbChannels
+)
+
 // Both extended-color parameter encodings share one reader; only their parameter locations differ.
 func colourAt(ps ansi.Params, i int, group ansi.Parameter) (grid.Color, int, bool) {
 	if group.Len() > 1 {
@@ -324,7 +334,7 @@ func colourAt(ps ansi.Params, i int, group ansi.Parameter) (grid.Color, int, boo
 		c, _, ok := colourOf(args)
 		return c, 0, ok
 	}
-	args := make([]int, 0, 4)
+	args := make([]int, 0, maxColourArguments)
 	for k := i + 1; k < ps.Len() && len(args) < cap(args); k++ {
 		args = append(args, ps.At(k))
 	}
@@ -342,25 +352,22 @@ func colourOf(args []int) (grid.Color, int, bool) {
 		if len(args) < 2 {
 			return grid.Color{}, len(args), false
 		}
-		index := args[1]
-		if index < 0 || index > 255 {
-			return grid.Color{}, 2, false
-		}
-		return grid.PaletteColor(uint8(index)), 2, true
+		index, ok := byteParameter(args[1])
+		return grid.PaletteColor(index), 2, ok
 	case ansi.SGRColorRGB:
 		channels, used := args[1:], 1
-		if len(channels) == 4 {
+		if len(channels) == rgbChannels+1 {
 			// The colon form reserves a color-space field before RGB. Skip it so
 			// it cannot be misread as the red channel.
 			channels, used = channels[1:], 2
 		}
-		if len(channels) < 3 {
+		if len(channels) < rgbChannels {
 			return grid.Color{}, len(args), false
 		}
-		used += 3
-		r, okR := channel(channels[0])
-		g, okG := channel(channels[1])
-		b, okB := channel(channels[2])
+		used += rgbChannels
+		r, okR := byteParameter(channels[0])
+		g, okG := byteParameter(channels[1])
+		b, okB := byteParameter(channels[2])
 		if !okR || !okG || !okB {
 			return grid.Color{}, used, false
 		}
@@ -423,15 +430,13 @@ func attribute(code int) (grid.Attr, bool, bool) {
 	}
 }
 
-// Reject out-of-byte-range channels before narrowing; conversion would turn
+// Reject out-of-byte-range values before narrowing; conversion would turn
 // a malformed value into a different, valid color.
-func channel(v int) (uint8, bool) {
-	switch {
-	case v < 0, v > 255:
+func byteParameter(v int) (uint8, bool) {
+	if v < 0 || v > math.MaxUint8 {
 		return 0, false
-	default:
-		return uint8(v), true
 	}
+	return uint8(v), true
 }
 
 // ansiColor is a named colour: one of the terminal's sixteen palette entries, so

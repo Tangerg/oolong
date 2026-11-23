@@ -1,9 +1,11 @@
 package graphics
 
+import "github.com/Tangerg/oolong/ui/core/ansi"
+
 const (
 	graphicsCommand = 'G'
-	kittyStart      = "\x1b_" + string(graphicsCommand)
-	kittyEnd        = "\x1b\\"
+	kittyStart      = ansi.APCIntroducer + string(graphicsCommand)
+	kittyEnd        = ansi.ST
 	wireIntegerBits = 32
 
 	imageIDField      = "i"

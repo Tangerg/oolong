@@ -11,8 +11,8 @@ var ErrRepaintBackpressure = errors.New("program: repaint preparation blocks inp
 // Size remains valid during final preparation and painting, after task admission
 // has stopped. Cleanup releases the canvas; retained runtimes then return zero.
 func (r *Runtime) Size() (width, height int) {
-	if r != nil && r.p != nil && r.p.canvas != nil {
-		return r.p.canvas.Size()
+	if r != nil && r.p != nil && r.p.canvas() != nil {
+		return r.p.canvas().Size()
 	}
 	return 0, 0
 }
@@ -46,7 +46,7 @@ func (p *program) frameReady() (bool, error) {
 	}
 	p.preparingFrame = true
 	defer func() { p.preparingFrame = false }()
-	width, height := p.canvas.Size()
+	width, height := p.canvas().Size()
 	ready, err := p.framePreparation(width, height)
 	if err != nil {
 		p.frameFailed = true
@@ -64,7 +64,7 @@ func (p *program) completeRepaint(err error) {
 	p.pendingRepaint = nil
 	var width, height int
 	if err == nil {
-		width, height = p.canvas.Size()
+		width, height = p.canvas().Size()
 	}
 	if request.reply != nil {
 		completed := false

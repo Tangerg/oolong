@@ -18,8 +18,8 @@ func TestTranscriptClickRunsBelongToThePresentedTextMapping(t *testing.T) {
 		want      string
 	}{
 		{"repaint", image.Pt(1, 0), 20, 0, "alpha"},
-		{"scroll", image.Pt(1, 0), 20, 1, "a"},
-		{"reflow", image.Pt(1, 1), 6, 0, "e"},
+		{"scroll", image.Pt(1, 0), 20, 1, ""},
+		{"reflow", image.Pt(1, 1), 6, 0, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			model := transcriptModel(t, base.TranscriptConfig{})
@@ -45,5 +45,27 @@ func TestTranscriptClickRunsBelongToThePresentedTextMapping(t *testing.T) {
 				t.Fatalf("selected %q, want %q: %v", got, test.want, err)
 			}
 		})
+	}
+}
+
+// A click that does not drag selects nothing, so it neither highlights the cell it
+// landed on nor gives a copy that one character; a drag still selects.
+func TestATranscriptClickSelectsNothingAndADragSelects(t *testing.T) {
+	model := transcriptModel(t, base.TranscriptConfig{})
+	transcriptAdd(t, model, transcriptBody("alpha beta"))
+	root := transcriptScene(t, model)
+	transcriptCommit(t, root, 20, 1, 1)
+	press := input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(1, 0)}
+	root.Handle(press)
+	root.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft, Pos: image.Pt(1, 0)})
+	if model.Selection().Active() {
+		t.Fatal("a click left a selection")
+	}
+	press.At = press.At.Add(time.Second)
+	root.Handle(press)
+	root.Handle(input.Mouse{Action: input.MouseDrag, Button: input.ButtonLeft, Pos: image.Pt(4, 0)})
+	root.Handle(input.Mouse{Action: input.MouseUp, Button: input.ButtonLeft, Pos: image.Pt(4, 0)})
+	if got, err := model.Selection().Text(model.Layout()); err != nil || got != "lpha" {
+		t.Fatalf("dragged selection = %q, %v", got, err)
 	}
 }

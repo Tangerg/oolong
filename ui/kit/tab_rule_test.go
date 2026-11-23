@@ -15,7 +15,7 @@ func TestTabDecorationAndPanelShareOneHeight(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	tabs := kit.NewTabs(kit.TabsConfig{NoRule: true, Glyphs: kit.ASCII(), Items: []base.Tab{{Title: "tab", Content: scenes.Element(kit.Label{Text: "body"})}}})
+	tabs := kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{{Title: "tab", Content: scenes.Element(kit.Label{Text: "body"})}}}, NoRule: true, Glyphs: kit.ASCII()})
 	tabs.SetRule("-")
 	rows := paintWidget(scenes, 10, 4, tabs)
 	if !strings.Contains(rows[1], "-") || !strings.Contains(rows[2], "body") || tabs.HeightForWidth(10) != 3 {

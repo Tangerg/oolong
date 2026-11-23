@@ -92,14 +92,9 @@ func (s *diagramScreen) rendered(result *mermaid.Image, err error) {
 		s.current.notice = "Inline images unavailable; source shown. Open Image to view the diagram."
 		return
 	}
-	owner, ledger, png := s.runtime.Dispatcher(), s.images, result.PNG()
+	ledger, png := s.images, result.PNG()
 	err = s.start(func(ctx context.Context) (graphics.Resource, error) {
-		var upload <-chan graphics.UploadResult
-		admissionErr := owner.Invoke(ctx, func() error {
-			var transmitErr error
-			upload, transmitErr = images.Transmit(ctx, png)
-			return transmitErr
-		})
+		upload, admissionErr := images.Transmit(ctx, png)
 		if admissionErr != nil {
 			return graphics.Resource{}, admissionErr
 		}
@@ -152,7 +147,7 @@ func (s *diagramScreen) present(child grid.Drawable) {
 		}
 		child = text.NewBlock(text.BlockConfig{Lines: lines, Wrap: true})
 	}
-	look := markdownlook.New(s.theme, kit.GlyphsFor(s.runtime.Environment().Locale()))
+	look := markdownlook.New(s.theme, s.runtime.Environment().Locale())
 	look.SetRenderer(markdown.FencedCode, func(info, body string) (grid.Drawable, error) {
 		if info != "mermaid" {
 			return nil, markdown.ErrUnhandled

@@ -46,9 +46,11 @@ func newTaskQueue() *taskQueue {
 	}
 }
 
+var errNilTask = errors.New("program: Post requires a callback")
+
 func (q *taskQueue) post(fn func()) error {
 	if fn == nil {
-		return q.enqueue(nil)
+		return errNilTask
 	}
 	return q.enqueue(func() bool { fn(); return true })
 }
@@ -59,17 +61,25 @@ func (q *taskQueue) enqueue(fn func() bool) error {
 	if q.stopped {
 		return ErrStopped
 	}
-	if fn == nil {
-		q.refresh = true
-	} else {
-		if q.ordinary >= q.capacity {
-			return ErrQueueFull
-		}
-		q.tasks.Push(queuedTask{fn: fn})
-		q.ordinary++
+	if q.ordinary >= q.capacity {
+		return ErrQueueFull
 	}
+	q.tasks.Push(queuedTask{fn: fn})
+	q.ordinary++
 	q.signal()
 	return nil
+}
+
+// requestFrame coalesces a frame request that carries no work, so it consumes no
+// action slot.
+func (q *taskQueue) requestFrame() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.stopped {
+		return
+	}
+	q.refresh = true
+	q.signal()
 }
 
 // A reservation owns one queue position for an accepted asynchronous resource.
@@ -124,10 +134,12 @@ func (r *reservation) close() {
 	}
 }
 
-func (q *taskQueue) take() []func() bool {
+// take hands over one turn of work and whether a frame was requested without it.
+// The request is granted only within the turn's task bound, after its tasks.
+func (q *taskQueue) take() (tasks []func() bool, refresh bool) {
 	q.mu.Lock()
 	batch := q.tasks.Take(maxTasksPerTurn)
-	tasks := make([]func() bool, 0, len(batch)+1)
+	tasks = make([]func() bool, 0, len(batch))
 	for _, task := range batch {
 		if task.slot == nil {
 			q.ordinary--
@@ -145,15 +157,14 @@ func (q *taskQueue) take() []func() bool {
 		tasks = append(tasks, fn)
 	}
 	if q.refresh && len(tasks) < maxTasksPerTurn {
-		tasks = append(tasks, nil)
-		q.refresh = false
+		refresh, q.refresh = true, false
 	}
 	more := q.tasks.Len() > 0 || q.refresh
 	q.mu.Unlock()
 	if more {
 		q.signal()
 	}
-	return tasks
+	return tasks, refresh
 }
 
 func (q *taskQueue) signal() {
@@ -185,7 +196,7 @@ func (q *taskQueue) stop() {
 }
 
 // Post accepts fn in FIFO order, or returns ErrQueueFull/ErrStopped without
-// retaining it. A nil callback requests a coalesced frame and consumes no slot.
+// retaining it. A nil fn is refused; [Runtime.Refresh] requests a frame without work.
 func (d Dispatcher) Post(fn func()) error {
 	if d.tasks == nil {
 		return ErrStopped

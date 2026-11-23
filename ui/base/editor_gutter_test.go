@@ -58,7 +58,7 @@ func TestEditorGutterSharesTheEditorsWrapAndGeometry(t *testing.T) {
 		t.Fatalf("At(2, 0) = %#v, %v; want the start of the text", at, ok)
 	}
 
-	editor.SetCursor(0, 0)
+	editor.SetCursor(base.Caret{})
 	if editor.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Fatal("mouse press in the committed gutter was consumed")
 	}
@@ -111,7 +111,7 @@ func TestGutterMeasurementCannotReplaceThePaintedLayout(t *testing.T) {
 
 	e := base.NewEditor(base.EditorConfig{Initial: "abcdef"})
 	e.SetGutter(queryingGutter{e})
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	equalRows(t, paintWidget(scenes, 4, 2, e), []string{".abc", ".def"})
 }
 

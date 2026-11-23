@@ -22,10 +22,7 @@ func (s *Scroll) action(label string, availability func(ScrollRequest) scene.Ava
 		Run: func(_ context.Context, request ScrollRequest) (scene.ActionResult[int], error) {
 			before := s.version
 			s.By(request.Rows)
-			state := scene.Unchanged
-			if s.version != before {
-				state = scene.Applied
-			}
+			state := scene.AppliedIf(s.version != before)
 			return scene.ActionResult[int]{State: state, Value: s.Offset()}, nil
 		},
 	}).Binding()
@@ -63,7 +60,7 @@ type Scroll struct {
 	matcher keymap.Matcher
 }
 
-// Wheel says what the terminal's wheel reports are worth, which is not a constant:
+// SetWheel says what the terminal's wheel reports are worth, which is not a constant:
 // terminals disagree about how many of them one notch is. Pass what
 // [input.WheelFor] answered, once.
 //
@@ -71,7 +68,7 @@ type Scroll struct {
 // wrong by at most a factor of three on the rest. That is still better than the fixed
 // number of rows per report this used to scroll, which was wrong by that factor on
 // half of them.
-func (s *Scroll) Wheel(w input.Wheel) {
+func (s *Scroll) SetWheel(w input.Wheel) {
 	requireMutable(s.element)
 	s.wheel.SetWheel(w)
 }
@@ -97,7 +94,7 @@ func (s *Scroll) move(rows int) {
 		return
 	}
 	s.reveal = nil
-	s.current.offset = scrollOffset(s.current.offset, rows, s.current.max())
+	s.current.offset = saturatingMove(s.current.offset, rows, s.current.max())
 	s.following = s.current.offset == s.current.max()
 }
 
@@ -234,8 +231,6 @@ func (s *Scroll) Handle(ev input.Event, keys *keymap.Map) bool {
 	return handled
 }
 
-// Do runs one of the scroll's actions by name, reporting whether it was one a scroll
-// knows. See [Doer].
 func (s *Scroll) Do(action keymap.Action) bool {
 	switch action {
 	case ScrollUp:
@@ -365,7 +360,7 @@ type ScrollLayout struct {
 // Offset returns the offset of this in-progress candidate layout.
 // It panics after the frame's preparation borrow has expired.
 func (l *ScrollLayout) Offset() int {
-	if l == nil || l.staged == nil {
+	if l.staged == nil {
 		return 0
 	}
 	return l.staged.Value().geometry.offset
@@ -374,7 +369,7 @@ func (l *ScrollLayout) Offset() int {
 // Reveal refines this candidate to include the requested rows without changing scroll intent.
 // It panics after Prepare returns or during the frame owner's read-only projection.
 func (l *ScrollLayout) Reveal(first, last int) {
-	if l == nil || l.staged == nil {
+	if l.staged == nil {
 		return
 	}
 	value := l.staged.Value()
@@ -387,7 +382,7 @@ func (l *ScrollLayout) Reveal(first, last int) {
 // Resize refines the candidate viewport, retaining its original offset before provisional clamping.
 // It panics after Prepare returns or during the frame owner's read-only projection.
 func (l *ScrollLayout) Resize(window int) {
-	if l == nil || l.staged == nil {
+	if l.staged == nil {
 		return
 	}
 	value := l.staged.Value()
@@ -439,20 +434,6 @@ func (s *scrollGeometry) max() int { return layout.Remaining(s.total, s.window) 
 
 func (s *scrollGeometry) clamp() { s.offset = min(max(s.offset, 0), s.max()) }
 
-// scrollOffset applies a signed movement inside [0, limit] without letting either
-// direction wrap before it is clamped.
-func scrollOffset(at, by, limit int) int {
-	limit = max(limit, 0)
-	at = min(max(at, 0), limit)
-	if by >= 0 {
-		return min(layout.Sum(at, by), limit)
-	}
-	if by <= -at {
-		return 0
-	}
-	return at + by
-}
-
 // scrollPages multiplies a signed page count by a positive page size, saturating
 // before multiplication. By then clamps the result to the actual scroll range.
 func scrollPages(pages, size int) int {
@@ -471,7 +452,7 @@ func scrollPages(pages, size int) int {
 // Following and an explicit reveal have priority because they are user intent.
 // A refinement panics after Prepare returns or during the frame owner's read-only projection.
 func (l *ScrollLayout) Anchor(offset int) {
-	if l == nil || l.staged == nil {
+	if l.staged == nil {
 		return
 	}
 	value := l.staged.Value()

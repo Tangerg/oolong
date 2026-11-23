@@ -135,7 +135,7 @@ func TestTabsPublishBothRelationsBeforeFocusProjection(t *testing.T) {
 	tabs := base.NewTabs(base.TabsConfig{Items: []base.Tab{{Key: "a", Content: a}}})
 	armed := false
 	calls := 0
-	if err := tabs.Element().SetFocusable(func() bool {
+	tabs.Element().SetFocusable(func() bool {
 		if armed {
 			calls++
 			current, _ := tabs.Current()
@@ -145,9 +145,7 @@ func TestTabsPublishBothRelationsBeforeFocusProjection(t *testing.T) {
 			panic("projection interrupted")
 		}
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	root, err := scene.NewRoot(scene.RootConfig{Element: tabs.Element()})
 	if err != nil {
 		t.Fatal(err)

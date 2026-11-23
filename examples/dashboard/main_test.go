@@ -34,7 +34,8 @@ func TestCompletedDashboardStopsPainting(t *testing.T) {
 					}
 					d.motion = motion
 					d.work.rows.SetItems([]task{{name: "last task", total: 1}})
-					return d.Element(), d.Element().SetPaint(func(scene.Frame) { paints.Add(1) })
+					d.Element().SetPaint(func(scene.Frame) { paints.Add(1) })
+					return d.Element(), nil
 				}})
 				if err == nil {
 					err = app.Run(ctx)

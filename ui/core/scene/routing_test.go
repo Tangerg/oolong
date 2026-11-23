@@ -61,7 +61,7 @@ func TestKeysUseOneFocusAndOnlyDeclinedKeysReachParentPolicy(t *testing.T) {
 		Element: scene.ElementConfig{Handle: func(event scene.Event) scene.EventResult {
 			key, ok := event.Input().(input.Key)
 			if ok && key.Is(input.Tab, 0) {
-				return scene.EventResult{Consumed: event.FocusNext(false)}
+				return scene.EventResult{Consumed: event.FocusNext()}
 			}
 			return scene.EventResult{}
 		}},
@@ -243,14 +243,12 @@ func TestFocusNotificationReentrySeesSettledState(t *testing.T) {
 
 func TestGroupMeasuresChildrenAndKeepsExplicitZeroSlots(t *testing.T) {
 	a, b := control(), control()
-	if err := a.element.SetMeasure(func(axis layout.Axis, across int) int {
+	a.element.SetMeasure(func(axis layout.Axis, across int) int {
 		if axis != layout.Down || across != 10 {
 			t.Fatal("wrong measurement axis")
 		}
 		return 2
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	g := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: a.element, Size: layout.Measured(0, 0)}, {Element: b.element, Size: layout.Flex(1)}}})
 	r := root(t, g.Element())
 	draw(t, r, 10, 5, 0)
@@ -405,4 +403,64 @@ func TestGeometryLossEndsHoverUntilAnotherHitArrives(t *testing.T) {
 	if got := mouseActions(c.events); !slices.Equal(got, []input.MouseAction{input.MouseMove, input.MouseLeave, input.MouseMove}) {
 		t.Fatalf("hover across lost geometry: %v", got)
 	}
+}
+
+func TestFocusTraversalWrapsInBothDirections(t *testing.T) {
+	first, second, third := control(), control(), control()
+	group := scene.NewGroup(scene.GroupConfig{Items: []scene.Item{{Element: first.element}, {Element: second.element}, {Element: third.element}}})
+	root, err := scene.NewRoot(scene.RootConfig{Element: group.Element()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(root.Close)
+	steps := []struct {
+		move func() bool
+		want *routedControl
+	}{
+		{root.FocusPrev, third},
+		{root.FocusNext, first},
+		{root.FocusPrev, third},
+		{root.FocusPrev, second},
+		{root.FocusNext, third},
+	}
+	for i, step := range steps {
+		if !step.move() || !step.want.element.Focused() {
+			t.Fatalf("step %d focused the wrong target", i)
+		}
+	}
+}
+
+type passiveRows struct{ rows int }
+
+func (p passiveRows) HeightForWidth(int) int { return p.rows }
+func (p passiveRows) Draw(view grid.View)    { view.Text(0, 0, "passive", grid.Style{}) }
+
+func TestAPassiveElementDrawsAndMeasuresWithoutTakingInput(t *testing.T) {
+	element := scene.NewElement(scene.Passive(passiveRows{rows: 3}))
+	if got := element.Measure(layout.Down, 10); got != 3 {
+		t.Fatalf("passive element measured %d rows, want 3", got)
+	}
+	root, err := scene.NewRoot(scene.RootConfig{Element: element})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(root.Close)
+	surface := grid.NewSurface(10, 3)
+	candidate, err := root.Prepare(surface.View())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.Commit(1)
+	if got := surface.Rows()[0]; !strings.HasPrefix(got, "passive") {
+		t.Fatalf("passive element drew %q", got)
+	}
+	if root.Handle(input.Key{Rune: 'x'}) || element.Focused() {
+		t.Fatal("a passive element took input or focus")
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a passive element accepted absent content")
+		}
+	}()
+	scene.NewElement(scene.Passive(nil))
 }

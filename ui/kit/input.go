@@ -2,22 +2,19 @@ package kit
 
 import (
 	"github.com/Tangerg/oolong/ui/base"
-	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
-// InputConfig supplies initial single-line text, validation and its appearance.
-// Validate is an event-side check; rendering never runs it. Scope selects a live
-// application theme and Appearance overrides its tokens for this instance.
+// InputConfig carries the base text field configuration in Behavior and adds its
+// appearance. Behavior.Check is an event-side check; rendering never runs it. Scope
+// selects a live application theme and Appearance overrides its tokens for this
+// instance.
 type InputConfig struct {
-	Key, Label, Initial, Placeholder string
-	Validate                         func(string) error
-	Keys                             *keymap.Map
-	Clipboard                        base.Clipboard
-	Theme                            Theme
-	Scope                            *ThemeScope
-	Appearance                       ThemeOverride
-	Glyphs                           Glyphs
+	Behavior   base.TextConfig
+	Theme      Theme
+	Scope      *ThemeScope
+	Appearance ThemeOverride
+	Glyphs     Glyphs
 }
 
 // Input is a finished single-line input around one base.Text. The controller owns
@@ -33,14 +30,9 @@ type Input struct {
 // NewInput constructs one controller and its standalone appearance. It panics
 // when Theme and Scope both declare palette sources.
 func NewInput(config InputConfig) *Input {
-	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
-	if appearanceErr != nil {
-		panic(appearanceErr)
-	}
-	input := &Input{controller: base.NewText(base.TextConfig{Key: config.Key, Label: config.Label, Initial: config.Initial, Placeholder: config.Placeholder, Check: config.Validate, Keys: config.Keys, Clipboard: config.Clipboard}), appearance: look, glyphs: config.Glyphs.clone()}
-	if err := input.controller.Element().SetPaint(input.Draw); err != nil {
-		panic(err)
-	}
+	look := newAppearance(config.Theme, config.Scope, config.Appearance)
+	input := &Input{controller: base.NewText(config.Behavior), appearance: look, glyphs: config.Glyphs.clone()}
+	input.controller.Element().SetPaint(input.Draw)
 	input.appearance.bind(input.Element())
 	return input
 }

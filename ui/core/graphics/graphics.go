@@ -16,6 +16,10 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
+	"github.com/Tangerg/oolong/ui/core/termenv"
+	"github.com/Tangerg/oolong/ui/internal/enum"
 )
 
 // Protocol defaults to None so an unnegotiated destination receives no image
@@ -33,20 +37,9 @@ const (
 	Sixel
 )
 
-func (p Protocol) String() string {
-	switch p {
-	case None:
-		return "none"
-	case Kitty:
-		return "kitty"
-	case ITerm2:
-		return "iterm2"
-	case Sixel:
-		return "sixel"
-	default:
-		return "Protocol(" + strconv.Itoa(int(p)) + ")"
-	}
-}
+var protocolNames = [...]string{None: "none", Kitty: "kitty", ITerm2: "iterm2", Sixel: "sixel"}
+
+func (p Protocol) String() string { return enum.Name(protocolNames[:], p, "Protocol") }
 
 // Persistence is how long an image must stay addressable after it is drawn.
 type Persistence uint8
@@ -173,13 +166,21 @@ type ImagePlacement struct {
 // when id is zero or when the image has no identity of its own.
 // Reusing an ID moves that placement; use different IDs to show one image twice.
 func (i Image) Placement(id uint32) ImagePlacement {
-	if i.ID == 0 {
-		panic("graphics: image identity must be nonzero")
+	placement := ImagePlacement{Image: i, ID: id}
+	if err := placement.identified(); err != nil {
+		panic(err)
 	}
-	if id == 0 {
-		panic("graphics: placement identity must be nonzero")
+	return placement
+}
+
+func (p ImagePlacement) identified() error {
+	if p.Image.ID == 0 {
+		return errImageIdentity
 	}
-	return ImagePlacement{Image: i, ID: id}
+	if p.ID == 0 {
+		return errPlacementIdentity
+	}
+	return nil
 }
 
 func sourceBounds(size image.Point, source image.Rectangle) image.Rectangle {
@@ -195,11 +196,8 @@ func sourceBounds(size image.Point, source image.Rectangle) image.Rectangle {
 // before writing bytes. Zero cell dimensions retain the protocol's automatic sizing;
 // all geometry must fit its unsigned integers. A nonzero source must intersect the image.
 func (p ImagePlacement) Paint(w io.Writer, size image.Point, layer int) error {
-	if p.Image.ID == 0 {
-		return errImageIdentity
-	}
-	if p.ID == 0 {
-		return errPlacementIdentity
+	if err := p.identified(); err != nil {
+		return err
 	}
 	if layer < minimumImageLayer || layer >= 0 {
 		return fmt.Errorf("graphics: native layer %d outside [%d, -1]: %w", layer, minimumImageLayer, errors.ErrUnsupported)
@@ -227,11 +225,8 @@ func validKittyPoint(point image.Point) bool {
 
 // Erase removes only this placement, retaining the image for later Paint calls.
 func (p ImagePlacement) Erase(w io.Writer) error {
-	if p.Image.ID == 0 {
-		return errImageIdentity
-	}
-	if p.ID == 0 {
-		return errPlacementIdentity
+	if err := p.identified(); err != nil {
+		return err
 	}
 	return writeString(w, fmt.Sprintf(eraseFormat, p.Image.ID, p.ID, kittySuppressReplies))
 }
@@ -256,8 +251,8 @@ func Inline(w io.Writer, data []byte, size image.Point) error {
 	// The payload is base64 for the same reason a clipboard's is: the alphabet holds
 	// neither the escape byte nor the terminator, so image data cannot end the
 	// sequence early and have the rest of itself read as commands.
-	sequence := fmt.Sprintf("\x1b]1337;File=inline=1;size=%d;width=%s;height=%s;preserveAspectRatio=1:%s\x07",
-		len(data), inlineExtent(size.X), inlineExtent(size.Y), base64.StdEncoding.EncodeToString(data))
+	sequence := fmt.Sprintf(ansi.OSCPrefix(ansi.OSCInlineFile)+"File=inline=1;size=%d;width=%s;height=%s;preserveAspectRatio=1:%s%c",
+		len(data), inlineExtent(size.X), inlineExtent(size.Y), base64.StdEncoding.EncodeToString(data), ansi.Bell)
 	return writeString(w, sequence)
 }
 
@@ -329,27 +324,23 @@ func nearestCellExtent(numerator, denominator *big.Int) int {
 	return max(int(rounded.Int64()), 1)
 }
 
-// Prefer Kitty when a terminal supports both image protocols, because its
-// handles support erasure and live redraw. Environment names are lowercase
-// substring matches to accommodate terminal-specific spelling.
-var kittyPrograms = []string{"kitty", "ghostty", "wezterm", "warp"}
-
-// iTerm2 uses different names in TERM_PROGRAM, LC_TERMINAL, and replies, so
-// detection matches identifying substrings rather than one complete name.
-var iterm2Programs = []string{"iterm", "mintty"}
-
-// Detect chooses a protocol from negotiated name, sixel support and environment.
-// Negotiated names take precedence because remote or multiplexed sessions can name
-// a different terminal in their environment. Explicit inputs keep detection specific
-// to each terminal rather than global.
-func Detect(lookup func(string) (string, bool), name string, sixel bool) Protocol {
-	return environmentProtocol(lookup).Negotiated(name, sixel)
+// Detect chooses the protocol the driven terminal's environment implies. A
+// multiplexer drops image commands it was not configured to pass through, so a
+// multiplexed session starts with none. A probe's answers refine the result
+// through [Protocol.Negotiated].
+func Detect(env termenv.Lookup) Protocol {
+	if env.Multiplexed() {
+		return None
+	}
+	return terminalProtocol(env.Terminal())
 }
 
 // Negotiated resolves probe answers against the protocol measured from the
-// environment before acquisition. A known name wins; sixel is the fallback.
+// environment before acquisition. A known name wins, because remote or
+// multiplexed sessions can name a different terminal in their environment;
+// sixel is the fallback.
 func (p Protocol) Negotiated(name string, sixel bool) Protocol {
-	if known, ok := named(name); ok {
+	if known := terminalProtocol(termenv.Recognize(name)); known != None {
 		return known
 	}
 	if p == None && sixel {
@@ -358,41 +349,15 @@ func (p Protocol) Negotiated(name string, sixel bool) Protocol {
 	return p
 }
 
-func environmentProtocol(lookup func(string) (string, bool)) Protocol {
-	if environmentValue(lookup, "KITTY_WINDOW_ID") != "" ||
-		environmentValue(lookup, "GHOSTTY_RESOURCES_DIR") != "" {
+// terminalProtocol prefers Kitty where a terminal speaks both protocols,
+// because its handles support erasure and live redraw.
+func terminalProtocol(terminal termenv.Terminal) Protocol {
+	switch terminal {
+	case termenv.Kitty, termenv.Ghostty, termenv.WezTerm, termenv.Warp:
 		return Kitty
+	case termenv.ITerm2, termenv.Mintty:
+		return ITerm2
+	default:
+		return None
 	}
-	if p, ok := named(environmentValue(lookup, "TERM") + " " +
-		environmentValue(lookup, "TERM_PROGRAM") + " " +
-		environmentValue(lookup, "LC_TERMINAL")); ok {
-		return p
-	}
-	return None
-}
-
-func environmentValue(lookup func(string) (string, bool), name string) string {
-	if lookup == nil {
-		return ""
-	}
-	value, _ := lookup(name)
-	return value
-}
-
-func named(identity string) (Protocol, bool) {
-	if identity == "" {
-		return None, false
-	}
-	identity = strings.ToLower(identity)
-	for _, name := range kittyPrograms {
-		if strings.Contains(identity, name) {
-			return Kitty, true
-		}
-	}
-	for _, name := range iterm2Programs {
-		if strings.Contains(identity, name) {
-			return ITerm2, true
-		}
-	}
-	return None, false
 }

@@ -14,7 +14,7 @@ func TestKeyboardPastePreservesReadFailureAfterItsEditLocationChanges(t *testing
 		change func(*base.Editor)
 	}{
 		{"document", func(editor *base.Editor) { editor.SetText("replacement") }},
-		{"cursor", func(editor *base.Editor) { editor.SetCursor(0, 1) }},
+		{"cursor", func(editor *base.Editor) { editor.SetCursor(base.Caret{Byte: 1}) }},
 		{"selection", (*base.Editor).SelectAll},
 		{"shared session", func(editor *base.Editor) { editor.Session().Reset("shared change") }},
 	} {
@@ -26,8 +26,8 @@ func TestKeyboardPastePreservesReadFailureAfterItsEditLocationChanges(t *testing
 			before := editor.Text()
 			failure := errors.New("clipboard read failed")
 			transport.receivers[0]("unaccepted", failure)
-			if !errors.Is(editor.PasteError(), failure) || editor.Text() != before {
-				t.Fatalf("read failure = %v, text = %q", editor.PasteError(), editor.Text())
+			if !errors.Is(editor.ClipboardError(), failure) || editor.Text() != before {
+				t.Fatalf("read failure = %v, text = %q", editor.ClipboardError(), editor.Text())
 			}
 		})
 	}
@@ -43,8 +43,8 @@ func TestKeyboardPastePreservesReadFailuresContainingStaleness(t *testing.T) {
 			editor := base.NewEditor(base.EditorConfig{Initial: "original", Clipboard: transport})
 			editor.Do(base.Paste)
 			transport.receivers[0]("unaccepted", failure)
-			if !errors.Is(editor.PasteError(), failure) || editor.Text() != "original" {
-				t.Fatalf("read failure = %v, text = %q", editor.PasteError(), editor.Text())
+			if !errors.Is(editor.ClipboardError(), failure) || editor.Text() != "original" {
+				t.Fatalf("read failure = %v, text = %q", editor.ClipboardError(), editor.Text())
 			}
 		})
 	}
@@ -61,8 +61,8 @@ func TestProgrammaticPasteReportsReadFailureWithoutInterpretingItsLocation(t *te
 	editor.SetText("replacement")
 	failure := errors.New("clipboard read failed")
 	transport.receivers[0]("unaccepted", failure)
-	if !completed || !errors.Is(result, failure) || errors.Is(result, base.ErrPasteStale) || editor.Text() != "replacement" || editor.PasteError() != nil {
-		t.Fatalf("completion = %t, result = %v, text = %q, feedback = %v", completed, result, editor.Text(), editor.PasteError())
+	if !completed || !errors.Is(result, failure) || errors.Is(result, base.ErrPasteStale) || editor.Text() != "replacement" || editor.ClipboardError() != nil {
+		t.Fatalf("completion = %t, result = %v, text = %q, feedback = %v", completed, result, editor.Text(), editor.ClipboardError())
 	}
 }
 
@@ -72,7 +72,7 @@ func TestKeyboardPasteQuietlyDiscardsASuccessfulReadWhoseLocationChanged(t *test
 	editor.Do(base.Paste)
 	editor.SetText("replacement")
 	transport.receivers[0]("unaccepted", nil)
-	if editor.PasteError() != nil || editor.Text() != "replacement" {
-		t.Fatalf("stale success = %v, text = %q", editor.PasteError(), editor.Text())
+	if editor.ClipboardError() != nil || editor.Text() != "replacement" {
+		t.Fatalf("stale success = %v, text = %q", editor.ClipboardError(), editor.Text())
 	}
 }

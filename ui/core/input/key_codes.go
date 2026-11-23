@@ -1,7 +1,8 @@
 package input
 
+import "github.com/Tangerg/oolong/ui/core/ansi"
+
 const (
-	deleteByte            = 0x7f
 	kittyFunctionKeysFrom = 0xe000
 	kittyFunctionKeysTo   = 0xf8ff
 	kittyF1               = 57364
@@ -58,7 +59,7 @@ const (
 )
 
 var kittyKeyNumbers = map[int]Code{
-	'\b': Backspace, deleteByte: Backspace, kittyBackspace: Backspace,
+	'\b': Backspace, ansi.Delete: Backspace, kittyBackspace: Backspace,
 	'\t': Tab, kittyTab: Tab,
 	'\r': Enter, kittyEnter: Enter,
 	esc: Esc, kittyEscape: Esc,

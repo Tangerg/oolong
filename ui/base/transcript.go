@@ -8,11 +8,13 @@ import (
 
 	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/publication"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/counter"
 	"github.com/Tangerg/oolong/ui/internal/fifo"
 	"github.com/Tangerg/oolong/ui/internal/identity"
 )
@@ -20,21 +22,16 @@ import (
 // ErrTranscriptCapacity refuses another retained reference without discarding existing content.
 var ErrTranscriptCapacity = errors.New("base: transcript item budget exhausted")
 
+// errNilContent refuses absent content, which a transcript could neither measure nor draw.
+var errNilContent = errors.New("base: transcript content is nil")
+
+// ErrNotRetained refuses an identity the transcript no longer holds or never issued.
+// Publication can retire an item before its owner revises it, so callers of a
+// publishing transcript should expect it.
+var ErrNotRetained = errors.New("base: transcript item is not retained")
+
 // BlockID is a stable, never-reused identity within one transcript; zero identifies no item.
 type BlockID uint64
-
-// Retention policies require an explicit publisher before permanent output is enabled.
-const (
-	Retain Retention = iota
-	PublishCompleted
-)
-
-// Content reference states distinguish revision, retention and irreversible responsibility transfer.
-const (
-	ContentLive ContentState = iota
-	ContentRetained
-	ContentRetired
-)
 
 // TranscriptPublisher admits complete content and notifies the UI owner when progress
 // may allow a refused prefix to resume. Only successful admission transfers the content.
@@ -73,7 +70,7 @@ type Transcript struct {
 	namespace       *byte // Does not retain content when an endpoint outlives the transcript.
 	search          transcriptSearch
 	noCopy          noCopy
-	cfg             TranscriptConfig
+	policy          transcriptPolicy
 	keys            keyBinding
 	initialized     bool
 	closed          bool
@@ -85,9 +82,24 @@ type Transcript struct {
 	element         scene.Element
 	scroll          Scroll
 	selection       Selection
-	sticky          Sticky
-	geometry        scene.Snapshot[TranscriptLayout]
-	presentation    scene.Snapshot[transcriptPresentation]
+	// current is the item the reader acts on. Retention can retire it; Current reads
+	// the oldest retained item in its place, so retirement needs no second update.
+	current      BlockID
+	matcher      keymap.Matcher
+	sticky       Sticky
+	geometry     scene.Snapshot[TranscriptLayout]
+	presentation scene.Snapshot[transcriptPresentation]
+}
+
+// transcriptPolicy is the configuration a transcript keeps. Its key belongs to
+// the element and its key map to the binding, so neither is retained here.
+type transcriptPolicy struct {
+	name           string
+	publisher      TranscriptPublisher
+	retention      Retention
+	publishPartial bool
+	keepCompleted  int
+	maxItems       int
 }
 
 // maxItems is the item budget, with zero selecting the default.
@@ -98,40 +110,57 @@ func (c TranscriptConfig) maxItems() int {
 	return c.MaxItems
 }
 
-// NewTranscript validates retention dependencies and creates one stable scene element.
-func NewTranscript(cfg TranscriptConfig) (*Transcript, error) {
-	if cfg.MaxItems < 0 || cfg.KeepCompleted < 0 || cfg.Retention > PublishCompleted {
-		return nil, errors.New("base: invalid transcript configuration")
+// Validate reports whether the retention settings depend on each other
+// consistently, for settings that come from outside the program.
+func (c TranscriptConfig) Validate() error {
+	if c.MaxItems < 0 || c.KeepCompleted < 0 || c.Retention > PublishCompleted {
+		return errors.New("base: invalid transcript configuration")
 	}
-	if identity.IsNil(cfg.Publisher) {
-		if cfg.Retention == PublishCompleted {
-			return nil, errors.New("base: publishing transcript requires a publisher")
-		}
-		cfg.Publisher = nil
+	if c.Retention == PublishCompleted && identity.IsNil(c.Publisher) {
+		return errors.New("base: publishing transcript requires a publisher")
 	}
-	if cfg.KeepCompleted >= cfg.maxItems() || cfg.KeepCompleted > 0 && cfg.Retention != PublishCompleted {
-		return nil, errors.New("base: recent completion retention requires publication and space for new content")
+	if c.KeepCompleted >= c.maxItems() || c.KeepCompleted > 0 && c.Retention != PublishCompleted {
+		return errors.New("base: recent completion retention requires publication and space for new content")
 	}
-	cfg.Key, cfg.Name = strings.Clone(cfg.Key), strings.Clone(cfg.Name)
-	t := &Transcript{cfg: cfg, keys: keyBinding{current: cfg.Keys}}
-	// The key binding owns the map from here; the retained configuration must not
-	// keep a second reference that SetKeys would leave stale.
-	t.cfg.Keys = nil
-	t.initialize()
-	return t, nil
+	return nil
 }
 
-func (t *Transcript) initialize() {
+// NewTranscript creates one stable scene element. It panics for a configuration
+// [TranscriptConfig.Validate] refuses.
+func NewTranscript(cfg TranscriptConfig) *Transcript {
+	if err := cfg.Validate(); err != nil {
+		panic(err)
+	}
+	if identity.IsNil(cfg.Publisher) {
+		cfg.Publisher = nil
+	}
+	t := &Transcript{
+		policy: transcriptPolicy{
+			name: strings.Clone(cfg.Name), publisher: cfg.Publisher, retention: cfg.Retention,
+			publishPartial: cfg.PublishPartial, keepCompleted: cfg.KeepCompleted, maxItems: cfg.maxItems(),
+		},
+		keys: keyBinding{current: cfg.Keys},
+	}
+	t.initializeAs(strings.Clone(cfg.Key))
+	return t
+}
+
+// initialize prepares a zero Transcript on first use, which has no element key.
+func (t *Transcript) initialize() { t.initializeAs("") }
+
+func (t *Transcript) initializeAs(key string) {
 	if t.initialized {
 		return
 	}
 	t.initialized = true
 	t.namespace = new(byte)
-	t.cfg.MaxItems = t.cfg.maxItems()
+	if t.policy.maxItems == 0 {
+		t.policy.maxItems = defaultTranscriptItems
+	}
 	t.next = 1
 	t.scroll.ToBottom()
 	t.element = scene.NewElement(scene.ElementConfig{
-		Key:       t.cfg.Key,
+		Key:       key,
 		Enabled:   func() bool { return !t.closed },
 		Focusable: func() bool { return true },
 		Semantics: func() scene.Semantic {
@@ -139,7 +168,7 @@ func (t *Transcript) initialize() {
 			if t.closed {
 				availability = scene.ContentRetired
 			}
-			return scene.Semantic{Role: scene.RoleDocument, Name: t.cfg.Name, ContentRevision: t.revision, Availability: availability}
+			return scene.Semantic{Role: scene.RoleDocument, Name: t.policy.name, ContentRevision: t.revision, Availability: availability}
 		},
 		Handle:  t.handle,
 		Actions: []scene.ActionBinding{t.scroll.action("Scroll document", nil)},
@@ -152,9 +181,9 @@ func (t *Transcript) initialize() {
 	t.scroll.element = t.element
 	t.selection.element = t.element
 	t.sticky.element = t.element
-	t.keys.attach(t.element, &t.scroll.matcher)
-	if t.cfg.Publisher != nil {
-		t.stopPublication = t.cfg.Publisher.Subscribe(func() { t.publish() })
+	t.keys.attach(t.element, &t.matcher)
+	if t.policy.publisher != nil {
+		t.stopPublication = t.policy.publisher.Subscribe(func() { t.publish() })
 	}
 }
 
@@ -169,14 +198,15 @@ func (t *Transcript) assertMutable() {
 }
 
 func (t *Transcript) requireRevisions(counts ...int) {
+	const exhausted = "base: transcript revisions exhausted"
 	remaining := math.MaxUint64 - t.revision
 	for _, count := range counts {
 		if count < 0 {
-			panic("base: transcript revisions exhausted")
+			panic(exhausted)
 		}
 		required := uint64(count)
 		if required > remaining {
-			panic("base: transcript revisions exhausted")
+			panic(exhausted)
 		}
 		remaining -= required
 	}
@@ -192,6 +222,83 @@ func (t *Transcript) Element() scene.Element { t.initialize(); return t.element 
 
 // Scroll returns the owned reading-intent controller, not a copy of its current projection.
 func (t *Transcript) Scroll() *Scroll { t.initialize(); return &t.scroll }
+
+// KeysFor is what the effective key map binds to action, defaults included.
+func (t *Transcript) KeysFor(action keymap.Action) []input.Keys {
+	return t.keys.bound(scrollKeys, action)
+}
+
+// Current is the item commands act on, such as the one a copy reads, and whether
+// there is one. Retention retires the oldest items first; when it retires the
+// current one, the oldest item still retained becomes current.
+func (t *Transcript) Current() (BlockID, bool) {
+	if t.current == 0 || t.entries.Len() == 0 {
+		return 0, false
+	}
+	return max(t.current, t.FirstBlock()), true
+}
+
+// SetCurrent makes a retained item current, reporting whether id is retained. It
+// does not scroll; [Transcript.RevealBlock] does. It panics if the transcript is
+// closed or its scene forbids model mutation.
+func (t *Transcript) SetCurrent(id BlockID) bool {
+	t.assertMutable()
+	if _, ok := t.retained(id); !ok {
+		return false
+	}
+	if t.current != id {
+		t.current = id
+		t.element.Invalidate()
+	}
+	return true
+}
+
+// Do moves the current item for SelectPrev, SelectNext, SelectFirst and SelectLast,
+// revealing where it lands, and scrolls for the scroll actions. A step with no
+// current item lands on what the reader can see: SelectPrev on the last item in
+// view and SelectNext on the first, or on the last and first item before any frame.
+func (t *Transcript) Do(action keymap.Action) bool {
+	t.assertMutable()
+	if t.entries.Len() == 0 {
+		return t.scroll.Do(action)
+	}
+	first, last := t.FirstBlock(), t.entries.At(t.entries.Len()-1).id
+	current, ok := t.Current()
+	shownFirst, shownLast := t.inView(first, last)
+	var next BlockID
+	switch action {
+	case SelectPrev:
+		next = shownLast
+		if ok {
+			next = max(current-1, first)
+		}
+	case SelectNext:
+		next = shownFirst
+		if ok {
+			next = min(current+1, last)
+		}
+	case SelectFirst:
+		next = first
+	case SelectLast:
+		next = last
+	default:
+		return t.scroll.Do(action)
+	}
+	t.SetCurrent(next)
+	t.RevealBlock(next)
+	return true
+}
+
+// inView is the retained span the last presented frame showed in its body, or the
+// whole retained span before a frame has shown any of it.
+func (t *Transcript) inView(first, last BlockID) (BlockID, BlockID) {
+	shown := t.presentation.Value()
+	from, end := shown.layout.Visible(shown.bodyFrom, shown.body.Dy())
+	if end <= from || end <= first || from > last {
+		return first, last
+	}
+	return max(from, first), min(end-1, last)
+}
 
 // Selection returns the owned logical selection shared by input, copying and appearance.
 func (t *Transcript) Selection() *Selection { return &t.selection }
@@ -220,10 +327,10 @@ func (t *Transcript) FirstBlock() BlockID {
 // which its later revisions reach the transcript; passive content has none.
 func (t *Transcript) add(source itemSource, subscribe func(func(content.DocumentChange)) func()) (*TranscriptItem, error) {
 	t.assertMutable()
-	if t.entries.Len() >= t.cfg.MaxItems {
+	if t.entries.Len() >= t.policy.maxItems {
 		return nil, ErrTranscriptCapacity
 	}
-	if t.next == BlockID(math.MaxUint64) {
+	if _, ok := counter.Next(t.next); !ok {
 		return nil, errors.New("base: transcript identities exhausted")
 	}
 	item := &TranscriptItem{id: t.next, source: source}
@@ -241,15 +348,55 @@ func (t *Transcript) add(source itemSource, subscribe func(func(content.Document
 	return item, nil
 }
 
-// Add takes immutable passive content that is already final. Mutable sources use
-// AddDocument so revision and completion cannot be maintained by a second caller.
+// Add takes passive content that is already final. The body must not change behind
+// the transcript's back: revise it with [Transcript.Replace], and give text that is still
+// arriving to AddDocument, whose document owns its revision and completion.
 // It panics before admission if adding and retiring the completed prefix could
 // exhaust content revisions; revision identities must never wrap.
 func (t *Transcript) Add(body Block) (*TranscriptItem, error) {
 	if grid.IsNilDrawable(body) {
-		return nil, errors.New("base: transcript content is nil")
+		return nil, errNilContent
 	}
-	return t.add(passiveContent{body: body}, nil)
+	return t.add(passiveContent{body: body, revision: 1}, nil)
+}
+
+// Replace gives retained passive content a new body in place, such as a disclosure
+// opening or a result arriving. Its identity, its position and the reader's place in
+// the transcript all stay; a selection touching it ends, because the text it named is
+// gone. Content added with AddDocument belongs to its document and is refused. A retired
+// or never-issued identity returns [ErrNotRetained]. It panics like Add when the
+// change could exhaust content revisions.
+func (t *Transcript) Replace(id BlockID, body Block) error {
+	t.assertMutable()
+	if grid.IsNilDrawable(body) {
+		return errNilContent
+	}
+	item, ok := t.retained(id)
+	if !ok {
+		return ErrNotRetained
+	}
+	passive, ok := item.source.(passiveContent)
+	if !ok {
+		return errors.New("base: document content is revised by its document")
+	}
+	revision, ok := counter.Next(passive.revision)
+	if !ok {
+		return errors.New("base: transcript item revisions exhausted")
+	}
+	t.requireRevisions(1, t.publicationCount(nil))
+	item.source = passiveContent{body: body, revision: revision}
+	t.accept(item, item.content())
+	return nil
+}
+
+// retained resolves an identity in O(1): identities are issued in order and leave
+// only from the start, so the retained ones are exactly [FirstBlock, next).
+func (t *Transcript) retained(id BlockID) (*TranscriptItem, bool) {
+	first := t.FirstBlock()
+	if id < first || id >= t.next {
+		return nil, false
+	}
+	return t.entries.At(int(id - first)), true //nolint:gosec // G115: below next, so within the retained length.
 }
 
 // AddDocument subscribes once to source revisions, final preparation and automatic retention transitions.
@@ -274,63 +421,6 @@ func (t *Transcript) accept(item *TranscriptItem, change content.DocumentChange)
 	t.publish()
 }
 
-func (t *Transcript) publicationCount(extra *TranscriptItem) int {
-	if t.closed || t.cfg.Retention != PublishCompleted || t.cfg.Publisher == nil {
-		return 0
-	}
-	completed := 0
-	for item := range t.entries.Values() {
-		if !t.publishable(item) {
-			break
-		}
-		completed++
-	}
-	if extra != nil && completed == t.entries.Len() && t.publishable(extra) {
-		completed++
-	}
-	return max(completed-t.cfg.KeepCompleted, 0)
-}
-
-func (t *Transcript) publishable(item *TranscriptItem) bool {
-	change := item.content()
-	return change.State == content.Final || t.cfg.PublishPartial && (change.State == content.Partial || change.State == content.Failed)
-}
-
-func (t *Transcript) publish() {
-	count := t.publicationCount(nil)
-	if count == 0 {
-		return
-	}
-	t.assertMutable()
-	t.requireRevisions(count)
-	for range count {
-		item := t.entries.At(0)
-		_, rows, _ := t.geometry.Value().Extent(item.id)
-		if rows > math.MaxInt-t.startRow {
-			panic("base: transcript row origin exhausted")
-		}
-		var receipt publication.Receipt
-		var err error
-		t.element.ReadOnly(func() { receipt, err = t.cfg.Publisher.TryPublish(item.content().Body) })
-		if err != nil {
-			if !errors.Is(err, publication.ErrCapacity) && !identity.Same(item.err, err) {
-				item.err = err
-				t.element.Invalidate()
-			}
-			return
-		}
-		item.receipt = receipt
-		t.startRow += rows
-		t.scroll.discard(rows)
-		t.selection.discardBefore(item.id + 1)
-		item.err = nil
-		item.retire()
-		t.entries.Discard(1)
-		t.sticky.discardBefore(t.FirstBlock())
-		t.changed()
-	}
-}
-
 // Close disconnects subscriptions and releases retained references; it does not cancel accepted publications.
 // It panics if called during content capture, scene presentation or an uncommitted scene frame.
 // Revision exhaustion also panics before any retained reference is released.
@@ -352,6 +442,8 @@ func (t *Transcript) Close() {
 		item.retire()
 	}
 	t.entries.Clear()
+	t.current = 0
+	t.matcher.Clear()
 	t.selection.clear()
 	t.sticky.setBlocks(nil)
 	// Close must release its projections even if no later frame is painted.
@@ -362,12 +454,42 @@ func (t *Transcript) Close() {
 
 // Block resolves a currently retained identity, returning nil after retirement.
 func (t *Transcript) Block(id BlockID) Block {
-	for item := range t.entries.Values() {
-		if item.id == id {
-			return item.content().Body
-		}
+	item, ok := t.retained(id)
+	if !ok {
+		return nil
 	}
-	return nil
+	return item.content().Body
+}
+
+// RevealBlock asks the scroll owner to bring a retained item into view. It measures
+// the current content at the width last drawn, so a revision since that frame, such
+// as a replacement that grew the item, is what gets revealed. It reports false for an
+// identity that is not retained and before the first frame gives it a width.
+func (t *Transcript) RevealBlock(id BlockID) bool {
+	t.assertMutable()
+	width := t.geometry.Value().Width()
+	if _, ok := t.retained(id); !ok || width == 0 {
+		return false
+	}
+	top := 0
+	for item := range t.entries.Values() {
+		rows := itemRows(item.content().Body, width)
+		if item.id == id {
+			t.scroll.Reveal(top, layout.Sum(top, max(rows-1, 0)))
+			return true
+		}
+		top = layout.Sum(top, rows)
+	}
+	return false
+}
+
+// itemRows is how tall retained content is at width; a body still being prepared has
+// no rows yet.
+func itemRows(body Block, width int) int {
+	if body == nil || width <= 0 {
+		return 0
+	}
+	return max(body.HeightForWidth(width), 0)
 }
 
 // Last returns the final retained passive result, which can be nil before its first preparation.
@@ -397,10 +519,7 @@ func (t *Transcript) Stage(frame scene.Frame, width int) TranscriptLayout {
 	top := t.startRow
 	for item := range t.entries.Values() {
 		change := item.content()
-		rows := 0
-		if change.Body != nil && width > 0 {
-			rows = max(change.Body.HeightForWidth(width), 0)
-		}
+		rows := itemRows(change.Body, width)
 		if rows > math.MaxInt-top {
 			panic("base: transcript row coordinates exhausted")
 		}
@@ -481,7 +600,9 @@ func (t *Transcript) StageWindow(frame scene.Frame) TranscriptView {
 		first, last := min(reveal.first, reveal.last), max(reveal.first, reveal.last)
 		scroll.Reveal(t.offsetForBodyRow(state, first, height), last)
 	}
-	if old := t.geometry.Value(); old.Width() != width {
+	// Content that changed above the reader, a reflow and a retired prefix all move
+	// rows; the text the reader was looking at must not move with them.
+	if old := t.geometry.Value(); old.key != state.key {
 		if anchor, ok := t.ReadingAnchor(); ok && !anchor.FollowingEnd {
 			if at, valid := state.Caret(anchor.Point); valid {
 				relativeRow := at.Row - state.StartRow()

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -167,7 +168,7 @@ func (s *Screen) Rows() []string {
 }
 
 func (s *Screen) applySequence(piece ansi.Piece) error {
-	if piece.Kind != ansi.Plain && (piece.Kind != ansi.Control || piece.Final != 'm') && piece.Kind != ansi.String {
+	if piece.Kind != ansi.Plain && (piece.Kind != ansi.Control || ansi.Function(piece.Final) != ansi.SGR) && piece.Kind != ansi.String {
 		s.settleGrapheme()
 	}
 	switch piece.Kind {
@@ -185,7 +186,7 @@ func (s *Screen) applySequence(piece ansi.Piece) error {
 	case ansi.Other:
 		// The ASCII designation preserves the text model. DEC line drawing and
 		// other character sets would change the meaning of subsequent bytes.
-		if piece.Raw == "\x1b(B" {
+		if piece.Raw == ansi.DesignateASCII {
 			return nil
 		}
 	case ansi.Malformed:
@@ -200,9 +201,14 @@ func nonPaintingString(piece ansi.Piece) bool {
 	case ansi.APC:
 		return kittyQuery(piece.Body)
 	case ansi.OSC:
-		command, _, _ := strings.Cut(piece.Body, ";")
+		number, _, _ := strings.Cut(piece.Body, ";")
+		command, err := strconv.Atoi(number)
+		if err != nil {
+			return false
+		}
 		switch command {
-		case "0", "1", "2", "7", "8", "9", "10", "11", "52":
+		case ansi.OSCTitle, ansi.OSCDirectory, ansi.OSCHyperlink, ansi.OSCNotify,
+			ansi.OSCForeground, ansi.OSCBackground, ansi.OSCClipboard:
 			return true
 		}
 	case ansi.PM, ansi.SOS:
@@ -242,8 +248,7 @@ func (s *Screen) control(piece ansi.Piece) error {
 	if piece.Intermediates != "" {
 		// DECSCUSR changes only cursor appearance. Other intermediate-bearing CSI
 		// sequences are outside the renderer subset until a renderer emits one.
-		if piece.Final == 'q' && piece.Intermediates == " " && params.Marker() == 0 &&
-			params.Len() <= 1 && params.Group(0).Len() <= 1 && params.At(0) <= 6 {
+		if _, ok := piece.CursorStyle(); ok {
 			return nil
 		}
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, piece.Raw)
@@ -261,23 +266,20 @@ func (s *Screen) control(piece ansi.Piece) error {
 // the question or mode change but never fabricates a terminal answer.
 func ignoresControl(piece ansi.Piece, params ansi.Params) bool {
 	switch piece.Raw {
-	case "\x1b[c", "\x1b[0c", "\x1b[>c", "\x1b[>0c", "\x1b[>q", "\x1b[>0q",
-		"\x1b[?u", "\x1b[<u", "\x1b[22;0t", "\x1b[23;0t":
-		// Probes, keyboard mode and title stack. Other window commands can
-		// resize the terminal and invalidate this model's fixed geometry.
+	case ansi.QueryPrimaryAttributes, ansi.QuerySecondaryAttributes, ansi.QueryTerminalVersion,
+		ansi.QueryKeyboard, ansi.PopKeyboard, ansi.PushTitle, ansi.PopTitle:
+		// Other window commands can resize the terminal and invalidate this
+		// model's fixed geometry.
 		return true
 	}
-	switch piece.Final {
-	case 'u':
-		return params.Marker() == '>' && params.Len() == 1 && params.Group(0).Len() == 1
-	case 'h', 'l':
+	if function := ansi.Function(piece.Final); function == ansi.SM || function == ansi.RM {
 		return nonCellModes(params)
 	}
-	return false
+	return params.Len() == 1 && piece.Raw == ansi.PushKeyboard(params.At(0))
 }
 
 func nonCellModes(params ansi.Params) bool {
-	if params.Marker() != '?' || params.Len() == 0 {
+	if params.Marker() != ansi.DECPrivate || params.Len() == 0 {
 		return false
 	}
 	for i := range params.Len() {
@@ -286,7 +288,8 @@ func nonCellModes(params ansi.Params) bool {
 			return false
 		}
 		switch params.At(i) {
-		case 25, 1003, 1004, 1006, 1049, 2004, 2026:
+		case int(ansi.ModeCursorVisible), int(ansi.ModeAnyEventMouse), int(ansi.ModeFocusReports), int(ansi.ModeSGRMouse),
+			int(ansi.ModeAltScreen), int(ansi.ModeBracketedPaste), int(ansi.ModeSynchronizedOutput):
 		default:
 			return false
 		}
@@ -295,36 +298,32 @@ func nonCellModes(params ansi.Params) bool {
 }
 
 func (s *Screen) executeControl(final byte, params ansi.Params, raw string) error {
-	if final == 'm' {
+	function := ansi.Function(final)
+	if function == ansi.SGR {
 		return nil
 	}
-	maxParams := 1
-	switch final {
-	case 'H', 'f', 'r':
-		maxParams = 2
-	}
-	if params.Len() > maxParams || params.Group(0).Len() > 1 || params.Group(1).Len() > 1 {
+	if !paramsFit(function, params) {
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)
 	}
-	if s.moveCursor(final, params) {
+	if s.moveCursor(function, params) {
 		return nil
 	}
-	switch final {
-	case 'K':
+	switch function {
+	case ansi.EL:
 		if err := s.eraseLine(params.At(0), raw); err != nil {
 			return err
 		}
 		s.pendingWrap = false
-	case 'J':
+	case ansi.ED:
 		if err := s.eraseDisplay(params.At(0), raw); err != nil {
 			return err
 		}
 		s.pendingWrap = false
-	case 'S':
+	case ansi.SU:
 		s.scrollUp(defaultOne(params.At(0)))
-	case 'T':
+	case ansi.SD:
 		s.scrollDown(defaultOne(params.At(0)))
-	case 'r':
+	case ansi.DECSTBM:
 		return s.setMargins(params, raw)
 	default:
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)
@@ -332,31 +331,41 @@ func (s *Screen) executeControl(final byte, params ansi.Params, raw string) erro
 	return nil
 }
 
-func (s *Screen) moveCursor(final byte, params ansi.Params) bool {
-	switch final {
-	case 'H', 'f':
+// paramsFit reports whether a control's parameters are the single values this model
+// reads: two for a cursor position or margins, one for everything else.
+func paramsFit(function ansi.Function, params ansi.Params) bool {
+	limit := 1
+	if function == ansi.CUP || function == ansi.HVP || function == ansi.DECSTBM {
+		limit = 2
+	}
+	return params.Len() <= limit && params.Group(0).Len() <= 1 && params.Group(1).Len() <= 1
+}
+
+func (s *Screen) moveCursor(function ansi.Function, params ansi.Params) bool {
+	switch function {
+	case ansi.CUP, ansi.HVP:
 		row := defaultOne(params.At(0)) - 1
 		column := defaultOne(params.At(1)) - 1
 		s.move(column, row)
-	case 'A':
+	case ansi.CUU:
 		top := 0
 		if s.at.Y >= s.top {
 			top = s.top
 		}
 		s.move(s.at.X, s.at.Y-min(defaultOne(params.At(0)), s.at.Y-top))
-	case 'B':
+	case ansi.CUD:
 		bottom := s.size.Rows - 1
 		if s.at.Y < s.end {
 			bottom = s.end - 1
 		}
 		s.move(s.at.X, s.at.Y+min(defaultOne(params.At(0)), bottom-s.at.Y))
-	case 'C':
+	case ansi.CUF:
 		s.move(s.at.X+min(defaultOne(params.At(0)), s.size.Cols-1-s.at.X), s.at.Y)
-	case 'D':
+	case ansi.CUB:
 		s.move(s.at.X-min(defaultOne(params.At(0)), s.at.X), s.at.Y)
-	case 'G':
+	case ansi.CHA:
 		s.move(defaultOne(params.At(0))-1, s.at.Y)
-	case 'd':
+	case ansi.VPA:
 		s.move(s.at.X, defaultOne(params.At(0))-1)
 	default:
 		return false
@@ -488,13 +497,20 @@ func (s *Screen) lineFeed() {
 	s.at.Y = min(s.at.Y+1, s.size.Rows-1)
 }
 
+// Erase controls take one of these extents; an omitted parameter means the first.
+const (
+	eraseToEnd = iota
+	eraseToStart
+	eraseAll
+)
+
 func (s *Screen) eraseLine(mode int, raw string) error {
 	switch mode {
-	case 0:
+	case eraseToEnd:
 		s.blank(s.at.Y, s.at.X, s.size.Cols)
-	case 1:
+	case eraseToStart:
 		s.blank(s.at.Y, 0, s.at.X+1)
-	case 2:
+	case eraseAll:
 		s.blank(s.at.Y, 0, s.size.Cols)
 	default:
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)
@@ -504,17 +520,17 @@ func (s *Screen) eraseLine(mode int, raw string) error {
 
 func (s *Screen) eraseDisplay(mode int, raw string) error {
 	switch mode {
-	case 0:
+	case eraseToEnd:
 		s.blank(s.at.Y, s.at.X, s.size.Cols)
 		for y := s.at.Y + 1; y < s.size.Rows; y++ {
 			s.blank(y, 0, s.size.Cols)
 		}
-	case 1:
+	case eraseToStart:
 		for y := range s.at.Y {
 			s.blank(y, 0, s.size.Cols)
 		}
 		s.blank(s.at.Y, 0, s.at.X+1)
-	case 2:
+	case eraseAll:
 		clear(s.cells)
 	default:
 		return fmt.Errorf("%w: %q", ErrUnsupportedOutput, raw)

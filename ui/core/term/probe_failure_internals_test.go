@@ -7,6 +7,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
@@ -71,7 +72,8 @@ func TestProbeSilenceRemainsAnUnknownCapability(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		p := probe{out: answerWriter(func(string) {}), stream: &input.Stream{}, deadline: time.Now().Add(answerGrace)}
 		got, err := p.run()
-		if err != nil || got.hasAttrs || got.hasName || got.hasFg || got.hasBg {
+		_, named := got.name.Get()
+		if err != nil || got.answered() || named || got.ground != (grid.Ground{}) {
 			t.Fatalf("silent terminal = %+v, %v", got, err)
 		}
 	})

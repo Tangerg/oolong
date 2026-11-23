@@ -16,7 +16,7 @@ func TestAnEmptyTableKeepsTheSortItIsGiven(t *testing.T) {
 	if !table.SetSort(base.SortOrder{Descending: true}) {
 		t.Fatal("an empty table refused a sort")
 	}
-	if _, descending, ok := table.Sorted(); !ok || !descending {
+	if order, ok := table.Sorted(); !ok || !order.Descending {
 		t.Fatal("the sort was not recorded")
 	}
 	table.SetItems([]int{1, 3, 2})

@@ -3,14 +3,16 @@ package base
 import (
 	"image"
 	"slices"
+	"strconv"
 	"strings"
-
-	"github.com/Tangerg/oolong/ui/core/scene"
 
 	"github.com/Tangerg/oolong/ui/core/fuzzy"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // Filter is a list narrowed by a pattern: the items that match it, best first, with
@@ -18,12 +20,12 @@ import (
 //
 // It puts together the three pieces that were already here — a list, a fuzzy match,
 // and somewhere to scroll — and it deliberately does not include the fourth. Where
-// the pattern is typed is the caller's: an editor at the bottom of a dialog, a
-// composer already on screen, a command's argument, or nothing at all in a test.
+// the pattern is typed is the caller's: an editor at the bottom of a dialog, one
+// already on screen, a command's argument, or nothing at all in a test.
 // Owning a text field as well would make this two widgets in a trench coat, and
 // would decide where the field goes for everyone.
 //
-//	filter.SetPattern(composer.Controller().Text())
+//	filter.SetPattern(editor.Controller().Text())
 //
 // A Filter without item text matches nothing, because it cannot guess how to read
 // an item. A Filter must not be
@@ -47,7 +49,7 @@ type Filter[T any] struct {
 
 	pattern string
 
-	list List[hit[T]]
+	list rows[hit[T]]
 }
 
 type hit[T any] struct {
@@ -62,11 +64,25 @@ type FilterConfig[T any] struct {
 	// and must be an observationally pure projection.
 	Row  func(v grid.View, at int, item T, match fuzzy.Match, selected bool)
 	Keys *keymap.Map
+	// Activate chooses a match, as [ListConfig.Activate] does; at is its place
+	// among the matches.
+	Activate func(at int, item T)
+	// Same reports whether two items are one item, so replacing the source keeps
+	// the cursor on that item among the new matches. Nil, or an item that no longer
+	// matches, puts the cursor at the top. A new pattern always does.
+	Same func(a, b T) bool
 }
 
 func NewFilter[T any](config FilterConfig[T]) *Filter[T] {
 	f := &Filter[T]{rowPainter: config.Row}
-	f.list.keys.current = config.Keys
+	list := ListConfig[hit[T]]{Keys: config.Keys}
+	if config.Activate != nil {
+		list.Activate = func(at int, got hit[T]) { config.Activate(at, got.item) }
+	}
+	if config.Same != nil {
+		list.Same = func(a, b hit[T]) bool { return config.Same(a.item, b.item) }
+	}
+	f.list.configure(list)
 	return f
 }
 
@@ -88,7 +104,7 @@ func (f *Filter[T]) SetPattern(pattern string) {
 	f.list.requireReplacement()
 	f.list.matcher.Reset(func() {
 		f.pattern = pattern
-		f.replaceMatches(hits)
+		f.replaceMatches(hits, 0)
 	})
 }
 
@@ -99,31 +115,28 @@ func (f *Filter[T]) SetPattern(pattern string) {
 // match. The filter copies items, so the caller may reuse or change its input.
 // text must be observationally pure and stable until the next SetItems.
 // It cannot call SetItems or SetPattern on this filter; doing so panics. If text
-// panics, the previous source, projection, matches and cursor remain intact.
+// panics, the previous source, projection, matches and cursor remain intact. The
+// cursor stays on the item [FilterConfig.Same] identifies with the one under it,
+// and otherwise goes to the top of the new matches.
 func (f *Filter[T]) SetItems(items []T, text func(item T) string) {
 	requireMutable(f.element)
 	items = slices.Clone(items)
 	hits := f.matches(items, text, f.pattern)
+	at := f.list.followed(hits, 0)
 	f.list.requireReplacement()
 	f.list.matcher.Reset(func() {
 		f.items = items
 		f.text = text
-		f.replaceMatches(hits)
+		f.replaceMatches(hits, at)
 	})
 }
 
 // Items returns a copy of everything there is to choose from, matched or not.
 func (f *Filter[T]) Items() []T {
-	if f == nil {
-		return nil
-	}
 	return slices.Clone(f.items)
 }
 
 func (f *Filter[T]) Len() int {
-	if f == nil {
-		return 0
-	}
 	return len(f.items)
 }
 
@@ -187,9 +200,13 @@ func (f *Filter[T]) row(v grid.View, at int, got hit[T], selected bool) {
 	}
 }
 
-func (f *Filter[T]) replaceMatches(hits []hit[T]) {
-	f.list.replaceItems(hits, 0)
-	f.list.scroll.toTop()
+// replaceMatches installs ranked matches with the cursor at at. A cursor kept on
+// the same item keeps it in view; one sent to the top shows the best matches.
+func (f *Filter[T]) replaceMatches(hits []hit[T], at int) {
+	f.list.replaceItems(hits, at)
+	if at == 0 {
+		f.list.scroll.toTop()
+	}
 	f.list.notifyChange()
 }
 
@@ -218,15 +235,28 @@ func (f *Filter[T]) matches(items []T, project func(T) string, pattern string) [
 func (f *Filter[T]) Row() func(grid.View, int, T, fuzzy.Match, bool) { return f.rowPainter }
 
 func (f *Filter[T]) SetRow(value func(grid.View, int, T, fuzzy.Match, bool)) {
-	element := f.Element()
-	requireMutable(element)
-	f.rowPainter = value
-	element.Invalidate()
+	setting.Replace(f.element, &f.rowPainter, value)
 }
 
 func (f *Filter[T]) Keys() *keymap.Map { return f.list.Keys() }
 
-func (f *Filter[T]) SetKeys(keys *keymap.Map) {
-	f.Element()
-	f.list.SetKeys(keys)
+// KeysFor is what the effective key map binds to action, defaults included.
+func (f *Filter[T]) KeysFor(action keymap.Action) []input.Keys { return f.list.KeysFor(action) }
+
+func (f *Filter[T]) SetKeys(keys *keymap.Map) { f.list.SetKeys(keys) }
+
+func (f *Filter[T]) Element() scene.Element {
+	if f.element.IsZero() {
+		f.element = scene.NewElement(scene.ElementConfig{
+			Measure: layout.MeasureRows(f.HeightForWidth), Paint: f.Draw,
+			Handle: func(e scene.Event) scene.EventResult {
+				return partEvent(e, f.Handle, &f.list.geometry, &f.list.pointer.geometry)
+			}, Focusable: func() bool { return true }, FocusChanged: f.focusChanged,
+			Semantics: func() scene.Semantic {
+				return scene.Semantic{Role: scene.RoleList, ContentRevision: f.list.contentRevision, Name: f.Pattern(), Value: strconv.Itoa(f.Selected())}
+			}, Actions: append(collectionActions(&f.list, func(row hit[T]) T { return row.item }), collectionActivateAction(&f.list), f.patternAction()),
+		})
+	}
+	f.list.adopt(f.element)
+	return f.element
 }

@@ -28,12 +28,10 @@ func TestTranscriptCommitReleasesPayloadAndPlacement(t *testing.T) {
 	if _, err := p.TryPublish(identityBlock{}); err != nil {
 		t.Fatal(err)
 	}
-	transcript, err := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted, MaxItems: 1024})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted, MaxItems: 1024})
 	items := make([]*TranscriptItem, 1024)
 	for i := range items {
+		var err error
 		items[i], err = transcript.Add(&retainedBlock{payload: []byte{byte(i)}})
 		if err != nil {
 			t.Fatal(err)
@@ -120,10 +118,7 @@ func transcriptHeapProbe(t *testing.T) {
 		t.Fatalf("invalid block count %q", os.Getenv("OOLONG_TRANSCRIPT_BLOCKS"))
 	}
 	p := transcriptPublisher(t)
-	transcript, err := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{Publisher: p, Retention: PublishCompleted})
 	for sequence := 1; sequence <= blocks; sequence++ {
 		if _, err := transcript.Add(&retainedBlock{payload: make([]byte, 64<<10)}); err != nil {
 			t.Fatal(err)

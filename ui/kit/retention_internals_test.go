@@ -18,10 +18,10 @@ func TestInvalidatingTextLayoutsReleasesStaleRowsImmediately(t *testing.T) {
 
 		view.layout(20)
 		view.SetHunks(nil)
-		if view.wrapped.fresh || len(view.wrapped.rows) != 0 {
+		if view.wrapped.valid || len(view.wrapped.value) != 0 {
 			t.Fatalf("invalidated layout = %+v", view.wrapped)
 		}
-		for i, cached := range view.wrapped.rows[:cap(view.wrapped.rows)] {
+		for i, cached := range view.wrapped.value[:cap(view.wrapped.value)] {
 			if !reflect.DeepEqual(cached, diffRow{}) {
 				t.Fatalf("cached diff row %d retained stale content %+v", i, cached)
 			}
@@ -32,10 +32,10 @@ func TestInvalidatingTextLayoutsReleasesStaleRowsImmediately(t *testing.T) {
 		paragraph := NewParagraph(strings.Repeat("old content ", 128), grid.Style{})
 		paragraph.rows(20)
 		paragraph.SetText(nil)
-		if paragraph.fresh || len(paragraph.wrapped) != 0 {
-			t.Fatalf("invalidated paragraph retained %d row(s)", len(paragraph.wrapped))
+		if paragraph.wrap.valid || len(paragraph.wrap.value) != 0 {
+			t.Fatalf("invalidated paragraph retained %d row(s)", len(paragraph.wrap.value))
 		}
-		for i, cached := range paragraph.wrapped[:cap(paragraph.wrapped)] {
+		for i, cached := range paragraph.wrap.value[:cap(paragraph.wrap.value)] {
 			if !reflect.DeepEqual(cached, row{}) {
 				t.Fatalf("cached paragraph row %d retained stale content %+v", i, cached)
 			}

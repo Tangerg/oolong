@@ -130,8 +130,8 @@ func (e *Editor) KillToEnd() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	start := Caret{Line: e.line, Byte: e.byteOffset}
-	end := Caret{Line: e.line, Byte: len(e.document().lines[e.line])}
+	start := e.caret
+	end := Caret{Line: e.caret.Line, Byte: len(e.document().lines[e.caret.Line])}
 	if start == end && end.Line+1 < len(e.document().lines) {
 		end = Caret{Line: end.Line + 1}
 	}
@@ -143,7 +143,7 @@ func (e *Editor) KillToStart() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	e.killRange(Caret{Line: e.line}, Caret{Line: e.line, Byte: e.byteOffset}, true)
+	e.killRange(Caret{Line: e.caret.Line}, e.caret, true)
 }
 
 func (e *Editor) killRange(start, end Caret, prepend bool) {
@@ -169,7 +169,7 @@ func (e *Editor) Yank() {
 		return
 	}
 	e.ensure()
-	start, end := Caret{Line: e.line, Byte: e.byteOffset}, Caret{Line: e.line, Byte: e.byteOffset}
+	start, end := e.caret, e.caret
 	if first, last, selected := e.Selection(); selected {
 		start, end = first, last
 	}

@@ -22,7 +22,7 @@ func TestSettingsRequestsPreserveAcceptedEffectsAlongsideErrors(t *testing.T) {
 				return scene.ActionResult[bool]{Value: true}, physical
 			},
 		})
-		settings.List().SetItems([]string{"volume"})
+		settings.SetItems([]string{"volume"})
 		root := semanticOwner(t, settings.Element())
 		if !root.Handle(input.Key{Code: input.Right}) || !errors.Is(settings.ChangeError(), physical) {
 			t.Fatal("physical failure did not retain its consumed input and feedback")
@@ -59,7 +59,7 @@ func TestSettingsRequestRejectsInvalidBoundariesBeforeCallingTheDomain(t *testin
 			return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
 		},
 	})
-	settings.List().SetItems([]string{"volume"})
+	settings.SetItems([]string{"volume"})
 	ctx, cancel := context.WithCancelCause(t.Context())
 	cause := errors.New("caller stopped")
 	cancel(cause)
@@ -102,7 +102,7 @@ func TestSettingsKeepsFeedbackFromTheNewestReentrantPhysicalRequest(t *testing.T
 					return scene.ActionResult[bool]{Value: true}, older
 				},
 			})
-			settings.List().SetItems([]string{"volume"})
+			settings.SetItems([]string{"volume"})
 			if exit == "return" {
 				settings.Do(base.Increase)
 			} else {
@@ -122,7 +122,7 @@ func TestSettingsErrorsDoNotInventInputConsumption(t *testing.T) {
 			return scene.ActionResult[bool]{}, problem
 		},
 	})
-	settings.List().SetItems([]string{"volume"})
+	settings.SetItems([]string{"volume"})
 	if settings.Do(base.Increase) || !errors.Is(settings.ChangeError(), problem) {
 		t.Fatalf("failure changed input consumption: %v", settings.ChangeError())
 	}
@@ -135,7 +135,7 @@ func TestSettingsSuccessfulRetryPublishesClearedPhysicalFeedback(t *testing.T) {
 			return scene.ActionResult[bool]{Value: true}, problem
 		},
 	})
-	settings.List().SetItems([]string{"volume"})
+	settings.SetItems([]string{"volume"})
 	root := semanticOwner(t, settings.Element())
 	for range 2 {
 		before, changed := root.Progress().ModelRevision, root.Changes()
@@ -154,7 +154,7 @@ func TestSettingsRequestRejectsReadOnlyAndPendingFrameMutation(t *testing.T) {
 			return scene.ActionResult[bool]{}, nil
 		},
 	})
-	settings.List().SetItems([]string{"volume"})
+	settings.SetItems([]string{"volume"})
 	root := semanticOwner(t, settings.Element())
 	request := func() { _, _ = settings.Request(t.Context(), 0, base.Increase) }
 	failure, _ := configurationFailure(func() { settings.Element().ReadOnly(request) }).(error)

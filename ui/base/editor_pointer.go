@@ -14,6 +14,15 @@ type editorPresentation struct {
 	visible                    image.Rectangle
 }
 
+// firstRow is the first visible row of a presentation laid out at width. Rows
+// of another width cannot be addressed through it, so they start at zero.
+func (p editorPresentation) firstRow(width int) int {
+	if p.width != width {
+		return 0
+	}
+	return p.first
+}
+
 func (p editorPresentation) textPoint(point image.Point) (image.Point, bool) {
 	if p.width <= 0 || point.X < p.gutter {
 		return image.Point{}, false
@@ -41,11 +50,7 @@ func (e *Editor) at(x, y, width int) (Caret, bool) {
 		return e.caretAtColumn(x), true
 	}
 	e.rows(width)
-	presented := e.geometry.read(&e.presentation)
-	first := 0
-	if presented.width == width {
-		first = presented.first
-	}
+	first := e.geometry.read(&e.presentation).firstRow(width)
 	position := e.layout.projection.Hit(image.Pt(x, layout.Sum(first, y)))
 	return Caret{Line: position.Line, Byte: e.document().snapElement(position.Line, position.Byte, true)}, true
 }
@@ -93,7 +98,7 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 			e.rowEnd = &at
 		}
 	}
-	e.line, e.byteOffset = at.Line, at.Byte
+	e.caret = at
 	e.desiredColumn = editorColumn{}
 	e.revealCursor()
 	return true
@@ -101,11 +106,7 @@ func (e *Editor) handleMouse(ev input.Mouse, presented editorPresentation) bool 
 
 func (e *Editor) pastRowEnd(x, y, width int) bool {
 	rows := e.rows(width)
-	presented := e.geometry.read(&e.presentation)
-	first := 0
-	if presented.width == width {
-		first = presented.first
-	}
+	first := e.geometry.read(&e.presentation).firstRow(width)
 	index := layout.Sum(first, y)
 	if index < 0 || index >= len(rows) || e.layout.lastOfLine(index) {
 		return false
@@ -115,5 +116,5 @@ func (e *Editor) pastRowEnd(x, y, width int) bool {
 }
 
 func (e *Editor) prefersRowEnd() bool {
-	return e.rowEnd != nil && *e.rowEnd == Caret{Line: e.line, Byte: e.byteOffset}
+	return e.rowEnd != nil && *e.rowEnd == e.caret
 }

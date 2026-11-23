@@ -55,3 +55,19 @@ func TestObservedRelationsNameLiveAttachmentsInTheObservedRoot(t *testing.T) {
 		t.Fatalf("exposed dangling or foreign relation: %v", links)
 	}
 }
+
+func TestAnUnavailableOperationAlwaysExplainsItself(t *testing.T) {
+	if (scene.Availability{}).Disabled() {
+		t.Fatal("the zero availability refused its operation")
+	}
+	refused := scene.Unavailable("busy")
+	if !refused.Disabled() || refused.Reason() != "busy" {
+		t.Fatalf("refusal = disabled %t, reason %q", refused.Disabled(), refused.Reason())
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("an unexplained refusal was accepted")
+		}
+	}()
+	scene.Unavailable("")
+}

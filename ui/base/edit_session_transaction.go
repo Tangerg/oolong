@@ -138,9 +138,7 @@ func (s *EditSession) applyRange(start, end Caret, value string) ([]string, Chan
 
 func (s *EditSession) setPolicy(view *Editor, singleLine bool, mask string) {
 	s.requireMutable()
-	if mask != "" && !maskable(mask) {
-		panic("base: editor mask must be visible terminal text that does not join a copy of itself")
-	}
+	requireMaskable(mask)
 	if s.singleLine == singleLine && s.mask == mask {
 		return
 	}
@@ -154,8 +152,8 @@ func (s *EditSession) setPolicy(view *Editor, singleLine bool, mask string) {
 		s.history.clear()
 		if len(s.lines) > 1 {
 			before := s.lines
-			at := offsetInLines(before, Caret{Line: view.line, Byte: view.byteOffset})
-			flattened := strings.Join(before, " ")
+			at := offsetInLines(before, view.caret)
+			flattened := text.SingleLine(s.Text())
 			s.lines = []string{flattened}
 			s.settleMarks()
 			view.endTyping()
@@ -164,10 +162,8 @@ func (s *EditSession) setPolicy(view *Editor, singleLine bool, mask string) {
 			return
 		}
 	}
-	for _, reference := range s.views {
-		if current := reference.Value(); current != nil {
-			current.policyChanged()
-		}
+	for _, current := range s.views.Live() {
+		current.policyChanged()
 	}
 	s.invalidateViews()
 }
@@ -217,4 +213,12 @@ func (s *EditSession) elementRemoval(id ElementID) (Caret, Caret, bool) {
 		return Caret{Line: element.Line, Byte: element.Start}, Caret{Line: element.Line, Byte: end}, true
 	}
 	return Caret{}, Caret{}, false
+}
+
+// requireMaskable refuses a mask that would hide how many characters were typed:
+// one that draws nothing, or one that joins its own copies into fewer cells.
+func requireMaskable(mask string) {
+	if mask != "" && !maskable(mask) {
+		panic("base: editor mask must be visible terminal text that does not join a copy of itself")
+	}
 }

@@ -44,7 +44,7 @@ func TestSettingsRejectsUnknownOutcomesAcrossRequestPaths(t *testing.T) {
 			return scene.ActionResult[bool]{State: scene.Started + 1, Value: true}, problem
 		},
 	})
-	settings.List().SetItems([]string{"volume"})
+	settings.SetItems([]string{"volume"})
 	root := semanticOwner(t, settings.Element())
 	result, err := settings.Request(t.Context(), 0, base.Increase)
 	assertRejectedOutcome(t, result.State, err, problem)

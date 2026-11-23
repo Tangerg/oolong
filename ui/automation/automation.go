@@ -70,17 +70,22 @@ func (d *Driver) valid() error {
 	return nil
 }
 
-func (d *Driver) Observe(ctx context.Context, query scene.Query) (scene.Observation, error) {
+// inTurn evaluates fn in one owner turn and returns what it produced.
+func inTurn[T any](ctx context.Context, d *Driver, fn func() (T, error)) (T, error) {
+	var result T
 	if err := d.valid(); err != nil {
-		return scene.Observation{}, err
+		return result, err
 	}
-	var observation scene.Observation
 	err := d.owner.Dispatch(ctx, func() error {
 		var err error
-		observation, err = d.root.Observe(query)
+		result, err = fn()
 		return err
 	})
-	return observation, err
+	return result, err
+}
+
+func (d *Driver) Observe(ctx context.Context, query scene.Query) (scene.Observation, error) {
+	return inTurn(ctx, d, func() (scene.Observation, error) { return d.root.Observe(query) })
 }
 
 func (d *Driver) Find(ctx context.Context, query scene.Query, match scene.Match) (scene.Target, error) {
@@ -93,16 +98,7 @@ func (d *Driver) Find(ctx context.Context, query scene.Query, match scene.Match)
 
 // Invoke executes an action against one exact attachment on the owner sequence.
 func (d *Driver) Invoke(ctx context.Context, target scene.Target, action scene.ActionID, params any) (scene.Invocation, error) {
-	if err := d.valid(); err != nil {
-		return scene.Invocation{}, err
-	}
-	var result scene.Invocation
-	err := d.owner.Dispatch(ctx, func() error {
-		var err error
-		result, err = d.root.Invoke(ctx, target, action, params)
-		return err
-	})
-	return result, err
+	return inTurn(ctx, d, func() (scene.Invocation, error) { return d.root.Invoke(ctx, target, action, params) })
 }
 
 // Locator is intent, not a retained target. Each invocation resolves exactly one
@@ -119,23 +115,17 @@ func (d *Driver) Locate(query scene.Query, match scene.Match) Locator {
 
 // Invoke resolves one unique target and executes its action in the same owner turn.
 func (l Locator) Invoke(ctx context.Context, action scene.ActionID, params any) (scene.Invocation, error) {
-	if err := l.driver.valid(); err != nil {
-		return scene.Invocation{}, err
-	}
-	var result scene.Invocation
-	err := l.driver.owner.Dispatch(ctx, func() error {
+	return inTurn(ctx, l.driver, func() (scene.Invocation, error) {
 		observation, err := l.driver.root.Observe(l.query)
 		if err != nil {
-			return err
+			return scene.Invocation{}, err
 		}
 		target, err := observation.FindUnique(l.match)
 		if err != nil {
-			return err
+			return scene.Invocation{}, err
 		}
-		result, err = l.driver.root.Invoke(ctx, target, action, params)
-		return err
+		return l.driver.root.Invoke(ctx, target, action, params)
 	})
-	return result, err
 }
 
 // Wait observes and subscribes in one owner turn, so a transition cannot occur

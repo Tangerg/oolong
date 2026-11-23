@@ -93,6 +93,7 @@ func TestKeyboardFallbackUsesTheActiveModalWithoutInventingFocus(t *testing.T) {
 	if !r.Focus().IsZero() {
 		t.Fatal("unexpected focus")
 	}
+	draw(t, r, 4, 1, 0)
 	r.Handle(input.Key{Code: input.Esc})
 	if inside != 1 || outside != 0 {
 		t.Errorf("modal fallback: inside=%d outside=%d", inside, outside)

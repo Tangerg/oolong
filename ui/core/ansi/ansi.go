@@ -11,17 +11,38 @@ const (
 	Escape = 0x1b
 	// Bell remains necessary for OSC peers that do not send ST.
 	Bell = 0x07
+	// Delete is outside both control sets, yet no sequence can contain it either.
+	Delete = 0x7f
+
+	// ControlIntroducer is the byte after Escape that begins a [Control] sequence.
+	ControlIntroducer = '['
+
+	// escapeText is Escape as text, so composed sequences spell each byte once.
+	escapeText = string(rune(Escape))
+	// stringTerminatorFinal is the byte after Escape that ends a [String] sequence.
+	stringTerminatorFinal = '\\'
 )
+
+// C0 reports the seven-bit control set, which can interrupt a sequence but
+// never continue one.
+func C0(b byte) bool { return b < ' ' }
 
 // Body accepts both parameter and intermediate bytes so scanners can share the
 // framing rule; Piece keeps those sections separate for semantic decoding.
 func Body(b byte) bool { return intermediate(b) || parameter(b) }
 
-func intermediate(b byte) bool { return b >= 0x20 && b <= 0x2f }
+func intermediate(b byte) bool { return b >= ' ' && b <= '/' }
 
-func parameter(b byte) bool { return b >= 0x30 && b <= 0x3f }
+func parameter(b byte) bool { return b >= '0' && b <= '?' }
 
-func Final(b byte) bool { return b >= 0x40 && b <= 0x7e }
+// privateMarker opens a parameter section that only private sequences use.
+func privateMarker(b byte) bool { return b >= '<' && b <= '?' }
+
+func Final(b byte) bool { return b >= '@' && b <= '~' }
+
+// escapeFinal ends an escape sequence that has no parameter section, so the
+// parameter bytes are finals here rather than continuation.
+func escapeFinal(b byte) bool { return b >= '0' && b <= '~' }
 
 type Kind uint8
 
@@ -90,11 +111,11 @@ func Next(s string) (p Piece, n int, ok bool) {
 		return Piece{}, 0, false
 	}
 	switch c := s[1]; {
-	case c == '[':
+	case c == ControlIntroducer:
 		return control(s)
 	case StringFamily(c).Valid():
 		return command(s)
-	case c < 0x20 || c == 0x7f:
+	case C0(c) || c == Delete:
 		// A control byte cannot continue a sequence, so the escape stood alone and
 		// what follows it is read on its own terms.
 		return Piece{Kind: Malformed, Raw: s[:1]}, 1, true
@@ -167,7 +188,7 @@ func escape(s string) (Piece, int, bool) {
 	if i >= len(s) {
 		return Piece{}, 0, false
 	}
-	if s[i] < 0x30 || s[i] > 0x7e {
+	if !escapeFinal(s[i]) {
 		return Piece{Kind: Malformed, Raw: s[:i]}, i, true
 	}
 	return Piece{Kind: Other, Raw: s[:i+1], Final: s[i]}, i + 1, true

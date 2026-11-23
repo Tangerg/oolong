@@ -80,21 +80,14 @@ func ask(into **answers) *sessionForm {
 	})
 	stream := base.NewConfirm(base.ConfirmConfig{Label: "Stream the answer?"})
 	form := &sessionForm{theme: kit.NewThemeOwner(kit.Theme{})}
-	form.view = kit.NewForm(kit.FormConfig{
-		Scope: form.theme.Scope(),
-		Title: "New session", Gap: 1,
-		Keys:   base.DefaultFormKeys(),
-		Hints:  []keymap.Action{base.FocusNext, base.Submit, base.Cancel},
-		Fields: []base.Field{name, model, tools, stream},
-		Submit: func(base.SubmissionID) (scene.ActionState, error) {
-			chosen, _ := model.Chosen()
-			*into = &answers{name: name.Text(), model: chosen.Value, tools: tools.Taken(), stream: stream.Answer()}
-			if form.done != nil {
-				form.done()
-			}
-			return scene.Applied, nil
-		},
-	})
+	form.view = kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Title: "New session", Gap: 1, Keys: base.DefaultFormKeys(), Fields: []base.Field{name, model, tools, stream}, Submit: func(base.SubmissionID) (scene.ActionState, error) {
+		chosen, _ := model.Chosen()
+		*into = &answers{name: name.Text(), model: chosen.Value, tools: tools.Taken(), stream: stream.Answer()}
+		if form.done != nil {
+			form.done()
+		}
+		return scene.Applied, nil
+	}}, Scope: form.theme.Scope(), Hints: []keymap.Action{base.FocusNext, base.Submit, base.Cancel}})
 	return form
 }
 

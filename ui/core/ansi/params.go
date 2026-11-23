@@ -29,7 +29,7 @@ const Limit = 1 << 21
 
 func Parse(body string) Params {
 	var ps Params
-	if body != "" && body[0] >= 0x3c && body[0] <= 0x3f {
+	if body != "" && privateMarker(body[0]) {
 		ps.marker = body[0]
 		body = body[1:]
 	}

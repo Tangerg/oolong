@@ -24,7 +24,7 @@ An editor element snapshot carries its captured text: call `element.Text()` even
 
 ## Answer forms without a screen
 
-Create one `kit.Prompter` for the lifetime of an input conversation. Reuse it for successive `*base.Form` values so bytes read ahead for a later answer stay with the same owner:
+Create one `kit.Prompter` for the lifetime of an input session. Reuse it for successive `*base.Form` values so bytes read ahead for a later answer stay with the same owner:
 
 ```go
 prompter, err := kit.NewPrompter(kit.PrompterConfig{
@@ -49,13 +49,13 @@ Use `Ask` serially and keep the prompter's pointer: copying it or reading the bo
 
 ## Assemble real parts
 
-A `scene.Group` receives keyed `scene.Item` children and a layout function. An overlay is a `scene.Group` with `GroupConfig.Overlay`; `GroupConfig.Modal` defines its modal boundary. These same parts determine paint, focus, routing, lifecycle and semantic observation.
+A `scene.Group` receives keyed `scene.Item` children and a layout function. An overlay is a `scene.Group` with `GroupConfig.Overlay`; `GroupConfig.Modal` defines its modal boundary. These same parts determine paint, focus, routing, lifecycle and semantic observation. A key reaches every `Shortcut` from the root down, then every `Preview` from the root down to the focus, then `Handle` back up; a modal boundary stops `Preview` and `Handle`, never `Shortcut`. Focus starts at the first focusable element inside an element marked `ElementConfig.Autofocus`, or through `Element.SetAutofocus` on a control's element, so an editor below a transcript starts with the keys while the transcript stays focusable; with no such element it starts at the first focusable element in tree order.
 
 Construct once and keep the component instance. Repeated calls to `Element()` are safe; reconstructing a controller every paint discards its identity and gestures. Change group membership on the owner before `Prepare`, then render the stable resulting tree.
 
 ## Replace a skin
 
-Keep the base controller and set its unmounted element's paint or measure slot. Draw the supplied `scene.Frame` using core text, grid and layout primitives. Read the controller for value and state. Use the provided candidate geometry for paint; events use the arrival-frame projection through `scene.Event.Read`.
+Keep the base controller and set its unmounted element's paint or measure slot; setting a slot on a mounted element panics. Draw the supplied `scene.Frame` using core text, grid and layout primitives. Read the controller for value and state. Use the provided candidate geometry for paint; events use the arrival-frame projection through `scene.Event.Read`.
 
 For labels and decorative text, create `line := text.Of(value, style)` and use its `Width` and `Draw` methods together. The text projection owns control filtering, grapheme boundaries and tab stops. Tabs start at that line's own origin, so moving or clipping the view does not change its columns. `grid.View.Text` is the lower-level cell writer and does not expand tabs.
 
@@ -96,7 +96,7 @@ Clipboard transport defaults to native OSC 52, including inside tmux. `TMUX` and
 
 Use `runtime.Clipboard().Read(ctx, receive)` for a directed read. Admission errors return immediately; the callback receives the read result on the UI owner. Custom hosts implement `program.ClipboardReader.ReadClipboard(context.Context) (string, error)` and may block in that worker call. Caller cancellation or runtime shutdown revokes callback delivery. Ordinary bracketed paste remains an input event; an OSC 52 answer settles only the read that requested it.
 
-`editor.Paste(ctx, complete)` captures the original document, revision, caret, selection and attachment. Moving focus cannot redirect the result to another editor. A successful read becomes stale if its captured edit location changes or the editor detaches; an unmounted editor may start a read only if it has never been attached. Read failures are reported unchanged without checking the edit location. Both admission and completion errors are explicit. `editor.PasteError()` belongs to the latest keyboard request; an older completion cannot overwrite a newer refusal or success. A stale successful read is discarded quietly, while wrapped and joined provider failures remain visible. The default Editor, Text, Input and Composer presentation displays this feedback in a separate row and exposes its full reason through semantic `Description` and `StateInvalid`. Programmatic paste returns its own errors without replacing physical feedback. Empty clipboard contents succeed without deleting the current selection.
+`editor.Paste(ctx, complete)` captures the original document, revision, caret, selection and attachment. Moving focus cannot redirect the result to another editor. A successful read becomes stale if its captured edit location changes or the editor detaches; an unmounted editor may start a read only if it has never been attached. Read failures are reported unchanged without checking the edit location. Both admission and completion errors are explicit. `editor.ClipboardError()` belongs to the latest keyboard copy, cut or paste; an older paste completion cannot overwrite a newer refusal or success. `editor.Copy()` and `editor.Cut()` return the clipboard's refusal, and a keyboard copy or cut shows it in the same feedback row. A stale successful read is discarded quietly, while wrapped and joined provider failures remain visible. The default base Editor and Text and the kit Input and Editor presentations displays this feedback in a separate row and exposes its full reason through semantic `Description` and `StateInvalid`. Programmatic paste returns its own errors without replacing physical feedback. Empty clipboard contents succeed without deleting the current selection.
 
 OSC 52 has no request identifier. A response timeout ends waiting after ten seconds but does not make a late reply safe for a newer request. Cancellation and terminal handover obey the same rule: `clipboard.ErrPending` remains until the earlier response is consumed. Repeated reads cannot bypass that unresolved query. Direct users of `clipboard.Channel` must provide a send callback with atomic admission; a partially emitted query is already sent and must retain its response obligation.
 

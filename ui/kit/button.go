@@ -37,7 +37,7 @@ func (b buttonBrackets) width() int {
 }
 
 func (b *Button) brackets() buttonBrackets {
-	if !b.controller.Availability().Disabled && b.Element().Focused() {
+	if !b.controller.Availability().Disabled() && b.Element().Focused() {
 		return buttonBrackets{prefix: "[>", suffix: "<]"}
 	}
 	return buttonBrackets{prefix: "[ ", suffix: " ]"}
@@ -46,23 +46,16 @@ func (b *Button) brackets() buttonBrackets {
 // NewButton constructs one action-bearing button. It panics if Theme and Scope
 // are both specified, because they would declare competing palette sources.
 func NewButton(config ButtonConfig) *Button {
-	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
-	if appearanceErr != nil {
-		panic(appearanceErr)
-	}
+	look := newAppearance(config.Theme, config.Scope, config.Appearance)
 	b := &Button{controller: base.NewButton(config.Behavior), appearance: look, ellipsis: strings.Clone(config.Ellipsis)}
 	element := b.controller.Element()
-	if err := element.SetPaint(b.Draw); err != nil {
-		panic(err)
-	}
-	if err := element.SetMeasure(func(axis layout.Axis, _ int) int {
+	element.SetPaint(b.Draw)
+	element.SetMeasure(func(axis layout.Axis, _ int) int {
 		if axis == layout.Down {
 			return 1
 		}
 		return layout.Sum(text.Width(b.controller.Label()), b.brackets().width())
-	}); err != nil {
-		panic(err)
-	}
+	})
 	b.appearance.bind(element)
 	return b
 }
@@ -78,7 +71,7 @@ func (b *Button) Draw(frame scene.Frame) {
 	palette := b.appearance.palette()
 	style := palette.Text
 	brackets := b.brackets()
-	if b.controller.Availability().Disabled {
+	if b.controller.Availability().Disabled() {
 		style = palette.Muted
 	} else if b.Element().Focused() {
 		style = style.Merge(palette.Selection).Merge(palette.Accent)

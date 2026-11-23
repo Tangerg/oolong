@@ -44,10 +44,6 @@ func Area(x, y, w, h int) image.Rectangle {
 	}
 }
 
-const (
-	maxInt = int(^uint(0) >> 1)
-)
-
 func translatePoint(point, by image.Point) image.Point {
 	return image.Pt(layout.Translate(point.X, by.X), layout.Translate(point.Y, by.Y))
 }
@@ -72,100 +68,10 @@ func coordinateExtent(from, to int) int {
 		return 0
 	}
 	extent := uint(to) - uint(from)
-	if extent > uint(maxInt) {
-		return maxInt
+	if extent > uint(math.MaxInt) {
+		return math.MaxInt
 	}
 	return int(extent)
-}
-
-type RGB struct{ R, G, B uint8 }
-
-// Blend resolves opacity before output because terminal cells have no alpha
-// channel. Ordered opacity values clamp to [0,1]; NaN panics before drawing.
-func (c RGB) Blend(over RGB, opacity float64) RGB {
-	opacity = normalizedOpacity(opacity)
-	lerp := func(a, b uint8) uint8 {
-		return uint8(math.Round(float64(a) + (float64(b)-float64(a))*opacity))
-	}
-	return RGB{lerp(c.R, over.R), lerp(c.G, over.G), lerp(c.B, over.B)}
-}
-
-func normalizedOpacity(opacity float64) float64 {
-	if math.IsNaN(opacity) {
-		panic("grid: opacity is NaN")
-	}
-	return min(max(opacity, 0), 1)
-}
-
-// Color is a cell colour: the terminal's own default, an entry of the terminal's
-// palette, or a truecolor value. A palette entry crosses the wire as its index, so
-// the user's terminal theme decides how it looks. The zero Color is the default,
-// which is what an unstyled cell wants.
-type Color struct {
-	kind  colorKind
-	index uint8
-	rgb   RGB
-}
-
-type colorKind uint8
-
-const (
-	defaultColor colorKind = iota
-	paletteColor
-	rgbColor
-)
-
-func RGBColor(r, g, b uint8) Color { return Color{kind: rgbColor, rgb: RGB{r, g, b}} }
-
-// PaletteColor is the terminal's palette entry at index, numbered as in the xterm
-// 256-colour palette: the sixteen ANSI colours first.
-func PaletteColor(index uint8) Color { return Color{kind: paletteColor, index: index} }
-
-func (c Color) Default() bool { return c.kind == defaultColor }
-
-// Palette reports the palette index of a palette colour.
-func (c Color) Palette() (index uint8, ok bool) { return c.index, c.kind == paletteColor }
-
-// RGB returns the colour's components: exact for a truecolor value, and for a
-// palette entry only xterm's estimate of it, since the terminal's theme decides.
-// They are meaningless when the colour is the terminal default.
-func (c Color) RGB() RGB {
-	if c.kind == paletteColor {
-		return PaletteRGB(c.index)
-	}
-	return c.rgb
-}
-
-// Blend cannot resolve a terminal-default color to a number, so it leaves c
-// unchanged if either input is unresolved. Ground supplies queried RGB values
-// when available; guessing a background could make text disappear.
-// NaN opacity panics even when an input color is unresolved.
-func (c Color) Blend(over Color, opacity float64) Color {
-	opacity = normalizedOpacity(opacity)
-	if c.Default() || over.Default() {
-		return c
-	}
-	blended := c.RGB().Blend(over.RGB(), opacity)
-	return RGBColor(blended.R, blended.G, blended.B)
-}
-
-type Attr uint8
-
-const (
-	Bold Attr = 1 << iota
-	Dim
-	Italic
-	Underline
-	Reverse
-	Strike
-)
-
-func (a Attr) Has(want Attr) bool { return a&want == want }
-
-// Style is how a cell looks. The zero Style is the terminal's own appearance.
-type Style struct {
-	FG, BG Color
-	Attr   Attr
 }
 
 // Drawable is passive content that can measure its height at a width and draw into
@@ -180,42 +86,6 @@ type Drawable interface {
 // typed nils. Each consumer decides whether absence is a no-op or a refusal.
 func IsNilDrawable(body Drawable) bool {
 	return identity.IsNil(body)
-}
-
-// Merge lays over on top of s: whatever over states wins, whatever it leaves at
-// its default is inherited. Attributes accumulate, because an overlay that adds
-// emphasis should not silently drop the emphasis underneath it.
-func (s Style) Merge(over Style) Style {
-	out := s
-	if !over.FG.Default() {
-		out.FG = over.FG
-	}
-	if !over.BG.Default() {
-		out.BG = over.BG
-	}
-	out.Attr |= over.Attr
-	return out
-}
-
-// Ground holds queried terminal colors so default cells can follow terminal
-// recoloring while blending can resolve actual RGB values. The zero value leaves
-// unknown colors unresolved; blending cannot guess a missing background.
-type Ground struct{ FG, BG Color }
-
-// Resolve fills in whatever a style left to the terminal, so a caller that needs
-// numbers has them. What the terminal never said stays default.
-//
-// [Reverse] is deliberately not applied. It swaps the two colours on the way to the
-// screen, and swapping them here would mean a caller that resolved a style and drew
-// it back would reverse it twice.
-func (g Ground) Resolve(s Style) Style {
-	if s.FG.Default() {
-		s.FG = g.FG
-	}
-	if s.BG.Default() {
-		s.BG = g.BG
-	}
-	return s
 }
 
 // span describes one display atom. Zero is an ordinary one-column cell, a
@@ -256,44 +126,3 @@ func (c Cell) Width() int {
 }
 
 func (c Cell) Blank() bool { return c.content == "" && c.span >= 0 }
-
-// Index256 compares the color cube and grayscale ramp so near-gray colors
-// keep their luminance. Themeable ANSI entries are excluded: their nominal RGB
-// values do not predict what the destination will display.
-func (c RGB) Index256() uint8 {
-	// Palette arithmetic fits uint8: cube entries end at 231 and the ramp
-	// ends at 255, so no narrowing can wrap a selected index.
-	r, g, b := nearestCube(c.R), nearestCube(c.G), nearestCube(c.B)
-	best := cubeStart + cubePlaneStride*r + cubeRowStride*g + b
-	bestDist := distance(c, RGB{cube[r], cube[g], cube[b]})
-
-	// The ramp runs 8, 18, 28 … 238. Rounding the luminance to the nearest step
-	// finds the candidate without walking all twenty-four.
-	lum := (int(c.R) + int(c.G) + int(c.B)) / 3
-	step := clampStep((lum - grayRampFirst + grayRampStep/2) / grayRampStep)
-
-	grey := grayRampFirst + step*grayRampStep
-	if d := distance(c, RGB{grey, grey, grey}); d < bestDist {
-		return grayRampStart + step
-	}
-	return best
-}
-
-// Dark weights perceived channel brightness so theme contrast does not treat
-// saturated blue and saturated green as equally bright.
-func (c RGB) Dark() bool {
-	// The weights sum to a thousand, so the sum is a thousand times a value in
-	// 0–255 and the middle of that range is 128 thousand. Kept in integers because
-	// the answer is a threshold, and a threshold does not need the fraction.
-	return 299*int(c.R)+587*int(c.G)+114*int(c.B) < 128_000
-}
-
-func (c RGB) Index16() uint8 {
-	best, bestDist := uint8(0), distance(c, ansi16[0])
-	for i := 1; i < len(ansi16); i++ {
-		if d := distance(c, ansi16[i]); d < bestDist {
-			best, bestDist = uint8(i), d
-		}
-	}
-	return best
-}

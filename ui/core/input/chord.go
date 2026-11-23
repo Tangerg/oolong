@@ -19,6 +19,12 @@ type Chord struct {
 	Mods Mods
 }
 
+func (m Mods) Rune(r rune) Chord { return Chord{Code: Character, Rune: r, Mods: m} }
+
+func (m Mods) With(code Code) Chord { return Chord{Code: code, Mods: m} }
+
+func (k Key) Chord() Chord { return Chord{Code: k.Code, Rune: k.Rune, Mods: k.Mods} }
+
 // A dedicated keypad binding takes precedence over the corresponding ordinary
 // key. Keypad Begin has no ordinary equivalent.
 var keypadKeys = map[Code]struct {
@@ -84,10 +90,27 @@ func (k Key) ShortcutChords() iter.Seq[Chord] {
 	}
 }
 
-// FallbackRune is the character to use when the terminal provided no associated
-// text. Callers decide whether the modifiers and transition allow insertion.
-// A base-layout shortcut identity never supplies text.
-func (k Key) FallbackRune() rune {
+// Typed is the text this key enters into an editor, or "" when it enters none. A
+// release, a key held with any modifier other than Shift, and a key that names no
+// character enter nothing. What the terminal reported the key produced wins over its
+// code, because the code is the unshifted physical key: on a layout where the key
+// beside "1" produces "@", the code would type "2".
+func (k Key) Typed() string {
+	if !k.Down() || k.Mods&^Shift != 0 {
+		return ""
+	}
+	if k.Text != "" {
+		return k.Text
+	}
+	if r := k.fallbackRune(); r != 0 {
+		return string(r)
+	}
+	return ""
+}
+
+// fallbackRune is the character a key stands for when the terminal reported no
+// associated text. A base-layout shortcut identity never supplies text.
+func (k Key) fallbackRune() rune {
 	if k.Code != Character {
 		return keypadKeys[k.Code].equivalent.Rune
 	}
@@ -99,11 +122,23 @@ func (k Key) FallbackRune() rune {
 
 // String and ParseChord share the configuration spelling so displayed bindings
 // can be read back without a second naming convention.
+// The spellings a chord is written in and read back from. A code point outside the
+// printable set is written as fmt's %U writes it: the prefix and four to six hex digits.
+const (
+	modSeparator     = '+'
+	chordSeparator   = ' '
+	spaceName        = "space"
+	codePointPrefix  = "U+"
+	minCodePointHex  = 4
+	maxCodePointHex  = 6
+	codePointHexBase = 16
+)
+
 func (c Chord) String() string {
 	var b strings.Builder
 	if mods := c.Mods.String(); mods != "" {
 		b.WriteString(mods)
-		b.WriteByte('+')
+		b.WriteByte(modSeparator)
 	}
 	if c.Code != Character {
 		b.WriteString(c.Code.String())
@@ -111,7 +146,7 @@ func (c Chord) String() string {
 	}
 	switch {
 	case c.Rune == ' ':
-		b.WriteString("space")
+		b.WriteString(spaceName)
 	case unicode.IsSpace(c.Rune) || !unicode.IsPrint(c.Rune):
 		// Keep controls and separators out of help output and sequence syntax.
 		fmt.Fprintf(&b, "%U", c.Rune)
@@ -163,7 +198,7 @@ func notAKeystroke(s string) error {
 func ParseChord(s string) (Chord, bool) {
 	var mods Mods
 	for {
-		name, rest, found := strings.Cut(s, "+")
+		name, rest, found := strings.Cut(s, string(modSeparator))
 		if !found || name == "" {
 			break
 		}
@@ -177,7 +212,7 @@ func ParseChord(s string) (Chord, bool) {
 	switch s {
 	case "":
 		return Chord{}, false
-	case "space":
+	case spaceName:
 		return Chord{Code: Character, Rune: ' ', Mods: mods}, true
 	}
 	if code, ok := codeNamed(s); ok {
@@ -200,8 +235,8 @@ func parseRune(s string) (rune, bool) {
 }
 
 func spelledRune(s string) (rune, bool) {
-	if code, ok := strings.CutPrefix(s, "U+"); ok && len(code) >= 4 && len(code) <= 6 {
-		value, err := strconv.ParseUint(code, 16, 32)
+	if code, ok := strings.CutPrefix(s, codePointPrefix); ok && len(code) >= minCodePointHex && len(code) <= maxCodePointHex {
+		value, err := strconv.ParseUint(code, codePointHexBase, 32)
 		if err == nil && value <= unicode.MaxRune && utf8.ValidRune(rune(value)) {
 			return rune(value), true
 		}
@@ -223,35 +258,21 @@ func modNamed(name string) (Mods, bool) {
 }
 
 func codeNamed(name string) (Code, bool) {
-	if code, ok := codesByName[name]; ok {
-		return code, true
-	}
-	if rest, ok := strings.CutPrefix(name, "f"); ok {
-		// Only the spelling String writes: a sign or a leading zero would let
-		// "f+1" or "f01" parse as a key nothing ever names that way.
-		if n, err := strconv.Atoi(rest); err == nil && strconv.Itoa(n) == rest && n >= 1 && n <= int(F35-F1)+1 {
-			return F1 + Code(n-1), true
-		}
-	}
-	return 0, false
+	code, ok := codesByName[name]
+	return code, ok
 }
 
-// codesByName is [codeNames] read the other way, built from it rather than written
-// again so that the two cannot say different things.
+// codesByName is [Code.String] read the other way, built from it rather than
+// written again so that the two cannot say different things. Only the spelling
+// String writes parses: "f01" or "f+1" name no key.
 //
 // [Character] is left out on purpose. It is not a key anybody presses — it is what a
 // key that produced text is called — and a name that parsed to it would be a chord
 // with no character in it.
 var codesByName = func() map[string]Code {
-	out := make(map[string]Code, len(codeNames)+len(keypadKeys))
-	for code, key := range keypadKeys {
-		out[key.name] = code
-	}
-	for code, name := range codeNames {
-		if code == Character {
-			continue
-		}
-		out[name] = code
+	out := make(map[string]Code, int(KeypadBegin))
+	for code := Character + 1; code <= KeypadBegin; code++ {
+		out[code.String()] = code
 	}
 	return out
 }()
@@ -265,7 +286,7 @@ func (k Keys) String() string {
 	for i, c := range k {
 		parts[i] = c.String()
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, string(chordSeparator))
 }
 
 func (k Keys) MarshalText() ([]byte, error) {

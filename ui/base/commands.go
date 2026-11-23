@@ -57,16 +57,13 @@ type registeredCommand[T any] struct {
 
 // Add associates value with a command, replacing both for an existing name. The
 // registry copies the command's text and aliases; value follows ordinary assignment
-// semantics for T. An empty Name changes nothing. Replacing a command releases its
-// former aliases. Add panics for an empty alias or a spelling owned by another
-// command, before changing registrations or recency.
+// semantics for T. Replacing a command releases its former aliases. Add panics for
+// an empty name or alias, or a spelling owned by another command, before changing
+// registrations or recency.
 func (c *Commands[T]) Add(cmd Command, value T) {
-	if cmd.Name == "" {
-		return
-	}
 	for _, spelling := range slices.Concat([]string{cmd.Name}, cmd.Aliases) {
 		if spelling == "" {
-			panic("base: empty command alias")
+			panic("base: empty command name or alias")
 		}
 		for _, entry := range c.list {
 			if entry.command.Name != cmd.Name && entry.command.hasSpelling(spelling) {
@@ -74,7 +71,7 @@ func (c *Commands[T]) Add(cmd Command, value T) {
 			}
 		}
 	}
-	cmd = cloneCommand(cmd)
+	cmd = cmd.clone()
 	for i := range c.list {
 		if c.list[i].command.Name == cmd.Name {
 			c.list[i] = registeredCommand[T]{command: cmd, value: value}
@@ -107,7 +104,7 @@ func (c *Commands[T]) Lookup(name string) (Command, T, bool) {
 		var zero T
 		return Command{}, zero, false
 	}
-	return cloneCommand(entry.command), entry.value, true
+	return entry.command.clone(), entry.value, true
 }
 
 func (c *Commands[T]) lookup(name string) (registeredCommand[T], bool) {
@@ -149,36 +146,16 @@ type Found struct {
 func (c *Commands[T]) Find(query string) []Found {
 	matches := make([]commandMatch, 0, len(c.list))
 	for _, command := range c.byRecency() {
-		if match, ok := fuzzy.Score(query, command.Name); ok {
-			matches = append(matches, commandMatch{command: command, match: match})
-			continue
-		}
-		best, found := fuzzy.Match{}, false
-		for _, alias := range command.Aliases {
-			if match, ok := fuzzy.Score(query, alias); ok && (!found || match.Score > best.Score) {
-				best, found = match, true
-			}
-		}
-		if found {
-			matches = append(matches, commandMatch{command: command, match: best, alias: true})
+		if match, ok := command.match(query); ok {
+			matches = append(matches, match)
 		}
 	}
-	// What is shown is a name, so every name match precedes an alias match. Within
-	// each class the fuzzy score leads and the stable input order breaks ties by
-	// recency. An empty query gives every name score zero and therefore needs no
-	// separate sorting path.
-	slices.SortStableFunc(matches, func(a, b commandMatch) int {
-		if a.alias != b.alias {
-			if a.alias {
-				return 1
-			}
-			return -1
-		}
-		return cmp.Compare(b.match.Score, a.match.Score)
-	})
+	// The stable input order breaks ties by recency. An empty query gives every
+	// name score zero and therefore needs no separate sorting path.
+	slices.SortStableFunc(matches, commandMatch.compare)
 	out := make([]Found, len(matches))
 	for i, found := range matches {
-		out[i].Command = cloneCommand(found.command)
+		out[i].Command = found.command.clone()
 		if !found.alias {
 			out[i].At = found.match.At
 		}
@@ -192,15 +169,43 @@ type commandMatch struct {
 	alias   bool
 }
 
-// Clone aliases and strings so registry lifetime cannot retain a caller buffer through small substrings.
-func cloneCommand(cmd Command) Command {
-	cmd.Name = strings.Clone(cmd.Name)
-	cmd.Title = strings.Clone(cmd.Title)
-	cmd.Aliases = slices.Clone(cmd.Aliases)
-	for i := range cmd.Aliases {
-		cmd.Aliases[i] = strings.Clone(cmd.Aliases[i])
+// match scores the name first; an alias matches only when the name does not,
+// and then the best alias stands for the command.
+func (c Command) match(query string) (commandMatch, bool) {
+	if match, ok := fuzzy.Score(query, c.Name); ok {
+		return commandMatch{command: c, match: match}, true
 	}
-	return cmd
+	best, found := fuzzy.Match{}, false
+	for _, alias := range c.Aliases {
+		if match, ok := fuzzy.Score(query, alias); ok && (!found || match.Score > best.Score) {
+			best, found = match, true
+		}
+	}
+	return commandMatch{command: c, match: best, alias: true}, found
+}
+
+// compare orders every name match before an alias match, because what is shown is
+// a name, and then by fuzzy score.
+func (a commandMatch) compare(b commandMatch) int {
+	if a.alias != b.alias {
+		if a.alias {
+			return 1
+		}
+		return -1
+	}
+	return cmp.Compare(b.match.Score, a.match.Score)
+}
+
+// clone owns every string so registry lifetime cannot retain a caller buffer
+// through small substrings.
+func (c Command) clone() Command {
+	c.Name = strings.Clone(c.Name)
+	c.Title = strings.Clone(c.Title)
+	c.Aliases = slices.Clone(c.Aliases)
+	for i := range c.Aliases {
+		c.Aliases[i] = strings.Clone(c.Aliases[i])
+	}
+	return c
 }
 
 func (c *Commands[T]) byRecency() []Command {

@@ -58,7 +58,7 @@ func NewPrompter(cfg PrompterConfig) (*Prompter, error) {
 // Only bare io.EOF completes an unterminated answer; other input failures must
 // not turn partial input into a submitted answer.
 func (p *Prompter) Ask(form *base.Form) (scene.ActionResult[base.SubmissionID], error) {
-	if p == nil || p.input == nil {
+	if p.input == nil {
 		return scene.ActionResult[base.SubmissionID]{}, errors.New("kit: uninitialized prompter")
 	}
 	if p.asking {
@@ -72,23 +72,26 @@ func (p *Prompter) Ask(form *base.Form) (scene.ActionResult[base.SubmissionID], 
 	return form.SubmitWith(func(field base.Field) error {
 		spoken, ok := field.(base.SpokenField)
 		if !ok {
-			return fmt.Errorf("kit: %q cannot be answered in words", field.Prompt())
+			return fmt.Errorf("kit: %q cannot be answered in words", field.Label())
 		}
 		return p.ask(spoken)
 	})
 }
+
+// answerPrompt marks where the reader's answer goes after each question.
+const answerPrompt = "> "
 
 func (p *Prompter) ask(field base.SpokenField) error {
 	for {
 		if err := writeAnswerLines(p.output, field.Ask()); err != nil {
 			return err
 		}
-		if err := writePromptText(p.output, "> "); err != nil {
+		if err := writePromptText(p.output, answerPrompt); err != nil {
 			return err
 		}
 		answer, err := p.readAnswer()
 		if err == io.EOF { //nolint:errorlint // Only bare EOF means an absent answer; wrapped and joined read failures must survive.
-			return fmt.Errorf("kit: %q was left unanswered: %w", field.Prompt(), io.ErrUnexpectedEOF)
+			return fmt.Errorf("kit: %q was left unanswered: %w", field.Label(), io.ErrUnexpectedEOF)
 		}
 		if err != nil {
 			return err

@@ -1,152 +1,19 @@
 package base
 
 import (
-	"math/bits"
+	"context"
 	"slices"
+	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
-
-	"github.com/Tangerg/oolong/ui/core/scene"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
-
-// Trigger is what opens a completion: the characters that begin a token, and where
-// they count as beginning one.
-type Trigger struct {
-	Prefix  string
-	AtStart bool
-}
-
-// Token is the run of text a completion is being offered for.
-type Token struct {
-	// Line distinguishes identical ranges in a multiline editor. TokenAt reads one line.
-	Line int
-	// Start and End are the byte range in the line that accepting a candidate
-	// replaces: everything after the prefix, through the end of the token. The prefix
-	// itself stays where it is — it is what the user typed to ask for the completion,
-	// not part of the answer.
-	Start, End int
-	// Query is that range up to the cursor, which is what candidates are matched
-	// against. What is after the cursor is replaced but not matched: a cursor put back
-	// into the middle of a word is a request to reconsider its beginning.
-	Query string
-	// Trigger is what opened the token, so that a caller offering several can tell
-	// which kind of thing is being asked for.
-	Trigger Trigger
-}
-
-// TokenAt finds the token the cursor is inside, if any. The rightmost trigger before
-// the cursor wins, so a file mentioned inside a command completes as a file.
-//
-// A token ends at the first space after it, which is the one rule general enough to
-// be worth having: anything more — a path that may contain spaces, a quote that
-// protects them — is the caller's grammar and not a terminal library's.
-// Invalid UTF-8, out-of-range cursors and partial graphemes have no token. Both
-// the query and replacement range must preserve the editor's text boundaries.
-func TokenAt(line string, cursor int, triggers ...Trigger) (Token, bool) {
-	if len(triggers) == 0 || cursor < 0 || cursor > len(line) || !utf8.ValidString(line) {
-		return Token{}, false
-	}
-	boundaries := indexClusterBoundaries(line)
-	if !boundaries.contains(cursor) {
-		return Token{}, false
-	}
-	best, at := Token{}, -1
-	for _, trigger := range triggers {
-		if trigger.Prefix == "" || !utf8.ValidString(trigger.Prefix) {
-			continue
-		}
-		opened, ok := trigger.openedBefore(line, cursor, at, boundaries)
-		if !ok {
-			continue
-		}
-		start := opened + len(trigger.Prefix)
-		end := tokenEnd(line, start)
-		if cursor < start || cursor > end || !boundaries.contains(end) {
-			continue
-		}
-		best, at = Token{
-			Start:   start,
-			End:     end,
-			Query:   line[start:cursor],
-			Trigger: trigger,
-		}, opened
-	}
-	return best, at >= 0
-}
-
-// Rejected prefixes must not reparse every preceding grapheme. This local index
-// shares one segmentation pass and bounds scratch storage to one bit per byte offset.
-type clusterBoundaries []uint
-
-func indexClusterBoundaries(line string) clusterBoundaries {
-	boundaries := make(clusterBoundaries, len(line)/bits.UintSize+1)
-	boundaries[0] = 1
-	for at, cluster := range text.Clusters(line) {
-		end := at + len(cluster)
-		boundaries[end/bits.UintSize] |= 1 << (end % bits.UintSize)
-	}
-	return boundaries
-}
-
-func (b clusterBoundaries) contains(at int) bool {
-	return at >= 0 && at/bits.UintSize < len(b) && b[at/bits.UintSize]&(1<<(at%bits.UintSize)) != 0
-}
-
-func (t Trigger) openedBefore(line string, cursor, after int, boundaries clusterBoundaries) (int, bool) {
-	for end := cursor; end >= len(t.Prefix); {
-		candidate := strings.LastIndex(line[:end], t.Prefix)
-		if candidate < 0 || candidate < after {
-			return 0, false
-		}
-		if boundaries.contains(candidate) && boundaries.contains(candidate+len(t.Prefix)) && t.opensAt(line, candidate) {
-			return candidate, true
-		}
-		end = candidate + len(t.Prefix) - 1
-	}
-	return 0, false
-}
-
-func (t Trigger) opensAt(line string, at int) bool {
-	if t.AtStart {
-		return at == 0
-	}
-	if at == 0 {
-		return true
-	}
-	prev, _ := utf8.DecodeLastRuneInString(line[:at])
-	return !unicode.IsLetter(prev) && !unicode.IsDigit(prev) && prev != '_'
-}
-
-func tokenEnd(line string, start int) int {
-	for end := start; end < len(line); {
-		r, size := utf8.DecodeRuneInString(line[end:])
-		if unicode.IsSpace(r) {
-			return end
-		}
-		end += size
-	}
-	return len(line)
-}
-
-// TokenAtCursor reads the token on the current line. Masked text cannot be offered to a completion provider.
-func (e *Editor) TokenAtCursor(triggers ...Trigger) (Token, bool) {
-	lines := e.document().lines
-	if e.Mask() != "" || e.line < 0 || e.line >= len(lines) {
-		return Token{}, false
-	}
-	token, ok := TokenAt(lines[e.line], e.byteOffset, triggers...)
-	if ok {
-		token.Line = e.line
-	}
-	return token, ok
-}
 
 type Candidate struct {
 	Text string
@@ -192,7 +59,7 @@ type Completion struct {
 	keys         keyBinding
 	accept       func(c Candidate, t Token)
 
-	list    List[Candidate]
+	list    rows[Candidate]
 	token   Token
 	matcher keymap.Matcher
 }
@@ -248,10 +115,10 @@ func (c *Completion) Offer(t Token, candidates []Candidate) {
 	}
 	c.list.requireReplacement()
 	c.matcher.Reset(func() {
-		c.token = cloneToken(t)
+		c.token = t.clone()
 		c.list.replaceItems(candidates, 0)
 		for i := range c.list.items {
-			c.list.items[i] = cloneCandidate(c.list.items[i])
+			c.list.items[i] = c.list.items[i].clone()
 		}
 		c.list.Scroll().ToTop()
 		c.list.notifyChange()
@@ -309,18 +176,12 @@ func (c Candidate) snapshot() Candidate {
 	return c
 }
 
-func cloneToken(token Token) Token {
-	token.Query = strings.Clone(token.Query)
-	token.Trigger.Prefix = strings.Clone(token.Trigger.Prefix)
-	return token
-}
-
-func cloneCandidate(candidate Candidate) Candidate {
-	candidate.Text = strings.Clone(candidate.Text)
-	candidate.Label = strings.Clone(candidate.Label)
-	candidate.Detail = strings.Clone(candidate.Detail)
-	candidate.Matched = slices.Clone(candidate.Matched)
-	return candidate
+func (c Candidate) clone() Candidate {
+	c.Text = strings.Clone(c.Text)
+	c.Label = strings.Clone(c.Label)
+	c.Detail = strings.Clone(c.Detail)
+	c.Matched = slices.Clone(c.Matched)
+	return c
 }
 
 // Handle answers movement, acceptance and dismissal while the completion is open, and
@@ -343,8 +204,7 @@ func (c *Completion) Handle(ev input.Event) bool {
 	return handled
 }
 
-// Do runs one of the completion's actions by name, or the list's, reporting whether it
-// was one either of them knows. See [Doer].
+// Do runs the completion's actions and the list's.
 //
 // The list is driven by name rather than handed the event, because both read through
 // the same map: an event offered twice would be resolved twice, and the second lookup
@@ -390,20 +250,34 @@ func (c *Completion) HeightForWidth(int) int {
 	return min(c.list.Len(), c.rows())
 }
 
-// Width is how wide the widest row wants to be, so a caller sizing a layer around it
-// does not have to measure the candidates itself.
+// Width is how wide the widest row wants to be. The element reports the same
+// width when measured across, so a panel or box around it adds its own frame
+// instead of its caller adding the frame to this.
 func (c *Completion) Width() int {
+	var widest int
+	c.Element().ReadOnly(func() { widest = c.widest() })
+	return widest
+}
+
+// widest measures the rows; renderer callbacks need the read-only projection
+// that measurement already holds.
+func (c *Completion) widest() int {
 	if !c.Open() {
 		return 0
 	}
 	widest := 0
 	renderer := c.resolvedRenderer()
-	c.Element().ReadOnly(func() {
-		for _, candidate := range c.list.items {
-			widest = max(widest, renderer.Width(c.forRenderer(candidate)))
-		}
-	})
+	for _, candidate := range c.list.items {
+		widest = max(widest, renderer.Width(c.forRenderer(candidate)))
+	}
 	return widest
+}
+
+func (c *Completion) measure(axis layout.Axis, width int) int {
+	if axis == layout.Across {
+		return c.widest()
+	}
+	return c.HeightForWidth(width)
 }
 
 // CompletionRenderer draws and measures one candidate row. The row is one cell tall;
@@ -484,13 +358,7 @@ func (c *Completion) resolvedKeys() *keymap.Map { return c.keys.resolve(completi
 func (c *Completion) Look() Look { return c.look }
 
 func (c *Completion) SetLook(value Look) {
-	element := c.Element()
-	requireMutable(element)
-	if c.look == value {
-		return
-	}
-	c.look = value
-	element.Invalidate()
+	setting.Assign(c.element, &c.look, value)
 }
 
 func (c *Completion) CurrentToken() (Token, bool) {
@@ -504,7 +372,7 @@ func (c *Completion) CurrentToken() (Token, bool) {
 }
 
 func (c *Completion) SetCurrentToken(value func() (Token, bool)) {
-	element := c.Element()
+	element := c.element
 	requireMutable(element)
 	c.matcher.Reset(func() {
 		c.currentToken = value
@@ -515,30 +383,21 @@ func (c *Completion) SetCurrentToken(value func() (Token, bool)) {
 func (c *Completion) Renderer() CompletionRenderer { return c.renderer }
 
 func (c *Completion) SetRenderer(value CompletionRenderer) {
-	element := c.Element()
-	requireMutable(element)
-	c.renderer = value
-	element.Invalidate()
+	setting.Replace(c.element, &c.renderer, value)
 }
 
 func (c *Completion) MaxRows() int { return c.maxRows }
 
 // SetMaxRows panics for a negative limit. Zero selects DefaultCompletionRows.
 func (c *Completion) SetMaxRows(value int) {
-	element := c.Element()
-	requireMutable(element)
 	requireNonNegative("completion MaxRows", value)
-	if c.maxRows == value {
-		return
-	}
-	c.maxRows = value
-	element.Invalidate()
+	setting.Assign(c.element, &c.maxRows, value)
 }
 
 func (c *Completion) Accept() func(Candidate, Token) { return c.accept }
 
 func (c *Completion) SetAccept(value func(Candidate, Token)) {
-	element := c.Element()
+	element := c.element
 	requireMutable(element)
 	c.matcher.Reset(func() {
 		c.accept = value
@@ -548,6 +407,39 @@ func (c *Completion) SetAccept(value func(Candidate, Token)) {
 
 func (c *Completion) Keys() *keymap.Map { return c.keys.current }
 
+// KeysFor is what the effective key map binds to action, defaults included.
+func (c *Completion) KeysFor(action keymap.Action) []input.Keys {
+	return c.keys.bound(completionKeys, action)
+}
+
 func (c *Completion) SetKeys(keys *keymap.Map) {
-	c.keys.set(c.Element(), &c.matcher, keys)
+	c.keys.set(c.element, &c.matcher, keys)
+}
+
+// Element is the completion's one candidate-list identity. It receives pointer
+// input while keyboard focus remains with the composing editor.
+func (c *Completion) Element() scene.Element {
+	if c.element.IsZero() {
+		accept := scene.NewAction(scene.ActionConfig[CollectionIndex, Candidate]{ID: scene.ActionActivate, Label: "Accept completion", Availability: func(address CollectionIndex) scene.Availability {
+			if !c.Open() || c.accept == nil {
+				return scene.Unavailable("completion is not accepting")
+			}
+			return c.list.indexAvailability(address)
+		}, Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[Candidate], error) {
+			result, _ := c.acceptIndex(address.Index)
+			return result, nil
+		}})
+		dismiss := scene.NewAction(scene.ActionConfig[struct{}, struct{}]{ID: scene.ActionDismiss, Label: "Dismiss completion", Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
+			state := scene.AppliedIf(c.Dismiss())
+			return scene.ActionResult[struct{}]{State: state}, nil
+		}})
+		c.element = scene.NewElement(scene.ElementConfig{Enabled: c.Open, Measure: c.measure, Paint: c.Draw, Handle: func(event scene.Event) scene.EventResult {
+			return partEvent(event, c.Handle, &c.list.geometry, &c.list.pointer.geometry)
+		}, Semantics: func() scene.Semantic {
+			return scene.Semantic{Role: scene.RoleList, ContentRevision: c.list.contentRevision, Value: strconv.Itoa(c.list.Selected())}
+		}, Actions: append([]scene.ActionBinding{accept.Binding(), dismiss.Binding()}, collectionActions(&c.list, Candidate.snapshot)...)})
+	}
+	c.list.adopt(c.element)
+	c.keys.attach(c.element, &c.matcher)
+	return c.element
 }

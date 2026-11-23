@@ -22,7 +22,7 @@ func TestElementIsInsertedWithASeparator(t *testing.T) {
 	}
 	// The separator is ordinary text and not part of the element: it is there to be
 	// typed after and to be deleted.
-	if _, inside := e.ElementAt(0, len("@main.go")); inside {
+	if _, inside := e.ElementAt(base.Caret{Byte: len("@main.go")}); inside {
 		t.Error("the separator is inside the element")
 	}
 }
@@ -33,12 +33,12 @@ func TestElementLookupRejectsCoordinatesOutsideTheDocument(t *testing.T) {
 	editor.Newline()
 	last := editor.InsertElement(fileChip, "@last")
 	for _, element := range []base.Element{first, last} {
-		if found, ok := editor.ElementAt(element.Line, element.Start); !ok || found.ID != element.ID {
+		if found, ok := editor.ElementAt(base.Caret{Line: element.Line, Byte: element.Start}); !ok || found.ID != element.ID {
 			t.Fatalf("element lookup at its own start = %+v, %v; want %+v", found, ok, element)
 		}
 	}
 	for _, position := range []base.Caret{{Line: -1}, {Line: 2}, {Byte: -1}, {Line: 1, Byte: -1}, {Byte: 100}, {Line: 1, Byte: 100}} {
-		if found, ok := editor.ElementAt(position.Line, position.Byte); ok {
+		if found, ok := editor.ElementAt(base.Caret{Line: position.Line, Byte: position.Byte}); ok {
 			t.Errorf("invalid position %+v resolved to element %+v", position, found)
 		}
 	}
@@ -69,7 +69,7 @@ func TestAnElementBodyIsAlwaysOneRunOfCells(t *testing.T) {
 			if el.Line != 0 || el.Start != 0 || el.End != len(tc.want) {
 				t.Fatalf("element range = %+v, want line 0 range [0,%d)", el, len(tc.want))
 			}
-			if _, inside := e.ElementAt(0, len(tc.want)); inside {
+			if _, inside := e.ElementAt(base.Caret{Byte: len(tc.want)}); inside {
 				t.Fatal("the ordinary separator became part of the atomic element")
 			}
 		})
@@ -105,14 +105,14 @@ func TestTheCursorStepsOverAnElement(t *testing.T) {
 	e := editorWith("")
 	e.InsertElement(fileChip, "@main.go")
 	e.Insert("and more")
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 
 	e.Handle(input.Key{Code: input.Right})
-	if _, col := e.Cursor(); col != len("@main.go") {
+	if col := e.Cursor().Byte; col != len("@main.go") {
 		t.Errorf("moving right landed at column %d, want past the element", col)
 	}
 	e.Handle(input.Key{Code: input.Left})
-	if _, col := e.Cursor(); col != 0 {
+	if col := e.Cursor().Byte; col != 0 {
 		t.Errorf("moving back landed at column %d, want the near side", col)
 	}
 }
@@ -122,11 +122,11 @@ func TestWordMovementCannotLandInsideAnElement(t *testing.T) {
 	editor.SetText("go")
 	element := editor.InsertElement(fileChip, "$name")
 	editor.MoveWordLeft()
-	if line, col := editor.Cursor(); line != element.Line || col != element.Start {
+	if line, col := editor.Cursor().Line, editor.Cursor().Byte; line != element.Line || col != element.Start {
 		t.Fatalf("word-left cursor = (%d,%d), want before %+v", line, col, element)
 	}
 	editor.MoveWordRight()
-	if line, col := editor.Cursor(); line != element.Line || col < element.End {
+	if line, col := editor.Cursor().Line, editor.Cursor().Byte; line != element.Line || col < element.End {
 		t.Fatalf("word-right cursor = (%d,%d), want after %+v", line, col, element)
 	}
 }
@@ -151,7 +151,7 @@ func TestBackspaceTakesAWholeElement(t *testing.T) {
 func TestDeleteForwardTakesAWholeElement(t *testing.T) {
 	e := editorWith("")
 	e.InsertElement(fileChip, "@main.go")
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	e.Handle(input.Key{Code: input.Delete})
 
 	if got, want := e.Text(), " "; got != want {
@@ -167,7 +167,7 @@ func TestDeleteForwardTakesAWholeElement(t *testing.T) {
 func TestEditingAroundAnElementMovesIt(t *testing.T) {
 	e := editorWith("")
 	el := e.InsertElement(fileChip, "@main.go")
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	e.Insert("look at ")
 
 	got := e.Elements()
@@ -195,30 +195,30 @@ func TestAnElementCoversTheSameWordsAfterEveryKindOfEdit(t *testing.T) {
 		does func(e *base.Editor)
 	}{
 		{"typing in front of it", func(e *base.Editor) {
-			e.SetCursor(0, 0)
+			e.SetCursor(base.Caret{})
 			e.Insert("see ")
 		}},
 		{"a backspace in front of it", func(e *base.Editor) {
-			e.SetCursor(0, 4)
+			e.SetCursor(base.Caret{Byte: 4})
 			e.DeleteBack()
 		}},
 		{"a whole paragraph pasted above", func(e *base.Editor) {
-			e.SetCursor(0, 0)
+			e.SetCursor(base.Caret{})
 			e.Insert("one\ntwo\nthree\n")
 		}},
 		{"the line below joined onto it", func(e *base.Editor) {
-			e.SetCursor(0, 0)
+			e.SetCursor(base.Caret{})
 			e.MoveLineEnd()
 			e.DeleteForward()
 		}},
 		{"typing after it", func(e *base.Editor) {
-			e.SetCursor(0, 0)
+			e.SetCursor(base.Caret{})
 			e.MoveLineEnd()
 			e.Insert(" please")
 		}},
 	} {
 		e := editorWith("look ")
-		e.SetCursor(0, len("look "))
+		e.SetCursor(base.Caret{Byte: len("look ")})
 		el := e.InsertElement(fileChip, "@main.go")
 		e.Insert("\ntail")
 		tc.does(e)
@@ -240,7 +240,7 @@ func TestAnElementCoversTheSameWordsAfterEveryKindOfEdit(t *testing.T) {
 func TestElementsSurviveALineBreakAboveThem(t *testing.T) {
 	e := editorWith("")
 	el := e.InsertElement(fileChip, "@main.go")
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	e.Insert("first\n")
 
 	got := e.Elements()
@@ -316,7 +316,7 @@ func TestUndoGivesBackTheSameElement(t *testing.T) {
 func TestElementsAreReportedInOrder(t *testing.T) {
 	e := editorWith("")
 	e.InsertElement(fileChip, "@b.go")
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	e.InsertElement(fileChip, "@a.go")
 
 	got := e.Elements()
@@ -394,7 +394,7 @@ func TestElementsSurviveEveryWayOfMoving(t *testing.T) {
 func TestKillingALineTakesTheElementsOnIt(t *testing.T) {
 	e := editorWith("")
 	e.InsertElement(fileChip, "@main.go")
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	e.KillToEnd()
 
 	if got := e.Elements(); len(got) != 0 {
@@ -417,11 +417,11 @@ func TestDeletingAWordTakesAnAtomicElementWhole(t *testing.T) {
 
 func TestJoiningLinesKeepsAnElementBelow(t *testing.T) {
 	e := editorWith("first\n")
-	e.SetCursor(1, 0)
+	e.SetCursor(base.Caret{Line: 1})
 	el := e.InsertElement(fileChip, "@main.go")
 
 	// Backspace at the start of the second line joins it onto the first.
-	e.SetCursor(1, 0)
+	e.SetCursor(base.Caret{Line: 1})
 	e.Handle(input.Key{Code: input.Backspace})
 
 	got := e.Elements()
@@ -440,13 +440,13 @@ func TestTheCursorCanSitOnEitherSideOfAnElement(t *testing.T) {
 	e := editorWith("")
 	e.Insert("say ")
 	e.InsertElement(fileChip, "@main.go")
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 
 	// Right along "say " lands on the element's near side, not past it.
 	for range 4 {
 		e.Handle(input.Key{Code: input.Right})
 	}
-	if _, col := e.Cursor(); col != len("say ") {
+	if col := e.Cursor().Byte; col != len("say ") {
 		t.Fatalf("the cursor is at column %d, want the near side of the element", col)
 	}
 	e.Insert("X")
@@ -520,7 +520,7 @@ func TestAnElementBeginsWhereACellBegins(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := &base.Editor{}
 			e.SetText(tc.text)
-			e.SetCursor(0, len(tc.text))
+			e.SetCursor(base.Caret{Byte: len(tc.text)})
 			unsubscribe := e.Session().Subscribe(func(base.ChangeMap) {
 				for _, element := range e.Elements() {
 					if boundaries := boundariesOf(e.Text()); !boundaries[element.Start] || !boundaries[element.End] {
@@ -537,7 +537,7 @@ func TestAnElementBeginsWhereACellBegins(t *testing.T) {
 				t.Fatalf("element %d..%d does not stand on cell boundaries of %q",
 					element.Start, element.End, e.Text())
 			}
-			if el, ok := e.ElementAt(0, element.Start); !ok || el.ID != element.ID {
+			if el, ok := e.ElementAt(base.Caret{Byte: element.Start}); !ok || el.ID != element.ID {
 				t.Fatalf("the element is not at its own start")
 			}
 		})
@@ -578,7 +578,7 @@ func TestAnEditThatJoinsAnElementToWhatIsBesideItLeavesNoFragment(t *testing.T) 
 	// that was where the rule stopped: deleting the plain space between two regional
 	// indicators does the same thing without touching a byte of the element.
 	e := editorWith("\U0001F1EF") // a lone regional indicator, J
-	e.SetCursor(0, len("\U0001F1EF"))
+	e.SetCursor(base.Caret{Byte: len("\U0001F1EF")})
 	el := e.InsertElement(fileChip, "\U0001F1F5x") // P and a letter
 	if got := e.Text(); got != "\U0001F1EF \U0001F1F5x " {
 		t.Fatalf("text = %q, want the element kept apart from what precedes it", got)
@@ -587,7 +587,7 @@ func TestAnEditThatJoinsAnElementToWhatIsBesideItLeavesNoFragment(t *testing.T) 
 		t.Fatalf("element text = %q", got)
 	}
 
-	e.SetCursor(0, len("\U0001F1EF ")) // just after the separator
+	e.SetCursor(base.Caret{Byte: len("\U0001F1EF ")}) // just after the separator
 	e.DeleteBack()
 
 	if got := e.Text(); got != "\U0001F1EF\U0001F1F5x " {

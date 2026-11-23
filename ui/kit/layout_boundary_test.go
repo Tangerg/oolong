@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -83,9 +84,9 @@ func TestTableValidatesEveryColumnBeforeMeasurementCallbacks(t *testing.T) {
 					calls++
 					return kit.Cell{Preferred: 2}
 				},
-				Sorted: func() (int, bool, bool) {
+				Sorted: func() (base.SortOrder, bool) {
 					calls++
-					return 0, false, true
+					return base.SortOrder{}, true
 				},
 			}
 			expectLayoutConfigPanic(t, layout.ErrInvalidAlign, func() { table.Layout(width) })
@@ -112,7 +113,7 @@ func TestInvalidContainerLayoutCannotClaimChildren(t *testing.T) {
 			kit.NewPanel(kit.PanelConfig{Content: child, Box: kit.Box{FooterAlign: layout.Align(math.MaxUint8)}})
 		}},
 		{"dialog", layout.ErrInvalidAnchor, func(child scene.Element) {
-			kit.NewDialog(kit.DialogConfig{Body: child, Where: layout.Placement{Anchor: layout.Anchor(math.MaxUint8)}})
+			kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Content: child}, Where: layout.Placement{Anchor: layout.Anchor(math.MaxUint8)}})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -145,10 +146,7 @@ func TestPanelRejectsChangedAlignmentBeforeMeasuringItsChild(t *testing.T) {
 }
 
 func TestDialogRejectsChangedAnchorBeforePaintingItsBackdrop(t *testing.T) {
-	dialog := kit.NewDialog(kit.DialogConfig{
-		Initial: true,
-		Theme:   kit.Theme{Scrim: kit.Scrim{Color: grid.RGBColor(20, 30, 40), Opacity: 0.5}},
-	})
+	dialog := kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Initial: true}, Theme: kit.Theme{Scrim: kit.Scrim{Color: grid.RGBColor(20, 30, 40), Opacity: 0.5}}})
 	root, err := scene.NewRoot(scene.RootConfig{Element: dialog.Element()})
 	if err != nil {
 		t.Fatal(err)

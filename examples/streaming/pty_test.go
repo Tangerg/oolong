@@ -102,15 +102,17 @@ func quiesce(t *testing.T, s *ptytest.Session) int {
 }
 
 func TestTheInterfaceIsUpBeforeAnybodyTypes(t *testing.T) {
-	s := start(t)
-	waitFor(t, s, "Ask something")
-	quiesce(t, s)
-	screen, err := s.Transcript().Screen(openingSize)
-	if err != nil {
+	waitForScreen(t, start(t), "Ask something")
+}
+
+// waitForScreen waits until the terminal shows every token, which raw output cannot
+// say when styling or cursor motion splits the text.
+func waitForScreen(t *testing.T, s *ptytest.Session, tokens ...string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), settle)
+	defer cancel()
+	if _, err := s.Transcript().WaitForScreen(ctx, tokens...); err != nil {
 		t.Fatal(err)
-	}
-	if shown := strings.Join(screen.Rows(), "\n"); !strings.Contains(shown, "Ask something") {
-		t.Fatalf("opening screen does not contain the composer placeholder:\n%s", shown)
 	}
 }
 
@@ -175,20 +177,13 @@ func TestAnIdleInterfaceGoesQuiet(t *testing.T) {
 func TestResizingRepaintsRatherThanCorrupting(t *testing.T) {
 	s := start(t)
 	waitFor(t, s, "Ask something")
-	before := quiesce(t, s)
+	quiesce(t, s)
 	if err := s.Resize(ptytest.Size{Cols: 40, Rows: 20}); err != nil {
 		t.Fatal(err)
 	}
-	// The block repaints in full from where the cursor was left, so something has
-	// to arrive. What it must not do is stop redrawing.
-	deadline := time.Now().Add(settle)
-	for time.Now().Before(deadline) {
-		if len(s.Transcript().Bytes()) > before {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("the interface never repainted after a resize")
+	// The block repaints in full from where the cursor was left, so the screen laid
+	// out for the new size shows it again. What it must not do is stop redrawing.
+	waitForScreen(t, s, "Ask something")
 }
 
 func TestWhatWasPrintedSurvivesTheProgram(t *testing.T) {

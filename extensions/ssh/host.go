@@ -84,13 +84,13 @@ func (h *Host) Wheel() input.Wheel { return h.wheel }
 
 // Copy targets the user's client terminal because the server
 // process does not own the user's local clipboard.
-func (h *Host) Copy(text string) bool {
-	sequence, ok := h.clip.Copy(clipboard.System, text)
-	if !ok {
-		return false
+func (h *Host) Copy(text string) error {
+	sequence, err := h.clip.Copy(clipboard.System, text)
+	if err != nil {
+		return err
 	}
-	_, err := h.writer.Queue([]byte(sequence))
-	return err == nil
+	_, err = h.writer.Queue([]byte(sequence))
+	return err
 }
 
 // ReadClipboard addresses the remote user's terminal. A cancelled read retains

@@ -111,13 +111,11 @@ func newQueue(theme kit.Theme, glyphs kit.Glyphs) *queue {
 		column, on := columns.ColumnAt(mouse.Pos.X)
 		return scene.EventResult{Consumed: on && q.rows.SortBy(column)}
 	}})
-	if err := q.rows.Element().SetPaint(func(frame scene.Frame) {
+	q.rows.Element().SetPaint(func(frame scene.Frame) {
 		width, _ := frame.Size()
 		columns := q.view.Layout(width)
 		q.rows.DrawRows(frame, func(view grid.View, at int, item task, selected bool) { q.row(columns, view, at, item, selected) })
-	}); err != nil {
-		panic(err)
-	}
+	})
 	q.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{{Element: header, Size: layout.Fixed(1)}, {Element: q.rows.Element(), Size: layout.Flex(1)}}}).Element()
 	return q
 }

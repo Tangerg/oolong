@@ -57,15 +57,13 @@ func TestCollectionFocusProjectionReadsOnlyThePublishedRowsAndSelection(t *testi
 				}
 			}
 			checking, observed := false, false
-			if err := part.SetFocusable(func() bool {
+			part.SetFocusable(func() bool {
 				observed = observed || checking
 				if checking && !complete() {
 					t.Error("focus predicate saw an incomplete collection publication")
 				}
 				return true
-			}); err != nil {
-				t.Fatal(err)
-			}
+			})
 			root, err := scene.NewRoot(scene.RootConfig{Element: part})
 			if err != nil {
 				t.Fatal(err)
@@ -92,21 +90,19 @@ func TestCollectionSourceCommandsRejectProjectionBeforeChangingInputs(t *testing
 				b.SetItems([]int{3, 1, 2})
 				b.SetSortColumns(singleSortColumn(cmp.Compare[int]))
 				b.SortBy(0)
-				part, change, unchanged = b.Element(), b.ClearSort, func() bool { _, _, sorted := b.Sorted(); return sorted }
+				part, change, unchanged = b.Element(), func() { b.ClearSort() }, func() bool { _, sorted := b.Sorted(); return sorted }
 			} else {
 				f := new(base.Filter[string])
 				f.SetItems([]string{"a", "b"}, func(v string) string { return v })
 				part, change, unchanged = f.Element(), func() { f.SetPattern("a") }, func() bool { return f.Pattern() == "" }
 			}
 			checking := false
-			if err := part.SetFocusable(func() bool {
+			part.SetFocusable(func() bool {
 				if checking {
 					change()
 				}
 				return true
-			}); err != nil {
-				t.Fatal(err)
-			}
+			})
 			root, err := scene.NewRoot(scene.RootConfig{Element: part})
 			if err != nil {
 				t.Fatal(err)

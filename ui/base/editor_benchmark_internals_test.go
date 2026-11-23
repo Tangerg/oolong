@@ -20,7 +20,7 @@ func BenchmarkEditorCursorOnLongLine(b *testing.B) {
 	editor.SetText(strings.Repeat("a", 10_000))
 	b.ReportAllocs()
 	for b.Loop() {
-		editor.SetCursor(0, 5_000)
+		editor.SetCursor(Caret{Byte: 5_000})
 		editor.MoveRight()
 	}
 }

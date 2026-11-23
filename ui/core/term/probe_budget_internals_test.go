@@ -216,8 +216,8 @@ func TestProbeYieldsToInputWithoutLosingPendingFraming(t *testing.T) {
 	raw <- readResult{data: []byte("A\x1b[?62c"), at: at, err: io.EOF}
 	stream := &input.Stream{}
 	pr := probe{raw: raw, out: answerWriter(func(string) {}), stream: stream, deadline: at.Add(time.Second)}
-	if got, err := pr.run(); err != nil || got.hasAttrs || len(pr.early) != count {
-		t.Fatalf("probe consumed the next read after %d keys: attrs=%v early=%d", count, got.hasAttrs, len(pr.early))
+	if got, err := pr.run(); err != nil || got.answered() || len(pr.early) != count {
+		t.Fatalf("probe consumed the next read after %d keys: attrs=%v early=%d", count, got.answered(), len(pr.early))
 	}
 	out := make(chan input.Event, count+2)
 	p := pump{raw: raw, end: pr.end, stream: stream, early: pr.early, out: out}

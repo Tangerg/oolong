@@ -710,7 +710,7 @@ func TestHandoverRevokesBothRetainedFramesAndTerminalCommands(t *testing.T) {
 		if e = tty.Notify("leaked message"); !errors.Is(e, term.ErrHandoverActive) {
 			t.Errorf("child notification admitted: %v", e)
 		}
-		if _, clipboardErr := tty.ReadClipboard(t.Context()); tty.Copy("leaked clipboard") || clipboardErr == nil {
+		if _, clipboardErr := tty.ReadClipboard(t.Context()); tty.Copy("leaked clipboard") == nil || clipboardErr == nil {
 			t.Error("clipboard admission crossed handover")
 		}
 		if e = writer.Drain(time.Second); e != nil {

@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 const TabPart scene.PartID = "tab"
@@ -243,21 +244,7 @@ func (t *Tabs) Do(action keymap.Action) bool {
 }
 
 func (t *Tabs) handleEvent(event scene.Event) scene.EventResult {
-	key, ok := event.Input().(input.Key)
-	if !ok {
-		return scene.EventResult{}
-	}
-	keyboard := t.Element().KeyboardLease()
-	_, handled := t.matcher.Handle(t.resolvedKeys(), key, keyboard.Valid, func(action keymap.Action) bool {
-		if action == FocusNext {
-			return keyboard.FocusNext(false)
-		}
-		if action == FocusPrev {
-			return keyboard.FocusNext(true)
-		}
-		return t.Do(action)
-	})
-	return scene.EventResult{Consumed: handled}
+	return containerKey(event, t.Element(), &t.matcher, t.resolvedKeys(), t.Do)
 }
 
 func (t *Tabs) HeightForWidth(width int) int {
@@ -292,10 +279,7 @@ func (t *Tabs) newPart(key string) *tabPart {
 	choose := scene.NewAction(scene.ActionConfig[struct{}, int]{ID: scene.ActionSelect, Label: "Select tab", Run: func(context.Context, struct{}) (scene.ActionResult[int], error) {
 		before := t.Selected()
 		t.selectPart(part)
-		state := scene.Unchanged
-		if before != t.Selected() {
-			state = scene.Applied
-		}
+		state := scene.AppliedIf(before != t.Selected())
 		return scene.ActionResult[int]{State: state, Value: t.Selected()}, nil
 	}})
 	part.element = scene.NewElement(scene.ElementConfig{
@@ -319,7 +303,7 @@ func (t *Tabs) newPart(key string) *tabPart {
 			}
 		},
 		Handle: func(event scene.Event) scene.EventResult {
-			if mouse, ok := event.Input().(input.Mouse); ok && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft {
+			if mouse, ok := event.Input().(input.Mouse); ok && mouse.Presses(input.ButtonLeft) {
 				t.selectPart(part)
 				return scene.EventResult{Consumed: true, Focus: true}
 			}
@@ -376,16 +360,13 @@ func (t *Tabs) selectionFor(items []Tab) int {
 func (t *Tabs) NoWrap() bool { return t.noWrap }
 
 func (t *Tabs) SetNoWrap(value bool) {
-	element := t.Element()
-	requireMutable(element)
-	if t.noWrap == value {
-		return
-	}
-	t.noWrap = value
-	element.Invalidate()
+	setting.Assign(t.Element(), &t.noWrap, value)
 }
 
 func (t *Tabs) Keys() *keymap.Map { return t.keys.current }
+
+// KeysFor is what the effective key map binds to action, defaults included.
+func (t *Tabs) KeysFor(action keymap.Action) []input.Keys { return t.keys.bound(tabsKeys, action) }
 
 func (t *Tabs) SetKeys(keys *keymap.Map) {
 	t.keys.set(t.Element(), &t.matcher, keys)

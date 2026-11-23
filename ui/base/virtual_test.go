@@ -51,22 +51,20 @@ func virtualData(n int) *virtualSource {
 
 func TestVirtualWindowRejectsATypedNilSourceAtConstruction(t *testing.T) {
 	var source *virtualSource
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: source})
-	if err == nil || window != nil {
-		t.Fatalf("typed nil source constructed window=%v with error=%v", window, err)
+	cfg := base.VirtualConfig{Source: source}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("typed nil source passed validation")
 	}
+	mustPanic(t, func() { base.NewVirtualWindow(cfg) })
 }
 
 func TestVirtualWindowMeasuresAndMountsOnlyBoundedWindow(t *testing.T) {
 	data := virtualData(10000)
 	builds := 0
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, EstimatedHeight: 2, Overscan: 2, MaxMeasurementsPerResolve: 32, Build: func(key base.ItemKey) scene.Element {
+	window := base.NewVirtualWindow(base.VirtualConfig{Source: data, EstimatedHeight: 2, Overscan: 2, MaxMeasurementsPerResolve: 32, Build: func(key base.ItemKey) scene.Element {
 		builds++
 		return scene.NewElement(scene.ElementConfig{Key: string(key), Paint: func(frame scene.Frame) { frame.Text(0, 0, string(key), grid.Style{}) }})
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	first, err := window.Resolve(40, 10, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -103,10 +101,7 @@ func TestVirtualWindowMeasuresAndMountsOnlyBoundedWindow(t *testing.T) {
 
 func TestVirtualWindowDatasetChangeAndBudgetFailureAreAtomic(t *testing.T) {
 	data := virtualData(10)
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxItems: 12, MaxMeasurementsPerResolve: 32})
-	if err != nil {
-		t.Fatal(err)
-	}
+	window := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxItems: 12, MaxMeasurementsPerResolve: 32})
 	before, err := window.Resolve(40, 3, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -137,10 +132,7 @@ func TestVirtualWindowDatasetChangeAndBudgetFailureAreAtomic(t *testing.T) {
 
 func TestVirtualWindowDoesNotPretendUnknownHeightsAreExact(t *testing.T) {
 	data := virtualData(3)
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 8})
-	if err != nil {
-		t.Fatal(err)
-	}
+	window := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 8})
 	complete, err := window.Resolve(40, 20, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -157,10 +149,8 @@ func TestVirtualWindowDoesNotPretendUnknownHeightsAreExact(t *testing.T) {
 
 func TestVirtualWindowResolveIsAnOwnerPhase(t *testing.T) {
 	data := virtualData(1)
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, Build: func(key base.ItemKey) scene.Element { return scene.NewElement(scene.ElementConfig{Key: string(key)}) }})
-	if err != nil {
-		t.Fatal(err)
-	}
+	window := base.NewVirtualWindow(base.VirtualConfig{Source: data, Build: func(key base.ItemKey) scene.Element { return scene.NewElement(scene.ElementConfig{Key: string(key)}) }})
+	var err error
 	if _, err = window.Resolve(20, 2, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -188,10 +178,7 @@ func TestVirtualWindowResolveIsAnOwnerPhase(t *testing.T) {
 }
 
 func TestMeasuredVirtualWindowCanMountWithoutAnItemBuilder(t *testing.T) {
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: virtualData(3)})
-	if err != nil {
-		t.Fatal(err)
-	}
+	window := base.NewVirtualWindow(base.VirtualConfig{Source: virtualData(3)})
 	current, err := window.Resolve(20, 3, 0)
 	if err != nil || len(current.Items) == 0 {
 		t.Fatalf("range=%+v error=%v", current, err)
@@ -213,12 +200,9 @@ func TestVirtualChildFocusSeesItsPublishedRange(t *testing.T) {
 	var window *base.VirtualWindow
 	var seen base.VirtualRange
 	var err error
-	window, err = base.NewVirtualWindow(base.VirtualConfig{Source: data, Build: func(key base.ItemKey) scene.Element {
+	window = base.NewVirtualWindow(base.VirtualConfig{Source: data, Build: func(key base.ItemKey) scene.Element {
 		return scene.NewElement(scene.ElementConfig{Key: string(key), Focusable: func() bool { seen = window.Snapshot(); return true }})
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	root, err := scene.NewRoot(scene.RootConfig{Element: window.Element()})
 	if err != nil {
 		t.Fatal(err)
@@ -236,10 +220,7 @@ func TestVirtualChildFocusSeesItsPublishedRange(t *testing.T) {
 func TestVirtualRefinementPreservesTheRequestedViewport(t *testing.T) {
 	data := virtualData(1)
 	data.heights = []int{7}
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data})
-	if err != nil {
-		t.Fatal(err)
-	}
+	window := base.NewVirtualWindow(base.VirtualConfig{Source: data})
 	result, err := window.Resolve(20, 2, 100)
 	if err != nil {
 		t.Fatal(err)
@@ -256,10 +237,7 @@ func TestVirtualRefinementPreservesTheRequestedViewport(t *testing.T) {
 	}
 	data = virtualData(3)
 	data.heights = []int{1, 0, 2}
-	window, err = base.NewVirtualWindow(base.VirtualConfig{Source: data})
-	if err != nil {
-		t.Fatal(err)
-	}
+	window = base.NewVirtualWindow(base.VirtualConfig{Source: data})
 	result, err = window.Resolve(20, 8, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -272,10 +250,8 @@ func TestVirtualRefinementPreservesTheRequestedViewport(t *testing.T) {
 func TestVirtualWindowKeepsMeasuredPrefixGeometryUntilItsSourceChanges(t *testing.T) {
 	data := virtualData(3)
 	data.heights = []int{10, 10, 10}
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	window := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 1})
+	var err error
 	if _, err = window.Resolve(20, 1, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -315,10 +291,7 @@ func TestVirtualWindowKeepsMeasuredPrefixGeometryUntilItsSourceChanges(t *testin
 func TestVirtualMeasurementBudgetFailurePreservesGeometry(t *testing.T) {
 	data := virtualData(3)
 	data.heights = []int{2, 2, 2}
-	window, err := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
+	window := base.NewVirtualWindow(base.VirtualConfig{Source: data, MaxMeasurementsPerResolve: 1})
 	before, err := window.Resolve(20, 1, 0)
 	if err != nil {
 		t.Fatal(err)

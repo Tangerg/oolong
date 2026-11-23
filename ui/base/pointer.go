@@ -3,9 +3,8 @@ package base
 import (
 	"image"
 
-	"github.com/Tangerg/oolong/ui/core/scene"
-
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/scene"
 )
 
 // Pointer owns hover, capture and completed clicks for one control. Committed

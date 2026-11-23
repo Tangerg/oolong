@@ -127,7 +127,7 @@ func TestFailureDistinguishesPendingFromUnknownPartial(t *testing.T) {
 		t.Fatal(err)
 	}
 	cause := errors.New("short transport write")
-	p.Fail(cause, true)
+	p.Close(cause)
 	if first.Snapshot().State != publication.UnknownPartial || second.Snapshot().State != publication.Failed {
 		t.Fatalf("failure states: %+v %+v", first.Snapshot(), second.Snapshot())
 	}
@@ -325,7 +325,7 @@ func TestInvalidBatchCannotAdvanceReceiptsOrCapacity(t *testing.T) {
 func TestKnownFailureRefusesBeforeContentCallbacksAndPreservesCause(t *testing.T) {
 	p := newPublisher(t, publication.Config{})
 	cause := errors.New("writer failed")
-	p.Fail(cause, true)
+	p.Close(cause)
 	if _, err := p.TryPublish(&panicBody{}); !errors.Is(err, cause) || !errors.Is(err, publication.ErrClosed) {
 		t.Fatalf("refusal lost cause=%v", err)
 	}
@@ -340,7 +340,7 @@ func TestClosedRefusalsKeepTheTransitionIdentity(t *testing.T) {
 		close func(*publication.Publisher, error)
 	}{
 		{name: "admission", close: (*publication.Publisher).CloseAdmission},
-		{name: "failure", close: func(p *publication.Publisher, err error) { p.Fail(err, false) }},
+		{name: "failure", close: func(p *publication.Publisher, err error) { p.Close(err) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := newPublisher(t, publication.Config{})

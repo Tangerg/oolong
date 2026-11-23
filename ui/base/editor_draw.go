@@ -10,13 +10,13 @@ import (
 func (e *Editor) HeightForWidth(width int) int {
 	width = e.textWidth(width)
 	if e.oneLine() {
-		return 1 + feedbackRows(e.PasteError())
+		return 1 + feedbackRows(e.ClipboardError())
 	}
 	rows := len(e.rows(width))
 	if e.maxRows > 0 {
 		rows = min(rows, e.maxRows)
 	}
-	return layout.Sum(rows, feedbackRows(e.PasteError()))
+	return layout.Sum(rows, feedbackRows(e.ClipboardError()))
 }
 
 func (e *Editor) Draw(frame scene.Frame) {
@@ -32,7 +32,7 @@ func (e *Editor) Draw(frame scene.Frame) {
 // It panics unless the editor is mounted in the frame's scene outside read-only projection.
 func (e *Editor) DrawWith(frame scene.Frame, look Look) {
 	requireProjection(e.element, frame)
-	frame = feedbackFrame(frame, e.PasteError(), look)
+	frame = feedbackFrame(frame, e.ClipboardError(), look)
 	presented := &e.presentation
 	if e.oneLine() {
 		e.lineView().draw(frame, look, presented)
@@ -179,7 +179,7 @@ func (e *Editor) lineView() editorLineView {
 	return editorLineView{
 		editorProjectionKey: e.projectionKey(),
 		value:               e.Text(), placeholder: e.placeholder,
-		cursorByte: e.byteOffset, anchorByte: e.anchor.Byte, selecting: e.selection != editorSelectionNone,
+		cursorByte: e.caret.Byte, anchorByte: e.anchor.Byte, selecting: e.selection != editorSelectionNone,
 		focused: e.element.Focused(), left: e.geometry.read(&e.presentation).left,
 		gutter: e.gutter, cursorStyle: e.cursorStyle,
 	}

@@ -10,13 +10,13 @@ func TestEditSessionResetRegistersOnlyRealViews(t *testing.T) {
 	var session EditSession
 	for _, value := range []string{"first\r\nsecond", "replacement", "replacement"} {
 		session.Reset(value)
-		if len(session.views) != 0 {
-			t.Fatalf("reset registered %d views without an editor", len(session.views))
+		if live := session.views.Live(); len(live) != 0 {
+			t.Fatalf("reset registered %d views without an editor", len(live))
 		}
 	}
 	view := NewEditor(EditorConfig{Session: &session})
 	session.Reset("next")
-	if len(session.views) != 1 || session.views[0].Value() != view {
+	if live := session.views.Live(); len(live) != 1 || live[0] != view {
 		t.Fatal("reset changed the set of document views")
 	}
 	view.Undo()

@@ -137,7 +137,7 @@ func Start(ctx context.Context, cfg Config, name string, args ...string) (*Sessi
 	s := &Session{
 		primary:    primary,
 		process:    cmd.Process,
-		transcript: newTranscript(),
+		transcript: newTranscript(size),
 		waitDone:   make(chan struct{}),
 		release:    make(chan struct{}),
 		reapDone:   make(chan struct{}),
@@ -211,9 +211,14 @@ func (s *Session) Transcript() *Transcript { return s.transcript }
 func (s *Session) Write(p []byte) (int, error) { return s.primary.Write(p) }
 
 // Resize changes the PTY geometry. The kernel notifies the current foreground
-// process group when the size changes, even after the original child exits.
+// process group when the size changes, even after the original child exits. From
+// then on [Transcript.Screen] reads the output laid out for the new size.
 func (s *Session) Resize(size Size) error {
-	return setSize(s.primary, size)
+	if err := setSize(s.primary, size); err != nil {
+		return err
+	}
+	s.transcript.resized(size)
+	return nil
 }
 
 // Wait observes exit without reaping: Close must still release the child identity.

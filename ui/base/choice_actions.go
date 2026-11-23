@@ -28,20 +28,17 @@ func (m *MultiSelect[T]) setTakenAction() scene.ActionBinding {
 		Availability: func(values []T) scene.Availability {
 			indices, complete := m.indices(m.list.items, values)
 			if !complete {
-				return scene.Availability{Disabled: true, Reason: "value is not available"}
+				return scene.Unavailable(unavailableValue)
 			}
 			if !m.admits(len(indices)) {
-				return scene.Availability{Disabled: true, Reason: "selection exceeds the choice limit"}
+				return scene.Unavailable("selection exceeds the choice limit")
 			}
 			return scene.Availability{}
 		},
 		Run: func(_ context.Context, values []T) (scene.ActionResult[[]T], error) {
 			before := m.Revision()
 			m.SetTaken(values)
-			state := scene.Unchanged
-			if m.Revision() != before {
-				state = scene.Applied
-			}
+			state := scene.AppliedIf(m.Revision() != before)
 			return scene.ActionResult[[]T]{State: state, Value: m.Taken()}, nil
 		},
 	}).Binding()
@@ -53,10 +50,7 @@ func (f *Filter[T]) patternAction() scene.ActionBinding {
 		Run: func(_ context.Context, pattern string) (scene.ActionResult[string], error) {
 			before := f.list.contentRevision
 			f.SetPattern(pattern)
-			state := scene.Unchanged
-			if f.list.contentRevision != before {
-				state = scene.Applied
-			}
+			state := scene.AppliedIf(f.list.contentRevision != before)
 			return scene.ActionResult[string]{State: state, Value: f.Pattern()}, nil
 		},
 	}).Binding()
@@ -70,20 +64,17 @@ func (t *Tree[T]) branchAction(open bool) scene.ActionBinding {
 	return scene.NewAction(scene.ActionConfig[CollectionIndex, bool]{
 		ID: id, Label: label,
 		Availability: func(address CollectionIndex) scene.Availability {
-			if availability := t.list.indexAvailability(address); availability.Disabled {
+			if availability := t.list.indexAvailability(address); availability.Disabled() {
 				return availability
 			}
 			if len(t.list.items[address.Index].node.children) == 0 {
-				return scene.Availability{Disabled: true, Reason: "item is not a branch"}
+				return scene.Unavailable("item is not a branch")
 			}
 			return scene.Availability{}
 		},
 		Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[bool], error) {
 			node := t.list.items[address.Index].node
-			state := scene.Unchanged
-			if t.set(address.Index, open) {
-				state = scene.Applied
-			}
+			state := scene.AppliedIf(t.set(address.Index, open))
 			return scene.ActionResult[bool]{State: state, Value: node.open}, nil
 		},
 	}).Binding()

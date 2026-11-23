@@ -92,16 +92,10 @@ type Image struct {
 
 // PNG detaches its bytes so image consumers can retain or modify their copy independently.
 func (i *Image) PNG() []byte {
-	if i == nil {
-		return nil
-	}
 	return slices.Clone(i.data)
 }
 
 func (i *Image) Size() image.Point {
-	if i == nil {
-		return image.Point{}
-	}
 	return i.size
 }
 
@@ -189,7 +183,7 @@ func (c *Config) validate() error {
 // preserve cancellation and process identities. Accepted input and output are
 // bounded; containing browser peak memory or disk usage requires an external sandbox.
 func (r *Renderer) Render(ctx context.Context, source string) (*Image, error) {
-	if r == nil || r.slot == nil {
+	if r.slot == nil {
 		return nil, errors.New("mermaid: uninitialized renderer")
 	}
 	if len(source) > r.cfg.MaxSourceBytes {

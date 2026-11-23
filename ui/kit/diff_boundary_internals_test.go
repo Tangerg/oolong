@@ -34,7 +34,7 @@ func TestDiffRejectsTheWholeCandidateBeforeReplacingItsSnapshot(t *testing.T) {
 	if !reflect.DeepEqual(view.Hunks(), before) {
 		t.Fatalf("rejected hunks replaced the previous snapshot: %+v", view.Hunks())
 	}
-	if !reflect.DeepEqual(view.wrapped, wrapped) || len(view.wrapped.rows) == 0 || &view.wrapped.rows[0] != &measured[0] {
+	if !reflect.DeepEqual(view.wrapped, wrapped) || len(view.wrapped.value) == 0 || &view.wrapped.value[0] != &measured[0] {
 		t.Fatal("rejected hunks cleared or replaced the measured layout")
 	}
 	if !reflect.DeepEqual(copied.Hunks(), before) || !reflect.DeepEqual(copied.wrapped, wrapped) {

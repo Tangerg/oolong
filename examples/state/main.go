@@ -66,19 +66,13 @@ func fields(values *answers, glyphs kit.Glyphs) (*stateForm, *base.Text) {
 	}})
 	form := &stateForm{theme: kit.NewThemeOwner(kit.Theme{}), notifications: newNotificationSettings()}
 	form.confirm = base.NewConfirm(base.ConfirmConfig{Label: "Live — domain-owned notifications", Yes: "on", No: "off", Control: form.notifications})
-	form.view = kit.NewForm(kit.FormConfig{
-		Scope: form.theme.Scope(), Glyphs: glyphs,
-		Title: "Who owns this text?", Gap: 1,
-		Fields: []base.Field{local, exact, normalized, guarded, form.confirm},
-		Keys:   base.DefaultFormKeys(), Hints: []keymap.Action{base.FocusNext, base.Submit, base.Cancel},
-		Submit: func(base.SubmissionID) (scene.ActionState, error) {
-			*values = answers{exact: exact.Text(), normalized: strings.ToUpper(normalized.Text()), guarded: guarded.Text()}
-			if form.done != nil {
-				form.done()
-			}
-			return scene.Applied, nil
-		},
-	})
+	form.view = kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Title: "Who owns this text?", Gap: 1, Fields: []base.Field{local, exact, normalized, guarded, form.confirm}, Keys: base.DefaultFormKeys(), Submit: func(base.SubmissionID) (scene.ActionState, error) {
+		*values = answers{exact: exact.Text(), normalized: strings.ToUpper(normalized.Text()), guarded: guarded.Text()}
+		if form.done != nil {
+			form.done()
+		}
+		return scene.Applied, nil
+	}}, Scope: form.theme.Scope(), Glyphs: glyphs, Hints: []keymap.Action{base.FocusNext, base.Submit, base.Cancel}})
 	accent := grid.Style{Attr: grid.Bold}
 	buttonScope := form.theme.Scope().With(kit.ThemeOverride{Accent: &accent})
 	reset := kit.NewButton(kit.ButtonConfig{
@@ -86,7 +80,7 @@ func fields(values *answers, glyphs kit.Glyphs) (*stateForm, *base.Text) {
 			Key: "reset-domain", Label: "Reset domain",
 			Availability: func() scene.Availability {
 				if !form.notifications.Snapshot().Value {
-					return scene.Availability{Disabled: true, Reason: "notifications are already off"}
+					return scene.Unavailable("notifications are already off")
 				}
 				return scene.Availability{}
 			},

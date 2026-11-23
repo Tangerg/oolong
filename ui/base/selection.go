@@ -3,7 +3,6 @@ package base
 import (
 	"errors"
 	"image"
-	"strings"
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -48,6 +47,9 @@ type Selection struct {
 	clickProjection selectionClickProjection
 	anchor, extent  TextPoint
 	phase           selectionPhase
+	// pressed is the cell a pointer drag began on. A release that never left it
+	// was a click, which selects nothing.
+	pressed TextRange
 }
 
 // A repaint preserves a click run; reflow or scrolling can give the same screen
@@ -91,6 +93,31 @@ func (s *Selection) Extend(p TextPoint) {
 }
 
 func (s *Selection) Anchor() TextPoint { return s.anchor }
+
+// pressAt starts a pointer drag on the pressed cell.
+func (s *Selection) pressAt(cell TextRange) bool {
+	changed := s.setRange(cell, true)
+	s.pressed = cell
+	return changed
+}
+
+// release ends a pointer drag and reports whether one was in progress. A drag that
+// never left the cell it began on was a click, so it leaves nothing selected rather
+// than that one cell; the click run survives, so a second press can still select
+// the word.
+func (s *Selection) release() bool {
+	requireMutable(s.element)
+	if s.phase != selectionDragging {
+		return false
+	}
+	if s.anchor == s.pressed.Start && s.extent == s.pressed.End {
+		s.anchor, s.extent, s.phase = TextPoint{}, TextPoint{}, selectionNone
+	} else {
+		s.phase = selectionHeld
+	}
+	s.element.Invalidate()
+	return true
+}
 
 // Done ends dragging while retaining the selected logical range.
 func (s *Selection) Done() {
@@ -216,26 +243,19 @@ func (s *Selection) Text(layout TranscriptLayout) (string, error) {
 	if !layout.valid(first) || !layout.valid(last) {
 		return "", ErrStaleSelection
 	}
-	var out strings.Builder
-	wrote := false
-	for _, block := range layout.blocks {
-		if block.id < first.Content || block.id > last.Content || block.mapping == nil {
-			continue
+	return layout.logicalText(func(block placed) (text.Range, bool) {
+		if block.id < first.Content || block.id > last.Content {
+			return text.Range{}, false
 		}
-		from, to := block.mapping.start(), block.mapping.end()
+		span := block.whole()
 		if block.id == first.Content {
-			from = first.Position
+			span.Start = first.Position
 		}
 		if block.id == last.Content {
-			to = last.Position
+			span.End = last.Position
 		}
-		if wrote {
-			out.WriteByte('\n')
-		}
-		wrote = true
-		out.WriteString(block.mapping.logical.Text(text.Range{Start: from, End: to}))
-	}
-	return out.String(), nil
+		return span, true
+	}), nil
 }
 
 // Rects projects the logical range into cells for this layout and refuses stale interpretations.
@@ -274,6 +294,12 @@ const DefaultMultiClick = 400 * time.Millisecond
 // cell, because a hand on a trackpad does not hold a pixel and a gesture that broke
 // because the pointer drifted one column would feel like the double-click had failed.
 const multiClickSlack = 1
+
+// The presses of one run that select a word and a line instead of a point.
+const (
+	wordClicks = 2
+	lineClicks = 3
+)
 
 // Clicks counts a run of presses in the same place as one gesture: one for a single
 // click, two for a double, three for a triple.

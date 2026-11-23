@@ -50,7 +50,7 @@ func TestTranscriptCaptureRejectsEveryOwnedReadingMutation(t *testing.T) {
 					case "scroll":
 						model.Scroll().ToBottom()
 					case "wheel":
-						model.Scroll().Wheel(input.Wheel{})
+						model.Scroll().SetWheel(input.Wheel{})
 					case "selection":
 						model.Selection().Clear()
 					case "click interval":
@@ -264,9 +264,11 @@ func TestTranscriptRetirementSurvivesCaptureAbnormalExit(t *testing.T) {
 
 func TestTranscriptRejectsATypedNilPublisher(t *testing.T) {
 	var publisher *publication.Publisher
-	if _, err := base.NewTranscript(base.TranscriptConfig{Retention: base.PublishCompleted, Publisher: publisher}); err == nil {
+	cfg := base.TranscriptConfig{Retention: base.PublishCompleted, Publisher: publisher}
+	if err := cfg.Validate(); err == nil {
 		t.Fatal("accepted a missing publication dependency")
 	}
+	mustPanic(t, func() { base.NewTranscript(cfg) })
 }
 
 func TestTranscriptPublicationFailureWakesSceneWithoutChangingContent(t *testing.T) {
@@ -290,7 +292,7 @@ func TestTranscriptPublicationFailureWakesSceneWithoutChangingContent(t *testing
 	changed := root.Changes()
 	before := root.Progress().ModelRevision
 	cause := errors.New("terminal output failed")
-	publisher.Fail(cause, false)
+	publisher.Close(cause)
 	publisher.FlushNotifications()
 	if !errors.Is(item.Err(), cause) {
 		t.Fatalf("publication error not retained: %v", item.Err())
@@ -399,7 +401,7 @@ func TestTranscriptDoesNotRepublishUncomparableClosedRefusal(t *testing.T) {
 		close func(*publication.Publisher, error)
 	}{
 		{name: "admission", close: (*publication.Publisher).CloseAdmission},
-		{name: "failure", close: func(p *publication.Publisher, err error) { p.Fail(err, false) }},
+		{name: "failure", close: func(p *publication.Publisher, err error) { p.Close(err) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			publisher, err := publication.New(publication.Config{Width: 20})

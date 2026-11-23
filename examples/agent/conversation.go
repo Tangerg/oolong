@@ -44,6 +44,7 @@ type conversationConfig struct {
 	Scope     *program.Scope
 	Theme     kit.Theme
 	Glyphs    kit.Glyphs
+	Locale    string
 	Wheel     input.Wheel
 	Publisher base.TranscriptPublisher
 }
@@ -51,7 +52,7 @@ type conversationConfig struct {
 func newConversation(cfg conversationConfig) (*conversation, error) {
 	c := &conversation{
 		theme: cfg.Theme, glyphs: cfg.Glyphs, wheel: cfg.Wheel,
-		render: markdown.NewRenderer(markdown.RendererConfig{Look: agentMarkdownLook(cfg.Theme, cfg.Glyphs)}),
+		render: markdown.NewRenderer(markdown.RendererConfig{Look: agentMarkdownLook(cfg.Theme, cfg.Locale)}),
 	}
 	c.prepare = docprep.New(docprep.Config{Runtime: cfg.Runtime, Scope: cfg.Scope, Failed: func(err error) { c.prepareErr = errors.Join(c.prepareErr, err) }})
 	if cfg.Publisher != nil {
@@ -76,18 +77,12 @@ func (c *conversation) resetView() error {
 	if c.publisher != nil {
 		retention, keep = base.PublishCompleted, retainedCompletedItems
 	}
-	view, err := kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: c.publisher, Retention: retention, PublishPartial: true, KeepCompleted: keep}, Theme: c.theme, Glyphs: c.glyphs})
-	if err != nil {
-		return err
-	}
+	view := kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: c.publisher, Retention: retention, PublishPartial: true, KeepCompleted: keep}, Theme: c.theme, Glyphs: c.glyphs})
 	transcript := view.Controller()
-	transcript.Scroll().Wheel(c.wheel)
+	transcript.Scroll().SetWheel(c.wheel)
 	transcript.Sticky().SetMinHeight(stickyMinRows)
 	transcript.Sticky().SetGap(stickyGapRows)
-	if err := view.Element().SetFocusable(func() bool { return false }); err != nil {
-		transcript.Close()
-		return err
-	}
+	view.Element().SetFocusable(nil)
 	if err := c.group.Set(scene.Item{Element: view.Element()}); err != nil {
 		transcript.Close()
 		return err
@@ -103,7 +98,7 @@ func (c *conversation) User(ctx context.Context, prompt string) error {
 		return err
 	}
 	c.prepareErr = nil
-	item, err := c.transcript.Add(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: prompt})
+	item, err := c.transcript.Add(&kit.Entry{Theme: c.theme, Label: "you", LabelStyle: c.theme.Accent, Body: kit.NewParagraph(prompt, c.theme.Text)})
 	if err == nil && item.State() != base.ContentRetired {
 		c.transcript.Sticky().Add(item.ID())
 	}
@@ -198,8 +193,8 @@ func (c *conversation) Close() {
 	c.transcript.Close()
 }
 
-func agentMarkdownLook(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
-	look := markdownlook.New(theme, glyphs)
+func agentMarkdownLook(theme kit.Theme, locale string) markdown.Look {
+	look := markdownlook.New(theme, locale)
 	look.Struck, look.Block = theme.Muted, theme.Sunken
 	return look
 }

@@ -16,13 +16,17 @@ Base 提供更换外观后仍可复用的行为：编辑、选择、列表、表
 
 字段控制器拥有值；表单输出与语义值是投影。验证和提交使用类型化操作并返回显式结果，不通过回调读取另一份可写副本。`EditSession` 拥有文本与修订映射；编辑器组合文档并拥有视图交互。
 
-默认字段在语义 `Description` 中提供当前验证原因，同时标记 `StateInvalid`。Text 与 Editor 从 `PasteError` 投影键盘粘贴失败，Confirm 从 `ChangeError` 投影领域失败。这些操作错误与 `Field.Error` 分别归属各自所有者，不会成为验证失败。默认呈现预留一行不可编辑的反馈，同时发生的原因在该行合并显示，语义观察保留完整文本。Editor 的 `MaxRows` 只限制文本行，反馈另占一行。
+默认字段在语义 `Description` 中提供当前验证原因，同时标记 `StateInvalid`。Text 与 Editor 从 `ClipboardError` 投影键盘复制、剪切与粘贴失败，Confirm 从 `ChangeError` 投影领域失败。这些操作错误与 `Field.Error` 分别归属各自所有者，不会成为验证失败。默认呈现预留一行不可编辑的反馈，同时发生的原因在该行合并显示，语义观察保留完整文本。Editor 的 `MaxRows` 只限制文本行，反馈另占一行。
 
 `SpokenField.Reply` 依次解析、应用并验证答案。选项与确认标签使用 Unicode 大小写折叠进行完整匹配与无歧义前缀匹配；完整标签优先于较长标签的前缀。解析或接纳阶段的拒绝保留原答案；应用后的检查失败会保留已接受的草稿，便于修正。错误不代表完全没有副作用：领域控制的 Confirm 可以已应用或启动变更，同时返回错误。`ErrReplyUnavailable` 和 `ErrValidationSuperseded` 要求口头适配器停止；普通解析与验证失败允许重新回答。字段不会回滚外部领域效果。
 
-初始设置放入组件的 `Config`。后续通过 `SetLabel`、`SetRows`、`SetLook`、`SetKeys` 等命令修改控制器，并通过对应的 `Label()`、`Rows()`、`Look()`、`Keys()` 读取。命令检查场景的变更阶段，并使对应元素失效，因此标签、几何与代理观察不会绕过模型修订而改变。呈现期间或帧候选尚未结算时，修改会在设置改变前被拒绝。复合控制器将共享设置交给已有所有者：Text 使用内部 Editor 的编辑设置，Table 使用内部 List 的行绘制、循环导航与绑定。
+初始设置放入组件的 `Config`。后续通过 `SetLabel`、`SetRows`、`SetLook`、`SetKeys` 等命令修改控制器，并通过对应的 `Label()`、`Rows()`、`Look()`、`Keys()` 读取。命令检查场景的变更阶段，并使对应元素失效，因此标签、几何与代理观察不会绕过模型修订而改变。呈现期间或帧候选尚未结算时，修改会在设置改变前被拒绝。复合控制器将共享设置交给已有所有者：Text 使用内部 Editor 的编辑设置。Table 与 Settings 和 List 共用同一组行，因此直接提供列表 API（`Selected`、`Select`、`Hit`、`Subscribe`、`SetRow`、`SetKeys`、`SetWrap` 等）；Table 只替换 `SetItems`，替换时重新应用排序。
 
-使用 `NewCompletion(CompletionConfig)`、`NewList(ListConfig[T])`、`NewSettings(SettingsConfig[T])`、`NewSticky(StickyConfig)` 提供初始设置，替代带字段的控制器字面量；零值控制器仍可使用。`Completion.CurrentToken()` 在只读借用中查询配置的 token 来源，返回 token 及其是否可用；`SetCurrentToken` 替换该来源。
+使同一界面上叠加的多个浮层（例如相互打开的对话框）放进 `base.Layers`：`Show` 把浮层放到最上层或将其提升，最上层的模态浮层持有键盘焦点，直到它被关闭。
+
+在用户浏览期间会替换条目的集合可设置 `ListConfig.Same` 或 `FilterConfig.Same`，例如 `base.Equal[string]` 或按 ID 比较；`SetItems` 之后光标停留在同一条目而不是同一下标。Filter 换用新模式时光标仍回到顶部，因为此时的行已是另一批行。
+
+用 `NewCompletion(CompletionConfig)`、`NewList(ListConfig[T])`、`NewSettings(SettingsConfig[T])`、`NewTree(TreeConfig[T])`、`NewSticky(StickyConfig)` 提供初始设置，替代带字段的控制器字面量。每个持有按键映射的控制器都提供 `KeysFor(action)`，从它实际处理按键所用的映射（包括默认映射）读取绑定，帮助行据此显示。它的 `Do(action)` 报告是否消费了该动作，而不是工作是否成功；读取输入的控制器通过 `Handle(event)` 接收焦点在别处的组合转发来的输入，使用同一份映射：决策旁边的 viewport 通过转发给它的翻页键滚动。零值控制器仍可使用，nil 控制器指针属于编程错误，调用其方法会 panic。构造函数遇到拒绝的配置时 panic；来自程序外部的设置应先用 `TranscriptConfig.Validate` 与 `VirtualConfig.Validate` 校验。`Completion.CurrentToken()` 在只读借用中查询配置的 token 来源，返回 token 及其是否可用；`SetCurrentToken` 替换该来源。
 
 `Group` 和 `Overlay` 始终是 scene 机制。对话框焦点策略、标签激活和列表选择复用这些机制，不另建挂载或路由树。更换外观保留行为部件的元素身份与动作绑定。
 
@@ -37,6 +41,7 @@ List、Filter、Select、MultiSelect、Tree、Table、Settings 和 Completion �
 | List、Filter、MultiSelect、Tree、Table、Settings、Completion | `scene.ActionSelect` | `CollectionIndex` | `CollectionSelection[R]`，其中 `R` 是页面条目类型 |
 | Select | `scene.ActionSelect` | `T` | 已选值 `T` |
 | Completion | `scene.ActionActivate` | `CollectionIndex` | 已接受的 `Candidate` |
+| List、Filter、Table | `scene.ActionActivate` | `CollectionIndex` | `struct{}`；仅在配置了 `Activate` 回调时可用，光标先移到该条目再执行回调 |
 | Filter | `scene.ActionFill` | 模式 `string` | 当前模式 |
 | MultiSelect | `scene.ActionSetValue` | 已选值 `[]T` | 按选项顺序返回的实际已选值 |
 | Tree | `scene.ActionExpand`、`scene.ActionCollapse` | `CollectionIndex` | 当前分支展开状态 |
@@ -63,7 +68,7 @@ UI 反馈属于最近一次 UI 请求。回调同步发起新请求后，较早�
 
 Form 即使同时收到错误，也保留回调报告的 `Applied` 或 `Started` 结果及提交 ID。`Started` 继续等待结算，其伴随错误可通过 `Submission` 和 `Error` 查询。显式取代旧提交时返回 `ErrSubmissionStale`，但不抹掉旧回调已经接受的效果。
 
-`Form.Set` 在改变字段关系前校验完整替换。替换成功会撤销表单旧的延迟快捷键和未完成键序列，即使当前焦点字段仍然挂载。被拒绝的替换保留原有关系与键序列。发起提交会先发布新的空闲尝试和已清除的反馈，再进入外部验证。即使验证异常退出，观察者仍能看到旧尝试已经结束；随后返回的验证错误另行发布自己的反馈。待处理 ID 一旦被撤销，即使发布或 resolver 清理发生 panic 或调用 `Goexit`，已配置的 `Cancel` 回调仍会被调用。取消回调看到替换后的状态，也不能再结算旧 ID。取消回调自身的 panic 正常向外传播。
+没有字段的表单（例如只询问是否继续的提示）自己获得键盘焦点，让提交与取消键能到达它。`Form.Set` 在改变字段关系前校验完整替换。替换成功会撤销表单旧的延迟快捷键和未完成键序列，即使当前焦点字段仍然挂载。被拒绝的替换保留原有关系与键序列。发起提交会先发布新的空闲尝试和已清除的反馈，再进入外部验证。即使验证异常退出，观察者仍能看到旧尝试已经结束；随后返回的验证错误另行发布自己的反馈。待处理 ID 一旦被撤销，即使发布或 resolver 清理发生 panic 或调用 `Goexit`，已配置的 `Cancel` 回调仍会被调用。取消回调看到替换后的状态，也不能再结算旧 ID。取消回调自身的 panic 正常向外传播。
 
 按键序列通过 `Matcher.Handle` 的生命周期谓词捕获 `scene.KeyboardLease`。键盘路由内的接收者在焦点移动于其后代之间时保留凭证；显式转交给路由外接收者的输入（例如补全弹层）借用当前输入起点的生命周期。没有焦点时，活动模态层或 root 内容提供这个起点。离开作用域、卸载或关闭 root 会永久撤销旧凭证，包括已排队的 resolver；焦点回来不会恢复旧输入。未挂载控件可以接收新的本地输入，直到下次挂载。独立 matcher 可传 nil，由直接调用方管理生命周期。
 
@@ -78,6 +83,10 @@ Form 即使同时收到错误，也保留回调报告的 `Applied` 或 `Started`
 ## 富内容行为
 
 `Transcript.AddDocument` 只连接一次 `StreamDocument`。此后的变更、EOF 准备、部分结果策略、发布准入、退休和订阅清理，由所属对象推进。调用方无需重复 Feed/Changed/Finish/Commit 协议。
+
+被动内容通过 Transcript 修改，而不是绕过它。`Transcript.Replace` 在同一身份下替换条目内容：展开的详情或到达的结果保持原位，阅读位置也保持不变，只有触及该条目的选区会结束。由所有者而非发布者决定保留哪些内容时，`Transcript.DiscardBefore` 释放已经稳定的内容；`Transcript.RevealBlock` 按条目当前高度把它滚入视野。离开末尾阅读时，上方任何内容变化都不会移动正在阅读的文字。为显示变化而重建 Transcript 会一次性丢掉这些保证。
+
+Transcript 还维护一个当前条目，即复制等命令所作用的条目。在它的按键映射中绑定 `SelectPrev`、`SelectNext`、`SelectFirst` 与 `SelectLast` 即可逐条移动，并把落点滚入视野；没有当前条目时，移动落在读者看得到的位置：`SelectPrev` 落在视野中最后一个条目，`SelectNext` 落在第一个。按下某个条目会让它成为当前条目，`Current` 与 `SetCurrent` 直接读取和移动它。保留策略不会让它指向已退休的条目：当前条目退休时，最旧的保留条目成为当前条目。绘制槽用 `TranscriptLayout.Extent` 给出的行范围标记它，`TranscriptLayout.BlockText` 按选中整条时的复制规则读取它的文本。
 
 `Transcript.Close` 释放自己持有的已提交几何、呈现快照、内容条目与订阅，即使后续不再绘制也完成释放。调用方此前保留的布局继续保持不可变，并按自己的生命周期保留内容。
 

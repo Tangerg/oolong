@@ -70,22 +70,20 @@ func newDashboard(runtime *program.Runtime) (*dashboard, error) {
 	d.work = newQueue(theme, glyphs)
 	d.watch = newActivity(theme, glyphs, d.work)
 	d.prefs = kit.NewSettings(kit.SettingsConfig[preference]{
-		Theme: theme, Items: []preference{ratePreference, motionPreference},
-		Label: func(item preference) string { return string(item) },
-		Value: d.preferenceValue, Change: d.changePreference,
+		Behavior: base.SettingsConfig[preference]{Items: []preference{ratePreference, motionPreference}, Change: d.changePreference},
+		Theme:    theme,
+		Label:    func(item preference) string { return string(item) },
+		Value:    d.preferenceValue,
 	})
 
-	d.strip = kit.NewTabs(kit.TabsConfig{
-		Theme: theme, Glyphs: glyphs, Keys: keys,
-		Items: []base.Tab{
-			{Title: "tasks", Content: d.work.Element()},
-			{Title: "activity", Content: d.watch.Element()},
-			{Title: "settings", Content: d.prefs.Element()},
-		},
-	})
+	d.strip = kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Keys: keys, Items: []base.Tab{
+		{Title: "tasks", Content: d.work.Element()},
+		{Title: "activity", Content: d.watch.Element()},
+		{Title: "settings", Content: d.prefs.Element()},
+	}}, Theme: theme, Glyphs: glyphs})
 	d.tabs = d.strip.Controller()
 	footer := scene.NewElement(scene.ElementConfig{Paint: d.drawHelp})
-	d.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{Key: "dashboard", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: d.Handle(event.Input())} }}, Items: []scene.Item{
+	d.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{Key: "dashboard", Preview: func(event scene.Event) scene.EventResult { return event.Result(d.Handle(event.Input())) }}, Items: []scene.Item{
 		{Element: d.strip.Element(), Size: layout.Flex(1)}, {Element: footer, Size: layout.Fixed(1)},
 	}}).Element()
 	var err error
@@ -148,7 +146,7 @@ func (d *dashboard) drawHelp(frame scene.Frame) {
 		prefix = fmt.Sprintf("%c–%c pane  ", first, last)
 	}
 	x := frame.Text(0, 0, prefix, d.theme.Subtle)
-	kit.Help{Theme: d.theme, Keys: d.tabs.Keys(), Show: []keymap.Action{base.PrevTab, base.NextTab, quitDashboard}}.
+	kit.Help{Theme: d.theme, Keys: kit.KeysFunc(d.tabs.KeysFor), Show: []keymap.Action{base.PrevTab, base.NextTab, quitDashboard}}.
 		Draw(frame.View.Sub(grid.Area(x, 0, width-x, height)))
 }
 

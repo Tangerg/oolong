@@ -94,7 +94,7 @@ func TestABareNameNeedsConfirming(t *testing.T) {
 	}
 }
 
-// TestARelativePathIsConfirmedWhenThereIsAnythingToConfirmItWith, so an agent's own
+// TestARelativePathIsConfirmedWhenThereIsAnythingToConfirmItWith, so a program's
 // output does not underline a path from somebody else's machine.
 func TestARelativePathIsConfirmedWhenThereIsAnythingToConfirmItWith(t *testing.T) {
 	const in = "changed src/main.go and their/other.go"

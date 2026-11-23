@@ -242,7 +242,9 @@ func (p ResourcePlacement) SourceBounds() image.Rectangle {
 
 // Draw uses the transmission and placement identities to reconcile a region across frames.
 func (p ResourcePlacement) Draw(v grid.View, area image.Rectangle) {
-	id := uint64(p.resource.ID())<<32 | uint64(p.id)
+	// Both identities are 32-bit, so the pair packs into one region identity.
+	const placementBits = 32
+	id := uint64(p.resource.ID())<<placementBits | uint64(p.id)
 	v.Paint(area, id, p)
 }
 

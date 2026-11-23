@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"unsafe"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
 func TestTitleOwnsTheTextItRetainsAcrossHandover(t *testing.T) {
@@ -41,7 +43,7 @@ func TestConcurrentTitlesPublishInTheirRetainedOrder(t *testing.T) {
 		})
 	}
 	workers.Wait()
-	if len(written) != 100 || strings.Count(strings.Join(written, ""), titlePush) != 1 {
+	if len(written) != 100 || strings.Count(strings.Join(written, ""), ansi.PushTitle) != 1 {
 		t.Fatal("title stack pushed more than once")
 	}
 	if written[len(written)-1] != state.set {
@@ -64,7 +66,7 @@ func TestRefusedTitleCannotCreateOrReplaceRestorationState(t *testing.T) {
 	if err := state.to("refused replacement", 0, refuse); err == nil {
 		t.Error("refused operation reported success")
 	}
-	if got := state.enter(); got != titlePush+titleCommand("accepted") {
+	if got := state.enter(); got != ansi.PushTitle+titleCommand("accepted") {
 		t.Fatalf("restored an unaccepted title: %q", got)
 	}
 }
@@ -83,7 +85,7 @@ func TestTitleAdmissionReservesEnoughRoomForReacquisition(t *testing.T) {
 	if err := terminal.SetTitle(strings.Repeat("x", 64<<10)); !errors.Is(err, ErrPayloadTooLarge) {
 		t.Fatalf("oversize title = %v; must refuse before accepting a restoration obligation", err)
 	}
-	if got := terminal.title.enter(); got != titlePush+titleCommand("accepted") {
+	if got := terminal.title.enter(); got != ansi.PushTitle+titleCommand("accepted") {
 		t.Fatalf("refusal changed restoration state (%d bytes)", len(got))
 	}
 }

@@ -5,13 +5,12 @@ package scene
 
 import (
 	"errors"
-	"fmt"
-	"image"
-	"math"
 	"slices"
 	"strings"
 
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/internal/counter"
 )
 
 var (
@@ -69,30 +68,31 @@ type Element struct{ node *node }
 
 // ElementConfig composes independent painting, input, semantics and lifecycle capabilities. Projection callbacks must be pure.
 type ElementConfig struct {
-	Key          string
-	Part         PartID
-	Measure      func(layout.Axis, int) int
-	Paint        func(Frame)
-	Preview      func(Event) EventResult
-	Handle       func(Event) EventResult
-	Focusable    func() bool
+	Key     string
+	Part    PartID
+	Measure layout.MeasureFunc
+	Paint   func(Frame)
+	// Shortcut sees every key bound for anything inside this element first, root
+	// first, before any Preview. Unlike Preview and Handle, it still runs while a
+	// modal layer inside this element holds the keyboard: an element that contains a
+	// layer is not covered by it. It is for commands that belong to the whole
+	// composition, such as quitting or cancelling work, which must keep working
+	// behind a dialog.
+	Shortcut  func(Event) EventResult
+	Preview   func(Event) EventResult
+	Handle    func(Event) EventResult
+	Focusable func() bool
+	// Autofocus marks where keyboard focus starts when its layer settles focus
+	// with nothing focused: the first focusable element, in tree order, inside an
+	// autofocus element, ahead of every focusable element outside one. An editor
+	// below a scrolling log, or a form below the document it concerns, starts
+	// with the keys while what precedes it stays focusable.
+	Autofocus    bool
 	Enabled      func() bool
 	Semantics    func() Semantic
 	Actions      []ActionBinding
 	FocusChanged func(bool)
 	Detached     func()
-}
-
-// MeasureRows measures content that fills whatever width it is given and needs
-// height(width) rows for it. It has no intrinsic width, so a flow along the
-// horizontal axis leaves its size to the slot rather than to the content.
-func MeasureRows(height func(width int) int) func(layout.Axis, int) int {
-	return func(axis layout.Axis, width int) int {
-		if axis == layout.Down {
-			return height(width)
-		}
-		return 0
-	}
 }
 
 type node struct {
@@ -123,6 +123,20 @@ func NewElement(cfg ElementConfig) Element {
 	cfg.Part = PartID(strings.Clone(string(cfg.Part)))
 	cfg.Actions = slices.Clone(cfg.Actions)
 	return Element{node: &node{config: cfg}}
+}
+
+// Passive configures an element for passive content: it draws content and measures
+// its height for a width, and takes neither input nor focus. Callers add a Key or
+// semantics to the returned configuration before [NewElement]. It panics for absent
+// content, which would draw nothing and measure as nothing in silence.
+func Passive(content grid.Drawable) ElementConfig {
+	if grid.IsNilDrawable(content) {
+		panic("scene: passive element requires content")
+	}
+	return ElementConfig{
+		Measure: layout.MeasureRows(content.HeightForWidth),
+		Paint:   func(frame Frame) { content.Draw(frame.View) },
+	}
 }
 
 func (e Element) IsZero() bool { return e.node == nil }
@@ -211,10 +225,15 @@ func (l KeyboardLease) Valid() bool {
 	return slices.Contains(r.keyboardRoute(r.focus, r.modal()), l.scope)
 }
 
-// FocusNext lets a deferred key operation traverse only while its original
-// keyboard scope still owns input.
-func (l KeyboardLease) FocusNext(backward bool) bool {
-	return l.target.root != nil && l.Valid() && l.target.root.FocusNext(backward)
+// FocusNext lets a deferred key operation move focus forward only while its
+// original keyboard scope still owns input.
+func (l KeyboardLease) FocusNext() bool {
+	return l.target.root != nil && l.Valid() && l.target.root.FocusNext()
+}
+
+// FocusPrev is [KeyboardLease.FocusNext] in the other direction.
+func (l KeyboardLease) FocusPrev() bool {
+	return l.target.root != nil && l.Valid() && l.target.root.FocusPrev()
 }
 
 func (e Element) RequestFocusFirst() error {
@@ -359,47 +378,46 @@ func (e Element) detachedOwner() *node {
 
 // SetPaint fills an unmounted behavior part's visual slot. After mounting, its
 // painter is fixed; changing appearance is data consumed by that same painter.
-func (e Element) SetPaint(paint func(Frame)) error {
-	if err := e.configurable(); err != nil {
-		return err
-	}
-	e.node.config.Paint = paint
-	return nil
+// It panics for a zero or mounted element, or during presentation or observation.
+func (e Element) SetPaint(paint func(Frame)) {
+	e.configure().Paint = paint
 }
 
-// configurable is the one rule every configuration slot obeys: it can be filled
-// only on an unmounted element outside a read-only phase.
-func (e Element) configurable() error {
+// configure is the one rule every configuration slot obeys: it can be filled only
+// on an unmounted element outside a read-only phase. Filling a slot is assembly, so
+// a zero element, a mounted one or a slot filled during presentation is a program
+// error and panics with [ErrInvalid], [ErrMounted] or [ErrBusy].
+func (e Element) configure() *ElementConfig {
 	if e.node == nil {
-		return ErrInvalid
+		panic(ErrInvalid)
 	}
 	if err := e.CheckMutation(); err != nil {
-		return err
+		panic(err)
 	}
 	if e.node.root != nil {
-		return ErrMounted
+		panic(ErrMounted)
 	}
-	return nil
+	return &e.node.config
 }
 
-// SetMeasure fills the measurement slot before attachment. The callback must be a pure projection.
-func (e Element) SetMeasure(measure func(layout.Axis, int) int) error {
-	if err := e.configurable(); err != nil {
-		return err
-	}
-	e.node.config.Measure = measure
-	return nil
+// SetMeasure fills the measurement slot before attachment. The callback must be a
+// pure projection. It panics as [Element.SetPaint] does.
+func (e Element) SetMeasure(measure layout.MeasureFunc) {
+	e.configure().Measure = measure
+}
+
+// SetAutofocus marks the element as where focus starts in its layer, as
+// [ElementConfig.Autofocus] does. It panics as [Element.SetPaint] does.
+func (e Element) SetAutofocus(autofocus bool) {
+	e.configure().Autofocus = autofocus
 }
 
 // SetFocusable configures keyboard eligibility before attachment. Composite
 // controls may keep keyboard focus on an input while a list remains pointer
-// interactive. The predicate must be pure; the scene still owns actual focus.
-func (e Element) SetFocusable(focusable func() bool) error {
-	if err := e.configurable(); err != nil {
-		return err
-	}
-	e.node.config.Focusable = focusable
-	return nil
+// interactive; nil makes the element never focusable. The predicate must be pure;
+// the scene still owns actual focus. It panics as [Element.SetPaint] does.
+func (e Element) SetFocusable(focusable func() bool) {
+	e.configure().Focusable = focusable
 }
 
 // Measure returns the nonnegative intrinsic extent, delegating group composition when no callback is supplied.
@@ -426,335 +444,10 @@ func (n *node) target() Target {
 	return Target{node: n.id, generation: n.generation, part: n.config.Part, root: n.root}
 }
 
-type Item struct {
-	Key     string
-	Size    layout.Sizing
-	Element Element
-	// Paint supplies this child's appearance while in this relation. Nil uses
-	// the element's own painter. Descendants are traversed in either case.
-	Paint func(Frame)
-}
-
-// GroupConfig selects child geometry. Layout is a pure variation point. Its returned rectangles
-// are in the group's coordinates and must have exactly one entry per item.
-// Nil uses Flow, or overlapping full bounds when Overlay is true.
-// GroupConfig arranges children in two independent respects. Placement is
-// Layout when set, and otherwise an overlay or a flow along Axis with Gap.
-// Measurement, unless Element.Measure overrides it, is the largest child for an
-// overlay, the flow's wanted extent for a flow, and for a custom Layout that is
-// not an overlay, the children's extents summed along Axis with Gap between them.
-type GroupConfig struct {
-	Element ElementConfig
-	Axis    layout.Axis
-	Gap     int
-	Items   []Item
-	Overlay bool
-	Modal   bool
-	Layout  func(image.Point, []Item) []image.Rectangle
-}
-
-// validateArrangement refuses a gap that no arrangement would use, rather than
-// letting a measurement silently ignore it.
-func (cfg GroupConfig) validateArrangement() error {
-	switch {
-	case cfg.Gap < 0:
-		return fmt.Errorf("%w: negative group gap %d", ErrInvalid, cfg.Gap)
-	case cfg.Overlay && cfg.Gap != 0:
-		return fmt.Errorf("%w: an overlay group has no gap", ErrInvalid)
-	default:
-		return nil
-	}
-}
-
-// Group owns one ordered child relation. A Group must not be copied after first use.
-type Group struct {
-	noCopy  noCopy
-	element Element
-	config  GroupConfig
-	items   []Item
-}
-
-// NewGroup creates an ordered composition. It panics for an invalid axis or
-// initial child relation, a negative gap, or a gap on an overlay.
-func NewGroup(cfg GroupConfig) *Group {
-	if err := cfg.Axis.Validate(); err != nil {
-		panic(err)
-	}
-	if err := cfg.validateArrangement(); err != nil {
-		panic(err)
-	}
-	g := &Group{config: cfg}
-	g.config.Items = nil
-	g.config.Element = ElementConfig{}
-	g.element = NewElement(cfg.Element)
-	g.element.node.group = g
-	if err := g.Set(cfg.Items...); err != nil {
-		panic(err)
-	}
-	return g
-}
-
-func (g *Group) Element() Element {
-	if g == nil {
-		return Element{}
-	}
-	return g.element
-}
-
-// Items returns a detached copy of the ordered child relation.
-func (g *Group) Items() []Item {
-	if g == nil {
-		return nil
-	}
-	return slices.Clone(g.items)
-}
-
-// At reads one current child relation without copying the collection. A nil
-// group or out-of-range index returns a zero Item and false.
-func (g *Group) At(index int) (Item, bool) {
-	if g == nil || index < 0 || index >= len(g.items) {
-		return Item{}, false
-	}
-	return g.items[index], true
-}
-
-// CheckSet validates a proposed child relation without publishing it. Owners that
-// compose several groups may preflight all relations before changing their model.
-// It does not reserve children; each subsequent Set validates its current state.
-func (g *Group) CheckSet(items ...Item) error {
-	_, err := g.checkSet(items, nil)
-	return err
-}
-
-func (g *Group) checkSet(items []Item, nextID *uint64) (map[*node]bool, error) {
-	if g == nil || g.element.IsZero() {
-		return nil, ErrInvalid
-	}
-	n := g.element.node
-	if nextID == nil && n.root != nil {
-		next := n.root.nextID
-		nextID = &next
-	}
-	if err := g.element.CheckMutation(); err != nil {
-		return nil, err
-	}
-	keys := make(map[string]bool, len(items))
-	children := make(map[*node]bool, len(items))
-	for _, item := range items {
-		child := item.Element.node
-		if child == nil {
-			return nil, fmt.Errorf("%w: empty child", ErrInvalid)
-		}
-		if children[child] || item.Key != "" && keys[item.Key] {
-			return nil, ErrDuplicate
-		}
-		children[child], keys[item.Key] = true, true
-		if err := checkChild(n, child, nextID); err != nil {
-			return nil, err
-		}
-	}
-	return children, nil
-}
-
-func checkChild(parent, child *node, nextID *uint64) error {
-	if err := (Element{node: child}).CheckMutation(); err != nil {
-		return err
-	}
-	for ancestor := parent; ancestor != nil; ancestor = ancestor.parent {
-		if ancestor == child {
-			return ErrCycle
-		}
-	}
-	if child.parent != nil && child.parent != parent || child.root != nil && child.parent != parent {
-		return ErrMounted
-	}
-	if parent.root != nil && child.root == nil {
-		return parent.root.checkAttachment(child, nextID)
-	}
-	return nil
-}
-
-// Set validates the complete relation before changing it. Reordering retained
-// children keeps their attachment; removal immediately revokes its generation.
-// Attaching a child whose previous callbacks have not settled returns [ErrCleanupPending].
-func (g *Group) Set(items ...Item) error {
-	children, err := g.checkSet(items, nil)
-	if err != nil {
-		return err
-	}
-	g.install(items, children)
-	if r := g.element.node.root; r != nil {
-		r.Changed()
-	}
-	return nil
-}
-
-func (g *Group) install(items []Item, children map[*node]bool) {
-	n := g.element.node
-	previous := g.items
-	g.items = slices.Clone(items)
-	for i := range g.items {
-		g.items[i].Key = strings.Clone(g.items[i].Key)
-	}
-	for _, item := range previous {
-		child := item.Element.node
-		if !children[child] {
-			if n.root != nil {
-				n.root.detach(child)
-			}
-			child.parent = nil
-		}
-	}
-	for _, item := range g.items {
-		child := item.Element.node
-		child.parent = n
-		if n.root != nil && child.root == nil {
-			n.root.attach(child)
-		}
-	}
-}
-
-type GroupItems struct {
-	Group *Group
-	Items []Item
-}
-
-// CheckChildItems validates replacements for this group's direct child groups.
-// It does not reserve children. Each group may appear once and each element may
-// have only one parent. Moving between groups requires detachment first.
-func (g *Group) CheckChildItems(updates ...GroupItems) error {
-	_, err := g.checkChildItems(updates)
-	return err
-}
-
-// SetChildItems replaces the specified sibling relations together. All checks
-// finish before any detach or attach; focus predicates observe the complete tree.
-// It accepts direct child groups of this parent only, including before mounting.
-func (g *Group) SetChildItems(updates ...GroupItems) error {
-	children, err := g.checkChildItems(updates)
-	if err != nil {
-		return err
-	}
-	for i, update := range updates {
-		update.Group.install(update.Items, children[i])
-	}
-	if r := g.element.node.root; r != nil && len(updates) > 0 {
-		r.Changed()
-	}
-	return nil
-}
-
-func (g *Group) checkChildItems(updates []GroupItems) ([]map[*node]bool, error) {
-	if g == nil || g.element.IsZero() {
-		return nil, ErrInvalid
-	}
-	if err := g.element.CheckMutation(); err != nil {
-		return nil, err
-	}
-	parent := g.element.node
-	var nextID uint64
-	if parent.root != nil {
-		nextID = parent.root.nextID
-	}
-	groups := make(map[*Group]bool, len(updates))
-	claimed := make(map[*node]bool)
-	children := make([]map[*node]bool, len(updates))
-	for i, update := range updates {
-		target := update.Group
-		if target == nil || target.element.IsZero() || target.element.node.parent != parent {
-			return nil, ErrInvalid
-		}
-		if groups[target] {
-			return nil, ErrDuplicate
-		}
-		groups[target] = true
-		relation, err := target.checkSet(update.Items, &nextID)
-		if err != nil {
-			return nil, err
-		}
-		for child := range relation {
-			if claimed[child] {
-				return nil, ErrDuplicate
-			}
-			claimed[child] = true
-		}
-		children[i] = relation
-	}
-	return children, nil
-}
-
-// Move changes a retained child's position without unmounting it.
-func (g *Group) Move(from, to int) error {
-	if g == nil || from < 0 || to < 0 || from >= len(g.items) || to >= len(g.items) {
-		return ErrInvalid
-	}
-	items := g.Items()
-	item := items[from]
-	if from < to {
-		copy(items[from:to], items[from+1:to+1])
-	} else {
-		copy(items[to+1:from+1], items[to:from])
-	}
-	items[to] = item
-	return g.Set(items...)
-}
-
-func (g *Group) measure(axis layout.Axis, across int) int {
-	if !g.config.Overlay && g.config.Layout == nil {
-		flow, slots := g.flow()
-		if axis == flow.Axis {
-			return flow.Wanted(across, slots)
-		}
-		return flow.CrossWanted(across, slots)
-	}
-	if g.config.Overlay || axis != g.config.Axis {
-		extent := 0
-		for _, item := range g.items {
-			extent = max(extent, item.Element.Measure(axis, across))
-		}
-		return extent
-	}
-	extent := 0
-	for i, item := range g.items {
-		if i != 0 {
-			extent = layout.Sum(extent, g.config.Gap)
-		}
-		extent = layout.Sum(extent, item.Element.Measure(axis, across))
-	}
-	return extent
-}
-
-func (g *Group) rectangles(space image.Point) []image.Rectangle {
-	if g.config.Layout != nil {
-		rects := g.config.Layout(space, g.Items())
-		if len(rects) != len(g.items) {
-			panic("scene: layout returned a different number of child rectangles")
-		}
-		// Nested layouts can reuse the same scratch slice during this traversal.
-		return slices.Clone(rects)
-	}
-	if g.config.Overlay {
-		rects := make([]image.Rectangle, len(g.items))
-		for i := range rects {
-			rects[i] = image.Rectangle{Max: space}
-		}
-		return rects
-	}
-	flow, slots := g.flow()
-	return flow.Rects(space, slots)
-}
-
-func (g *Group) flow() (layout.Flow, []layout.Slot) {
-	slots := make([]layout.Slot, len(g.items))
-	for i, item := range g.items {
-		slots[i] = layout.Slot{Size: item.Size, Of: item.Element}
-	}
-	return layout.Flow{Axis: g.config.Axis, Gap: g.config.Gap}, slots
-}
-
 func next(value uint64) uint64 {
-	if value == math.MaxUint64 {
+	successor, ok := counter.Next(value)
+	if !ok {
 		panic("scene: identity or revision exhausted")
 	}
-	return value + 1
+	return successor
 }

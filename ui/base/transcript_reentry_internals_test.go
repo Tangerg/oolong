@@ -9,22 +9,17 @@ import (
 )
 
 func TestTranscriptInputRejectsPresentationReentryBeforeChangingGesture(t *testing.T) {
-	transcript, err := NewTranscript(TranscriptConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{})
 	transcript.selection.clicks.count = 2
 	transcript.Selection().Begin(TextPoint{})
-	if paintErr := transcript.Element().SetPaint(func(scene.Frame) {
+	transcript.Element().SetPaint(func(scene.Frame) {
 		defer func() {
 			if recover() == nil {
 				t.Error("paint changed interaction state")
 			}
 		}()
 		transcript.Handle(input.Mouse{Action: input.MouseCancel})
-	}); paintErr != nil {
-		t.Fatal(paintErr)
-	}
+	})
 	root, err := scene.NewRoot(scene.RootConfig{Element: transcript.Element()})
 	if err != nil {
 		t.Fatal(err)

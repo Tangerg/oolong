@@ -16,15 +16,12 @@ import (
 func TestAppearanceChangesRespectTheSceneTransaction(t *testing.T) {
 	panel := kit.NewPanel(kit.PanelConfig{})
 	dialog := kit.NewDialog(kit.DialogConfig{})
-	composer := kit.NewComposer(kit.ComposerConfig{})
+	editor := kit.NewEditor(kit.EditorConfig{})
 	form := kit.NewForm(kit.FormConfig{})
-	settings := kit.NewSettings(kit.SettingsConfig[int]{Items: []int{1}})
+	settings := kit.NewSettings(kit.SettingsConfig[int]{Behavior: base.SettingsConfig[int]{Items: []int{1}}})
 	slider := kit.NewSlider(kit.SliderConfig{Behavior: base.SliderConfig{Minimum: 0, Maximum: 10}})
 	tree := kit.NewTree(kit.TreeConfig[int]{})
-	transcript, err := kit.NewTranscript(kit.TranscriptConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := kit.NewTranscript(kit.TranscriptConfig{})
 
 	for _, tc := range []struct {
 		name    string
@@ -34,8 +31,8 @@ func TestAppearanceChangesRespectTheSceneTransaction(t *testing.T) {
 	}{
 		{"panel box", panel.Element(), func() { panel.SetBox(kit.Box{Title: "changed"}) }, func() any { return panel.Box() }},
 		{"dialog placement", dialog.Element(), func() { dialog.SetWhere(layout.Placement{Anchor: layout.BottomRight}) }, func() any { return dialog.Where() }},
-		{"composer prompt", composer.Element(), func() { composer.SetPrompt("ask") }, func() any { return composer.Prompt() }},
-		{"composer hints", composer.Element(), func() { composer.SetHints([]keymap.Action{base.Yank}) }, func() any { return composer.Hints() }},
+		{"editor prompt", editor.Element(), func() { editor.SetPrompt("ask") }, func() any { return editor.Prompt() }},
+		{"editor hints", editor.Element(), func() { editor.SetHints([]keymap.Action{base.Yank}) }, func() any { return editor.Hints() }},
 		{"form glyphs", form.Element(), func() { form.SetGlyphs(kit.ASCII()) }, func() any { return form.Glyphs() }},
 		{"settings width", settings.Element(), func() { settings.SetValueWidth(4) }, func() any { return settings.ValueWidth() }},
 		{"slider glyphs", slider.Element(), func() { slider.SetGlyphs(kit.ASCII()) }, func() any { return slider.Glyphs() }},
@@ -103,10 +100,10 @@ func TestAppearanceSnapshotsDoNotExposeOwnedSlices(t *testing.T) {
 		t.Fatal("caller mutated an owned glyph snapshot")
 	}
 	hints := []keymap.Action{base.Yank}
-	composer := kit.NewComposer(kit.ComposerConfig{Hints: hints})
+	editor := kit.NewEditor(kit.EditorConfig{Hints: hints})
 	hints[0] = base.Cancel
-	composer.Hints()[0] = base.Cancel
-	if got := composer.Hints(); len(got) != 1 || got[0] != base.Yank {
+	editor.Hints()[0] = base.Cancel
+	if got := editor.Hints(); len(got) != 1 || got[0] != base.Yank {
 		t.Fatalf("caller mutated owned hints: %v", got)
 	}
 }

@@ -18,7 +18,7 @@ Construct interactive components with their explicit `Config` values. `Controlle
 
 Keep live skins by pointer after construction. Their installed controller callbacks retain that appearance owner; copying the struct would separate its editable fields from the object actually measured and painted. These types state that they must not be copied, a contract checked by `go vet`. Construct another skin from its Config when an independent component is needed; passive content and immutable theme snapshots retain their ordinary value semantics.
 
-Change retained appearance through owner commands: for example, `panel.SetBox(next)`, `dialog.SetWhere(next)`, `composer.SetPrompt(next)` and `composer.SetHints(next)`. Their getters return observations; changing a returned `Box` or hint slice cannot change the component. Setters enforce the same scene phase as behavior changes and invalidate presentation. Passive values such as `Box`, `Label` and `Image` keep ordinary value construction; install a changed value through its retaining owner's setter.
+Change retained appearance through owner commands: for example, `panel.SetBox(next)`, `dialog.SetWhere(next)`, `editor.SetPrompt(next)` and `editor.SetHints(next)`. Their getters return observations; changing a returned `Box` or hint slice cannot change the component. Setters enforce the same scene phase as behavior changes and invalidate presentation. Passive values such as `Box`, `Label` and `Image` keep ordinary value construction; install a changed value through its retaining owner's setter.
 
 A custom skin can fill a base element's paint and measure slots before attachment. Slot changes while mounted are refused. Theme and glyph inputs affect appearance; they cannot decide which field is focused, which value is committed or which action is available.
 
@@ -32,7 +32,7 @@ Kit retains its controller's typed collection actions and revision-qualified ite
 
 Box title and footer placement derive their minimum width, available text width and aligned origin from one border-label inset. Corners and the adjacent border remain visible under truncation and alignment.
 
-`ButtonConfig`, `SliderConfig` and `TranscriptConfig` carry their base configuration in `Behavior`. For example, `kit.SliderConfig{Behavior: base.SliderConfig{Minimum: 0, Maximum: 100}, Glyphs: glyphs}` defines the value range once, in the controller configuration; the kit adds only appearance and pure formatting.
+Every kit configuration over a base controller carries that controller's configuration in `Behavior`: `ButtonConfig`, `DialogConfig`, `EditorConfig`, `FormConfig`, `InputConfig`, `SettingsConfig`, `SliderConfig`, `TabsConfig`, `TranscriptConfig` and `TreeConfig`. For example, `kit.SliderConfig{Behavior: base.SliderConfig{Minimum: 0, Maximum: 100}, Glyphs: glyphs}` defines the value range once, in the controller configuration; the kit adds only appearance and pure formatting. A `Behavior` field naming an appearance slot the skin fills, such as `FormConfig.Behavior.PaintField`, must stay unset, and the constructor panics rather than ignore it.
 
 ## Theme ownership
 
@@ -44,6 +44,14 @@ Terminal-fitted neutral roles use named contrast policies. Selection, added-cont
 
 ## Transcript example
 
-`kit.NewTranscript(TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted}})` returns a skin and an error. Add source documents through `skin.Controller().AddDocument(document)`, then attach `skin.Element()`. The controller owns reading, selection, sticky headers and retention. Kit adds visual selection, match decoration and pinned-header appearance from the same candidate layout.
+`kit.NewTranscript(TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted}})` returns a skin and panics for a configuration `base.TranscriptConfig.Validate` refuses; validate settings read from outside the program first. Add source documents through `skin.Controller().AddDocument(document)`, then attach `skin.Element()`. The controller owns reading, selection, sticky headers and retention. Kit adds visual selection, match decoration and pinned-header appearance from the same candidate layout. A paint slot that decorates the transcript calls `skin.Draw(frame)` and draws over the window it returns.
+
+A dialog with `DialogConfig.Fit` sizes its panel to its content at the placed width, up to `Where.Height` or the available space, and follows the content as it grows or shrinks, so a form need not reserve rows for validation messages that may never appear. A panel whose content holds the keyboard draws its border in the palette's `Accent`, so the region that receives keys is the one that is marked. Place passive content in a scene with `scene.NewElement(scene.Passive(content))`, adding a `Key` to the configuration when automation must find it.
+
+A status or header row that keeps a count, duration or state readable is a `kit.Split`: its `Start` truncates with the ellipsis and its `End` stays whole against the right edge, or disappears when the row cannot hold both.
+
+Compose entries from passive blocks with `kit.Stack`, `kit.Indent`, `kit.Gap`, `kit.Label`, `kit.Framed` and `kit.Disclosure`. Each keeps its text projection on the rows and columns where it draws, so a composed entry copies, selects and searches as it is shown; a part that projects no text keeps blank rows. A `kit.Entry` labels any of them: its `Body` may be a paragraph, a rendered document or a diff. `kit.Framed` puts a body inside a `kit.Box` as one block, and `kit.Disclosure` is a summary whose marker says whether there are details and whether they are shown; its owner decides when it is open.
+
+A base control with an intrinsic width reports it when measured across, so a panel around a `base.Completion` measures the widest candidate plus its own frame. Size a popup from `panel.Element().Measure(layout.Across, height)`, where height is the room it may take, rather than adding the frame to `Completion.Width` by hand.
 
 The renderer never retires content because it scrolled away, and a theme never finalizes a stream. See the tested [streaming example](https://github.com/Tangerg/oolong/tree/main/examples/streaming) and [streaming guide](../guides/streaming.md).

@@ -6,12 +6,13 @@ import (
 )
 
 const (
-	ShowCursor       = "\x1b[?25h"
-	HideCursor       = "\x1b[?25l"
-	QueryCursorStyle = "\x1bP$q" + cursorStyleSelector + "\x1b\\"
+	QueryCursorStyle = DCSIntroducer + "$q" + cursorStyleSelector + ST
 
-	cursorStyleSelector  = " q"
+	cursorStyleSelector  = string(cursorStyleIntermediate) + string(cursorStyleFinal)
 	statusStringAccepted = "1$r"
+
+	cursorStyleIntermediate = ' '
+	cursorStyleFinal        = 'q'
 )
 
 // CursorStyle is the DECSCUSR wire selector. Reset has terminal-specific
@@ -34,7 +35,28 @@ func (s CursorStyle) Sequence() string {
 	if s > CursorSteadyBar {
 		panic("ansi: invalid cursor style")
 	}
-	return "\x1b[" + strconv.Itoa(int(s)) + cursorStyleSelector
+	return CSI + strconv.Itoa(int(s)) + cursorStyleSelector
+}
+
+// CursorStyle reads p as DECSCUSR. False means p is another sequence or selects a
+// style this package does not know.
+func (p Piece) CursorStyle() (CursorStyle, bool) {
+	if p.Kind != Control || p.Final != cursorStyleFinal || p.Intermediates != string(cursorStyleIntermediate) {
+		return 0, false
+	}
+	if p.Parameters == "" {
+		return CursorReset, true
+	}
+	return cursorStyleSelection(p.Parameters)
+}
+
+// cursorStyleSelection reads the one-digit selector that DECSCUSR and its DECRQSS
+// answer both carry.
+func cursorStyleSelection(value string) (CursorStyle, bool) {
+	if len(value) != 1 || value[0] < '0' || value[0] > '0'+byte(CursorSteadyBar) {
+		return 0, false
+	}
+	return CursorStyle(value[0] - '0'), true
 }
 
 // ParseCursorStyleReply requires a successful DECRQSS response for this setting
@@ -45,8 +67,8 @@ func ParseCursorStyleReply(body string) (CursorStyle, bool) {
 		return 0, false
 	}
 	value, ok = strings.CutSuffix(value, cursorStyleSelector)
-	if !ok || len(value) != 1 || value[0] < '0' || value[0] > '0'+byte(CursorSteadyBar) {
+	if !ok {
 		return 0, false
 	}
-	return CursorStyle(value[0] - '0'), true
+	return cursorStyleSelection(value)
 }

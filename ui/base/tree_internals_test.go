@@ -9,7 +9,7 @@ func TestTreeDepthUsesStorageRatherThanTheCallStackOrPathCopies(t *testing.T) {
 		nodes = []Node[int]{{Item: value, Children: nodes}}
 	}
 
-	tree := NewTree(nodes...)
+	tree := NewTree(TreeConfig[int]{Nodes: nodes})
 	owned := tree.nodes
 	for len(owned) > 0 {
 		node := &owned[0]
@@ -47,7 +47,7 @@ func TestTreeDepthUsesStorageRatherThanTheCallStackOrPathCopies(t *testing.T) {
 func TestTreeRejectsCyclicNodeStorageAtItsOwnershipBoundary(t *testing.T) {
 	nodes := make([]Node[int], 1)
 	nodes[0] = Node[int]{Item: 1, Children: nodes}
-	tree := NewTree(Node[int]{Item: 7})
+	tree := NewTree(TreeConfig[int]{Nodes: []Node[int]{{Item: 7}}})
 	func() {
 		defer func() {
 			if recover() == nil {

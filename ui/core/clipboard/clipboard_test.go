@@ -54,10 +54,10 @@ func TestCopyRoundTripsEveryPayloadWithoutTerminalCommands(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		for _, value := range []string{"", "hello", "a line\nand another", "中文と日本語", "emoji 👩🏽‍🚀", "\x00\x01", "\x1b\\\x1b]52;c;stolen\x07", strings.Repeat("x", 4096)} {
 			channel := &clipboard.Channel{}
-			sequence, ok := channel.Copy(clipboard.System, value)
+			sequence, err := channel.Copy(clipboard.System, value)
 			params, found := parameters(sequence)
-			if !ok || !found {
-				t.Fatalf("Copy(%q) = %q, %t", value, sequence, ok)
+			if err != nil || !found {
+				t.Fatalf("Copy(%q) = %q, %v", value, sequence, err)
 			}
 			_, payload, _ := strings.Cut(params, ";")
 			if strings.ContainsAny(payload, "\x1b\x07") {
@@ -346,8 +346,8 @@ func TestReadRefusalDoesNotCreateAProtocolObligation(t *testing.T) {
 			t.Fatalf("refused admission retained slot: %v", got.err)
 		}
 		var absent *clipboard.Channel
-		if _, ok := absent.Copy(clipboard.System, "text"); ok {
-			t.Fatal("nil copy accepted")
+		if _, err := absent.Copy(clipboard.System, "text"); !errors.Is(err, errors.ErrUnsupported) {
+			t.Fatalf("nil copy = %v", err)
 		}
 		if _, err := absent.Read(t.Context(), clipboard.System, func(string) error { return nil }); !errors.Is(err, errors.ErrUnsupported) || absent.Answer("c;aGk=", time.Now(), time.Now()) {
 			t.Fatalf("nil channel = %v", err)
@@ -497,12 +497,12 @@ func TestCopyLimitsAndExplicitPassthrough(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		for _, enabled := range []bool{false, true} {
 			channel := clipboard.New(clipboard.Config{TmuxPassthrough: enabled})
-			copySequence, copied := channel.Copy(clipboard.System, strings.Repeat("x", clipboard.MaxPayload))
-			if !copied {
-				t.Fatal("copy at limit refused")
+			copySequence, err := channel.Copy(clipboard.System, strings.Repeat("x", clipboard.MaxPayload))
+			if err != nil {
+				t.Fatalf("copy at limit refused: %v", err)
 			}
-			if _, ok := channel.Copy(clipboard.System, strings.Repeat("x", clipboard.MaxPayload+1)); ok {
-				t.Fatal("oversized copy accepted")
+			if _, err := channel.Copy(clipboard.System, strings.Repeat("x", clipboard.MaxPayload+1)); !errors.Is(err, clipboard.ErrTooLarge) {
+				t.Fatalf("oversized copy = %v", err)
 			}
 			sent, result := startRead(t.Context(), channel, clipboard.System)
 			readSequence := <-sent

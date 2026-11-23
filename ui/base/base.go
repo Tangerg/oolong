@@ -26,11 +26,6 @@ type RowGutter interface {
 	Draw(view grid.View, rows []text.Row)
 }
 
-// Doer consumes a symbolic input command. A consumed command is not a task result.
-type Doer interface {
-	Do(action keymap.Action) bool
-}
-
 // eventGeometry only borrows the immutable projection selected by scene for one
 // input delivery. It never publishes geometry or retains a second routing owner.
 type eventGeometry struct{ event *scene.Event }
@@ -49,11 +44,29 @@ func readProjection[T any](element scene.Element, read func() T) T {
 	return result
 }
 
+// borrowed runs read under element's read-only borrow once the element exists.
+// Before that no scene can reach the control, so there is nothing to refuse.
+func borrowed(element scene.Element, read func()) {
+	if element.IsZero() {
+		read()
+		return
+	}
+	element.ReadOnly(read)
+}
+
 func requireMutable(elements ...scene.Element) {
 	for _, element := range elements {
 		if err := element.CheckMutation(); err != nil {
 			panic(err)
 		}
+	}
+}
+
+// requireNonNegative is the one rule for counts of rows, gaps and items: a
+// constructor and its setter refuse a negative value in the same words.
+func requireNonNegative(name string, value int) {
+	if value < 0 {
+		panic("base: " + name + " cannot be negative")
 	}
 }
 
@@ -73,6 +86,27 @@ func keyboardReceipt(owner *scene.Element) func() bool {
 	}
 }
 
+// containerKey answers a key that reached a container: focus traversal first,
+// under the container's keyboard lease, then the container's own actions.
+func containerKey(event scene.Event, element scene.Element, matcher *keymap.Matcher, keys *keymap.Map, do func(keymap.Action) bool) scene.EventResult {
+	key, ok := event.Input().(input.Key)
+	if !ok {
+		return scene.EventResult{}
+	}
+	lease := element.KeyboardLease()
+	_, handled := matcher.Handle(keys, key, lease.Valid, func(action keymap.Action) bool {
+		switch action {
+		case FocusNext:
+			return lease.FocusNext()
+		case FocusPrev:
+			return lease.FocusPrev()
+		default:
+			return do(action)
+		}
+	})
+	return scene.EventResult{Consumed: handled}
+}
+
 func partEvent(event scene.Event, handle func(input.Event) bool, projections ...*eventGeometry) scene.EventResult {
 	previous := make([]*scene.Event, len(projections))
 	for i, projection := range projections {
@@ -84,10 +118,5 @@ func partEvent(event scene.Event, handle func(input.Event) bool, projections ...
 		}
 	}()
 
-	consumed := handle(event.Input())
-	result := scene.EventResult{Consumed: consumed}
-	if mouse, ok := event.Input().(input.Mouse); ok && consumed && mouse.Action == input.MouseDown && mouse.Button == input.ButtonLeft {
-		result.Focus, result.Capture = true, true
-	}
-	return result
+	return event.Result(handle(event.Input()))
 }

@@ -175,11 +175,11 @@ func (s *diagramScreen) act(action keymap.Action) bool {
 }
 
 func (s *diagramScreen) copy(value, copied, unavailable string) {
-	if s.runtime.Clipboard().Copy(value) {
-		s.current.notice = copied
-	} else {
+	if err := s.runtime.Clipboard().Copy(value); err != nil {
 		s.current.notice = unavailable
+		return
 	}
+	s.current.notice = copied
 }
 
 // close runs after Run has returned, when the program has already revoked every

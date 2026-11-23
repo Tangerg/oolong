@@ -43,10 +43,7 @@ func TestDeferredScrollCannotOutliveKeyboardOwnership(t *testing.T) {
 			var element scene.Element
 			var scroll *base.Scroll
 			if kind == "transcript" {
-				transcript, err := base.NewTranscript(base.TranscriptConfig{Keys: keys})
-				if err != nil {
-					t.Fatal(err)
-				}
+				transcript := base.NewTranscript(base.TranscriptConfig{Keys: keys})
 				t.Cleanup(transcript.Close)
 				if _, err := transcript.Add(transcriptHuge{rows: 20}); err != nil {
 					t.Fatal(err)
@@ -200,6 +197,7 @@ func TestDeferredContainerInputCannotOutliveItsRoot(t *testing.T) {
 				changed = func() bool { return dismissed }
 			}
 			fixture := scenes.Mount(element)
+			fixture.Draw(grid.NewSurface(8, 2).View())
 			focusElement(t, content)
 			fixture.Handle(input.Key{Rune: 'x'})
 			if *resolve == nil {

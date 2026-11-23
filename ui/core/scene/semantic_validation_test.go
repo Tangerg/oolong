@@ -36,7 +36,7 @@ func TestUnavailableActionsSayWhy(t *testing.T) {
 	if err != nil || len(observation.Nodes) != 1 || len(observation.Nodes[0].Actions) != 1 {
 		t.Fatalf("observation = %+v, %v", observation, err)
 	}
-	if got := observation.Nodes[0].Actions[0].Availability; !got.Disabled || got.Reason != "target is disabled" {
+	if got := observation.Nodes[0].Actions[0]; !got.Disabled || got.Reason != "target is disabled" {
 		t.Fatalf("availability = %+v", got)
 	}
 }

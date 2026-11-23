@@ -90,9 +90,7 @@ func TestChoiceMarksShareTheirReservedColumns(t *testing.T) {
 				Same: base.Equal[int], Initial: 1,
 				Options: []base.Option[int]{{Label: "one", Value: 1}, {Label: "two", Value: 2}},
 			})
-			if err := field.Element().SetPaint(func(frame scene.Frame) { field.DrawWith(frame, test.look) }); err != nil {
-				t.Fatal(err)
-			}
+			field.Element().SetPaint(func(frame scene.Frame) { field.DrawWith(frame, test.look) })
 			surface := grid.NewSurface(20, 2)
 			scenes.Mount(field).Draw(surface.View().Sub(grid.Area(3, 0, 17, 2)))
 			if got, want := surface.Rows(), []string{"   " + test.first, "   " + test.last}; !reflect.DeepEqual(got, want) {
@@ -107,9 +105,7 @@ func TestConfirmTextProjectionOwnsItsPointerSplit(t *testing.T) {
 	t.Cleanup(scenes.Close)
 	field := base.NewConfirm(base.ConfirmConfig{Initial: true, Yes: "a\tb", No: "N"})
 	look := base.Look{Taken: "❤\n\ufe0fX", Free: "-"}
-	if err := field.Element().SetPaint(func(frame scene.Frame) { field.DrawWith(frame, look) }); err != nil {
-		t.Fatal(err)
-	}
+	field.Element().SetPaint(func(frame scene.Frame) { field.DrawWith(frame, look) })
 	root := scenes.Mount(field)
 	surface := grid.NewSurface(24, 1)
 	root.Draw(surface.View())

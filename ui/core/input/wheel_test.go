@@ -5,9 +5,10 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/termenv"
 )
 
-func env(vars map[string]string) func(string) (string, bool) {
+func env(vars map[string]string) termenv.Lookup {
 	return func(name string) (string, bool) {
 		value, ok := vars[name]
 		return value, ok
@@ -65,7 +66,7 @@ func TestWheelForKnowsWhoSendsWhat(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := input.WheelFor(env(tc.env), ""); got != tc.want {
+			if got := input.WheelFor(env(tc.env)); got != tc.want {
 				t.Errorf("got %+v, want %+v", got, tc.want)
 			}
 		})
@@ -88,7 +89,7 @@ func TestAMultiplexerAnswersForItself(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}
-			if got := input.WheelFor(env(tc.env), ""); got != want {
+			if got := input.WheelFor(env(tc.env)); got != want {
 				t.Errorf("got %+v, want %+v", got, want)
 			}
 		})
@@ -96,7 +97,7 @@ func TestAMultiplexerAnswersForItself(t *testing.T) {
 }
 
 func TestWheelForWithNothingToAsk(t *testing.T) {
-	if got := input.WheelFor(nil, ""); got != (input.Wheel{}) {
+	if got := input.WheelFor(nil); got != (input.Wheel{}) {
 		t.Errorf("got %+v, want the zero value", got)
 	}
 }
@@ -189,11 +190,11 @@ func TestTheZeroAdvanceScrollsOneRowAReport(t *testing.T) {
 func TestWhatTheTerminalSaidOutranksTheEnvironment(t *testing.T) {
 	// Started from Apple Terminal, ssh'd somewhere, actually talking to iTerm2.
 	stale := map[string]string{"TERM_PROGRAM": "Apple_Terminal"}
-	if got := input.WheelFor(env(stale), "iTerm2 3.5.0"); got != (input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}) {
+	if got := input.WheelFor(env(stale)).Negotiated("iTerm2 3.5.0"); got != (input.Wheel{Reports: 1, Rows: 1, Trackpad: 3}) {
 		t.Errorf("= %+v, want iTerm2's one report a notch", got)
 	}
 	// And a name nobody knows falls back to whatever the environment says.
-	if got := input.WheelFor(env(stale), "SomeNewTerminal 1.0"); got != (input.Wheel{Reports: 3, Rows: 3, Trackpad: 3}) {
+	if got := input.WheelFor(env(stale)).Negotiated("SomeNewTerminal 1.0"); got != (input.Wheel{Reports: 3, Rows: 3, Trackpad: 3}) {
 		t.Errorf("= %+v, want the environment's answer", got)
 	}
 }

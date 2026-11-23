@@ -20,13 +20,18 @@ import (
 // a panic that moves into caller-reachable code fails this test until it is either
 // documented on the exported API or explained here.
 var internalAssertions = map[string]string{
+	"ui/core/keymap:requireAction":                            "Map.Bind and Map.Rebind document that an empty action panics before any consumer check or mutation",
 	"ui/core/keymap:Map.checkSubscribers":                     "SubscriptionConfig.Check documents consumer refusal before binding or policy mutation; the original refusal is propagated unchanged",
 	"ui/core/keymap:Map.requireIdle":                          "Map and SubscriptionConfig prohibit reentrant mutation or subscription during consumer checks and publication; the phase guard runs before any binding, policy or subscriber change",
 	"extensions/markdown:blockNestingContext.SetOpenedBlocks": "Goldmark has no error return here; parse catches this private budget termination and public renderers return ErrBlockNestingLimit",
 	"extensions/markdown:parse":                               "only unexpected panic values are rethrown; the private block nesting termination becomes an explicit parse error",
+	"ui/kit:Split.gap":                                        "Split.Draw and Split.Rows document that a negative Gap panics before any cell or row is produced",
+	"ui/base:Layers.set":                                      "Layers.Show, Layers.Dismiss, Layers.SetContent and NewLayers document that an invalid scene relation or a mutation during presentation panics",
+	"ui/kit:newAppearance":                                    "every skinned kit constructor documents that a static Theme and a live Scope are mutually exclusive and panics before constructing its controller",
 	"ui/core/anim:requireFinite":                              "Transition.To, Timeline.SetFrames and Value, and Spring.To, Set and Tick document non-finite input or unrepresentable motion refusal",
 	"ui/core/ansi:Scanner.requireIdle":                        "Scanner documents that its active visitor cannot reenter Feed or Reset",
 	"ui/core/publication:Publisher.checkPrefix":               "Commit and FailAdmission require the current pending prefix issued by this publisher",
+	"ui/kit:requireSkinOwned":                                 "each skin constructor documents refusing a Behavior field that names its own appearance slot",
 	"ui/kit:mustCellGlyph":                                    "only ASCII and Unicode built-in glyph literals reach this assertion; caller-provided glyphs use NewCellGlyph's error result",
 
 	// Dimensions are validated in one place for both of a renderer's buffers. The
@@ -51,7 +56,6 @@ var internalAssertions = map[string]string{
 	"ui/kit:Box.paint":                             "Box.Draw and Panel.Element document invalid title or footer alignment refusal before cells change",
 	"ui/base:subscriptions.add":                    "public Subscribe operations reject nil callbacks before entering the subscription owner",
 	"ui/kit:newPanel":                              "NewPanel documents invalid alignment, Box.Theme and competing palette refusal; Dialog supplies its own scope and a title source with an empty Box.Title",
-	"ui/kit:replaceGlyphs":                         "every SetGlyphs documents scene.ErrBusy outside owner mutation, the only refusal this shared guard raises",
 	"ui/base:requireNonNegative":                   "each constructor and setter that takes a count documents negative refusal; this guard words the one rule they share",
 	"ui/core/content:StreamDocument.assertMutable": "StreamDocument documents construction and prohibits reentrant source mutation from its synchronous change notification",
 	"ui/core/publication:Publisher.assertIdle":     "Publisher documents that capture callbacks cannot reenter publication mutation",
@@ -63,6 +67,7 @@ var internalAssertions = map[string]string{
 	"ui/core/scene:Prepared.requireSettlement": "Prepared.Commit and Prepared.Abort document the live candidate identity and pure-phase preconditions",
 	"ui/core/scene:Snapshot.commit":            "Snapshot.Stage enlists a snapshot at most once in its owning transaction; only that transaction can commit it",
 	"ui/core/scene:Group.rectangles":           "GroupConfig.Layout documents exactly one rectangle per item; preparation validates that contract before use",
+	"ui/core/scene:Element.configure":          "Element.SetPaint, SetMeasure and SetFocusable document that a zero or mounted element, or filling a slot during presentation or observation, panics",
 
 	"ui/core/program:program.frameReady":    "Runtime.SetFramePreparation documents that reentering rendering from its callback panics; the owner flag prevents a second readiness invocation before the first returns",
 	"ui/core/program:program.answerRepaint": "wait disables input while a repaint is claimed, and completeRepaint clears that claim before invoking its reply, so the owner cannot accept two pending requests",
@@ -74,10 +79,10 @@ var internalAssertions = map[string]string{
 	// exhausting one is not a state a caller can arrange within a session; the
 	// exported operations that can plausibly approach one say so anyway.
 	"ui/base:EditSession.requireRevision": "revisions are uint64 and consumed one per content change",
-	"ui/base:EditSession.setPolicy":       "Editor.SetMask documents refusal before changing an invalid mask policy",
+	"ui/base:requireMaskable":             "Editor.SetMask, NewEditSession, NewEditor and NewText document that an invisible or joining mask panics before any document change",
 	"ui/base:EditSession.insertElement":   "Editor.InsertElement documents identity exhaustion before mutation",
 	"ui/base:Transcript.requireRevisions": "Transcript documents refusal to wrap its content revision and revive an old selection",
-	"ui/base:Transcript.publish":          "Transcript documents refusal of unrepresentable retired row coordinates",
+	"ui/base:Transcript.headRows":         "Transcript documents refusal of unrepresentable retired row coordinates",
 	"ui/core/scene:next":                  "scene identity and revision counters never wrap because wrapping could revive stale handles or snapshots",
 	"ui/core/term:Writer.enqueue":         "Queue and QueueControl document sequence exhaustion; accepted frame identities may never wrap",
 	"ui/base:nextRevision":                "confirmation, choice and collection owners document revision exhaustion and reserve the next revision before mutation",
@@ -123,6 +128,9 @@ func TestEveryPanickingPreconditionIsDocumented(t *testing.T) {
 						"who cannot see the rule in go doc learns it at runtime, which is "+
 						"what the panic was meant to prevent", relative(root, path), name)
 				}
+				continue
+			}
+			if promotedDocumentation(function) {
 				continue
 			}
 			seen[key] = true
@@ -188,6 +196,13 @@ func exportedAPI(function *ast.FuncDecl) bool {
 		return true
 	}
 	return ast.IsExported(receiverName(function))
+}
+
+// promotedDocumentation accepts an exported method of an unexported type whose own
+// doc states the panic: embedding promotes it into an exported type's method set
+// and go doc lists it there, so that doc is the contract a caller reads.
+func promotedDocumentation(function *ast.FuncDecl) bool {
+	return function.Name.IsExported() && strings.Contains(strings.ToLower(documentation(function)), "panic")
 }
 
 func functionName(function *ast.FuncDecl) string {

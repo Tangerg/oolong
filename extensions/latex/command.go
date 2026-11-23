@@ -18,7 +18,7 @@ func (p *formulaParser) control(context formulaContext) (box, error) {
 		return atom(" ", context.cell), nil
 	}
 	if value == '(' || value == ')' || value == '[' || value == ']' {
-		return box{}, errors.New("source must not contain math delimiters")
+		return box{}, errMathDelimiter
 	}
 	for p.at < len(p.source) && controlLetter(p.source[p.at]) {
 		p.at++

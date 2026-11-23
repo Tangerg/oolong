@@ -15,7 +15,7 @@ import (
 
 func TestSettingsRoutesNavigationAndValueActionsSeparately(t *testing.T) {
 	settings := &base.Settings[string]{}
-	settings.List().SetItems([]string{"theme", "wrap"})
+	settings.SetItems([]string{"theme", "wrap"})
 	var index int
 	var item string
 	var action keymap.Action
@@ -24,8 +24,8 @@ func TestSettingsRoutesNavigationAndValueActionsSeparately(t *testing.T) {
 		return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
 	})
 
-	if !settings.Handle(input.Key{Code: input.Down}) || settings.List().Selected() != 1 {
-		t.Fatalf("down selected %d, want row 1", settings.List().Selected())
+	if !settings.Handle(input.Key{Code: input.Down}) || settings.Selected() != 1 {
+		t.Fatalf("down selected %d, want row 1", settings.Selected())
 	}
 	if !settings.Handle(input.Key{Code: input.Right}) {
 		t.Fatal("right did not reach the selected setting")
@@ -46,7 +46,7 @@ func TestSettingsPointerSelectionUsesTheListCommittedWindow(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	settings := &base.Settings[int]{}
-	settings.List().SetItems([]int{0, 1, 2, 3})
+	settings.SetItems([]int{0, 1, 2, 3})
 	// A nil row still publishes the list window: appearance is optional, pointer
 	// geometry is behaviour.
 	paintWidget(scenes, 8, 2, settings)
@@ -55,20 +55,20 @@ func TestSettingsPointerSelectionUsesTheListCommittedWindow(t *testing.T) {
 	}) {
 		t.Fatal("press on a visible settings row was declined")
 	}
-	if settings.List().Selected() != 1 {
-		t.Fatalf("press selected %d, want row 1", settings.List().Selected())
+	if settings.Selected() != 1 {
+		t.Fatalf("press selected %d, want row 1", settings.Selected())
 	}
 }
 
-func TestSettingsListCannotCreateASecondSceneIdentity(t *testing.T) {
+func TestSettingsKeepsOneSceneIdentity(t *testing.T) {
 	var settings base.Settings[string]
-	first := settings.List().Element()
+	first := settings.Element()
 	root, err := scene.NewRoot(scene.RootConfig{Element: first})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(root.Close)
-	if element := settings.Element(); element != first || settings.List().Element() != first {
+	if element := settings.Element(); element != first || settings.Element() != first {
 		t.Fatal("accessing the composite replaced its already mounted list identity")
 	}
 	candidate, err := root.Prepare(grid.NewSurface(12, 2).View())

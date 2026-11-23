@@ -7,12 +7,13 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/internal/fifo"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // Sticky pins a block to the top of the view once it has been scrolled past.
 //
-// The thing that gives the rows below their meaning — which question this answer
-// belongs to — is exactly the thing that scrolls away first.
+// The thing that gives the rows below their meaning — which section they belong to —
+// is exactly the thing that scrolls away first.
 //
 // The pinned block sits at the top of the view while its own rows are above it. The
 // next pinned block pushes it off rather than appearing over it, so the change reads
@@ -31,9 +32,8 @@ type Sticky struct {
 	// private because discarding a committed prefix mutates this collection; retaining
 	// a caller-owned slice would clear the caller's data while reclaiming ours.
 	//
-	// Only the caller knows which blocks mean anything: in a session the prompts are
-	// worth pinning and the answers are not, and nothing here can tell one from the
-	// other.
+	// Only the caller knows which blocks mean anything: a heading is worth pinning
+	// and the body under it is not, and nothing here can tell one from the other.
 	blocks    fifo.Queue[BlockID]
 	minHeight int
 	gap       int
@@ -42,7 +42,7 @@ type Sticky struct {
 type StickyConfig struct {
 	Blocks []BlockID
 	// MinHeight is how far a header may be collapsed before it stops shrinking and
-	// starts scrolling off instead. Zero means it does not collapse. A tall prompt
+	// starts scrolling off instead. Zero means it does not collapse. A tall header
 	// pinned in full eats the view it was meant to give context to.
 	MinHeight int
 	// Gap is the rows kept clear between a pinned header and the content below it,
@@ -115,16 +115,10 @@ func requireStickyOrder(blocks []BlockID, after BlockID) {
 
 // Blocks returns a copy of the pinnable identities in transcript order.
 func (s *Sticky) Blocks() []BlockID {
-	if s == nil {
-		return nil
-	}
 	return slices.Collect(s.blocks.Values())
 }
 
 func (s *Sticky) Len() int {
-	if s == nil {
-		return 0
-	}
 	return s.blocks.Len()
 }
 
@@ -171,7 +165,7 @@ func (s *Sticky) At(t TranscriptLayout, from, rows int) (Pinned, bool) {
 
 	p := Pinned{Block: i, Height: height}
 	if s.minHeight > 0 {
-		// Collapsed towards the floor as its own rows scroll away, so a tall prompt
+		// Collapsed towards the floor as its own rows scroll away, so a tall header
 		// does not go on eating the view it was meant to explain.
 		p.Height = max(min(height, height-(from-top)), s.minHeight)
 		p.Height = min(p.Height, height)
@@ -247,26 +241,14 @@ func (s *Sticky) MinHeight() int { return s.minHeight }
 
 // SetMinHeight panics for a negative minimum. Zero keeps the full header height.
 func (s *Sticky) SetMinHeight(value int) {
-	element := s.element
-	requireMutable(element)
 	requireNonNegative("sticky MinHeight", value)
-	if s.minHeight == value {
-		return
-	}
-	s.minHeight = value
-	element.Invalidate()
+	setting.Assign(s.element, &s.minHeight, value)
 }
 
 func (s *Sticky) Gap() int { return s.gap }
 
 // SetGap panics for a negative gap before changing header geometry.
 func (s *Sticky) SetGap(value int) {
-	element := s.element
-	requireMutable(element)
 	requireNonNegative("sticky Gap", value)
-	if s.gap == value {
-		return
-	}
-	s.gap = value
-	element.Invalidate()
+	setting.Assign(s.element, &s.gap, value)
 }

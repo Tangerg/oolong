@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // ButtonConfig supplies one semantic label, a pure availability query and the event-side action. Activate returning Started means work was accepted, not completed.
@@ -41,7 +42,7 @@ func NewButton(config ButtonConfig) *Button {
 		ID: scene.ActionActivate, Label: "Activate",
 		Availability: func(struct{}) scene.Availability {
 			if activate == nil {
-				return scene.Availability{Disabled: true, Reason: "no action"}
+				return scene.Unavailable("no action")
 			}
 			if availability != nil {
 				return readProjection(b.element, availability)
@@ -53,7 +54,7 @@ func NewButton(config ButtonConfig) *Button {
 		},
 	})
 	b.element = scene.NewElement(scene.ElementConfig{
-		Key: config.Key, Focusable: func() bool { return true }, Enabled: func() bool { return !b.action.Availability(struct{}{}).Disabled },
+		Key: config.Key, Focusable: func() bool { return true }, Enabled: func() bool { return !b.action.Availability(struct{}{}).Disabled() },
 		Measure: func(axis layout.Axis, _ int) int {
 			if axis == layout.Down {
 				return 1
@@ -96,20 +97,15 @@ func (b *Button) handleEvent(event scene.Event) scene.EventResult {
 }
 
 func (b *Button) Element() scene.Element {
-	if b == nil {
-		return scene.Element{}
-	}
 	b.keys.attach(b.element, &b.matcher)
 	return b.element
 }
 
 func (b *Button) Label() string { return b.label }
 
-// SetLabel replaces the owned name and wakes the scene. It panics during presentation or observation.
+// SetLabel replaces the owned name, waking the scene only when it changes. It panics during presentation or observation.
 func (b *Button) SetLabel(label string) {
-	requireMutable(b.element)
-	b.label = strings.Clone(label)
-	b.element.Invalidate()
+	setting.Assign(b.element, &b.label, strings.Clone(label))
 }
 
 // Availability reads the same pure policy checked before every activation.
@@ -138,7 +134,7 @@ func (b *Button) press(ctx context.Context, recordError bool) (scene.ActionResul
 }
 
 // Error is the last activation error delivered by keyboard or pointer input.
-// Programmatic and agent activation return their error directly.
+// Programmatic and semantic activation return their error directly.
 func (b *Button) Error() error { return b.feedback.err }
 
 func (b *Button) HeightForWidth(int) int { return 1 }

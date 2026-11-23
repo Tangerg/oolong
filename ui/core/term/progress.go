@@ -6,8 +6,12 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
+// ProgressState values are the state parameters of OSC 9;4, so a state crosses
+// the wire as its own number.
 type ProgressState uint8
 
 const (
@@ -39,36 +43,34 @@ type Progress struct {
 	Percent int
 }
 
+const fullPercent = 100
+
 func (p Progress) normalized() Progress {
 	switch p.State {
 	case ProgressNone, ProgressIndeterminate:
 		p.Percent = 0
 	default:
-		p.Percent = min(max(p.Percent, 0), 100)
+		p.Percent = min(max(p.Percent, 0), fullPercent)
 	}
 	return p
 }
 
+// sequence omits the percentage for states that ignore it.
 func (p Progress) sequence() string {
 	p = p.normalized()
+	state := progressPrefix + strconv.Itoa(int(p.State))
 	switch p.State {
-	case ProgressNone:
-		return progressClear
-	case ProgressIndeterminate:
-		return progressIndeterminate
+	case ProgressNone, ProgressIndeterminate:
+		return state + commandEnd
 	default:
-		return progressPrefix + strconv.Itoa(int(p.State)) + ";" +
-			strconv.Itoa(p.Percent) + progressEnd
+		return state + ";" + strconv.Itoa(p.Percent) + commandEnd
 	}
 }
 
-const (
-	progressPrefix        = "\x1b]9;4;"
-	progressEnd           = "\x07"
-	progressClear         = progressPrefix + "0" + progressEnd
-	progressIndeterminate = progressPrefix + "3" + progressEnd
-	progressKeepalive     = time.Second
-)
+// progressPrefix is ConEmu's task progress, the subcommand 4 of OSC 9.
+var progressPrefix = ansi.OSCPrefix(ansi.OSCNotify) + "4;"
+
+const progressKeepalive = time.Second
 
 // taskProgress owns the terminal-native progress state and its keepalive.
 //
@@ -147,7 +149,7 @@ func (p *taskProgress) leave() string {
 	if !p.published {
 		return ""
 	}
-	return progressClear
+	return Progress{}.sequence()
 }
 
 func (p *taskProgress) signal() {
@@ -213,4 +215,12 @@ func (p *taskProgress) publish(next Progress, queue func([]byte) (uint64, error)
 	p.published = next.State != ProgressNone
 	p.dirty = false
 	return nil
+}
+
+// SetProgress changes task progress outside the cell grid. Unsupported terminals
+// ignore it. Repeating an unchanged value writes nothing; active values are refreshed
+// often enough for terminals that expire the indicator.
+// An unknown state returns [ErrInvalidProgressState] without replacing accepted progress.
+func (t *Terminal) SetProgress(progress Progress) error {
+	return t.task.to(progress, t.writer.Queue)
 }

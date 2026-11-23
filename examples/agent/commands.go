@@ -28,13 +28,16 @@ type commandAction struct {
 	run      func(argument string)
 }
 
+// commandsTitle names the command surface, in its panel and in its help.
+const commandsTitle = "commands"
+
 func (a *agent) registerCommands() {
 	a.commands.Add(
 		base.Command{Name: "help", Title: "show the commands available in this session"},
 		commandAction{run: func(string) {
 			if err := a.conversation.Append(a.scope.Context(), &kit.Entry{
-				Theme: a.theme, Label: "commands",
-				Body: a.commandHelp(),
+				Theme: a.theme, Label: commandsTitle,
+				Body: kit.NewParagraph(a.commandHelp(), a.theme.Text),
 			}); err != nil {
 				a.inform(err.Error())
 			}
@@ -120,7 +123,7 @@ func (a *agent) newCommandCompletion() *base.Completion {
 		Look: a.theme.Look(a.glyphs), Keys: keys,
 		CurrentToken: func() (base.Token, bool) {
 			editor := a.composer.Controller()
-			if line, _ := editor.Cursor(); line != 0 {
+			if line := editor.Cursor().Line; line != 0 {
 				return base.Token{}, false
 			}
 			return editor.TokenAtCursor(base.Trigger{Prefix: commandPrefix, AtStart: true})
@@ -154,14 +157,14 @@ func (a *agent) refreshCompletion() {
 // open review, whose modal decision must not be covered by a stale suggestion.
 func (a *agent) commandPopup() scene.Element {
 	help := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		kit.Help{Theme: a.theme, Keys: a.completion.Keys(), Show: []keymap.Action{base.Accept}}.Draw(frame.View)
+		kit.Help{Theme: a.theme, Keys: kit.KeysFunc(a.completion.KeysFor), Show: []keymap.Action{base.Accept}}.Draw(frame.View)
 	}})
 	body := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 		{Element: a.completion.Element(), Size: layout.Measured(0, 0)},
 		{Element: help, Size: layout.Fixed(1)},
 	}})
 	panel := kit.NewPanel(kit.PanelConfig{Theme: a.theme, Box: kit.Box{
-		Glyphs: a.glyphs, Padding: boxPadding, Title: "commands",
+		Glyphs: a.glyphs, Padding: boxPadding, Title: commandsTitle,
 	}, Content: body.Element()})
 	return scene.NewGroup(scene.GroupConfig{
 		Element: scene.ElementConfig{Enabled: a.completion.Open}, Items: []scene.Item{{Element: panel.Element()}},
@@ -170,7 +173,7 @@ func (a *agent) commandPopup() scene.Element {
 				return []image.Rectangle{{}}
 			}
 			available := space.X - 2*commandPopupInset
-			width := max(0, min(max(a.completion.Width()+panel.Box().Overhead().X, commandPopupMinWidth), available))
+			width := max(0, min(max(panel.Element().Measure(layout.Across, space.Y), commandPopupMinWidth), available))
 			height := min(panel.HeightForWidth(width), space.Y)
 			y := max(space.Y-a.composer.HeightForWidth(space.X)-height, 0)
 			return []image.Rectangle{grid.Area(commandPopupInset, y, width, height)}

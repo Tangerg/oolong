@@ -54,6 +54,15 @@ const (
 	WrapNone
 )
 
+var ErrInvalidWrapMode = errors.New("text: invalid wrap mode")
+
+func (m WrapMode) Validate() error {
+	if m > WrapNone {
+		return fmt.Errorf("%w: %d", ErrInvalidWrapMode, m)
+	}
+	return nil
+}
+
 // LayoutConfig supplies cleaned logical lines, target width and wrapping policy. Revision is caller-owned metadata.
 type LayoutConfig struct {
 	Lines    []Line
@@ -90,8 +99,8 @@ func (r LayoutRow) Width() int { return r.Content.Width() }
 
 // NewLayout prepares immutable visual rows from owned printable text. It panics for an unknown wrap mode.
 func NewLayout(cfg LayoutConfig) *Layout {
-	if cfg.Wrap > WrapNone {
-		panic("text: invalid wrapping policy")
+	if err := cfg.Wrap.Validate(); err != nil {
+		panic(err)
 	}
 	l := &Layout{width: max(0, cfg.Width), revision: cfg.Revision, reserveCaret: cfg.ReserveCaret && cfg.Wrap != WrapNone && cfg.Width > 0}
 	l.lines = make([]Line, len(cfg.Lines))

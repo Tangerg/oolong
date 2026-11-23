@@ -7,7 +7,7 @@ import (
 	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
-const eraseLine = "\x1b[K"
+const eraseLine = ansi.CSI + string(ansi.EL)
 
 // Inline keeps finished output in terminal scrollback and draws the active block
 // relative to its last cursor anchor. Autowrap must be enabled so live rows form
@@ -31,24 +31,10 @@ type Inline struct {
 	// contribution is private candidate data, never an admission queue.
 	contribution [][]Cell
 
-	// Only a committed output advances the anchor. A failed synchronous write
-	// makes relative placement unknowable and permanently ends the session.
-	rows int
-	at   image.Point
-
-	// Unchanged visibility writes nothing, preserving cursor blink.
-	known bool
-	shown bool
-	// Visibility and shape are independent; hiding does not reset shape.
-	cursorStyleKnown bool
-	cursorStyle      CursorStyle
-
-	// A full repaint restores cells and terminal-native regions as one composition.
-	full bool
-
-	// Completion belongs to Inline so exit and handover callers can finish
-	// the same block without each retaining a competing completion flag.
-	left bool
+	// anchor changes only as one value: Prepare encodes against it and Commit
+	// adopts the candidate. A failed synchronous write makes relative placement
+	// unknowable and permanently ends the session.
+	anchor inlineAnchor
 
 	buf []byte
 }
@@ -62,7 +48,7 @@ func NewInline(w, h int) *Inline { return (NativeTarget{}).Inline(w, h) }
 func (target NativeTarget) Inline(w, h int) *Inline {
 	return &Inline{
 		buffers: newFrameBuffer(w, h, target),
-		full:    true,
+		anchor:  inlineAnchor{full: true},
 	}
 }
 
@@ -102,9 +88,8 @@ func (i *Inline) Invalidate() {
 }
 
 func (i *Inline) invalidate() {
-	i.full = true
-	i.known = false
-	i.cursorStyleKnown = false
+	i.anchor.full = true
+	i.anchor.cursor.forget()
 }
 
 // Frame blanks the drawing surface and returns the view for this frame.
@@ -123,25 +108,18 @@ func (i *Inline) Frame() View {
 // block's own coordinates. See [Screen.Cursor].
 func (i *Inline) Cursor() Cursor { return i.placed }
 
-type inlineState struct {
-	rows                           int
-	at                             image.Point
-	known, shown, cursorStyleKnown bool
-	cursorStyle                    CursorStyle
-	full, left                     bool
-}
-
-func (i *Inline) state() inlineState {
-	return inlineState{
-		i.rows, i.at, i.known, i.shown, i.cursorStyleKnown,
-		i.cursorStyle, i.full, i.left,
-	}
-}
-
-func (i *Inline) restore(s inlineState) {
-	i.rows, i.at = s.rows, s.at
-	i.known, i.shown, i.cursorStyleKnown = s.known, s.shown, s.cursorStyleKnown
-	i.cursorStyle, i.full, i.left = s.cursorStyle, s.full, s.left
+// inlineAnchor is everything a committed inline output establishes about the
+// terminal: where the block starts relative to the cursor, what the cursor shows,
+// and whether the block was already left behind.
+type inlineAnchor struct {
+	rows   int
+	at     image.Point
+	cursor cursorBelief
+	// A full repaint restores cells and terminal-native regions as one composition.
+	full bool
+	// Completion belongs to Inline so exit and handover callers can finish the
+	// same block without each retaining a competing completion flag.
+	left bool
 }
 
 // Prepare composes immutable permanent contributions and the live frame together.
@@ -150,9 +128,9 @@ func (i *Inline) restore(s inlineState) {
 func (i *Inline) Prepare(contents ...Frozen) (output *Output, err error) {
 	i.publication.begin()
 	i.buffers.back.endDrawing()
-	before := i.state()
+	before := i.anchor
 	defer func() {
-		i.restore(before)
+		i.anchor = before
 		i.contribution = nil
 		if output == nil {
 			i.publication.end()
@@ -181,7 +159,7 @@ func (i *Inline) Prepare(contents ...Frozen) (output *Output, err error) {
 	if err != nil {
 		return nil, err
 	}
-	after := i.state()
+	after := i.anchor
 	after.rows, after.at, after.full = used, at, false
 	var payload []byte
 	if len(i.buf) > 0 {
@@ -192,7 +170,7 @@ func (i *Inline) Prepare(contents ...Frozen) (output *Output, err error) {
 	}
 	output = newOutput(payload, func(commit bool) {
 		if commit {
-			i.restore(after)
+			i.anchor = after
 			i.buffers.swap()
 		}
 		i.publication.end()
@@ -203,18 +181,7 @@ func (i *Inline) Prepare(contents ...Frozen) (output *Output, err error) {
 // Flush writes and commits one synchronous transaction. A failed write poisons
 // this canvas; asynchronous runtimes use Prepare and settle after admission.
 func (i *Inline) Flush(w io.Writer, contents ...Frozen) error {
-	output, err := i.Prepare(contents...)
-	if err != nil {
-		return err
-	}
-	defer output.Abort()
-	if output.Len() > 0 {
-		if err := i.publication.write(w, output.payload); err != nil {
-			return err
-		}
-	}
-	output.Commit()
-	return nil
+	return i.publication.commit(w, func() (*Output, error) { return i.Prepare(contents...) })
 }
 
 // PrepareFinish leaves the accepted live block behind. It uses the same writer
@@ -235,27 +202,27 @@ func (i *Inline) PrepareFinish() (output *Output, err error) {
 		return nil, err
 	}
 	var payload []byte
-	if !i.left {
-		if i.rows > 0 {
-			if i.at.Y > 0 {
-				payload = appendCSI(payload, i.at.Y, 'A')
+	if !i.anchor.left {
+		if i.anchor.rows > 0 {
+			if i.anchor.at.Y > 0 {
+				payload = ansi.AppendCSI(payload, ansi.CUU, i.anchor.at.Y)
 			}
 			// Hard line breaks detach accepted rows from the live reflow group
 			// before a shell or foreground child moves the cursor elsewhere.
 			_, height := i.buffers.size()
-			for range min(i.rows, height) {
+			for range min(i.anchor.rows, height) {
 				payload = append(payload, "\r\n"...)
 			}
 		}
 		payload = append(payload, osc8Close...)
 		payload = append(payload, sgrReset...)
 		payload = append(payload, ansi.CursorReset.Sequence()...)
-		payload = append(payload, ansi.ShowCursor...)
+		payload = append(payload, showCursor...)
 	}
 	output = newOutput(payload, func(commit bool) {
 		if commit {
-			i.rows, i.at = 0, image.Point{}
-			i.left = true
+			i.anchor.rows, i.anchor.at = 0, image.Point{}
+			i.anchor.left = true
 			i.invalidate()
 		}
 		i.publication.end()
@@ -266,18 +233,7 @@ func (i *Inline) PrepareFinish() (output *Output, err error) {
 // Finish synchronously leaves the accepted block below the terminal cursor.
 // It refuses reentry while another output is prepared but unsettled.
 func (i *Inline) Finish(w io.Writer) error {
-	output, err := i.PrepareFinish()
-	if err != nil {
-		return err
-	}
-	defer output.Abort()
-	if output.Len() > 0 {
-		if err := i.publication.write(w, output.payload); err != nil {
-			return err
-		}
-	}
-	output.Commit()
-	return nil
+	return i.publication.commit(w, i.PrepareFinish)
 }
 
 func (i *Inline) used() int {
@@ -305,12 +261,12 @@ func (i *Inline) used() int {
 // which is the anchor only a completed write may adopt.
 func (i *Inline) compose(used int) (image.Point, error) {
 	if !i.compositionNeeded(used) {
-		return i.at, nil
+		return i.anchor.at, nil
 	}
-	full := i.full || used > i.rows || len(i.contribution) > 0 || i.buffers.regionsNeedRepaint()
+	full := i.anchor.full || used > i.anchor.rows || len(i.contribution) > 0 || i.buffers.regionsNeedRepaint()
 	if full {
 		if err := eraseRegions(i.buffers.target, &i.buf, i.buffers.front.regions()); err != nil {
-			return i.at, err
+			return i.anchor.at, err
 		}
 	}
 
@@ -320,20 +276,20 @@ func (i *Inline) compose(used int) (image.Point, error) {
 	i.buf = append(i.buf, sgrReset...)
 
 	i.buf = append(i.buf, '\r')
-	if i.at.Y > 0 {
-		i.csi(i.at.Y, 'A')
+	if i.anchor.at.Y > 0 {
+		i.csi(ansi.CUU, i.anchor.at.Y)
 	}
 	advance := i.composePending()
 	// A shorter viewport can strand a prefix in scrollback. Visiting more than
 	// its height would scroll the replacement block out of reach as well.
 	_, height := i.buffers.size()
-	extra := max(min(i.rows, height)-advance-used, 0)
+	extra := max(min(i.anchor.rows, height)-advance-used, 0)
 	total := i.composeRows(used, extra, full)
 	return i.composeEnd(used, total, full)
 }
 
 func (i *Inline) compositionNeeded(used int) bool {
-	if i.full || i.rows > used || len(i.contribution) > 0 ||
+	if i.anchor.full || i.anchor.rows > used || len(i.contribution) > 0 ||
 		!sameRegions(i.buffers.front.regions(), i.buffers.back.regions()) || i.cursorPending() {
 		return true
 	}
@@ -367,7 +323,7 @@ func (i *Inline) composeRows(used, extra int, full bool) int {
 	}
 	for y := range used {
 		if y > 0 {
-			i.csi(1, 'B')
+			i.csi(ansi.CUD, 1)
 		}
 		if !i.rowChanged(y, full) {
 			continue
@@ -400,7 +356,7 @@ func (i *Inline) composeRowGroup(rows int) {
 	}
 	i.buf = append(i.buf, '\r')
 	if rows > 1 {
-		i.csi(rows-1, 'A')
+		i.csi(ansi.CUU, rows-1)
 	}
 }
 
@@ -413,15 +369,15 @@ func (i *Inline) composeEnd(used, total int, full bool) (image.Point, error) {
 	// them. Cursor restoration follows every painter callback.
 	cur, err := i.paintRegions(image.Pt(0, max(total-1, 0)), full)
 	if err != nil {
-		return i.at, err
+		return i.anchor.at, err
 	}
 
 	at := image.Pt(0, max(used-1, 0))
 	if up := cur.Y - at.Y; up > 0 {
-		i.csi(up, 'A')
+		i.csi(ansi.CUU, up)
 	}
 	if down := at.Y - cur.Y; down > 0 {
-		i.csi(down, 'B')
+		i.csi(ansi.CUD, down)
 	}
 	if cur.X > 0 {
 		i.buf = append(i.buf, '\r')
@@ -438,14 +394,14 @@ func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
 	out := &i.buf
 	move := func(to image.Point) {
 		if up := cur.Y - to.Y; up > 0 {
-			i.csi(up, 'A')
+			i.csi(ansi.CUU, up)
 		}
 		if down := to.Y - cur.Y; down > 0 {
-			i.csi(down, 'B')
+			i.csi(ansi.CUD, down)
 		}
 		i.buf = append(i.buf, '\r')
 		if to.X > 0 {
-			i.csi(to.X, 'C')
+			i.csi(ansi.CUF, to.X)
 		}
 		cur = to
 	}
@@ -456,42 +412,27 @@ func (i *Inline) paintRegions(cur image.Point, full bool) (image.Point, error) {
 }
 
 func (i *Inline) cursorPending() bool {
-	if !i.known || i.placed.Visible != i.shown {
-		return true
-	}
-	return i.placed.Visible && (i.placed.Pos != i.at || !i.cursorStyleKnown ||
-		i.placed.Style != i.cursorStyle)
+	return i.anchor.cursor.differs(i.placed) || i.placed.Visible && i.placed.Pos != i.anchor.at
 }
 
 func (i *Inline) placeCursor(at image.Point) image.Point {
-	defer func() { i.known, i.shown = true, i.placed.Visible }()
-
 	if !i.placed.Visible {
-		if !i.known || i.shown {
-			i.buf = append(i.buf, ansi.HideCursor...)
-		}
+		i.buf = i.anchor.cursor.appendVisibility(i.buf, false)
 		return at
 	}
-	style := i.placed.Style
-	if !i.cursorStyleKnown || style != i.cursorStyle {
-		i.buf = append(i.buf, style.Sequence()...)
-		i.cursorStyleKnown = true
-		i.cursorStyle = style
-	}
+	i.buf = i.anchor.cursor.appendStyle(i.buf, i.placed.Style)
 	// The cursor is never below the block: a frame that placed one counts its row as
 	// drawn, which is what makes the block tall enough to hold it.
 	if up := at.Y - i.placed.Pos.Y; up > 0 {
-		i.csi(up, 'A')
+		i.csi(ansi.CUU, up)
 	}
 	if i.placed.Pos.X > 0 {
-		i.csi(i.placed.Pos.X, 'C')
+		i.csi(ansi.CUF, i.placed.Pos.X)
 	}
-	if !i.known || !i.shown {
-		i.buf = append(i.buf, ansi.ShowCursor...)
-	}
+	i.buf = i.anchor.cursor.appendVisibility(i.buf, true)
 	return i.placed.Pos
 }
 
-func (i *Inline) csi(n int, final byte) {
-	i.buf = appendCSI(i.buf, n, final)
+func (i *Inline) csi(function ansi.Function, n int) {
+	i.buf = ansi.AppendCSI(i.buf, function, n)
 }

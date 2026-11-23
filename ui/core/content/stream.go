@@ -3,11 +3,12 @@ package content
 import (
 	"context"
 	"errors"
-	"math"
 	"slices"
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/counter"
+	"github.com/Tangerg/oolong/ui/internal/enum"
 )
 
 // Source and preparation errors preserve the failed stage without advancing it.
@@ -136,7 +137,7 @@ func (*noCopy) Unlock() {}
 type documentListener struct{ fn func(DocumentChange) }
 
 func NewStreamDocument(cfg StreamConfig) (*StreamDocument, error) {
-	format, err := normalize(cfg.Format)
+	format, err := cfg.Format.canonical()
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +182,10 @@ func (d *StreamDocument) Append(batch []byte) error {
 	return nil
 }
 
-func (d *StreamDocument) hasNextRevision() bool { return d.revision < Revision(math.MaxUint64) }
+func (d *StreamDocument) hasNextRevision() bool {
+	_, ok := counter.Next(d.revision)
+	return ok
+}
 
 // End closes the source and creates a new revision, even for unchanged bytes.
 // Final parsing may settle an incomplete UTF-8 sequence or unresolved syntax
@@ -215,7 +219,7 @@ func (d *StreamDocument) Accept(prepared Prepared) error {
 	if prepared.source.owner != d.id || prepared.source.revision != d.revision || prepared.source.final != d.ended {
 		return ErrStalePreparation
 	}
-	if d.preparedRevision == d.revision && (d.body != nil || d.prepareErr != nil) {
+	if d.preparedCurrent() {
 		return ErrAlreadyPrepared
 	}
 	d.body, d.prepareErr, d.preparedRevision = prepared.body, prepared.err, d.revision
@@ -223,29 +227,45 @@ func (d *StreamDocument) Accept(prepared Prepared) error {
 	return nil
 }
 
+// preparedCurrent reports whether the current revision has an accepted
+// preparation. An accepted result always carries a body or an error, which is
+// what distinguishes a prepared revision zero from no preparation at all.
+func (d *StreamDocument) preparedCurrent() bool {
+	return d.preparedRevision == d.revision && (d.body != nil || d.prepareErr != nil)
+}
+
 // Current returns the settled source and prepared-result projection without triggering work.
 func (d *StreamDocument) Current() DocumentChange {
 	if d == nil {
 		return DocumentChange{State: Receiving}
 	}
-	state := Receiving
-	switch {
-	case d.revision != d.preparedRevision || d.body == nil && d.prepareErr == nil:
-		if d.ended {
-			state = Finalizing
-		} else if d.revision > 0 {
-			state = Preparing
-		}
-	case !d.ended:
-		state = Receiving
-	case d.body == nil:
-		state = Failed
-	case d.sourceErr != nil || d.prepareErr != nil:
-		state = Partial
-	default:
-		state = Final
+	return DocumentChange{
+		Revision: d.revision, PreparedRevision: d.preparedRevision, State: d.state(),
+		Body: d.body, SourceError: d.sourceErr, PrepareError: d.prepareErr,
 	}
-	return DocumentChange{Revision: d.revision, PreparedRevision: d.preparedRevision, State: state, Body: d.body, SourceError: d.sourceErr, PrepareError: d.prepareErr}
+}
+
+func (d *StreamDocument) state() DocumentState {
+	if !d.preparedCurrent() {
+		switch {
+		case d.ended:
+			return Finalizing
+		case d.revision > 0:
+			return Preparing
+		default:
+			return Receiving
+		}
+	}
+	switch {
+	case !d.ended:
+		return Receiving
+	case d.body == nil:
+		return Failed
+	case d.sourceErr != nil || d.prepareErr != nil:
+		return Partial
+	default:
+		return Final
+	}
 }
 
 // Subscribe returns an idempotent owner-side cancellation function. Cancellation
@@ -259,25 +279,23 @@ func (d *StreamDocument) Subscribe(fn func(DocumentChange)) func() {
 	d.listeners = append(d.listeners, listener)
 	return func() {
 		listener.fn = nil
-		if d.notifying {
-			return
-		}
-		for index, entry := range d.listeners {
-			if entry == listener {
-				copy(d.listeners[index:], d.listeners[index+1:])
-				d.listeners[len(d.listeners)-1] = nil
-				d.listeners = d.listeners[:len(d.listeners)-1]
-				return
-			}
+		if !d.notifying {
+			d.pruneListeners()
 		}
 	}
+}
+
+// pruneListeners drops cancelled listeners. Cancellation during notification
+// defers it so the delivery loop never sees its slice shift.
+func (d *StreamDocument) pruneListeners() {
+	d.listeners = slices.DeleteFunc(d.listeners, func(l *documentListener) bool { return l.fn == nil })
 }
 
 func (d *StreamDocument) notify() {
 	d.notifying = true
 	defer func() {
 		d.notifying = false
-		d.listeners = slices.DeleteFunc(d.listeners, func(l *documentListener) bool { return l.fn == nil })
+		d.pruneListeners()
 	}()
 	change := d.Current()
 	// Install delivery in reverse so callbacks run in registration order, even
@@ -290,3 +308,10 @@ func (d *StreamDocument) notify() {
 		}()
 	}
 }
+
+var documentStateNames = [...]string{
+	Receiving: "receiving", Preparing: "preparing", Finalizing: "finalizing",
+	Final: "final", Partial: "partial", Failed: "failed",
+}
+
+func (s DocumentState) String() string { return enum.Name(documentStateNames[:], s, "DocumentState") }

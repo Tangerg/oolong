@@ -119,9 +119,7 @@ func TestConfirmControlRejectsPaintRequestsBeforeCallingDomain(t *testing.T) {
 	field := base.NewConfirm(base.ConfirmConfig{Control: domain})
 	defer field.Close()
 	element := field.Element()
-	if err := element.SetPaint(func(scene.Frame) { field.Say(true) }); err != nil {
-		t.Fatal(err)
-	}
+	element.SetPaint(func(scene.Frame) { field.Say(true) })
 	root := scenes.Mount(field)
 	func() {
 		defer func() {

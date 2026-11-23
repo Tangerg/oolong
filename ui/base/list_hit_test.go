@@ -111,9 +111,7 @@ type hitFrameProbe struct {
 func (p *hitFrameProbe) Element() scene.Element {
 	element := p.child.Element()
 	if !element.Alive() {
-		if err := element.SetPaint(p.Draw); err != nil {
-			panic(err)
-		}
+		element.SetPaint(p.Draw)
 	}
 	return element
 }

@@ -132,11 +132,11 @@ func TestBackendDiagnosticIsVisible(t *testing.T) {
 	}
 }
 
-func (h *imageHost) Copy(value string) bool {
+func (h *imageHost) Copy(value string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.copied = value
-	return true
+	return nil
 }
 
 func TestUnsupportedTerminalsNeverReceiveImageData(t *testing.T) {

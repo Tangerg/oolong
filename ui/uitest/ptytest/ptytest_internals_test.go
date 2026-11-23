@@ -12,7 +12,7 @@ import (
 )
 
 func TestATranscriptIsSafeToReadWhileItGrows(t *testing.T) {
-	tr := newTranscript()
+	tr := newTranscript(Size{Cols: defaultColumns, Rows: defaultRows})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -31,7 +31,7 @@ func TestATranscriptIsSafeToReadWhileItGrows(t *testing.T) {
 
 func TestWaitForReturnsOnceEveryTokenHasArrived(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		tr := newTranscript()
+		tr := newTranscript(Size{Cols: defaultColumns, Rows: defaultRows})
 		go func() {
 			time.Sleep(10 * time.Millisecond)
 			tr.append([]byte("first "))
@@ -47,7 +47,7 @@ func TestWaitForReturnsOnceEveryTokenHasArrived(t *testing.T) {
 }
 
 func TestWaitForGivesUpAndSaysWhatItNeverSaw(t *testing.T) {
-	tr := newTranscript()
+	tr := newTranscript(Size{Cols: defaultColumns, Rows: defaultRows})
 	tr.append([]byte("only this"))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
@@ -68,7 +68,7 @@ func TestWaitForGivesUpAndSaysWhatItNeverSaw(t *testing.T) {
 }
 
 func TestWaitForPreservesTheContextsCause(t *testing.T) {
-	tr := newTranscript()
+	tr := newTranscript(Size{Cols: defaultColumns, Rows: defaultRows})
 	want := errors.New("the surrounding test stopped")
 	ctx, cancel := context.WithCancelCause(t.Context())
 	cancel(want)
@@ -93,7 +93,7 @@ func TestSizesThatATerminalCannotReportAreRefused(t *testing.T) {
 }
 
 func TestTheTranscriptIsAStringByteForByte(t *testing.T) {
-	tr := newTranscript()
+	tr := newTranscript(Size{Cols: defaultColumns, Rows: defaultRows})
 	tr.append([]byte("\x1b[0m\xff"))
 	if got := tr.String(); got != "\x1b[0m\xff" {
 		t.Fatalf("= %q, want the bytes unchanged", got)
@@ -104,9 +104,9 @@ func TestTheTranscriptIsAStringByteForByte(t *testing.T) {
 }
 
 func TestATranscriptScreenUsesOneConcurrentSnapshot(t *testing.T) {
-	tr := newTranscript()
+	tr := newTranscript(Size{Cols: 8, Rows: 1})
 	tr.append([]byte("first"))
-	screen, err := tr.Screen(Size{Cols: 8, Rows: 1})
+	screen, err := tr.Screen()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestATranscriptScreenUsesOneConcurrentSnapshot(t *testing.T) {
 }
 
 func TestMissingTokenErrorQuotesTerminalCommands(t *testing.T) {
-	tr := newTranscript()
+	tr := newTranscript(Size{Cols: defaultColumns, Rows: defaultRows})
 	tr.append([]byte("\x1b]52;c;RXhhbXBsZQ==\x07"))
 	tr.finish(nil)
 	err := tr.WaitFor(t.Context(), "absent")

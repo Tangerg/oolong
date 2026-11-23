@@ -72,12 +72,11 @@ func run(ctx context.Context, path string, host program.Host) (err error) {
 			if scopeErr != nil {
 				return scene.Element{}, scopeErr
 			}
-			owner := runtime.Dispatcher()
 			workers.Add(1)
 			_, startErr := runtime.Start(scope, program.Work[graphics.Resource]{
 				Run: func(ctx context.Context) (graphics.Resource, error) {
 					defer workers.Done()
-					uploaded, uploadErr := transmitImage(ctx, owner, images, data)
+					uploaded, uploadErr := transmitImage(ctx, images, data)
 					resource = uploaded
 					return uploaded, uploadErr
 				},
@@ -103,15 +102,10 @@ func run(ctx context.Context, path string, host program.Host) (err error) {
 	return app.Run(ctx)
 }
 
-func transmitImage(ctx context.Context, owner program.Dispatcher, images program.Images, data []byte) (graphics.Resource, error) {
-	var result <-chan graphics.UploadResult
-	admissionErr := owner.Invoke(ctx, func() error {
-		var transmitErr error
-		result, transmitErr = images.Transmit(ctx, data)
-		return transmitErr
-	})
-	if admissionErr != nil {
-		return graphics.Resource{}, admissionErr
+func transmitImage(ctx context.Context, images program.Images, data []byte) (graphics.Resource, error) {
+	result, err := images.Transmit(ctx, data)
+	if err != nil {
+		return graphics.Resource{}, err
 	}
 	outcome := <-result
 	return outcome.Resource, outcome.Err

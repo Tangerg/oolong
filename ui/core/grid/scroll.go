@@ -3,6 +3,8 @@ package grid
 import (
 	"image"
 	"slices"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
 // minShiftOverlap is how many rows a shift must carry over for it to be worth
@@ -126,8 +128,10 @@ func diffCostFloor(prev, next *Surface) int {
 	return cost
 }
 
+// cupCost mirrors painter.moveTo: CSI row ; column CUP.
 func cupCost(x, y int) int {
-	return len("\x1b[;H") + digits(y+1) + digits(x+1)
+	const framing = len(ansi.CSI) + len(";") + len(string(ansi.CUP))
+	return framing + digits(y+1) + digits(x+1)
 }
 
 func digits(n int) int {

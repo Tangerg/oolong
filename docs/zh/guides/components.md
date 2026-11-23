@@ -49,13 +49,13 @@ for _, form := range forms {
 
 ## 装配实际部件
 
-`scene.Group` 接收带 key 的 `scene.Item` 子项与布局函数。覆盖层通过 `scene.Group` 的 `GroupConfig.Overlay` 配置实际挂载，`GroupConfig.Modal` 配置模态边界。绘制、焦点、路由、生命周期和语义观察由这些相同部件决定。
+`scene.Group` 接收带 key 的 `scene.Item` 子项与布局函数。覆盖层通过 `scene.Group` 的 `GroupConfig.Overlay` 配置实际挂载，`GroupConfig.Modal` 配置模态边界。绘制、焦点、路由、生命周期和语义观察由这些相同部件决定。按键先从根向下经过每个 `Shortcut`，再从根向下到焦点经过每个 `Preview`，最后沿 `Handle` 向上冒泡；模态边界会截断 `Preview` 与 `Handle`，但不截断 `Shortcut`。焦点从标记了 `ElementConfig.Autofocus` 的元素（控件元素可用 `Element.SetAutofocus`）内第一个可聚焦元素开始，所以 transcript 下方的编辑器一开始就拿到按键，而 transcript 仍可聚焦；没有这样的元素时，从树顺序中第一个可聚焦元素开始。
 
 创建一次并保留组件实例。重复调用 `Element()` 是安全的；每次绘制都重建控制器，会丢失身份与手势。在 `Prepare` 前的所有者阶段更新 group 成员，然后绘制稳定的结果树。
 
 ## 替换皮肤
 
-保留 base 控制器，在未挂载元素上设置绘制或测量槽。使用 core 的 text、grid、layout 原子能力绘制传入的 `scene.Frame`。从控制器读取值与状态。绘制使用候选几何，事件通过 `scene.Event.Read` 读取到达帧投影。
+保留 base 控制器，在未挂载元素上设置绘制或测量槽；对已挂载元素设置会 panic。使用 core 的 text、grid、layout 原子能力绘制传入的 `scene.Frame`。从控制器读取值与状态。绘制使用候选几何，事件通过 `scene.Event.Read` 读取到达帧投影。
 
 标签和装饰文本使用 `line := text.Of(value, style)`，配合它的 `Width` 与 `Draw` 方法。控制字符过滤、字素边界和 tab stops 由同一文字投影解释。Tab 从该文字行自身的起点计算，移动或裁剪视图不会改变其列位置。`grid.View.Text` 是更底层的单元格写入能力，不展开 tab。
 
@@ -98,7 +98,7 @@ Oolong 发送 Kitty 图片编号 `I`，并接收终端分配的物理图片 ID `
 
 使用 `runtime.Clipboard().Read(ctx, receive)` 发起定向读取。接纳错误立即返回；回调在 UI 所有者上接收读取结果。自定义宿主实现 `program.ClipboardReader.ReadClipboard(context.Context) (string, error)`，可以在该工作线程调用中阻塞。调用方取消或 runtime 结束会撤销回调交付。普通括号粘贴仍是输入事件；OSC 52 回复只结算发起它的读取。
 
-`editor.Paste(ctx, complete)` 捕获原文档、修订、光标、选择区和挂载身份。焦点移动不会把结果转交另一编辑器。成功读取的结果在原编辑位置改变或编辑器卸载后过期；未挂载编辑器只有在从未挂载过时才能发起读取。读取失败原样报告，不再检查编辑位置。接纳和完成错误均明确报告。`editor.PasteError()` 属于最近一次键盘请求，旧请求的完成不能覆盖新请求的拒绝或成功。过期的成功结果会被静默丢弃，包装或组合后的读取失败仍然可见。Editor、Text、Input 和 Composer 的默认呈现使用独立反馈行，并通过语义 `Description` 与 `StateInvalid` 暴露完整原因。程序粘贴直接返回自己的错误，不改写物理输入反馈。空剪贴板成功返回，不删除当前选择区。
+`editor.Paste(ctx, complete)` 捕获原文档、修订、光标、选择区和挂载身份。焦点移动不会把结果转交另一编辑器。成功读取的结果在原编辑位置改变或编辑器卸载后过期；未挂载编辑器只有在从未挂载过时才能发起读取。读取失败原样报告，不再检查编辑位置。接纳和完成错误均明确报告。`editor.ClipboardError()` 属于最近一次键盘复制、剪切或粘贴，旧粘贴请求的完成不能覆盖新请求的拒绝或成功。`editor.Copy()` 与 `editor.Cut()` 返回剪贴板的拒绝原因，键盘复制或剪切会在同一反馈行显示它。过期的成功结果会被静默丢弃，包装或组合后的读取失败仍然可见。base Editor、Text 以及 kit Input、Editor 的默认呈现使用独立反馈行，并通过语义 `Description` 与 `StateInvalid` 暴露完整原因。程序粘贴直接返回自己的错误，不改写物理输入反馈。空剪贴板成功返回，不删除当前选择区。
 
 OSC 52 没有请求标识。响应超时会在十秒后结束等待，但不能证明迟到回复可以安全地归属新请求。取消和终端交接遵守相同规则：旧回复被消费前一直返回 `clipboard.ErrPending`，重复读取不能绕过未结清的查询。直接使用 `clipboard.Channel` 时，发送回调必须提供原子接纳语义；已经部分发出的查询也属于已发送，必须保留接收其回复的义务。
 

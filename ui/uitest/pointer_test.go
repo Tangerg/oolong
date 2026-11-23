@@ -30,12 +30,12 @@ func TestPointerAfterRepaintAcknowledgementNeedsNoClockAdvance(t *testing.T) {
 		app, err := program.NewScreen(program.ScreenConfig{Host: host, Build: func(*program.Runtime) (scene.Element, error) {
 			slider := base.NewSlider(base.SliderConfig{Maximum: 100})
 			element := slider.Element()
-			err := element.SetPaint(func(frame scene.Frame) {
+			element.SetPaint(func(frame scene.Frame) {
 				slider.Stage(frame, frame.Bounds())
 				frame.Text(0, 0, strconv.Itoa(slider.Value()), grid.Style{})
 				painted.Store(int64(slider.Value()))
 			})
-			return element, err
+			return element, nil
 		}})
 		if err != nil {
 			t.Fatal(err)

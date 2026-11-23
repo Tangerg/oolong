@@ -42,7 +42,7 @@ func TestTabsCannotFallbackToTheStripAfterReentrantCancellation(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	pane := &cancellingPane{}
-	tabs := kit.NewTabs(kit.TabsConfig{NoRule: true, Items: []base.Tab{{Title: "a", Content: scenes.Element(pane)}, {Title: "b"}}})
+	tabs := kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{{Title: "a", Content: scenes.Element(pane)}, {Title: "b"}}}, NoRule: true})
 	scenes.Mount(tabs).Draw(grid.NewSurface(8, 4).View())
 	if !scenes.Mount(tabs).Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(1, 2)}) {
 		t.Fatal("pane declined the first press")
@@ -60,7 +60,7 @@ func TestTabsRetainTheArrivalFrameDuringCancellationRedraw(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	pane := &cancellingPane{}
-	tabs := kit.NewTabs(kit.TabsConfig{NoRule: true, Items: []base.Tab{{Title: "a", Content: scenes.Element(pane)}, {Title: "b"}}})
+	tabs := kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{{Title: "a", Content: scenes.Element(pane)}, {Title: "b"}}}, NoRule: true})
 	root := scenes.Mount(tabs)
 	view := grid.NewSurface(20, 4).View()
 	root.Draw(view)
@@ -79,7 +79,7 @@ func TestTabsCannotFallbackToTheStripAfterReentrantLeave(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	pane := &cancellingPane{}
-	tabs := kit.NewTabs(kit.TabsConfig{NoRule: true, Items: []base.Tab{{Title: "a", Content: scenes.Element(pane)}, {Title: "b"}}})
+	tabs := kit.NewTabs(kit.TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{{Title: "a", Content: scenes.Element(pane)}, {Title: "b"}}}, NoRule: true})
 	scenes.Mount(tabs).Draw(grid.NewSurface(8, 4).View())
 	scenes.Mount(tabs).Handle(input.Mouse{Action: input.MouseMove, Pos: image.Pt(1, 2)})
 	pane.leave = func() {

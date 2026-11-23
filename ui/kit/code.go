@@ -36,21 +36,15 @@ func (c *Code) SetText(lines []text.Line) { c.body.SetText(lines) }
 
 // Lines returns a copy of the source lines.
 func (c *Code) Lines() []text.Line {
-	if c == nil {
-		return nil
-	}
 	return c.body.Lines()
 }
 
 func (c *Code) HeightForWidth(width int) int {
-	if c == nil {
-		return 0
-	}
 	return c.body.HeightForWidth(c.textWidth(width))
 }
 
 func (c *Code) Draw(view grid.View) {
-	if c == nil || view.Empty() {
+	if view.Empty() {
 		return
 	}
 	width, height := view.Size()
@@ -71,9 +65,6 @@ func (c *Code) Draw(view grid.View) {
 
 // Rows returns the meaningful source text, with offsets aligned past its gutter.
 func (c *Code) Rows(width int) []text.Row {
-	if c == nil {
-		return nil
-	}
 	gutter := c.gutterWidth()
 	rows := c.body.Rows(layout.Remaining(width, gutter))
 	for i := range rows {

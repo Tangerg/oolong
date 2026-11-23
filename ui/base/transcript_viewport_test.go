@@ -18,14 +18,12 @@ func TestStickyOverlayKeepsTheFullScrollViewport(t *testing.T) {
 	model.Sticky().SetBlocks([]base.BlockID{first.ID(), second.ID()})
 	var bodyFrom int
 	var pinned base.Pinned
-	if err := model.Element().SetPaint(func(frame scene.Frame) {
+	model.Element().SetPaint(func(frame scene.Frame) {
 		window := model.StageWindow(frame)
 		bodyFrom, pinned = window.BodyFrom, window.Pinned
 		window.Content.Draw(frame.Sub(window.Header).View, window.HeaderFrom)
 		window.Content.Draw(window.Body, window.BodyFrom)
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	root := transcriptScene(t, model)
 	surface := transcriptCommit(t, root, 12, 6, 1)
 	if model.Scroll().Offset() != 6 || bodyFrom != 7 || pinned.Block != first.ID() || pinned.Rows != 1 {
@@ -114,14 +112,12 @@ func TestStickyReadingAnchorTracksReflowedHeaderGeometry(t *testing.T) {
 			model.Sticky().SetGap(1)
 			model.Scroll().ToTop()
 			var bodyFrom, bodyTop int
-			if err := model.Element().SetPaint(func(frame scene.Frame) {
+			model.Element().SetPaint(func(frame scene.Frame) {
 				window := model.StageWindow(frame)
 				bodyFrom, bodyTop = window.BodyFrom, window.Pinned.Rows
 				window.Content.Draw(frame.Sub(window.Header).View, window.HeaderFrom)
 				window.Content.Draw(window.Body, window.BodyFrom)
-			}); err != nil {
-				t.Fatal(err)
-			}
+			})
 			root := transcriptScene(t, model)
 			transcriptCommit(t, root, tc.width, 5, 1)
 			model.Scroll().By(tc.offset)
@@ -173,14 +169,12 @@ func TestTranscriptRevealKeepsMatchesBelowStickyFurniture(t *testing.T) {
 				model.Sticky().SetGap(tc.gap)
 				model.Sticky().SetMinHeight(tc.collapse)
 				var bodyFrom, bodyTop int
-				if err := model.Element().SetPaint(func(frame scene.Frame) {
+				model.Element().SetPaint(func(frame scene.Frame) {
 					window := model.StageWindow(frame)
 					bodyFrom, bodyTop = window.BodyFrom, window.Pinned.Rows
 					window.Content.Draw(frame.Sub(window.Header).View, window.HeaderFrom)
 					window.Content.Draw(window.Body, window.BodyFrom)
-				}); err != nil {
-					t.Fatal(err)
-				}
+				})
 				root := transcriptScene(t, model)
 				transcriptCommit(t, root, 12, tc.height, 1)
 				source := model.Layout()
@@ -225,14 +219,12 @@ func TestTranscriptRevealUsesTheCandidateWidthForStickyGeometry(t *testing.T) {
 	model.Sticky().Add(header.ID())
 	model.Sticky().SetGap(1)
 	var bodyFrom, bodyTop int
-	if err := model.Element().SetPaint(func(frame scene.Frame) {
+	model.Element().SetPaint(func(frame scene.Frame) {
 		window := model.StageWindow(frame)
 		bodyFrom, bodyTop = window.BodyFrom, window.Pinned.Rows
 		window.Content.Draw(frame.Sub(window.Header).View, window.HeaderFrom)
 		window.Content.Draw(window.Body, window.BodyFrom)
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	root := transcriptScene(t, model)
 	transcriptCommit(t, root, 12, 6, 1)
 	const target = 6

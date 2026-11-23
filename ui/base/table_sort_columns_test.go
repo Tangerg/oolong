@@ -65,7 +65,7 @@ func TestReplacingSortColumnsRevokesAnUnavailableActiveOrder(t *testing.T) {
 		}
 		return nil
 	})
-	if _, _, sorted := table.Sorted(); sorted || !slices.Equal(table.Items(), []int{1, 2, 3}) {
+	if _, sorted := table.Sorted(); sorted || !slices.Equal(table.Items(), []int{1, 2, 3}) {
 		t.Fatal("replaced column capability retained unsupported metadata or reordered rows")
 	}
 	if table.SortBy(0) || !table.SortBy(1) || !slices.Equal(table.Items(), []int{3, 2, 1}) {
@@ -88,7 +88,7 @@ func TestSortColumnLookupCannotMutateTheOrderItAuthorizes(t *testing.T) {
 		}()
 		table.SortBy(0)
 	}()
-	if _, _, sorted := table.Sorted(); sorted || !slices.Equal(table.Items(), []int{2, 1}) {
+	if _, sorted := table.Sorted(); sorted || !slices.Equal(table.Items(), []int{2, 1}) {
 		t.Fatal("reentrant column lookup published a partial sort")
 	}
 }

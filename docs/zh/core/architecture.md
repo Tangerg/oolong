@@ -35,7 +35,7 @@ contentType: Conceptual
 | 字段值 | 具体 base 控制器或显式领域 Control | 表单输出、语义值、kit 绘制 |
 | 可编辑逻辑文本与修订 | `base.EditSession` | 编辑器布局，以及通过变更映射的光标和选区 |
 | 流式源与最终化 | `content.StreamDocument` | 不可变源快照与准备结果 |
-| 保留的会话内容引用 | `base.Transcript` | Transcript 布局与阅读锚点 |
+| 保留的 Transcript 内容引用 | `base.Transcript` | Transcript 布局与阅读锚点 |
 | 永久输出责任 | `publication.Publisher` | 不可变批次和并发安全回执 |
 | 工作线程结果 | `program.Task` | 任务状态；取消请求和结果交付是独立字段 |
 | 终端实际写入进度 | 帧写入器 | 发布与场景的 written 水位投影 |

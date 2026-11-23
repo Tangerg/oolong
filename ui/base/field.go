@@ -31,7 +31,7 @@ type Field interface {
 	Element() scene.Element
 	Draw(frame scene.Frame)
 
-	Prompt() string
+	Label() string
 	// Validate checks what has been entered, remembers what was wrong with it, and
 	// reports that. It is called when the field loses the keyboard and again when the
 	// form is submitted. Built-in fields return ErrValidationSuperseded if a callback
@@ -72,11 +72,15 @@ func (l Look) mark(taken bool) (string, int) {
 	if width == 0 {
 		return "", 0
 	}
+	mark := l.Free
 	if taken {
-		return l.Taken, layout.Sum(width, 1)
+		mark = l.Taken
 	}
-	return l.Free, layout.Sum(width, 1)
+	return mark, layout.Sum(width, choiceMarkGap)
 }
+
+// choiceMarkGap separates a choice mark from its label.
+const choiceMarkGap = 1
 
 // Cursor focus and accepted choice are distinct in MultiSelect, so their appearances must remain separate.
 func (l Look) choice(v grid.View, label string, under, taken bool) {

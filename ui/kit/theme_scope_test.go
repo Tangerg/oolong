@@ -82,9 +82,7 @@ func TestThemeUpdateDuringPaintIsRejectedBeforeVersionOrPaletteChanges(t *testin
 	initial := kit.Dark()
 	owner := kit.NewThemeOwner(initial)
 	button := kit.NewButton(kit.ButtonConfig{Behavior: base.ButtonConfig{Label: "save"}, Scope: owner.Scope()})
-	if err := button.Element().SetPaint(func(scene.Frame) { owner.Set(kit.Light()) }); err != nil {
-		t.Fatal(err)
-	}
+	button.Element().SetPaint(func(scene.Frame) { owner.Set(kit.Light()) })
 	root := scenes.Mount(button)
 	func() {
 		defer func() {
@@ -133,15 +131,13 @@ func TestThemePublicationWakesEverySceneDespiteAnInterruptedPredicate(t *testing
 	first := kit.NewInput(kit.InputConfig{Scope: owner.Scope()})
 	second := kit.NewInput(kit.InputConfig{Scope: owner.Scope()})
 	armed := false
-	if err := first.Element().SetFocusable(func() bool {
+	first.Element().SetFocusable(func() bool {
 		if armed {
 			armed = false
 			panic("theme predicate")
 		}
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	a, b := scenes.Mount(first.Element()), scenes.Mount(second.Element())
 	defer a.Root.Close()
 	defer b.Root.Close()

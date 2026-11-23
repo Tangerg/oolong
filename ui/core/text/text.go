@@ -8,11 +8,8 @@ import (
 	"iter"
 	"slices"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/internal/grapheme"
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
 
@@ -178,233 +175,25 @@ func (l Line) Draw(v grid.View, x, y int) int {
 	return col
 }
 
-type Wrapped struct {
-	Line Line
-	// Joined marks a row that continues the line above it rather than starting a
-	// line of its own. Anything rejoining rows — copying a selection, say — needs
-	// to know which line breaks were the text's and which were the width's.
-	Joined bool
-	// From and To retain the source byte interval so selection and search can
-	// map through wrapping. They describe provenance: tabs may be expanded,
-	// controls dropped, and break whitespace excluded from the displayed row.
-	From, To int
-	// Gap is the text the break before this row consumed, which rejoining it to the
-	// row above has to put back.
-	//
-	// It is content, and it is here because the wrap is the only thing that knows it.
-	// The bytes between one row's end and the next row's start are not it: that is
-	// where everything the wrap decided not to lay out ends up. See [dropped].
-	Gap string
-}
-
-func (w Wrapped) Width() int { return w.Line.Width() }
-
-func (w Wrapped) Draw(v grid.View, x, y int) int { return w.Line.Draw(v, x, y) }
-
-// Wrap breaks the line into rows of at most width columns.
-//
-// Breaks are preferred at spaces, and a word longer than the width is broken
-// between grapheme clusters instead. The run of spaces at a break is consumed:
-// it hangs off neither the end of one row nor the start of the next. Styles
-// survive every break.
-//
-// A width of zero or less returns the line whole: a caller with no width to lay out
-// in is better served by text it can measure than by text silently thrown away.
-// Whole, but still laid out, because a row is what a terminal would be shown.
-func (l Line) Wrap(width int) []Wrapped {
-	units := l.units()
-	if width <= 0 || len(units) == 0 {
-		return []Wrapped{{Line: line(units), To: l.ByteLen()}}
+// Tile repeats the line across row y of v, as a rule or divider does. Repetitions
+// are anchored at column zero, so a view clipped on the left still shows each one
+// where it falls. The last repetition is cut to the view's width rather than left to
+// spill a wide cluster across its edge.
+func (l Line) Tile(v grid.View, y int) {
+	visible := v.Visible()
+	step := l.Width()
+	if step <= 0 || y < visible.Min.Y || y >= visible.Max.Y {
+		return
 	}
-	rowCapacity := min(len(units), width)
-	w := wrapper{
-		width: width,
-		rows:  make([]Wrapped, 0, len(units)/width+1),
-		row:   make([]unit, 0, rowCapacity),
-	}
-	for i, n := 0, len(units); i < n; {
-		if units[i].space {
-			w.hold(i, units[i])
-			i++
-			continue
+	width, _ := v.Size()
+	for x := visible.Min.X - visible.Min.X%step; x < visible.Max.X; x = layout.Sum(x, step) {
+		tile := l
+		if width-x < step {
+			tile = l.Truncate(width-x, "")
 		}
-		end, wordWidth := i, 0
-		for end < n && !units[end].space {
-			wordWidth = layout.Sum(wordWidth, units[end].width)
-			end++
-		}
-		i = w.word(units, i, end, wordWidth)
+		tile.Draw(v, x, y)
 	}
-	return w.finish(units)
 }
-
-// wrapper accumulates rows. Held spaces are kept out of the current row until
-// something follows them, which is what lets a break consume them.
-type wrapper struct {
-	width int
-	rows  []Wrapped
-
-	row      []unit
-	rowWidth int
-	heldFrom int
-	heldTo   int
-	hasHeld  bool
-	heldW    int
-	// rowGap is what was consumed before the row now accumulating; nextGap is what
-	// has been consumed since it started, and belongs to whatever row follows the
-	// break.
-	rowGap  string
-	nextGap string
-}
-
-func (w *wrapper) hold(at int, u unit) {
-	if !w.hasHeld {
-		w.heldFrom = at
-		w.hasHeld = true
-	}
-	w.heldTo = at + 1
-	w.heldW = layout.Sum(w.heldW, u.width)
-}
-
-func (w *wrapper) place(u unit) {
-	w.row = append(w.row, u)
-	w.rowWidth = layout.Sum(w.rowWidth, u.width)
-}
-
-func (w *wrapper) takeHeld(units []unit) {
-	w.row = append(w.row, units[w.heldFrom:w.heldTo]...)
-	w.rowWidth = layout.Sum(w.rowWidth, w.heldW)
-	w.clearHeld()
-}
-
-// discardHeld gives up the spaces a break consumed, keeping them for the row they
-// now precede rather than the one they followed.
-func (w *wrapper) discardHeld(units []unit) {
-	var consumed strings.Builder
-	for _, u := range units[w.heldFrom:w.heldTo] {
-		consumed.WriteString(u.cluster)
-	}
-	if len(w.row) == 0 {
-		w.rowGap += consumed.String()
-	} else {
-		w.nextGap += consumed.String()
-	}
-	w.clearHeld()
-}
-
-// atLineStart reports that nothing of the line has been laid out yet. Spaces held
-// there are indentation, not the separator of a break, so they must not become a
-// row's Gap: a gap is reversible only on a row that continues the one above it.
-func (w *wrapper) atLineStart() bool { return len(w.rows) == 0 && len(w.row) == 0 }
-
-// layHeld places held spaces as content, breaking where they reach the width.
-func (w *wrapper) layHeld(units []unit) {
-	for _, u := range units[w.heldFrom:w.heldTo] {
-		if len(w.row) > 0 && layout.Sum(w.rowWidth, u.width) > w.width {
-			w.breakRow()
-		}
-		w.place(u)
-	}
-	w.clearHeld()
-}
-
-func (w *wrapper) clearHeld() {
-	w.heldFrom, w.heldTo, w.hasHeld = 0, 0, false
-	w.heldW = 0
-}
-
-func (w *wrapper) breakRow() {
-	row := Wrapped{Line: line(w.row), Joined: len(w.rows) > 0, Gap: w.rowGap}
-	if n := len(w.row); n > 0 {
-		first, last := w.row[0], w.row[n-1]
-		row.From, row.To = first.at, last.at+last.size
-	}
-	w.rows = append(w.rows, row)
-	w.row = w.row[:0]
-	w.rowWidth = 0
-	w.rowGap, w.nextGap = w.nextGap, ""
-}
-
-func (w *wrapper) word(units []unit, from, to, wordWidth int) int {
-	switch {
-	case layout.Sum(w.rowWidth, w.heldW, wordWidth) <= w.width:
-		w.takeHeld(units)
-		for ; from < to; from++ {
-			w.place(units[from])
-		}
-	case wordWidth <= w.width:
-		if w.atLineStart() {
-			w.layHeld(units)
-			if layout.Sum(w.rowWidth, wordWidth) > w.width {
-				w.breakRow()
-			}
-		} else {
-			w.discardHeld(units)
-			if len(w.row) > 0 {
-				w.breakRow()
-			}
-		}
-		for ; from < to; from++ {
-			w.place(units[from])
-		}
-	default:
-		from = w.hardBreak(units, from, to)
-	}
-	return from
-}
-
-func (w *wrapper) hardBreak(units []unit, from, to int) int {
-	if w.hasHeld {
-		switch {
-		case layout.Sum(w.rowWidth, w.heldW, units[from].width) <= w.width:
-			w.takeHeld(units)
-		case w.atLineStart():
-			w.layHeld(units)
-		default:
-			w.discardHeld(units)
-			if len(w.row) > 0 {
-				w.breakRow()
-			}
-		}
-	}
-	for from < to {
-		u := units[from]
-		switch {
-		case layout.Sum(w.rowWidth, u.width) <= w.width:
-			w.place(u)
-			from++
-		case len(w.row) == 0:
-			// A display atom wider than the whole row gets a row to itself and
-			// overflows it, because the alternative is splitting or dropping it.
-			w.place(u)
-			from++
-			w.breakRow()
-		default:
-			// Leaves the row short rather than splitting a display atom.
-			w.breakRow()
-		}
-	}
-	return from
-}
-
-func (w *wrapper) finish(units []unit) []Wrapped {
-	for _, u := range units[w.heldFrom:w.heldTo] {
-		if layout.Sum(w.rowWidth, u.width) > w.width {
-			break
-		}
-		w.place(u)
-	}
-	if len(w.row) > 0 {
-		w.breakRow()
-	}
-	if len(w.rows) == 0 {
-		w.rows = append(w.rows, Wrapped{})
-	}
-	return w.rows
-}
-
-// Width is how many columns s would occupy, with tabs expanded from column zero.
-func Width(s string) int { return Advance(s, 0) }
 
 type unit struct {
 	cluster string
@@ -524,56 +313,6 @@ func (u unit) sameRun(other unit) bool {
 	return u.style() == other.style() && u.link() == other.link()
 }
 
-// Advance returns the final terminal column after drawing s from col. Tabs use
-// their position in the whole line even when a caller measures it in pieces
-// separated at display grapheme boundaries after filtering. Negative starting
-// columns count as zero.
-func Advance(s string, col int) int {
-	col = max(0, col)
-	if plainASCII(s) {
-		return layout.Sum(col, len(s))
-	}
-	for cluster := range projectDisplay(s).clusters() {
-		col = advanceCluster(cluster.Text, col)
-	}
-	return col
-}
-
-func advanceCluster(cluster string, col int) int {
-	if cluster == "\t" {
-		return layout.Sum(col, TabStop-col%TabStop)
-	}
-	return layout.Sum(col, grid.ClusterWidth(cluster))
-}
-
-// plainASCII reports whether every byte is one printable, one-column cluster.
-// Keeping that fact here lets every byte/column conversion share the common fast
-// path without weakening the Unicode path used as the authority for all other text.
-func plainASCII(s string) bool {
-	for i := range len(s) {
-		if !plainASCIIByte(s[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func plainASCIIByte(b byte) bool { return b >= ' ' && b <= '~' }
-
-// Measurement and drawing share dropped so their widths agree. Unlike
-// Printable, display projection omits malformed bytes; stored text retains a
-// replacement marker for them.
-func dropped(cluster string) bool {
-	if !utf8.ValidString(cluster) {
-		return true
-	}
-	r, _ := utf8.DecodeRuneInString(cluster)
-	return droppedRune(r)
-}
-
-// Tabs are expanded by layout; other controls must not reach terminal output.
-func droppedRune(r rune) bool { return r != '\t' && unicode.IsControl(r) }
-
 // displayFilter decides, cluster by cluster in line order, which clusters reach a
 // cell. Removing a control can leave a zero-width cluster against one that
 // segmentation kept it apart from: a variation selector after a newline would
@@ -657,121 +396,6 @@ func (l Line) Display() Line {
 	return out
 }
 
-func prefix(s string, budget int) string {
-	col, end := 0, 0
-	clusters := grapheme.New(s)
-	for clusters.Next() {
-		next := advanceCluster(clusters.Value(), col)
-		if next > budget {
-			break
-		}
-		col = next
-		end = clusters.End()
-	}
-	return s[:end]
-}
-
-// Clusters preserves grapheme boundaries because a cursor between a base and
-// its combining mark has no display position. Malformed bytes remain separate
-// zero-width clusters so later offsets still address the original input.
-func Clusters(s string) iter.Seq2[int, string] {
-	return func(yield func(int, string) bool) {
-		clusters := grapheme.New(s)
-		for clusters.Next() {
-			if !yield(clusters.Start(), clusters.Value()) {
-				return
-			}
-		}
-	}
-}
-
-// IsClusterBoundary tests a byte offset in the complete string. Concatenation can
-// move boundaries without changing the total cluster count, as regional indicators
-// pair with different neighbors. Out-of-range offsets are not boundaries.
-func IsClusterBoundary(s string, at int) bool {
-	return at >= 0 && at <= len(s) && (at == 0 || NextCluster(s, at-1) == at)
-}
-
-// NextCluster is the byte offset after the cluster at i, or len(s) at the end.
-func NextCluster(s string, i int) int {
-	if i < 0 {
-		return 0
-	}
-	if i >= len(s) {
-		return len(s)
-	}
-	// Plain ASCII is one cluster per byte. Requiring ASCII on both sides keeps this
-	// fast path out of the cases where adjacent Unicode can join it (Prepend, Extend
-	// and ZWJ sequences). CRLF is the one multi-byte ASCII cluster.
-	if s[i] < utf8.RuneSelf && (i == 0 || s[i-1] < utf8.RuneSelf) &&
-		(i+1 == len(s) || s[i+1] < utf8.RuneSelf) {
-		if s[i] == '\r' && i+1 < len(s) && s[i+1] == '\n' {
-			return i + 2
-		}
-		return i + 1
-	}
-	for at, cluster := range Clusters(s) {
-		if after := at + len(cluster); i < after {
-			return after
-		}
-	}
-	return len(s)
-}
-
-// PrevCluster is the byte offset of the cluster ending at i, or zero at the start.
-func PrevCluster(s string, i int) int {
-	if i <= 0 {
-		return 0
-	}
-	i = min(i, len(s))
-	if i == 0 {
-		return 0
-	}
-	last := i - 1
-	if s[last] < utf8.RuneSelf && (last == 0 || s[last-1] < utf8.RuneSelf) {
-		if s[last] == '\n' && last > 0 && s[last-1] == '\r' {
-			return last - 1
-		}
-		return last
-	}
-	for at, cluster := range Clusters(s) {
-		if i <= at+len(cluster) {
-			return at
-		}
-	}
-	return len(s)
-}
-
-// ColumnOf maps original bytes onto the filtered display. An offset inside a
-// display grapheme maps after the whole atom, even when filtering joined it.
-func ColumnOf(s string, i int) int {
-	i = min(max(i, 0), len(s))
-	// Only the prefix before i contributes to the answer. The byte at i need only be
-	// ASCII, not printable: a control there occupies no preceding column, while a
-	// Unicode Extend or ZWJ may still join the cluster before the boundary.
-	if plainASCII(s[:i]) && (i == len(s) || s[i] < utf8.RuneSelf) {
-		return i
-	}
-	return Of(s, grid.Style{}).ColumnOf(i)
-}
-
-// OffsetAt is the original byte offset of the display boundary nearest to col,
-// without going past it. It is how a click, or a cursor moving between lines of
-// different lengths, finds where it lands.
-func OffsetAt(s string, col int) int {
-	if col <= 0 {
-		return 0
-	}
-	end := min(col, len(s))
-	// Unlike ColumnOf, the byte at the candidate boundary must itself occupy one
-	// column. A tab or zero-width control belongs to this column and must be consumed;
-	// a Unicode byte may join or widen the preceding cluster.
-	if plainASCII(s[:end]) && (end == len(s) || plainASCIIByte(s[end])) {
-		return end
-	}
-	return Of(s, grid.Style{}).OffsetAt(col)
-}
-
 // StampLink converts source byte ranges to terminal columns so wide clusters
 // and preceding tabs cannot shift a link onto unrelated text. The returned
 // width lets the caller use those same columns for hit testing.
@@ -783,63 +407,4 @@ func StampLink(v grid.View, x, y int, s string, start, end int, url string) (col
 	width = ColumnOf(s, end) - col
 	v.Link(layout.Translate(x, col), y, width, url)
 	return col, width
-}
-
-type Class uint8
-
-const (
-	Space Class = iota
-	// Word is a letter, a digit or an underscore — the run a double-click takes in
-	// text written in an alphabet.
-	Word
-	// Han stays separate from adjacent alphabetic text: script runs provide a
-	// selection boundary where spaces do not.
-	Han
-	// Kana is Japanese hiragana and katakana, which are one boundary between them
-	// because a word switches from one to the other inside itself.
-	Kana
-	Hangul
-	// Punct selects one cluster to avoid claiming adjacent symbols.
-	Punct
-)
-
-func ClassOf(cluster string) Class {
-	if cluster == "" {
-		return Space
-	}
-	// A cluster is classified by its base rune; marks joined to it do not change
-	// what kind of word it belongs to.
-	r, _ := utf8.DecodeRuneInString(cluster)
-	switch {
-	case unicode.IsSpace(r):
-		return Space
-	case r == '_' || unicode.IsLetter(r) && !cjk(r) || unicode.IsDigit(r) && !cjk(r):
-		return Word
-	case unicode.Is(unicode.Han, r):
-		return Han
-	case unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r):
-		return Kana
-	case unicode.Is(unicode.Hangul, r):
-		return Hangul
-	default:
-		return Punct
-	}
-}
-
-func cjk(r rune) bool {
-	return unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) ||
-		unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r)
-}
-
-// WordAt is the byte range of the word containing an offset, and whether there is one.
-//
-// A word is the run of clusters sharing the class of the one under the offset — see
-// [Class]. Whitespace is not a word and reports false, so a double-click in the margin
-// selects nothing rather than selecting the gap. Punctuation is its own word of one
-// cluster, because a run of it is not something anybody means to have selected.
-//
-// The offset is pulled to a cluster boundary first, so a caller working in columns
-// cannot land inside a character and get half of it.
-func WordAt(s string, at int) (start, end int, ok bool) {
-	return Of(s, grid.Style{}).WordAt(at)
 }

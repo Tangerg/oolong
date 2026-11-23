@@ -1,5 +1,5 @@
 // Package markdownlook keeps Markdown appearance with the examples because the
-// application owns its palette and the host owns its terminal glyph repertoire.
+// application owns its palette; the glyph repertoire follows the terminal's locale.
 package markdownlook
 
 import (
@@ -8,7 +8,7 @@ import (
 	"github.com/Tangerg/oolong/ui/kit"
 )
 
-func New(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
+func New(theme kit.Theme, locale string) markdown.Look {
 	return markdown.Look{
 		Text:     theme.Text,
 		Headings: []grid.Style{theme.Heading, theme.Strong},
@@ -22,12 +22,6 @@ func New(theme kit.Theme, glyphs kit.Glyphs) markdown.Look {
 		Rail:     theme.Subtle,
 		Marker:   theme.Accent,
 		Rule:     theme.Subtle,
-		Glyphs: markdown.Glyphs{
-			Bullet:    glyphs.Bullet,
-			Bar:       glyphs.Vertical.String(),
-			Divider:   glyphs.Rule,
-			Checked:   glyphs.Taken,
-			Unchecked: glyphs.Free,
-		},
+		Glyphs:   markdown.GlyphsFor(locale),
 	}
 }

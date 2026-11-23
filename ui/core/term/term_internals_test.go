@@ -22,7 +22,6 @@ import (
 	"github.com/Tangerg/oolong/ui/core/ansi"
 	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/graphics"
-
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 )
@@ -44,7 +43,7 @@ func TestAtomicSequenceStopsBeforeReusingAValue(t *testing.T) {
 }
 
 func TestWriterPanicsBeforeItsSequenceCanWrap(t *testing.T) {
-	writer := Writer{maxFrames: 1, maxFrameBytes: 1, maxPendingBytes: 1}
+	writer := Writer{ordinary: frameBudget{maxFrames: 1, maxFrameBytes: 1, limit: 1}}
 	writer.queued.last.Store(math.MaxUint64)
 	defer func() {
 		if got := recover(); got != "term: writer exhausted frame sequences" {
@@ -272,19 +271,19 @@ func TestModesAreUndoneInTheOppositeOrder(t *testing.T) {
 func TestAModeNotAskedForIsNeverTouched(t *testing.T) {
 	none := Modes{}
 	enter, leave := none.Enter(), none.Leave()
-	for _, unwanted := range []string{altScreenOn, mouseOn, focusOn, keyboardOn(input.KeyboardAll)} {
+	for _, unwanted := range []string{"\x1b[?1049h", "\x1b[?1003h", "\x1b[?1006h", "\x1b[?1004h", keyboardOn(input.KeyboardAll)} {
 		if strings.Contains(enter, unwanted) {
 			t.Errorf("entering turned on %q without being asked", unwanted)
 		}
 	}
-	for _, unwanted := range []string{altScreenOff, mouseOff, focusOff, keyboardOff} {
+	for _, unwanted := range []string{"\x1b[?1049l", "\x1b[?1003l", "\x1b[?1006l", "\x1b[?1004l", ansi.PopKeyboard} {
 		if strings.Contains(leave, unwanted) {
 			t.Errorf("leaving turned off %q that was never on", unwanted)
 		}
 	}
 	// Bracketed paste is not optional: without it a pasted block arrives as
 	// keystrokes, and pasted code runs.
-	if !strings.Contains(enter, pasteOn) || !strings.Contains(leave, pasteOff) {
+	if !strings.Contains(enter, "\x1b[?2004h") || !strings.Contains(leave, "\x1b[?2004l") {
 		t.Error("bracketed paste is not handled unconditionally")
 	}
 }
@@ -295,7 +294,7 @@ func TestLeavingAlwaysShowsTheCursor(t *testing.T) {
 	if !strings.Contains(Modes{}.Leave(), ansi.CursorReset.Sequence()) {
 		t.Error("leaving does not apply the configured protocol reset")
 	}
-	if !strings.HasSuffix(Modes{}.Leave(), ansi.ShowCursor) {
+	if !strings.HasSuffix(Modes{}.Leave(), "\x1b[?25h") {
 		t.Error("leaving does not end by showing the cursor")
 	}
 }
@@ -699,9 +698,9 @@ func TestClipboardTransportIsChosenIndependentlyOfEnvironment(t *testing.T) {
 					return "", false
 				}
 			})
-		sequence, ok := terminal.clipboard.Copy(clipboard.System, "copy")
-		if !ok {
-			t.Fatal("clipboard request refused")
+		sequence, err := terminal.clipboard.Copy(clipboard.System, "copy")
+		if err != nil {
+			t.Fatalf("clipboard request refused: %v", err)
 		}
 		if wrapped := strings.HasPrefix(sequence, "\x1bPtmux;"); wrapped != passthrough {
 			t.Fatalf("environment chose transport: %q", sequence)

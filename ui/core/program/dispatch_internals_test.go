@@ -14,15 +14,14 @@ func TestTaskQueueYieldsWithinAnAcceptedBurst(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if err := queue.post(nil); err !=
+	queue.requestFrame()
 
-		// Stand in for the program select that observed the coalesced initial wake.
-		nil {
-		t.Error(err)
-	}
-
+	// Stand in for the program select that observed the coalesced initial wake.
 	<-queue.wake
-	first := queue.take()
+	first, refreshed := queue.take()
+	if refreshed {
+		t.Fatal("a full turn granted the frame request before the work behind it")
+	}
 	if len(first) != maxTasksPerTurn {
 		t.Fatalf("first turn contains %d tasks, want %d", len(first), maxTasksPerTurn)
 	}
@@ -35,12 +34,11 @@ func TestTaskQueueYieldsWithinAnAcceptedBurst(t *testing.T) {
 	default:
 		t.Fatal("work left after one turn did not wake the owner again")
 	}
-	last := queue.take()
-	endsInRefresh := len(last) > 0 && last[len(last)-1] == nil
-	if len(last) != 4 || !endsInRefresh {
-		t.Fatalf("last turn = %d entries ending in refresh %v, want three tasks then refresh", len(last), endsInRefresh)
+	last, refreshed := queue.take()
+	if len(last) != 3 || !refreshed {
+		t.Fatalf("last turn = %d tasks with refresh %v, want three tasks then refresh", len(last), refreshed)
 	}
-	for _, task := range last[:len(last)-1] {
+	for _, task := range last {
 		task()
 	}
 	if len(got) != len(want) {

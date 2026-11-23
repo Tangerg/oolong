@@ -91,9 +91,7 @@ type sliderTrack struct {
 func (s *sliderTrack) Element() scene.Element {
 	element := s.control.Element()
 	if !element.Alive() {
-		if err := element.SetPaint(s.Draw); err != nil {
-			panic(err)
-		}
+		element.SetPaint(s.Draw)
 	}
 	return element
 }

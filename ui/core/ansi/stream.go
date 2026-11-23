@@ -124,7 +124,7 @@ func (s *Scanner) refuse(sequence string) error {
 		// A string sequence ends at ST, which is two bytes. Dropping the first of
 		// them would make the scan run on to the next terminator it found.
 		kept += string(rune(Escape))
-	case sequence[1] == '[' && intermediate(last):
+	case sequence[1] == ControlIntroducer && intermediate(last):
 		kept += string(rune(last))
 	}
 	s.held.Reset()
@@ -186,7 +186,7 @@ func (s *Scanner) incomplete(source string) bool {
 		return true
 	}
 	start := 1
-	if source[1] == '[' || StringFamily(source[1]).Valid() {
+	if source[1] == ControlIntroducer || StringFamily(source[1]).Valid() {
 		start = 2
 	}
 	s.scanned = max(s.scanned, start)
@@ -213,7 +213,7 @@ const (
 
 func (s *Scanner) step(source string, at int) scanStep {
 	switch b := source[at]; {
-	case source[1] == '[':
+	case source[1] == ControlIntroducer:
 		return s.controlStep(b)
 	case StringFamily(source[1]).Valid():
 		_, result := StringFamily(source[1]).Step(b, source[min(at+1, len(source)-1)], at+1 < len(source))

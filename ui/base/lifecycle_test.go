@@ -40,7 +40,7 @@ func TestEditorNavigationIsConsumedAndManualScrollingWins(t *testing.T) {
 
 	var editor base.Editor
 	editor.SetText(strings.Repeat("line\n", 30))
-	editor.SetCursor(0, 0)
+	editor.SetCursor(base.Caret{})
 	root := scenes.Mount(&editor)
 	surface := grid.NewSurface(12, 5)
 	root.Draw(surface.View())
@@ -50,12 +50,12 @@ func TestEditorNavigationIsConsumedAndManualScrollingWins(t *testing.T) {
 	if editor.Scroll().Offset() != 3 {
 		t.Fatal("draw or resize replayed cursor navigation")
 	}
-	editor.SetCursor(20, 0)
+	editor.SetCursor(base.Caret{Line: 20})
 	root.Draw(surface.View())
 	if editor.Scroll().Offset() != 16 {
 		t.Fatalf("cursor navigation was not revealed: %d", editor.Scroll().Offset())
 	}
-	editor.SetCursor(25, 0)
+	editor.SetCursor(base.Caret{Line: 25})
 	editor.Scroll().ToTop()
 	root.Draw(surface.View())
 	if editor.Scroll().Offset() != 0 {
@@ -74,10 +74,10 @@ func TestEditorNavigationResolvesAgainstTheNextWrap(t *testing.T) {
 
 	var editor base.Editor
 	editor.SetText(strings.Repeat("a", 100))
-	editor.SetCursor(0, 0)
+	editor.SetCursor(base.Caret{})
 	root := scenes.Mount(&editor)
 	root.Draw(grid.NewSurface(20, 3).View())
-	editor.SetCursor(0, 90)
+	editor.SetCursor(base.Caret{Byte: 90})
 	root.Draw(grid.NewSurface(10, 3).View())
 	if editor.Scroll().Offset() != 7 {
 		t.Fatalf("navigation used the old wrap: offset %d, want 7", editor.Scroll().Offset())
@@ -159,10 +159,10 @@ func TestEditorNavigationUsesTheLeastScrollAfterWidening(t *testing.T) {
 
 	var editor base.Editor
 	editor.SetText(strings.Repeat("a", 600))
-	editor.SetCursor(0, 0)
+	editor.SetCursor(base.Caret{})
 	root := scenes.Mount(&editor)
 	root.Draw(grid.NewSurface(10, 3).View())
-	editor.SetCursor(0, 200)
+	editor.SetCursor(base.Caret{Byte: 200})
 	root.Draw(grid.NewSurface(20, 3).View())
 	if editor.Scroll().Offset() != 8 {
 		t.Fatalf("old wrap over-scrolled new layout: %d, want 8", editor.Scroll().Offset())
@@ -218,16 +218,16 @@ func TestDeferredSettingActionCannotEditAnotherRow(t *testing.T) {
 				return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
 			},
 		})
-		settings.List().SetItems([]string{"one", "two"})
+		settings.SetItems([]string{"one", "two"})
 		settings.Handle(input.Key{Code: input.Character, Rune: 'g'})
 		switch change {
 		case "replace":
-			settings.List().SetItems([]string{"new", "items"})
+			settings.SetItems([]string{"new", "items"})
 		case "select":
-			settings.List().Select(1)
+			settings.Select(1)
 		case "select and return":
-			settings.List().Select(1)
-			settings.List().Select(0)
+			settings.Select(1)
+			settings.Select(0)
 		}
 		resolve()
 		if changes != 0 {

@@ -17,7 +17,7 @@ func TestEditorFullRowsKeepTheInsertionCaretVisible(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			editor := &base.Editor{}
 			editor.SetText(value)
-			editor.SetCursor(0, len(value))
+			editor.SetCursor(base.Caret{Byte: len(value)})
 			fixture := scenes.Mount(editor)
 			t.Cleanup(fixture.Root.Close)
 			screen := grid.NewScreen(4, 1)
@@ -29,12 +29,12 @@ func TestEditorFullRowsKeepTheInsertionCaretVisible(t *testing.T) {
 				t.Fatalf("scrolled insertion row hit = %+v, %t", at, ok)
 			}
 			editor.MoveUp()
-			_, above := editor.Cursor()
+			above := editor.Cursor().Byte
 			if above >= len(value) {
 				t.Fatal("up did not leave the insertion row")
 			}
 			editor.MoveDown()
-			if line, column := editor.Cursor(); line != 0 || column != len(value) {
+			if line, column := editor.Cursor().Line, editor.Cursor().Byte; line != 0 || column != len(value) {
 				t.Fatalf("down missed insertion row: (%d, %d)", line, column)
 			}
 			screen = grid.NewScreen(5, 4)

@@ -8,6 +8,12 @@ import (
 
 const ActionReadItems scene.ActionID = "read-items"
 
+// Refusal reasons shared by more than one collection operation.
+const (
+	staleCollectionRevision = "collection revision changed"
+	unavailableValue        = "value is not available"
+)
+
 const (
 	DefaultCollectionPageSize = 64
 	MaxCollectionPageSize     = 256
@@ -51,19 +57,19 @@ type ChoiceState[T any] struct {
 
 func unchangedItem[T any](item T) T { return item }
 
-func collectionActions[T, R any](list *List[T], project func(T) R) []scene.ActionBinding {
+func collectionActions[T, R any](list *rows[T], project func(T) R) []scene.ActionBinding {
 	return []scene.ActionBinding{collectionReadAction(list, project), collectionSelectAction(list, project)}
 }
 
-func collectionReadAction[T, R any](list *List[T], project func(T) R) scene.ActionBinding {
+func collectionReadAction[T, R any](list *rows[T], project func(T) R) scene.ActionBinding {
 	return scene.NewAction(scene.ActionConfig[CollectionQuery, CollectionPage[R]]{
 		ID: ActionReadItems, Label: "Read items",
 		Availability: func(query CollectionQuery) scene.Availability {
 			if query.ContentRevision != list.contentRevision {
-				return scene.Availability{Disabled: true, Reason: "collection revision changed"}
+				return scene.Unavailable(staleCollectionRevision)
 			}
 			if query.Start < 0 || query.Start > list.Len() || query.Limit < 0 || query.Limit > MaxCollectionPageSize {
-				return scene.Availability{Disabled: true, Reason: "item page is outside the collection budget"}
+				return scene.Unavailable("item page is outside the collection budget")
 			}
 			return scene.Availability{}
 		},
@@ -85,16 +91,13 @@ func collectionReadAction[T, R any](list *List[T], project func(T) R) scene.Acti
 	}).Binding()
 }
 
-func collectionSelectAction[T, R any](list *List[T], project func(T) R) scene.ActionBinding {
+func collectionSelectAction[T, R any](list *rows[T], project func(T) R) scene.ActionBinding {
 	return scene.NewAction(scene.ActionConfig[CollectionIndex, CollectionSelection[R]]{
 		ID: scene.ActionSelect, Label: "Select item", Availability: list.indexAvailability,
 		Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[CollectionSelection[R]], error) {
 			before := list.version
 			list.Select(address.Index)
-			state := scene.Unchanged
-			if before != list.version {
-				state = scene.Applied
-			}
+			state := scene.AppliedIf(before != list.version)
 			selected := CollectionSelection[R]{Address: CollectionIndex{ContentRevision: list.contentRevision, Index: list.Selected()}}
 			if item, ok := list.Current(); ok {
 				selected.Item = readProjection(list.element, func() R { return project(item) })
@@ -105,12 +108,30 @@ func collectionSelectAction[T, R any](list *List[T], project func(T) R) scene.Ac
 	}).Binding()
 }
 
-func (l *List[T]) indexAvailability(address CollectionIndex) scene.Availability {
+// collectionActivateAction lets an automation client open an item the way a click
+// does: the cursor moves to it first, then its activation runs.
+func collectionActivateAction[T any](list *rows[T]) scene.ActionBinding {
+	return scene.NewAction(scene.ActionConfig[CollectionIndex, struct{}]{
+		ID: scene.ActionActivate, Label: "Activate item",
+		Availability: func(address CollectionIndex) scene.Availability {
+			if list.activate == nil {
+				return scene.Unavailable("items have no activation")
+			}
+			return list.indexAvailability(address)
+		},
+		Run: func(_ context.Context, address CollectionIndex) (scene.ActionResult[struct{}], error) {
+			list.Select(address.Index)
+			return scene.ActionResult[struct{}]{State: scene.AppliedIf(list.activateAt(address.Index))}, nil
+		},
+	}).Binding()
+}
+
+func (l *rows[T]) indexAvailability(address CollectionIndex) scene.Availability {
 	if address.ContentRevision != l.contentRevision {
-		return scene.Availability{Disabled: true, Reason: "collection revision changed"}
+		return scene.Unavailable(staleCollectionRevision)
 	}
 	if address.Index < 0 || address.Index >= l.Len() {
-		return scene.Availability{Disabled: true, Reason: "item is not available"}
+		return scene.Unavailable("item is not available")
 	}
 	return scene.Availability{}
 }

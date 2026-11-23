@@ -3,6 +3,7 @@ package keymap_test
 import (
 	"reflect"
 	"testing"
+	"time"
 	"unicode"
 
 	"github.com/Tangerg/oolong/ui/core/input"
@@ -58,13 +59,49 @@ func TestBindRejectsUnreachableChordsBeforePublication(t *testing.T) {
 	}
 }
 
-func TestBindPreservesEmptyRequestNoOps(t *testing.T) {
-	var absent *keymap.Map
-	absent.Bind("unused", input.Chord{})
+func TestBindIgnoresNoKeysAndRefusesNoAction(t *testing.T) {
 	var bindings keymap.Map
-	bindings.Bind("", input.Chord{})
 	bindings.Bind("unused")
 	if len(bindings.Bindings()) != 0 {
-		t.Fatal("empty binding request changed the map")
+		t.Fatal("a binding of no keys changed the map")
+	}
+	for name, bind := range map[string]func(){
+		"Bind":   func() { bindings.Bind("", input.Chord{Rune: 'a'}) },
+		"Rebind": func() { bindings.Rebind("", input.Keys{{Rune: 'a'}}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("an empty action was bound")
+				}
+			}()
+			bind()
+		})
+	}
+	if len(bindings.Bindings()) != 0 {
+		t.Fatal("a refused binding changed the map")
+	}
+}
+
+func TestANilMapReadsEmptyAndRefusesChanges(t *testing.T) {
+	var absent *keymap.Map
+	if absent.Keys("any") != nil || absent.Bindings() != nil || absent.Timeout() != keymap.DefaultTimeout {
+		t.Fatal("a nil map did not read as empty")
+	}
+	for name, change := range map[string]func(){
+		"Bind":        func() { absent.Bind("action", input.Chord{Rune: 'a'}) },
+		"Unbind":      func() { absent.Unbind(input.Chord{Rune: 'a'}) },
+		"Rebind":      func() { absent.Rebind("action", input.Keys{{Rune: 'a'}}) },
+		"SetTimeout":  func() { absent.SetTimeout(keymap.DefaultTimeout + time.Second) },
+		"SetResolver": func() { absent.SetResolver(func(time.Duration, func()) func() { return func() {} }) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("a nil map accepted a change")
+				}
+			}()
+			change()
+		})
 	}
 }

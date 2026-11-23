@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/base"
-	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -15,25 +14,12 @@ import (
 // owns modal eligibility and focus restoration.
 func (c *chat) buildApproval() {
 	c.confirm = base.NewConfirm(base.ConfirmConfig{Label: "Send this prompt?", Initial: true, Yes: "send", No: "cancel"})
-	dressed := kit.NewForm(kit.FormConfig{
-		Theme: c.theme, Glyphs: c.glyphs,
-		Fields: []base.Field{c.confirm}, Keys: base.DefaultFormKeys(),
-		Hints: []keymap.Action{base.Submit, base.Cancel},
-		Submit: func(base.SubmissionID) (scene.ActionState, error) {
-			c.settleApproval()
-			return scene.Applied, nil
-		},
-	})
+	dressed := kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Fields: []base.Field{c.confirm}, Keys: base.DefaultFormKeys(), Submit: func(base.SubmissionID) (scene.ActionState, error) {
+		c.settleApproval()
+		return scene.Applied, nil
+	}}, Theme: c.theme, Glyphs: c.glyphs, Hints: []keymap.Action{base.Submit, base.Cancel}})
 	c.form = dressed.Controller()
-	body := scene.NewGroup(scene.GroupConfig{Overlay: true, Items: []scene.Item{{Element: dressed.Element()}}, Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
-		key, ok := event.Input().(input.Key)
-		return scene.EventResult{Consumed: ok && c.quitKey(key)}
-	}}})
-	c.dialog = kit.NewDialog(kit.DialogConfig{
-		Theme: c.theme, Glyphs: c.glyphs,
-		Title: "Approve prompt", Description: "The source starts only after approval.", Body: body.Element(), Dismissed: func() { c.takePending() },
-		Where: layout.Placement{Width: 48, Height: 7, Margin: 1},
-	})
+	c.dialog = kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Title: "Approve prompt", Description: "The source starts only after approval.", Content: dressed.Element(), Dismissed: func() { c.takePending() }}, Theme: c.theme, Glyphs: c.glyphs, Where: layout.Placement{Width: 48, Height: 7, Margin: 1}})
 }
 
 func (c *chat) requestApproval() {
@@ -43,7 +29,7 @@ func (c *chat) requestApproval() {
 	}
 	c.pending = prompt
 	if _, err := c.confirm.Request(c.scope.Context(), base.ConfirmRequest{ExpectedRevision: c.confirm.Snapshot().Revision, Value: true}); err != nil {
-		c.status.Doing = err.Error()
+		c.status.Label = err.Error()
 		c.takePending()
 		return
 	}

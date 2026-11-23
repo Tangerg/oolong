@@ -45,7 +45,7 @@ var ErrInvalidResult = errors.New("content: renderer returned no content")
 func New(cfg Config) (*Registry, error) {
 	r := &Registry{renderers: make(map[Format]Renderer, len(cfg.Bindings))}
 	for _, binding := range cfg.Bindings {
-		name, err := normalize(binding.Format)
+		name, err := binding.Format.canonical()
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +67,7 @@ func (r *Registry) Render(ctx context.Context, format Format, source string) (gr
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
-	name, err := normalize(format)
+	name, err := format.canonical()
 	if err != nil {
 		return nil, err
 	}
@@ -85,15 +85,17 @@ func (r *Registry) Render(ctx context.Context, format Format, source string) (gr
 	return result, nil
 }
 
-func normalize(format Format) (Format, error) {
-	name := strings.TrimSpace(string(format))
+// canonical is f as one dispatch key: trimmed, lowercase, and refused when it
+// holds anything a label may not.
+func (f Format) canonical() (Format, error) {
+	name := strings.TrimSpace(string(f))
 	if name == "" {
 		return "", errors.New("content: empty format")
 	}
 	for _, r := range name {
 		valid := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '+' || r == '-'
 		if !valid {
-			return "", fmt.Errorf("content: invalid format %q", format)
+			return "", fmt.Errorf("content: invalid format %q", f)
 		}
 	}
 	return Format(strings.Clone(strings.ToLower(name))), nil

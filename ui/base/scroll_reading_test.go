@@ -109,7 +109,7 @@ func TestZeroScrollPreservesPendingReveal(t *testing.T) {
 		{"rows", func(scroll *base.Scroll) { scroll.By(0) }},
 		{"pages", func(scroll *base.Scroll) { scroll.Pages(0) }},
 		{"fractional wheel", func(scroll *base.Scroll) {
-			scroll.Wheel(input.Wheel{Reports: 3, Rows: 1})
+			scroll.SetWheel(input.Wheel{Reports: 3, Rows: 1})
 			scroll.Handle(input.Mouse{Action: input.WheelUp}, nil)
 		}},
 	} {
@@ -139,7 +139,7 @@ func TestScrollTakesTheTerminalsWordForWhatANotchIs(t *testing.T) {
 		var s base.Scroll
 		stageScroll(scenes, &s, 1000, 10)
 		s.ToTop()
-		s.Wheel(w)
+		s.SetWheel(w)
 		for range w.Reports {
 			s.Handle(input.Mouse{Action: input.WheelDown}, keys)
 		}

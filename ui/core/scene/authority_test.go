@@ -18,9 +18,10 @@ func TestModalBoundsBothPreviewAndBubble(t *testing.T) {
 	modal := scene.NewGroup(scene.GroupConfig{Modal: true, Items: []scene.Item{{Element: scene.NewElement(scene.ElementConfig{Focusable: func() bool { return true }, Handle: func(scene.Event) scene.EventResult { delivered++; return scene.EventResult{Consumed: true} }})}}})
 	g := scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{Preview: func(scene.Event) scene.EventResult { outside++; return scene.EventResult{Consumed: true} }}, Items: []scene.Item{{Element: modal.Element()}}})
 	r := root(t, g.Element())
+	draw(t, r, 4, 1, 0)
 	r.Handle(input.Key{Code: input.Esc})
 	if outside != 0 || delivered != 1 {
-		t.Fatalf("outer shortcut=%d, modal handler=%d", outside, delivered)
+		t.Fatalf("outer preview=%d, modal handler=%d", outside, delivered)
 	}
 }
 

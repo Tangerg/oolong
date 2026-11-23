@@ -57,7 +57,7 @@ func TestTextProjectsValidationAndPasteFeedbackWithoutChangingTheirOwners(t *tes
 	if !node.State.Has(scene.StateInvalid) || node.Description != validation.Error()+"\n"+clipboard.Error() || !node.Sensitive || node.Value != "" {
 		t.Fatalf("combined feedback or sensitive value = %+v", node.Semantic)
 	}
-	if !errors.Is(field.Error(), validation) || errors.Is(field.Error(), clipboard) || !errors.Is(field.PasteError(), clipboard) {
+	if !errors.Is(field.Error(), validation) || errors.Is(field.Error(), clipboard) || !errors.Is(field.ClipboardError(), clipboard) {
 		t.Fatal("presentation merged the independent error owners")
 	}
 	if height := field.HeightForWidth(60); height != 3 {
@@ -104,11 +104,11 @@ func TestEditorPasteFeedbackHasItsOwnNoneditableRow(t *testing.T) {
 	if !slices.Equal(surface.Rows(), []string{"abc", problem.Error()}) {
 		t.Fatalf("editor feedback rows = %q", surface.Rows())
 	}
-	line, offset := editor.Cursor()
+	line, offset := editor.Cursor().Line, editor.Cursor().Byte
 	if root.Handle(input.Mouse{Pos: image.Pt(1, 1), Action: input.MouseDown, Button: input.ButtonLeft}) {
 		t.Fatal("feedback row accepted editor input")
 	}
-	if afterLine, afterOffset := editor.Cursor(); afterLine != line || afterOffset != offset {
+	if afterLine, afterOffset := editor.Cursor().Line, editor.Cursor().Byte; afterLine != line || afterOffset != offset {
 		t.Fatal("feedback click changed the caret")
 	}
 	node := observedNode(t, root, editor.Element())
@@ -123,8 +123,8 @@ func TestOperationFeedbackDoesNotBecomeAFieldValidationFailure(t *testing.T) {
 	field.Do(base.Paste)
 	form := base.NewForm(base.FormConfig{Fields: []base.Field{field}})
 	result, err := form.Submit()
-	if err != nil || result.State != scene.Applied || field.Error() != nil || !errors.Is(field.PasteError(), errors.ErrUnsupported) {
-		t.Fatalf("paste feedback contaminated validation: result=%+v, form=%v, field=%v, paste=%v", result, err, field.Error(), field.PasteError())
+	if err != nil || result.State != scene.Applied || field.Error() != nil || !errors.Is(field.ClipboardError(), errors.ErrUnsupported) {
+		t.Fatalf("paste feedback contaminated validation: result=%+v, form=%v, field=%v, paste=%v", result, err, field.Error(), field.ClipboardError())
 	}
 }
 

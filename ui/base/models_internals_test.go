@@ -74,7 +74,7 @@ func (*retainedField) Revision() uint64 { return 0 }
 
 func (*retainedField) Handle(input.Event) bool { return false }
 func (*retainedField) Focus(bool)              {}
-func (*retainedField) Prompt() string          { return "" }
+func (*retainedField) Label() string           { return "" }
 func (*retainedField) Validate() error         { return nil }
 func (*retainedField) Validation() func() bool { return func() bool { return true } }
 func (*retainedField) Error() error            { return nil }
@@ -105,7 +105,7 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 		}
 	}
 	values := []int{1, 2, 3}
-	tree := NewTree(Node[*int]{Item: &values[0]}, Node[*int]{Item: &values[1]}, Node[*int]{Item: &values[2]})
+	tree := NewTree(TreeConfig[*int]{Nodes: []Node[*int]{{Item: &values[0]}, {Item: &values[1]}, {Item: &values[2]}}})
 	tree.SetNodes(tree.Nodes()[:1])
 	for i, row := range tree.list.items[:cap(tree.list.items)] {
 		if i >= len(tree.list.items) && row.node != nil {
@@ -115,12 +115,12 @@ func TestComponentCachesReleaseRemovedChildren(t *testing.T) {
 }
 
 func TestTreeReplacementReleasesRemovedHierarchy(t *testing.T) {
-	tree := NewTree(Node[string]{
+	tree := NewTree(TreeConfig[string]{Nodes: []Node[string]{{
 		Item: "root",
 		Children: []Node[string]{{
 			Item: "branch", Children: []Node[string]{{Item: "leaf"}},
 		}},
-	})
+	}}})
 	tree.Open(0)
 	tree.Open(1)
 	if len(tree.Rows()) != 3 {
@@ -187,7 +187,7 @@ func TestOwnedCollectionsReleaseOversizedBackingStorage(t *testing.T) {
 	for i, child := range children {
 		nodes[i] = Node[*retainedWidget]{Item: child}
 	}
-	tree := NewTree(nodes...)
+	tree := NewTree(TreeConfig[*retainedWidget]{Nodes: nodes})
 	tree.Rows()
 	tree.SetNodes(nodes[:1])
 	tree.Rows()
@@ -220,13 +220,10 @@ func TestLongLivedModelsDetachConcreteStrings(t *testing.T) {
 	dialog.SetDescription(source)
 	assertDetached("dialog description", dialog.Description())
 
-	transcript, err := NewTranscript(TranscriptConfig{Key: source, Name: source})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{Key: source, Name: source})
 	t.Cleanup(transcript.Close)
-	assertDetached("transcript key", transcript.cfg.Key)
-	assertDetached("transcript name", transcript.cfg.Name)
+	assertDetached("transcript key", transcript.Element().Key())
+	assertDetached("transcript name", transcript.policy.name)
 
 	slider := NewSlider(SliderConfig{Maximum: 1})
 	slider.SetLabel(source)

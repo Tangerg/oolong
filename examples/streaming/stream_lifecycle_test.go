@@ -22,10 +22,7 @@ func TestAnEmptyOpenProjectionReplacesTheVisibleTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := kit.NewTranscript(kit.TranscriptConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	view := kit.NewTranscript(kit.TranscriptConfig{})
 	if _, addErr := view.Controller().AddDocument(document); addErr != nil {
 		t.Fatal(addErr)
 	}
@@ -142,11 +139,8 @@ func TestTranscriptRefusalPreservesPromptAndSourceFailure(t *testing.T) {
 	})
 	defer stop()
 	if err := c.runtime.Dispatcher().Invoke(t.Context(), func() error {
-		full, err := base.NewTranscript(base.TranscriptConfig{MaxItems: 1})
-		if err != nil {
-			return err
-		}
-		if _, err = full.Add(&kit.Label{Text: "existing"}); err != nil {
+		full := base.NewTranscript(base.TranscriptConfig{MaxItems: 1})
+		if _, err := full.Add(&kit.Label{Text: "existing"}); err != nil {
 			return err
 		}
 		previous := c.content
@@ -160,8 +154,8 @@ func TestTranscriptRefusalPreservesPromptAndSourceFailure(t *testing.T) {
 		}
 		cause := errors.New("source disconnected")
 		c.setOutcome(cause)
-		if !strings.Contains(c.status.Doing, cause.Error()) || !strings.Contains(c.status.Doing, base.ErrTranscriptCapacity.Error()) {
-			t.Errorf("lost a failure: %q", c.status.Doing)
+		if !strings.Contains(c.status.Label, cause.Error()) || !strings.Contains(c.status.Label, base.ErrTranscriptCapacity.Error()) {
+			t.Errorf("lost a failure: %q", c.status.Label)
 		}
 		return nil
 	}); err != nil {

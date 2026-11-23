@@ -14,9 +14,7 @@ type transcriptTestFrame struct {
 func (f *transcriptTestFrame) Element() scene.Element {
 	element := f.transcript.Element()
 	if !element.Alive() {
-		if err := element.SetPaint(f.Draw); err != nil {
-			panic(err)
-		}
+		element.SetPaint(f.Draw)
 	}
 	return element
 }

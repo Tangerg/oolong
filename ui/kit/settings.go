@@ -1,13 +1,11 @@
 package kit
 
 import (
-	"context"
-
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 // Settings dresses a browsable list of application-owned values.
@@ -28,30 +26,18 @@ type Settings[T any] struct {
 	controller *base.Settings[T]
 }
 
-// SettingsConfig is the complete construction state of [Settings].
-//
-// Keys browse the list and EditKeys change the selected value. Keeping both in this
-// value makes their different responsibilities explicit without hiding either in a
-// positional function argument.
+// SettingsConfig carries the base settings configuration in Behavior and adds the
+// two visible columns.
 type SettingsConfig[T any] struct {
+	Behavior   base.SettingsConfig[T]
 	Scope      *ThemeScope
 	Appearance ThemeOverride
 	Theme      Theme
 	Glyphs     Glyphs
-	// Items are copied into the constructed controller.
-	Items []T
 	// Label and Value project the two visible columns. Nil produces an empty column.
 	// They run during measurement and drawing and must be observationally pure.
 	Label func(T) string
 	Value func(T) string
-	// Change is the event-side mutation boundary: its Value reports whether the
-	// input was consumed and its State the application owner's outcome. An error
-	// does not erase Applied or Started effects.
-	Change func(context.Context, int, T, keymap.Action) (scene.ActionResult[bool], error)
-	// Keys browse rows; EditKeys change the selected value. Nil uses the respective defaults.
-	Keys     *keymap.Map
-	EditKeys *keymap.Map
-	Wrap     bool
 	// ValueWidth caps the right column. Zero leaves it uncapped.
 	ValueWidth int
 }
@@ -60,44 +46,27 @@ type SettingsConfig[T any] struct {
 // palette sources. Its controller owns an item-slice snapshot; item payloads
 // retain their domain ownership.
 func NewSettings[T any](config SettingsConfig[T]) *Settings[T] {
-	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
-	if appearanceErr != nil {
-		panic(appearanceErr)
-	}
-	controller := base.NewSettings(base.SettingsConfig[T]{Change: config.Change, EditKeys: config.EditKeys})
-	controller.List().SetKeys(config.Keys)
-	controller.List().SetWrap(config.Wrap)
-	controller.List().SetItems(config.Items)
+	look := newAppearance(config.Theme, config.Scope, config.Appearance)
+	controller := base.NewSettings(config.Behavior)
 	settings := &Settings[T]{
 		appearance: look, glyphs: config.Glyphs.clone(), controller: controller, label: config.Label,
 		value: config.Value,
 	}
 	settings.SetValueWidth(config.ValueWidth)
-	if err := settings.controller.Element().SetPaint(settings.Draw); err != nil {
-		panic(err)
-	}
+	settings.controller.Element().SetPaint(settings.Draw)
 	settings.appearance.bind(settings.Element())
 	return settings
 }
 
 func (s *Settings[T]) Controller() *base.Settings[T] {
-	if s == nil {
-		return nil
-	}
 	return s.controller
 }
 
 func (s *Settings[T]) HeightForWidth(width int) int {
-	if s == nil || s.controller == nil {
-		return 0
-	}
 	return s.controller.HeightForWidth(width)
 }
 
 func (s *Settings[T]) Draw(frame scene.Frame) {
-	if s == nil || s.controller == nil {
-		return
-	}
 	width, _ := frame.Size()
 	table := s.table()
 	columns := table.Layout(width)
@@ -113,9 +82,9 @@ func (s *Settings[T]) table() Table {
 			{Size: layout.Flex(1).AtLeast(1)},
 			{Align: layout.End, Size: layout.Measured(0, s.valueWidth)},
 		},
-		Rows: s.controller.List().Len(),
+		Rows: s.controller.Len(),
 		Cell: func(row, column int) Cell {
-			item, ok := s.controller.List().At(row)
+			item, ok := s.controller.At(row)
 			if !ok {
 				return Cell{}
 			}
@@ -138,9 +107,6 @@ func project[T any](f func(T) string, item T) string {
 }
 
 func (s *Settings[T]) Element() scene.Element {
-	if s == nil || s.controller == nil {
-		return scene.Element{}
-	}
 	return s.controller.Element()
 }
 
@@ -148,7 +114,7 @@ func (s *Settings[T]) Glyphs() Glyphs { return s.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (s *Settings[T]) SetGlyphs(value Glyphs) { replaceGlyphs(s.Element(), &s.glyphs, value) }
+func (s *Settings[T]) SetGlyphs(value Glyphs) { setting.Replace(s.Element(), &s.glyphs, value.clone()) }
 
 func (s *Settings[T]) Label() func(T) string { return s.label }
 
@@ -187,16 +153,8 @@ func (s *Settings[T]) ValueWidth() int { return s.valueWidth }
 // SetValueWidth panics for a negative width or with scene.ErrBusy outside
 // owner mutation, before the retained presentation can change.
 func (s *Settings[T]) SetValueWidth(value int) {
-	element := s.Element()
-	if err := element.CheckMutation(); err != nil {
-		panic(err)
-	}
 	if value < 0 {
 		panic("kit: ValueWidth must be non-negative")
 	}
-	if s.valueWidth == value {
-		return
-	}
-	s.valueWidth = value
-	element.Invalidate()
+	setting.Assign(s.Element(), &s.valueWidth, value)
 }

@@ -1,6 +1,8 @@
 package base
 
 import (
+	"errors"
+
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
 )
@@ -12,7 +14,7 @@ func (e *Editor) Anchor() {
 	defer e.endViewUpdate()
 	e.breakContinuation()
 	if e.selection == editorSelectionNone {
-		e.anchor, e.selection = Caret{Line: e.line, Byte: e.byteOffset}, editorSelecting
+		e.anchor, e.selection = e.caret, editorSelecting
 	}
 }
 
@@ -30,8 +32,8 @@ func (e *Editor) SelectAll() {
 	e.ensure()
 	e.endTyping()
 	e.anchor, e.selection = Caret{}, editorSelecting
-	e.line = len(e.document().lines) - 1
-	e.byteOffset = len(e.document().lines[e.line])
+	e.caret.Line = len(e.document().lines) - 1
+	e.caret.Byte = len(e.document().lines[e.caret.Line])
 	e.desiredColumn = editorColumn{}
 }
 
@@ -44,7 +46,7 @@ func (e *Editor) Selection() (start, end Caret, ok bool) {
 	if e.selection == editorSelectionNone {
 		return Caret{}, Caret{}, false
 	}
-	cursor := Caret{Line: e.line, Byte: e.byteOffset}
+	cursor := e.caret
 	if cursor == e.anchor {
 		return Caret{}, Caret{}, false
 	}
@@ -74,39 +76,56 @@ func (e *Editor) DeleteSelection() bool {
 	return true
 }
 
-// Copy sends the selection to the clipboard. Masked sessions never export their
-// underlying text. Like Paste and Cut, clipboard access is an owner-side effect.
-func (e *Editor) Copy() bool {
+// Copy sends the selection to the clipboard. With nothing selected, or in a masked
+// session, which never exports its underlying text, there is nothing to send and
+// Copy succeeds without copying. An editor without a clipboard refuses with
+// [errors.ErrUnsupported]; a clipboard refusal is returned unchanged. Like Paste
+// and Cut, clipboard access is an owner-side effect.
+func (e *Editor) Copy() error {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	start, end, ok := e.Selection()
-	return ok && e.copyRange(start, end)
+	if !ok {
+		return nil
+	}
+	_, err := e.copyRange(start, end)
+	return err
 }
 
-func (e *Editor) copyRange(start, end Caret) bool {
-	return e.Mask() == "" && e.clipboard != nil && e.clipboard.Copy(e.document().textBetween(start, end))
+func (e *Editor) copyRange(start, end Caret) (copied bool, err error) {
+	switch {
+	case e.Mask() != "":
+		return false, nil
+	case e.clipboard == nil:
+		return false, errors.ErrUnsupported
+	}
+	if err := e.clipboard.Copy(e.document().textBetween(start, end)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
-// Cut copies and removes the selection only after clipboard acceptance. Clipboard
-// callbacks that change content or the selected range revoke the removal, so an
-// older copy cannot authorize deleting newer text.
-func (e *Editor) Cut() bool {
+// Cut copies and removes the selection only after clipboard acceptance, and
+// fails as [Editor.Copy] does. Clipboard callbacks that change content or the
+// selected range revoke the removal, so an older copy cannot authorize deleting
+// newer text.
+func (e *Editor) Cut() error {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.endTyping()
 	start, end, selected := e.Selection()
 	if !selected {
-		return false
+		return nil
 	}
 	revision := e.document().revision
-	if !e.copyRange(start, end) {
-		return false
+	if copied, err := e.copyRange(start, end); !copied {
+		return err
 	}
 	currentStart, currentEnd, current := e.Selection()
-	if e.document().revision != revision || !current || currentStart != start || currentEnd != end {
-		return false
+	if e.document().revision == revision && current && currentStart == start && currentEnd == end {
+		e.DeleteSelection()
 	}
-	return e.DeleteSelection()
+	return nil
 }
 
 // Spans returns visual column runs covered by two carets. Width and columns include

@@ -4,21 +4,22 @@ import (
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/base"
-	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/core/text"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
-// TabsConfig supplies initial panes and strip appearance. Scope supplies a live theme and Appearance supplies instance overrides.
+// TabsConfig carries the base tabs configuration in Behavior and the strip's
+// appearance. The skin paints tabs and sizes the strip, so Behavior.PaintTab and
+// Behavior.StripRows must be unset; a zero Behavior.Gap uses the skin's spacing.
+// Scope supplies a live theme and Appearance supplies instance overrides.
 type TabsConfig struct {
-	Scope          *ThemeScope
-	Appearance     ThemeOverride
-	Theme          Theme
-	Glyphs         Glyphs
-	Items          []base.Tab
-	Initial        int
-	Keys           *keymap.Map
-	NoWrap, NoRule bool
+	Behavior   base.TabsConfig
+	Scope      *ThemeScope
+	Appearance ThemeOverride
+	Theme      Theme
+	Glyphs     Glyphs
+	NoRule     bool
 }
 
 // Tabs dresses one base.Tabs controller with a measured strip and optional rule. Its controller alone owns selected-pane state.
@@ -32,36 +33,38 @@ type Tabs struct {
 
 const defaultTabGap = 2
 
-// NewTabs constructs the controller and strip appearance. It panics for duplicate keys, an invalid selected child, or competing Theme and Scope sources.
+// NewTabs constructs the controller and strip appearance. It panics for duplicate
+// keys, an invalid selected child, skin-owned Behavior fields, or competing Theme and
+// Scope sources.
 func NewTabs(config TabsConfig) *Tabs {
-	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
-	if appearanceErr != nil {
-		panic(appearanceErr)
-	}
+	look := newAppearance(config.Theme, config.Scope, config.Appearance)
+	requireSkinOwned("tabs Behavior.PaintTab", config.Behavior.PaintTab == nil)
+	requireSkinOwned("tabs Behavior.StripRows", config.Behavior.StripRows == nil)
 	t := &Tabs{appearance: look}
 	if !config.NoRule {
 		t.rule = strings.Clone(config.Glyphs.Rule)
 	}
-	t.controller = base.NewTabs(base.TabsConfig{
-		Items: config.Items, Initial: config.Initial, Keys: config.Keys, NoWrap: config.NoWrap, Gap: defaultTabGap, StripRows: func() int {
-			if t.rule != "" {
-				return 2
-			}
-			return 1
-		},
-		PaintTab: func(frame scene.Frame, tab base.Tab, selected bool) {
-			style := t.appearance.palette().Muted
-			if selected {
-				style = t.appearance.palette().Accent
-			}
-			text.Of(tab.Title, style).Draw(frame.View, 0, 0)
-		},
-	})
-	if err := t.controller.Strip().SetPaint(func(frame scene.Frame) {
-		drawRule(frame.View, 1, t.rule, t.appearance.palette().Border)
-	}); err != nil {
-		panic(err)
+	behavior := config.Behavior
+	if behavior.Gap == 0 {
+		behavior.Gap = defaultTabGap
 	}
+	behavior.StripRows = func() int {
+		if t.rule != "" {
+			return 2
+		}
+		return 1
+	}
+	behavior.PaintTab = func(frame scene.Frame, tab base.Tab, selected bool) {
+		style := t.appearance.palette().Muted
+		if selected {
+			style = t.appearance.palette().Accent
+		}
+		text.Of(tab.Title, style).Draw(frame.View, 0, 0)
+	}
+	t.controller = base.NewTabs(behavior)
+	t.controller.Strip().SetPaint(func(frame scene.Frame) {
+		text.Of(t.rule, t.appearance.palette().Border).Tile(frame.View, 1)
+	})
 	t.appearance.bind(t.Element())
 	return t
 }
@@ -72,27 +75,15 @@ func (t *Tabs) Rule() string { return t.rule }
 // SetRule changes both the visible decoration and the space it occupies.
 // It panics during scene presentation or observation.
 func (t *Tabs) SetRule(glyph string) {
-	if err := t.Element().CheckMutation(); err != nil {
-		panic(err)
-	}
-	if t.rule != glyph {
-		t.rule = strings.Clone(glyph)
-		t.Element().Invalidate()
-	}
+	setting.Assign(t.Element(), &t.rule, strings.Clone(glyph))
 }
 
 func (t *Tabs) Controller() *base.Tabs { return t.controller }
 
 func (t *Tabs) Element() scene.Element {
-	if t == nil || t.controller == nil {
-		return scene.Element{}
-	}
 	return t.controller.Element()
 }
 
 func (t *Tabs) HeightForWidth(width int) int {
-	if t == nil || t.controller == nil {
-		return 0
-	}
 	return t.controller.HeightForWidth(width)
 }

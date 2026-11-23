@@ -12,7 +12,7 @@ import (
 )
 
 func TestDrainObservesReaderCompletionAndCancellation(t *testing.T) {
-	s := &Session{transcript: newTranscript()}
+	s := &Session{transcript: newTranscript(Size{Cols: defaultColumns, Rows: defaultRows})}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if err := s.Drain(ctx); !errors.Is(err, context.Canceled) {
@@ -38,7 +38,7 @@ func TestCloseReportsGroupRefusalWithoutWaitingForTheLeader(t *testing.T) {
 	}
 	s := &Session{
 		primary: primary, process: &os.Process{},
-		transcript: newTranscript(), waitDone: make(chan struct{}),
+		transcript: newTranscript(Size{Cols: defaultColumns, Rows: defaultRows}), waitDone: make(chan struct{}),
 		release: make(chan struct{}), reapDone: make(chan struct{}),
 	}
 	s.transcript.finish(nil)
@@ -94,7 +94,7 @@ func TestClosePreservesReaderAndProcessFailures(t *testing.T) {
 	readFailure := errors.New("transcript reader failed")
 	waitFailure := errors.New("process wait failed")
 	s := &Session{
-		primary: primary, transcript: newTranscript(), waitDone: make(chan struct{}),
+		primary: primary, transcript: newTranscript(Size{Cols: defaultColumns, Rows: defaultRows}), waitDone: make(chan struct{}),
 		release: make(chan struct{}), reapDone: make(chan struct{}), reapErr: waitFailure,
 	}
 	s.transcript.finish(readFailure)

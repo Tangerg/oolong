@@ -20,7 +20,7 @@ func TestRepaintReplyMutationUsesTheNormalFrameSchedule(t *testing.T) {
 				t.Fatal(rootErr)
 			}
 			writer := &admissionWriter{changes: make(chan struct{}, 1)}
-			p := &program{root: root, canvas: grid.NewScreen(10, 1), writer: writer, tasks: newTaskQueue(), frameInterval: time.Second}
+			p := &program{root: root, screen: grid.NewScreen(10, 1), writer: writer, tasks: newTaskQueue(), frameInterval: time.Second}
 			t.Cleanup(p.stop)
 			if err := p.answerRepaint(&repaintRequest{reply: func(_, _ int, repaintErr error) {
 				if repaintErr != nil {

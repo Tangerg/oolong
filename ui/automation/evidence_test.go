@@ -63,13 +63,29 @@ func TestLocatorRequiresEvidenceForTheWholeNameAndSearch(t *testing.T) {
 	}
 }
 
+func TestObservationRefusesSceneOwnedStateFromABehavior(t *testing.T) {
+	for _, state := range []scene.SemanticState{scene.StateFocused, scene.StateDisabled} {
+		element := scene.NewElement(scene.ElementConfig{Semantics: func() scene.Semantic {
+			return scene.Semantic{Role: scene.RoleButton, State: state}
+		}})
+		root, err := scene.NewRoot(scene.RootConfig{Element: element})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := root.Observe(scene.Query{}); !errors.Is(err, scene.ErrInvalid) {
+			t.Errorf("observing a behavior that reports scene state %#x = %v, want ErrInvalid", state, err)
+		}
+		root.Close()
+	}
+}
+
 func TestObservationAndInvocationAgreeOnNodeEligibility(t *testing.T) {
 	enabled := true
 	action := scene.NewAction(scene.ActionConfig[struct{}, struct{}]{ID: scene.ActionActivate, Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
 		return scene.ActionResult[struct{}]{State: scene.Applied}, nil
 	}})
 	element := scene.NewElement(scene.ElementConfig{Enabled: func() bool { return enabled }, Actions: []scene.ActionBinding{action.Binding()}, Semantics: func() scene.Semantic {
-		return scene.Semantic{Role: scene.RoleButton, State: scene.StateDisabled | scene.StateSelected}
+		return scene.Semantic{Role: scene.RoleButton, State: scene.StateSelected}
 	}})
 	root, err := scene.NewRoot(scene.RootConfig{Element: element})
 	if err != nil {
@@ -84,7 +100,7 @@ func TestObservationAndInvocationAgreeOnNodeEligibility(t *testing.T) {
 			t.Fatal(err)
 		}
 		node := seen.Nodes[0]
-		if node.State.Has(scene.StateDisabled) == allowed || node.Actions[0].Availability.Disabled == allowed || !node.State.Has(scene.StateSelected) {
+		if node.State.Has(scene.StateDisabled) == allowed || node.Actions[0].Disabled == allowed || !node.State.Has(scene.StateSelected) {
 			t.Fatalf("node and action disagree with eligibility %t: %+v", allowed, node)
 		}
 		_, err = root.Invoke(t.Context(), element.Target(), scene.ActionActivate, nil)

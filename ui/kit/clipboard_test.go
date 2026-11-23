@@ -15,26 +15,26 @@ import (
 
 type inputClipboard struct{ receive func(string, error) }
 
-func (*inputClipboard) Copy(string) bool { return false }
+func (*inputClipboard) Copy(string) error { return errors.ErrUnsupported }
 
 func (c *inputClipboard) Read(_ context.Context, receive func(string, error)) error {
 	c.receive = receive
 	return nil
 }
 
-func TestPasteFailureIsVisibleThroughTheDefaultInputAndComposerSkins(t *testing.T) {
-	for _, kind := range []string{"input", "composer"} {
+func TestPasteFailureIsVisibleThroughTheDefaultInputAndEditorSkins(t *testing.T) {
+	for _, kind := range []string{"input", "editor"} {
 		t.Run(kind, func(t *testing.T) {
 			transport := &inputClipboard{}
 			var element scene.Element
 			var paste func(keymap.Action) bool
 			var measure func(int) int
 			if kind == "input" {
-				field := kit.NewInput(kit.InputConfig{Initial: "draft", Clipboard: transport})
+				field := kit.NewInput(kit.InputConfig{Behavior: base.TextConfig{Initial: "draft", Clipboard: transport}})
 				element, paste, measure = field.Element(), field.Controller().Do, field.HeightForWidth
 			} else {
-				composer := kit.NewComposer(kit.ComposerConfig{Initial: "draft", Clipboard: transport, MaxRows: 1})
-				element, paste, measure = composer.Element(), composer.Controller().Do, composer.HeightForWidth
+				editor := kit.NewEditor(kit.EditorConfig{Behavior: base.EditorConfig{Initial: "draft", Clipboard: transport, MaxRows: 1}})
+				element, paste, measure = editor.Element(), editor.Controller().Do, editor.HeightForWidth
 			}
 			root, err := scene.NewRoot(scene.RootConfig{Element: element})
 			if err != nil {
@@ -72,7 +72,7 @@ func TestPasteFailureIsVisibleThroughTheDefaultInputAndComposerSkins(t *testing.
 
 func TestInputControllerExposesDirectedPasteAndKeyboardFailure(t *testing.T) {
 	transport := &inputClipboard{}
-	field := kit.NewInput(kit.InputConfig{Clipboard: transport})
+	field := kit.NewInput(kit.InputConfig{Behavior: base.TextConfig{Clipboard: transport}})
 	root, err := scene.NewRoot(scene.RootConfig{Element: field.Element()})
 	if err != nil {
 		t.Fatal(err)
@@ -81,8 +81,8 @@ func TestInputControllerExposesDirectedPasteAndKeyboardFailure(t *testing.T) {
 	problem := errors.New("host read failed")
 	field.Controller().Do(base.Paste)
 	transport.receive("", problem)
-	if !errors.Is(field.Controller().PasteError(), problem) {
-		t.Fatalf("hidden input failure: %v", field.Controller().PasteError())
+	if !errors.Is(field.Controller().ClipboardError(), problem) {
+		t.Fatalf("hidden input failure: %v", field.Controller().ClipboardError())
 	}
 	completed := false
 	if err := field.Controller().Paste(t.Context(), func(err error) {

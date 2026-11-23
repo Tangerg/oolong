@@ -16,7 +16,7 @@ func TestYankPopOwnsInsertedBytesRatherThanSnappedCursor(t *testing.T) {
 		e.KillToStart()
 	}
 	e.SetText("🇧")
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	e.Yank()
 	e.YankPop()
 	if got := e.Text(); got != "X🇧" {
@@ -42,7 +42,7 @@ func TestTreeAcceptsAcyclicSharedPrefix(t *testing.T) {
 	nodes := make([]base.Node[string], 2)
 	nodes[0].Item = "leaf"
 	nodes[1] = base.Node[string]{Item: "branch", Children: nodes[:1]}
-	tree := base.NewTree(nodes...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: nodes})
 	tree.Open(1)
 	if len(tree.Rows()) != 3 {
 		t.Fatalf("rows: %#v", tree.Rows())

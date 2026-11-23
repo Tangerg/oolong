@@ -85,7 +85,7 @@ func newPacedReader(runtime *program.InlineRuntime, size int, every time.Duratio
 	r.keys.Bind(leave, input.Ctrl.Rune('c'))
 	// Appearance is application composition: the three peer modules still share no
 	// import edge and expose only their core text boundary to one another.
-	look := markdownlook.New(theme, glyphs)
+	look := markdownlook.New(theme, runtime.Environment().Locale())
 	formulaLook := latexlook.New(theme, runtime.Environment().Locale())
 	look.SetRenderer(markdown.DisplayMath, func(_ string, source string) (grid.Drawable, error) {
 		formula := latex.Render(source, formulaLook)
@@ -101,17 +101,14 @@ func newPacedReader(runtime *program.InlineRuntime, size int, every time.Duratio
 	if err != nil {
 		return nil, err
 	}
-	r.view, err = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: runtime.Publisher(), Retention: base.PublishCompleted}, Theme: theme, Glyphs: glyphs})
-	if err != nil {
-		return nil, err
-	}
+	r.view = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: runtime.Publisher(), Retention: base.PublishCompleted}, Theme: theme, Glyphs: glyphs})
 	if _, err = r.view.Controller().AddDocument(r.document); err != nil {
 		r.view.Controller().Close()
 		return nil, err
 	}
 	status := scene.NewElement(scene.ElementConfig{Paint: r.paintStatus})
 	r.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
-		Key: "read", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: r.Handle(event.Input())} },
+		Key: "read", Preview: func(event scene.Event) scene.EventResult { return event.Result(r.Handle(event.Input())) },
 		Detached: r.view.Controller().Close,
 	}, Items: []scene.Item{{Element: r.view.Element(), Size: layout.Flex(1)}, {Element: status, Size: layout.Fixed(1)}}}).Element()
 

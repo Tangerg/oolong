@@ -6,11 +6,12 @@ package publication
 import (
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"sync"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/internal/counter"
+	"github.com/Tangerg/oolong/ui/internal/enum"
 )
 
 // Admission errors transfer no responsibility and leave the producer-owned content intact.
@@ -150,9 +151,12 @@ type noCopy struct{}
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
 
+// errWidth refuses a capture geometry with no columns, wherever the width comes from.
+var errWidth = errors.New("publication: width must be positive")
+
 func New(cfg Config) (*Publisher, error) {
 	if cfg.Width <= 0 {
-		return nil, errors.New("publication: width must be positive")
+		return nil, errWidth
 	}
 	limits, err := cfg.normalized()
 	if err != nil {
@@ -199,7 +203,7 @@ func (p *Publisher) SetGeometry(width int, ground grid.Ground) error {
 		return p.refusalError()
 	}
 	if width <= 0 {
-		return errors.New("publication: width must be positive")
+		return errWidth
 	}
 	p.cfg.Width, p.cfg.Ground = width, ground
 	return nil
@@ -211,7 +215,7 @@ func (p *Publisher) TryPublish(body grid.Drawable) (Receipt, error) {
 	if p == nil || p.phase != accepting {
 		return Receipt{}, p.refusalError()
 	}
-	if p.next == ID(math.MaxUint64) {
+	if _, ok := counter.Next(p.next); !ok {
 		return Receipt{}, errors.New("publication: identities exhausted")
 	}
 	p.preparing = true
@@ -360,21 +364,18 @@ func (p *Publisher) Written(sequence uint64) {
 	}
 }
 
-// Fail terminates every accepted responsibility. Only items handed to a writer
-// can have an unknown partial result; still-pending items are definitely unwritten.
-func (p *Publisher) Fail(err error, unknownPartial bool) {
-	p.fail(err, unknownPartial, Batch{})
-}
+// Close terminates every accepted responsibility with err. Still-pending items
+// are definitely unwritten and fail; an item a writer accepted may have reached
+// the terminal in part, so it settles as unknown partial.
+func (p *Publisher) Close(err error) { p.fail(err, Batch{}) }
 
 // FailAdmission settles an attempted batch when the transport returned no reliable
 // admission decision. A zero batch means that frame carried no publications.
 // A later contribution outside the attempted prefix is definitely unwritten.
 // It panics for a nonempty stale or foreign batch.
-func (p *Publisher) FailAdmission(b Batch, err error) {
-	p.fail(err, true, b)
-}
+func (p *Publisher) FailAdmission(b Batch, err error) { p.fail(err, b) }
 
-func (p *Publisher) fail(err error, unknownPartial bool, attempted Batch) {
+func (p *Publisher) fail(err error, attempted Batch) {
 	p.assertIdle()
 	if p == nil || p.phase == closed {
 		return
@@ -392,12 +393,8 @@ func (p *Publisher) fail(err error, unknownPartial bool, attempted Batch) {
 	for _, e := range p.pending[len(attempted.entries):] {
 		e.receipt.settle(Failed, err)
 	}
-	state := Failed
-	if unknownPartial {
-		state = UnknownPartial
-	}
 	for _, e := range p.inflight {
-		e.receipt.settle(state, err)
+		e.receipt.settle(UnknownPartial, err)
 	}
 	clear(p.pending)
 	clear(p.inflight)
@@ -405,9 +402,6 @@ func (p *Publisher) fail(err error, unknownPartial bool, attempted Batch) {
 	p.bytes = 0
 	p.dirty = true
 }
-
-// Close settles outstanding work, conservatively marking writer-admitted output as unknown partial.
-func (p *Publisher) Close(err error) { p.Fail(err, p != nil && len(p.inflight) > 0) }
 
 // Pending reports item and owned-byte usage across both pending and inflight responsibilities.
 func (p *Publisher) Pending() (items int, bytes int64) {
@@ -434,13 +428,8 @@ func (p *Publisher) Subscribe(fn func()) func() {
 	return func() {
 		p.assertIdle()
 		l.fn = nil
-		for index, entry := range p.listeners {
-			if entry == l {
-				copy(p.listeners[index:], p.listeners[index+1:])
-				p.listeners[len(p.listeners)-1] = nil
-				p.listeners = p.listeners[:len(p.listeners)-1]
-				return
-			}
+		if index := slices.Index(p.listeners, l); index >= 0 {
+			p.listeners = slices.Delete(p.listeners, index, index+1)
 		}
 	}
 }
@@ -487,3 +476,7 @@ func (p *Publisher) FlushNotifications() bool {
 	}
 	return true
 }
+
+var stateNames = [...]string{Accepted: "accepted", Written: "written", Failed: "failed", UnknownPartial: "unknown-partial"}
+
+func (s State) String() string { return enum.Name(stateNames[:], s, "State") }

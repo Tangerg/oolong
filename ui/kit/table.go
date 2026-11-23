@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
@@ -91,16 +92,12 @@ type Table struct {
 	// that still reads as two columns rather than one.
 	Gap    int
 	Header bool
-	// Sorted says which column the rows are in the order of and which way round, when
-	// they are in an order at all, so the header can mark it — the only way a reader
-	// can tell an order from a coincidence.
-	//
-	// It is a function because that is the shape the answer already has: a table with
-	// a cursor answers exactly this, so wiring the two together is
-	// Sorted: rows.Sorted. And because the zero value of a column number is a column,
-	// which would mark the first one on every table nobody sorted.
-	// Sorted may run during drawing and must only observe ordering state.
-	Sorted func() (column int, descending, ok bool)
+	// Sorted says which order the rows are in, when they are in one at all, so the
+	// header can mark it — the only way a reader can tell an order from a
+	// coincidence. It is [base.Table.Sorted]'s shape, so wiring the two together is
+	// Sorted: rows.Sorted. It may run during drawing and must only observe
+	// ordering state.
+	Sorted func() (base.SortOrder, bool)
 	Glyphs Glyphs
 	// RowStyle styles a whole row, for banding or for a selection. It is a pure
 	// projection callback and may run during drawing.
@@ -273,11 +270,11 @@ func (t Table) mark(column int) string {
 	if t.Sorted == nil {
 		return ""
 	}
-	sorted, descending, ok := t.Sorted()
-	if !ok || sorted != column {
+	order, ok := t.Sorted()
+	if !ok || order.Column != column {
 		return ""
 	}
-	if descending {
+	if order.Descending {
 		return t.Glyphs.Descending
 	}
 	return t.Glyphs.Ascending

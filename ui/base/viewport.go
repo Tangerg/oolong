@@ -4,6 +4,7 @@ import (
 	"image"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -37,11 +38,11 @@ func (p *Viewport) ensure() {
 		return
 	}
 	p.group = scene.NewGroup(scene.GroupConfig{Element: scene.ElementConfig{
-		Measure: scene.MeasureRows(p.HeightForWidth), Focusable: func() bool { return !p.Content().IsZero() },
+		Measure: layout.MeasureRows(p.HeightForWidth), Focusable: func() bool { return !p.Content().IsZero() },
 		Semantics: func() scene.Semantic { return scene.Semantic{Role: scene.RoleDocument} },
 		Actions: []scene.ActionBinding{p.scroll.action("Scroll content", func(ScrollRequest) scene.Availability {
 			if p.Content().IsZero() {
-				return scene.Availability{Disabled: true, Reason: "viewport has no content"}
+				return scene.Unavailable("viewport has no content")
 			}
 			return scene.Availability{}
 		})},
@@ -49,9 +50,7 @@ func (p *Viewport) ensure() {
 			w, h := frame.Size()
 			p.scroll.Stage(frame, p.Content().Measure(layout.Down, w), h)
 		},
-		Handle: func(event scene.Event) scene.EventResult {
-			return scene.EventResult{Consumed: !p.Content().IsZero() && p.scroll.Handle(event.Input(), p.keys.current)}
-		},
+		Handle: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input())} },
 	}, Layout: func(space image.Point, items []scene.Item) []image.Rectangle {
 		if len(items) == 0 {
 			return nil
@@ -97,11 +96,23 @@ func (p *Viewport) Scroll() *Scroll { return &p.scroll }
 
 func (p *Viewport) HeightForWidth(width int) int { return p.Content().Measure(layout.Down, width) }
 
+// Handle scrolls for a key in the viewport's map or a wheel turn, reporting whether
+// it consumed the event. A composition that keeps keyboard focus elsewhere, such as
+// on a form beside the document it concerns, forwards input here.
+func (p *Viewport) Handle(event input.Event) bool {
+	return !p.Content().IsZero() && p.scroll.Handle(event, p.keys.current)
+}
+
 func (p *Viewport) Do(action keymap.Action) bool {
 	return p.scroll.Do(action)
 }
 
 func (p *Viewport) Keys() *keymap.Map { return p.keys.current }
+
+// KeysFor is what the effective key map binds to action, defaults included.
+func (p *Viewport) KeysFor(action keymap.Action) []input.Keys {
+	return p.keys.bound(scrollKeys, action)
+}
 
 func (p *Viewport) SetKeys(keys *keymap.Map) {
 	p.keys.set(p.Element(), &p.scroll.matcher, keys)

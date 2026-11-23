@@ -1,8 +1,10 @@
 package input
 
 import (
-	"strings"
+	"math"
 	"time"
+
+	"github.com/Tangerg/oolong/ui/core/termenv"
 )
 
 // Wheel compensates for terminal-specific report batching, which the mouse
@@ -60,8 +62,7 @@ func (w Wheel) TrackpadDistance() float64 {
 	return float64(w.Trackpad) / trackpadReports
 }
 
-// The batching families terminals fall into. Naming each once keeps the identity
-// table and the environment hints from describing the same terminal twice.
+// The batching families terminals fall into.
 var (
 	// One report to a notch, and a notch is one row. A terminal that reports every
 	// notch separately is reporting finely, and matching it row for row is what makes
@@ -75,94 +76,45 @@ var (
 	batchedWheel   = Wheel{Reports: 3, Rows: 3, Trackpad: 3}
 )
 
-// Keep wheel profiles conservative: a false identity match applies the wrong
-// batching to every gesture, while unknown terminals can retain the default.
-var wheelProfiles = []struct {
-	name  string
-	wheel Wheel
-}{
-	{"iterm", perNotchWheel},
-	{"wezterm", perNotchWheel},
-	{"mintty", perNotchWheel},
-	{"vscode", embeddedWheel},
-	{"cursor", embeddedWheel},
-	{"windsurf", embeddedWheel},
-	{"zed", notchRowsWheel},
-	{"apple_terminal", batchedWheel},
-	{"ghostty", batchedWheel},
-	{"kitty", batchedWheel},
-	{"alacritty", batchedWheel},
-	{"warp", batchedWheel},
-	{"rio", batchedWheel},
-}
-
-// WheelFor chooses wheel batching from the negotiated terminal and environment.
-// Negotiated names outrank potentially remote environment values. Multiplexers
-// replace outer-terminal batching because they emit one report per notch. The
-// lookup is explicit so each session and test supplies its own environment.
-func WheelFor(lookup func(string) (string, bool), name string) Wheel {
-	return environmentWheel(lookup).Negotiated(name)
-}
-
-// Negotiated applies a terminal's reported identity to an already measured
-// environment profile. An unrecognized or absent report preserves that profile.
-func (w Wheel) Negotiated(name string) Wheel {
-	if wheel, ok := profileOf(name); ok {
-		return wheel
-	}
-	return w
-}
-
-func environmentWheel(lookup func(string) (string, bool)) Wheel {
-	if lookup == nil {
-		return Wheel{}
-	}
-	if multiplexed(lookup) {
+// WheelFor chooses wheel batching from the driven terminal's environment, which
+// each session supplies explicitly. Multiplexers replace outer-terminal batching
+// because they emit one report per notch. A probe's answer refines the result
+// through [Wheel.Negotiated].
+func WheelFor(env termenv.Lookup) Wheel {
+	if env.Multiplexed() {
 		return perNotchWheel
 	}
-	if environmentValue(lookup, "KITTY_WINDOW_ID") != "" ||
-		environmentValue(lookup, "GHOSTTY_RESOURCES_DIR") != "" ||
-		environmentValue(lookup, "ALACRITTY_SOCKET") != "" {
-		return batchedWheel
-	}
-	if wheel, ok := profileOf(strings.Join([]string{
-		environmentValue(lookup, "TERM"),
-		environmentValue(lookup, "TERM_PROGRAM"),
-		environmentValue(lookup, "LC_TERMINAL"),
-	}, " ")); ok {
+	if wheel, ok := terminalWheel(env.Terminal()); ok {
 		return wheel
 	}
 	return Wheel{}
 }
 
-func profileOf(identity string) (Wheel, bool) {
-	if identity == "" {
+// Negotiated applies a terminal's reported identity to an already measured
+// environment profile. An unrecognized or absent report preserves that profile,
+// because a reported name outranks an environment that may be remote.
+func (w Wheel) Negotiated(name string) Wheel {
+	if wheel, ok := terminalWheel(termenv.Recognize(name)); ok {
+		return wheel
+	}
+	return w
+}
+
+// terminalWheel stays conservative: a wrong profile misjudges every gesture,
+// while an unknown terminal keeps the default.
+func terminalWheel(terminal termenv.Terminal) (Wheel, bool) {
+	switch terminal {
+	case termenv.ITerm2, termenv.WezTerm, termenv.Mintty:
+		return perNotchWheel, true
+	case termenv.VSCode, termenv.Cursor, termenv.Windsurf:
+		return embeddedWheel, true
+	case termenv.Zed:
+		return notchRowsWheel, true
+	case termenv.AppleTerminal, termenv.Ghostty, termenv.Kitty, termenv.Alacritty, termenv.Warp, termenv.Rio:
+		return batchedWheel, true
+	default:
 		return Wheel{}, false
 	}
-	identity = strings.ToLower(identity)
-	for _, profile := range wheelProfiles {
-		if strings.Contains(identity, profile.name) {
-			return profile.wheel, true
-		}
-	}
-	return Wheel{}, false
-}
-
-func multiplexed(lookup func(string) (string, bool)) bool {
-	if environmentValue(lookup, "TMUX") != "" || environmentValue(lookup, "STY") != "" ||
-		environmentValue(lookup, "ZELLIJ") != "" ||
-		environmentValue(lookup, "ZELLIJ_SESSION_NAME") != "" {
-		return true
-	}
-	term := strings.ToLower(environmentValue(lookup, "TERM"))
-	program := strings.ToLower(environmentValue(lookup, "TERM_PROGRAM"))
-	return program == "tmux" || strings.HasPrefix(term, "screen") ||
-		strings.HasPrefix(term, "tmux")
-}
-
-func environmentValue(lookup func(string) (string, bool), name string) string {
-	value, _ := lookup(name)
-	return value
 }
 
 // WheelAccumulator converts wheel reports into rows, retaining fractional rows so
@@ -263,24 +215,19 @@ func (a *WheelAccumulator) Reset() {
 	a.gesture = wheelGesture{}
 }
 
-const (
-	maxInt = int(^uint(0) >> 1)
-	minInt = -maxInt - 1
-)
-
 // addReportCount records magnitude rather than direction and saturates because the
 // count is evidence for classifying one gesture, not a quantity worth wrapping.
 func addReportCount(total, reports int) int {
 	magnitude := reports
 	if reports < 0 {
-		if reports == minInt {
-			magnitude = maxInt
+		if reports == math.MinInt {
+			magnitude = math.MaxInt
 		} else {
 			magnitude = -reports
 		}
 	}
-	if magnitude > maxInt-total {
-		return maxInt
+	if magnitude > math.MaxInt-total {
+		return math.MaxInt
 	}
 	return total + magnitude
 }
@@ -299,11 +246,11 @@ func withinReportRate(elapsed time.Duration, reports int) bool {
 // wholeRows turns the floating remainder into an int without letting a very large
 // public report count reverse direction at the conversion boundary.
 func wholeRows(distance float64) (int, float64) {
-	if distance >= float64(maxInt) {
-		return maxInt, 0
+	if distance >= float64(math.MaxInt) {
+		return math.MaxInt, 0
 	}
-	if distance <= float64(minInt) {
-		return minInt, 0
+	if distance <= float64(math.MinInt) {
+		return math.MinInt, 0
 	}
 	rows := int(distance)
 	return rows, distance - float64(rows)

@@ -28,7 +28,7 @@ type directedReadResult struct {
 
 type queuedClipboard struct{ receivers []func(string, error) }
 
-func (*queuedClipboard) Copy(string) bool { return false }
+func (*queuedClipboard) Copy(string) error { return errors.ErrUnsupported }
 
 func (c *queuedClipboard) Read(_ context.Context, receive func(string, error)) error {
 	c.receivers = append(c.receivers, receive)
@@ -37,7 +37,7 @@ func (c *queuedClipboard) Read(_ context.Context, receive func(string, error)) e
 
 type clipboardReadFunc func(context.Context, func(string, error)) error
 
-func (clipboardReadFunc) Copy(string) bool { return false }
+func (clipboardReadFunc) Copy(string) error { return errors.ErrUnsupported }
 
 func (read clipboardReadFunc) Read(ctx context.Context, receive func(string, error)) error {
 	return read(ctx, receive)
@@ -69,8 +69,8 @@ func TestEditorPasteFeedbackSurvivesReentrantProviderAdmission(t *testing.T) {
 			} else {
 				runInterruptedCallback(t, exit, func() { editor.Do(base.Paste) })
 			}
-			if !nested || !errors.Is(editor.PasteError(), latest) {
-				t.Fatalf("%s: older admission replaced feedback: got %v, want %v", exit, editor.PasteError(), latest)
+			if !nested || !errors.Is(editor.ClipboardError(), latest) {
+				t.Fatalf("%s: older admission replaced feedback: got %v, want %v", exit, editor.ClipboardError(), latest)
 			}
 		}
 	}
@@ -85,8 +85,8 @@ func TestEditorPasteFeedbackBelongsToTheLatestPhysicalRequest(t *testing.T) {
 		editor.Do(base.Paste)
 		transport.receivers[1]("", latest)
 		transport.receivers[0]("", older)
-		if !errors.Is(editor.PasteError(), latest) {
-			t.Fatalf("earlier completion replaced latest feedback: got %v, want %v", editor.PasteError(), latest)
+		if !errors.Is(editor.ClipboardError(), latest) {
+			t.Fatalf("earlier completion replaced latest feedback: got %v, want %v", editor.ClipboardError(), latest)
 		}
 	}
 }
@@ -102,24 +102,24 @@ func TestEditorPendingPasteRefusalSurvivesThePreviousWireReply(t *testing.T) {
 				t.Fatalf("keyboard paste %d was not handled", request+1)
 			}
 		}
-		if !errors.Is(editor.PasteError(), clipboard.ErrPending) {
-			t.Fatalf("second wire read error = %v", editor.PasteError())
+		if !errors.Is(editor.ClipboardError(), clipboard.ErrPending) {
+			t.Fatalf("second wire read error = %v", editor.ClipboardError())
 		}
 		transport.answer(t, "")
-		if !errors.Is(editor.PasteError(), clipboard.ErrPending) {
-			t.Fatalf("older success erased the newer refusal: %v", editor.PasteError())
+		if !errors.Is(editor.ClipboardError(), clipboard.ErrPending) {
+			t.Fatalf("older success erased the newer refusal: %v", editor.ClipboardError())
 		}
-		if !root.Handle(paste) || editor.PasteError() != nil {
-			t.Fatalf("retry did not clear feedback: %v", editor.PasteError())
+		if !root.Handle(paste) || editor.ClipboardError() != nil {
+			t.Fatalf("retry did not clear feedback: %v", editor.ClipboardError())
 		}
 		transport.answer(t, "accepted")
-		if editor.Text() != "accepted" || editor.PasteError() != nil {
-			t.Fatalf("retry text=%q error=%v", editor.Text(), editor.PasteError())
+		if editor.Text() != "accepted" || editor.ClipboardError() != nil {
+			t.Fatalf("retry text=%q error=%v", editor.Text(), editor.ClipboardError())
 		}
 	})
 }
 
-func (*directedClipboard) Copy(string) bool { return false }
+func (*directedClipboard) Copy(string) error { return errors.ErrUnsupported }
 
 func (c *directedClipboard) Read(ctx context.Context, receive func(string, error)) error {
 	admitted := make(chan struct{})
@@ -144,9 +144,9 @@ func (c *directedClipboard) answer(t *testing.T, value string) {
 	if c.stream == nil {
 		c.stream = input.NewStream(input.StreamConfig{Clipboard: &c.wire})
 	}
-	sequence, ok := c.wire.Copy(clipboard.System, value)
-	if !ok {
-		t.Fatal("answer exceeds protocol limit")
+	sequence, err := c.wire.Copy(clipboard.System, value)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if events := c.stream.Feed([]byte(sequence), time.Now()); len(events) != 0 {
 		t.Fatalf("requested clipboard answer became input: %+v", events)
@@ -250,7 +250,7 @@ func TestEditorClipboardReplyRequiresItsOriginalEditLocation(t *testing.T) {
 		change func(*base.Editor)
 	}{
 		{"document", func(e *base.Editor) { e.SetText("replacement") }},
-		{"cursor", func(e *base.Editor) { e.SetCursor(0, 1) }},
+		{"cursor", func(e *base.Editor) { e.SetCursor(base.Caret{Byte: 1}) }},
 		{"selection", func(e *base.Editor) { e.SelectAll() }},
 		{"shared session", func(e *base.Editor) { e.Session().Reset("shared change") }},
 	} {
@@ -348,18 +348,18 @@ func TestEditorClipboardCancellationAndFailuresAreExplicit(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport.receive("", problem)
-	if !errors.Is(result, problem) || editor.PasteError() != nil {
-		t.Fatalf("programmatic failure = %v, keyboard feedback = %v", result, editor.PasteError())
+	if !errors.Is(result, problem) || editor.ClipboardError() != nil {
+		t.Fatalf("programmatic failure = %v, keyboard feedback = %v", result, editor.ClipboardError())
 	}
 	editor.Do(base.Paste)
 	transport.receive("", problem)
-	if !errors.Is(editor.PasteError(), problem) {
-		t.Fatalf("keyboard failure = %v", editor.PasteError())
+	if !errors.Is(editor.ClipboardError(), problem) {
+		t.Fatalf("keyboard failure = %v", editor.ClipboardError())
 	}
 	transport.refuse = true
 	editor.Do(base.Paste)
-	if !errors.Is(editor.PasteError(), errors.ErrUnsupported) {
-		t.Fatalf("keyboard admission refusal = %v", editor.PasteError())
+	if !errors.Is(editor.ClipboardError(), errors.ErrUnsupported) {
+		t.Fatalf("keyboard admission refusal = %v", editor.ClipboardError())
 	}
 	if err := editor.Paste(t.Context(), nil); err == nil {
 		t.Fatal("missing completion receiver accepted")
@@ -372,8 +372,8 @@ func TestTextExposesItsEditorsPasteResultAndKeyboardFailure(t *testing.T) {
 	problem := errors.New("clipboard denied")
 	field.Do(base.Paste)
 	transport.receive("", problem)
-	if !errors.Is(field.PasteError(), problem) {
-		t.Fatalf("field paste failure = %v", field.PasteError())
+	if !errors.Is(field.ClipboardError(), problem) {
+		t.Fatalf("field paste failure = %v", field.ClipboardError())
 	}
 	completed := false
 	if err := field.Paste(t.Context(), func(err error) {
@@ -385,7 +385,7 @@ func TestTextExposesItsEditorsPasteResultAndKeyboardFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport.receive("one\ntwo", nil)
-	if !completed || field.Text() != "one two" || !errors.Is(field.PasteError(), problem) {
-		t.Fatalf("field completion: text=%q completed=%t keyboard=%v", field.Text(), completed, field.PasteError())
+	if !completed || field.Text() != "one two" || !errors.Is(field.ClipboardError(), problem) {
+		t.Fatalf("field completion: text=%q completed=%t keyboard=%v", field.Text(), completed, field.ClipboardError())
 	}
 }

@@ -42,6 +42,18 @@ func (l Label) Draw(v grid.View) {
 	shown.Draw(v, l.Align.Offset(w, shown.Width()), 0)
 }
 
+// Rows projects the complete text where Draw aligns it, so a label composed into a
+// selectable block copies as itself, and truncation at a narrow width cannot change
+// which text a selection names. It panics for invalid Align, like Draw.
+func (l Label) Rows(width int) []text.Row {
+	if err := l.Align.Validate(); err != nil {
+		panic(err)
+	}
+	full := text.Of(l.Text, l.Style).Display()
+	shown := full.Truncate(max(width, 0), l.Ellipsis)
+	return []text.Row{{Content: full, Offset: l.Align.Offset(max(width, 0), shown.Width())}}
+}
+
 // Paragraph is text that wraps to the width it is given.
 //
 // Publication and viewport layout share the drawing wrap so they reserve the
@@ -68,11 +80,12 @@ type Paragraph struct {
 	detecting  bool
 
 	// Measurement and drawing share one wrap so their source-row coordinates remain consistent.
-	wrapped    []row
-	atWidth    int
-	atLimit    int
-	atEllipsis string
-	fresh      bool
+	wrap memo[wrapLayout, []row]
+}
+
+type wrapLayout struct {
+	room, maxRows int
+	ellipsis      string
 }
 
 // LinkConfig says which destinations a [Paragraph] detects.
@@ -133,8 +146,7 @@ func (p *Paragraph) SetText(lines []text.Line) {
 	// A memo is an immutable snapshot. Dropping it rather than clearing and reusing
 	// its storage keeps a Paragraph copied after layout from modifying the original
 	// paragraph's still-valid rows.
-	p.wrapped = nil
-	p.fresh = false
+	p.wrap = memo[wrapLayout, []row]{}
 }
 
 // SetLinks replaces link-detection policy and detects the current logical lines.
@@ -151,9 +163,6 @@ func (p *Paragraph) SetLinks(config LinkConfig) {
 
 // Lines returns a deep copy of the paragraph's logical lines.
 func (p *Paragraph) Lines() []text.Line {
-	if p == nil {
-		return nil
-	}
 	return text.CloneLines(p.lines)
 }
 
@@ -358,9 +367,10 @@ func (p *Paragraph) rows(width int) []row {
 	// so text follows the same rule here as Entry, Diff and Markdown: lay it out at
 	// one column even when the eventual view has no drawable interior.
 	room := max(layout.Remaining(width, p.Indent), 1)
-	if p.fresh && p.atWidth == room && p.atLimit == p.MaxRows && p.atEllipsis == p.Ellipsis {
-		return p.wrapped
-	}
+	return *p.wrap.get(wrapLayout{room: room, maxRows: p.MaxRows, ellipsis: p.Ellipsis}, func() []row { return p.wrapAt(room) })
+}
+
+func (p *Paragraph) wrapAt(room int) []row {
 	var rows []row
 	for i, line := range p.lines {
 		for _, wrapped := range line.Wrap(room) {
@@ -379,7 +389,6 @@ func (p *Paragraph) rows(width int) []row {
 	} else if retention.ShouldCompact(cap(rows), len(rows)) {
 		rows = append([]row(nil), rows...)
 	}
-	p.wrapped, p.atWidth, p.atLimit, p.atEllipsis, p.fresh = rows, room, p.MaxRows, p.Ellipsis, true
 	return rows
 }
 
@@ -389,18 +398,4 @@ func linesOf(s string, style grid.Style) []text.Line {
 		lines = append(lines, text.Of(line, style))
 	}
 	return lines
-}
-
-// The first visible cell can cut through a multi-column glyph. Start at its
-// original tile boundary so the grid applies its usual wide-cell clipping.
-func drawRule(v grid.View, y int, glyph string, style grid.Style) {
-	visible := v.Visible()
-	pattern := text.Of(glyph, style)
-	step := pattern.Width()
-	if step <= 0 || y < visible.Min.Y || y >= visible.Max.Y {
-		return
-	}
-	for x := visible.Min.X - visible.Min.X%step; x < visible.Max.X; x = layout.Sum(x, step) {
-		pattern.Draw(v, x, y)
-	}
 }

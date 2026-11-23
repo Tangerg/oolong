@@ -1,6 +1,14 @@
 package base
 
-import "math"
+import "github.com/Tangerg/oolong/ui/internal/counter"
+
+func nextRevision(revision uint64) uint64 {
+	next, ok := counter.Next(revision)
+	if !ok {
+		panic("base: revision exhausted")
+	}
+	return next
+}
 
 // identitySequence hands out monotonically increasing nonzero identities. It is an
 // owner's durable namespace, not a recyclable pool: exhaustion is reported before a
@@ -10,9 +18,10 @@ type identitySequence struct {
 }
 
 func (s *identitySequence) next() (uint64, bool) {
-	if s.last == math.MaxUint64 {
+	next, ok := counter.Next(s.last)
+	if !ok {
 		return 0, false
 	}
-	s.last++
-	return s.last, true
+	s.last = next
+	return next, true
 }

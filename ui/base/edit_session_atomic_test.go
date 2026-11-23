@@ -12,13 +12,13 @@ func TestRepeatedTextMapsPeersThroughTheActualEditAndHistory(t *testing.T) {
 	s := base.NewEditSession(base.EditSessionConfig{Initial: "aaa"})
 	writer := base.NewEditor(base.EditorConfig{Session: s})
 	reader := base.NewEditor(base.EditorConfig{Session: s})
-	reader.SetCursor(0, 1)
+	reader.SetCursor(base.Caret{Byte: 1})
 	reader.Anchor()
 	reader.MoveRight()
 	check := func(text string, caret, start, oldEnd, newEnd int) {
 		t.Helper()
 		m := s.LastChange()
-		_, c := reader.Cursor()
+		c := reader.Cursor().Byte
 		if s.Text() != text || c != caret || reader.Selected() != "a" || m.Start != start || m.OldEnd != oldEnd || m.NewEnd != newEnd {
 			t.Fatalf("document=%q peer caret=%d selection=%q map=%+v; want %q, %d, a, [%d,%d)→%d", s.Text(), c, reader.Selected(), m, text, caret, start, oldEnd, newEnd)
 		}
@@ -31,7 +31,7 @@ func TestRepeatedTextMapsPeersThroughTheActualEditAndHistory(t *testing.T) {
 	check("aaa", 2, 0, 2, 0)
 	writer.Redo()
 	check("aaaaa", 4, 0, 0, 2)
-	writer.SetCursor(0, 0)
+	writer.SetCursor(base.Caret{})
 	writer.DeleteForward()
 	check("aaaa", 3, 0, 1, 0)
 }
@@ -202,7 +202,7 @@ func TestPeerUndoRedoPreservesItsOwnSelection(t *testing.T) {
 	s := base.NewEditSession(base.EditSessionConfig{Initial: "abc"})
 	writer := base.NewEditor(base.EditorConfig{Session: s})
 	reader := base.NewEditor(base.EditorConfig{Session: s})
-	reader.SetCursor(0, 1)
+	reader.SetCursor(base.Caret{Byte: 1})
 	reader.Anchor()
 	reader.MoveRight()
 	writer.Insert("x")

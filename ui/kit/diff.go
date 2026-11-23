@@ -30,7 +30,7 @@ type Diff struct {
 	theme   Theme
 	glyphs  Glyphs
 	numbers bool
-	wrapped diffLayout
+	wrapped memo[int, []diffRow]
 }
 
 var _ base.Block = (*Diff)(nil)
@@ -66,18 +66,12 @@ func (d *Diff) SetHunks(hunks []diff.Hunk) {
 			panic(fmt.Errorf("kit: hunk %d: %w", i, err))
 		}
 	}
-	if d == nil {
-		return
-	}
 	d.hunks = cloneHunks(hunks)
 	d.invalidate()
 }
 
 // Hunks returns a copy of the parts of the change being shown.
 func (d *Diff) Hunks() []diff.Hunk {
-	if d == nil {
-		return nil
-	}
 	return cloneHunks(d.hunks)
 }
 
@@ -85,17 +79,11 @@ func (d *Diff) Hunks() []diff.Hunk {
 // carries meaning on its own, which is why the theme has three styles for it and
 // nothing else uses them.
 func (d *Diff) SetTheme(theme Theme) {
-	if d == nil {
-		return
-	}
 	d.theme = theme
 	d.invalidate()
 }
 
 func (d *Diff) SetGlyphs(glyphs Glyphs) {
-	if d == nil {
-		return
-	}
 	d.glyphs = glyphs.clone()
 	d.invalidate()
 }
@@ -104,7 +92,7 @@ func (d *Diff) SetGlyphs(glyphs Glyphs) {
 // left. Without numbers only the marks remain, which is what a narrow pane has room
 // for.
 func (d *Diff) SetNumbers(show bool) {
-	if d == nil || d.numbers == show {
+	if d.numbers == show {
 		return
 	}
 	d.numbers = show
@@ -112,14 +100,11 @@ func (d *Diff) SetNumbers(show bool) {
 }
 
 func (d *Diff) HeightForWidth(width int) int {
-	if d == nil {
-		return 0
-	}
 	return len(d.layout(width))
 }
 
 func (d *Diff) Draw(v grid.View) {
-	if d == nil || v.Empty() {
+	if v.Empty() {
 		return
 	}
 	width, height := v.Size()
@@ -133,20 +118,11 @@ func (d *Diff) Draw(v grid.View) {
 	for y := first; y < last; y++ {
 		row := rows[y]
 		if row.gap {
-			drawRule(v, y, d.glyphs.Ellipsis, d.theme.Subtle)
+			text.Of(d.glyphs.Ellipsis, d.theme.Subtle).Tile(v, y)
 			continue
 		}
 		d.line(v, y, width, row)
 	}
-}
-
-// diffLayout is one width's complete physical representation. Diff memoises one
-// layout because HeightForWidth and Draw ask for the same width in every frame. It is private
-// presentation state, not semantic component state.
-type diffLayout struct {
-	width int
-	rows  []diffRow
-	fresh bool
 }
 
 type diffRow struct {
@@ -161,9 +137,11 @@ func (d *Diff) layout(width int) []diffRow {
 	// cannot paint a zero-width view, but pretending the content has no rows would
 	// make a parent collapse it permanently.
 	width = max(width, 1)
-	if d.wrapped.fresh && d.wrapped.width == width {
-		return d.wrapped.rows
-	}
+	return *d.wrapped.get(width, func() []diffRow { return d.rowsAt(width) })
+}
+
+// rowsAt is one width's complete physical representation.
+func (d *Diff) rowsAt(width int) []diffRow {
 	gutter := d.gutter(width)
 	contentWidth := max(layout.Remaining(width, gutter.width()), 1)
 	// A completed layout is immutable. Starting a new one with independent storage
@@ -193,12 +171,11 @@ func (d *Diff) layout(width int) []diffRow {
 	} else if retention.ShouldCompact(cap(rows), len(rows)) {
 		rows = append([]diffRow(nil), rows...)
 	}
-	d.wrapped = diffLayout{width: width, rows: rows, fresh: true}
 	return rows
 }
 
 func (d *Diff) invalidate() {
-	d.wrapped = diffLayout{}
+	d.wrapped = memo[int, []diffRow]{}
 }
 
 func (d *Diff) line(v grid.View, y, width int, row diffRow) {

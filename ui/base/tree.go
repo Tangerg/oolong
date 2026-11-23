@@ -2,12 +2,14 @@ package base
 
 import (
 	"slices"
-
-	"github.com/Tangerg/oolong/ui/core/scene"
+	"strconv"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
+	"github.com/Tangerg/oolong/ui/core/layout"
+	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
 type Node[T any] struct {
@@ -62,13 +64,25 @@ type Tree[T any] struct {
 	// see [Tree.Do]. Nil reads through [DefaultTreeKeys].
 	keys keyBinding
 
-	list    List[treeRow[T]]
+	list    rows[treeRow[T]]
 	matcher keymap.Matcher
 }
 
-func NewTree[T any](nodes ...Node[T]) *Tree[T] {
-	t := &Tree[T]{}
-	t.SetNodes(nodes)
+// TreeConfig fixes a tree's initial hierarchy, row appearance and key map.
+type TreeConfig[T any] struct {
+	// Nodes is copied; the caller keeps ownership of every input slice.
+	Nodes []Node[T]
+	// Row draws one row. It runs during drawing and must be an observationally pure
+	// projection. Nil draws nothing, for a skin that draws rows with [Tree.DrawRows].
+	Row func(v grid.View, at int, row Shown[T], selected bool)
+	// Keys of nil uses [DefaultTreeKeys].
+	Keys *keymap.Map
+}
+
+// NewTree panics for a cyclic node collection, like [Tree.SetNodes].
+func NewTree[T any](config TreeConfig[T]) *Tree[T] {
+	t := &Tree[T]{rowPainter: config.Row, keys: keyBinding{current: config.Keys}}
+	t.SetNodes(config.Nodes)
 	return t
 }
 
@@ -82,12 +96,7 @@ func NewTree[T any](nodes ...Node[T]) *Tree[T] {
 // exhausted. Traversal itself is iterative, so valid depth is limited by available
 // storage rather than the goroutine stack.
 func (t *Tree[T]) SetNodes(nodes []Node[T]) {
-	if t != nil {
-		requireMutable(t.element)
-	}
-	if t == nil {
-		return
-	}
+	requireMutable(t.element)
 	t.list.requireReplacement()
 	t.matcher.Reset(func() {
 		t.replaceNodes(nodes)
@@ -97,9 +106,6 @@ func (t *Tree[T]) SetNodes(nodes []Node[T]) {
 
 // Nodes returns a complete copy of the hierarchy.
 func (t *Tree[T]) Nodes() []Node[T] {
-	if t == nil {
-		return nil
-	}
 	return exportNodes(t.nodes)
 }
 
@@ -109,7 +115,7 @@ func (t *Tree[T]) Nodes() []Node[T] {
 // are replaced or branches open and close. The allocation happens only when somebody
 // outside asks for a snapshot; drawing reads the owned buffer directly.
 func (t *Tree[T]) Rows() []Shown[T] {
-	if t == nil || t.list.items == nil {
+	if t.list.items == nil {
 		return nil
 	}
 	rows := make([]Shown[T], len(t.list.items))
@@ -224,11 +230,8 @@ func (t *Tree[T]) Handle(ev input.Event) bool {
 	return handled
 }
 
-// Do runs one of the tree's actions by name, reporting whether it was one this tree
-// knows. See [Doer].
-//
-// Everything about moving through the rows is the list's, because that is what it
-// is. What is the tree's is opening and closing — and the two edges that make a
+// Do leaves moving through the rows to the list, because that is what it is. What
+// is the tree's is opening and closing — and the two edges that make a
 // tree feel like a tree: opening a leaf does nothing, and closing something already
 // closed goes up to whatever it is under.
 func (t *Tree[T]) Do(action keymap.Action) bool {
@@ -438,14 +441,32 @@ func (t *Tree[T]) Subscribe(callback func()) func() { return t.list.Subscribe(ca
 func (t *Tree[T]) Row() func(grid.View, int, Shown[T], bool) { return t.rowPainter }
 
 func (t *Tree[T]) SetRow(value func(grid.View, int, Shown[T], bool)) {
-	element := t.Element()
-	requireMutable(element)
-	t.rowPainter = value
-	element.Invalidate()
+	setting.Replace(t.element, &t.rowPainter, value)
 }
 
 func (t *Tree[T]) Keys() *keymap.Map { return t.keys.current }
 
+// KeysFor is what the effective key map binds to action, defaults included.
+func (t *Tree[T]) KeysFor(action keymap.Action) []input.Keys { return t.keys.bound(treeKeys, action) }
+
 func (t *Tree[T]) SetKeys(keys *keymap.Map) {
-	t.keys.set(t.Element(), &t.matcher, keys)
+	t.keys.set(t.element, &t.matcher, keys)
+}
+
+func (t *Tree[T]) Element() scene.Element {
+	if t.element.IsZero() {
+		t.element = scene.NewElement(scene.ElementConfig{
+			Measure: layout.MeasureRows(t.HeightForWidth), Paint: t.Draw,
+			Handle: func(event scene.Event) scene.EventResult {
+				return partEvent(event, t.Handle, &t.list.geometry, &t.list.pointer.geometry)
+			},
+			Focusable: func() bool { return true }, FocusChanged: t.focusChanged,
+			Semantics: func() scene.Semantic {
+				return scene.Semantic{Role: scene.RoleTree, ContentRevision: t.list.contentRevision, Value: strconv.Itoa(t.Selected())}
+			}, Actions: append(collectionActions(&t.list, treeRow[T].shown), t.branchAction(true), t.branchAction(false)),
+		})
+	}
+	t.list.adopt(t.element)
+	t.keys.attach(t.element, &t.matcher)
+	return t.element
 }

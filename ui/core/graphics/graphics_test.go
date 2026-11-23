@@ -63,6 +63,11 @@ func TestDetection(t *testing.T) {
 			env:  map[string]string{"KITTY_WINDOW_ID": "3", "TERM": "xterm-256color"},
 			want: graphics.Kitty,
 		},
+		{
+			desc: "tmux drops image commands it was not configured to pass through",
+			env:  map[string]string{"KITTY_WINDOW_ID": "3", "TMUX": "/tmp/tmux-501/default,1,0"},
+			want: graphics.None,
+		},
 
 		// Sixel is the one nothing in the environment names, so it is the one that
 		// has to be asked about.
@@ -85,7 +90,7 @@ func TestDetection(t *testing.T) {
 			want:  graphics.ITerm2,
 		},
 	} {
-		if got := graphics.Detect(env(tc.env), tc.name, tc.sixel); got != tc.want {
+		if got := graphics.Detect(env(tc.env)).Negotiated(tc.name, tc.sixel); got != tc.want {
 			t.Errorf("%s: = %v, want %v", tc.desc, got, tc.want)
 		}
 	}
@@ -466,7 +471,7 @@ func TestWhatTheTerminalSaidOutranksTheEnvironment(t *testing.T) {
 		},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			if got := graphics.Detect(env(tc.env), tc.name, false); got != tc.want {
+			if got := graphics.Detect(env(tc.env)).Negotiated(tc.name, false); got != tc.want {
 				t.Errorf("= %v, want %v", got, tc.want)
 			}
 		})

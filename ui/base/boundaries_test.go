@@ -137,7 +137,7 @@ func TestCompletionAndExternalFieldsCanReplaceTheirAppearance(t *testing.T) {
 
 	completion := base.NewCompletion(base.CompletionConfig{Renderer: alternateCompletion{}})
 	completion.Offer(base.Token{}, []base.Candidate{{Text: "one", Matched: []int{0}}, {Text: "two"}})
-	if completion.Width() != 9 {
+	if completion.Width() != 9 || completion.Element().Measure(layout.Across, 0) != 9 {
 		t.Fatal("custom row width ignored")
 	}
 	equalRows(t, paintWidget(scenes, 9, 1, completion), []string{"+one....."})
@@ -230,9 +230,9 @@ func TestFieldsCommitAmbiguousActionsAtTheirOwnerBoundary(t *testing.T) {
 func TestRequiredPresentationOwnersRejectNilReceivers(t *testing.T) {
 	for name, call := range map[string]func(){
 		"Snapshot.Stage":   func() { var s *scene.Snapshot[int]; s.Stage(scene.Frame{}, 1) },
-		"List.Len":         func() { var l *base.List[int]; l.Len() },
-		"List.At":          func() { var l *base.List[int]; l.At(0) },
-		"List.At negative": func() { var l *base.List[int]; l.At(-1) },
+		"List.Len":         func() { absentList().Len() },
+		"List.At":          func() { absentList().At(0) },
+		"List.At negative": func() { absentList().At(-1) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
@@ -260,3 +260,7 @@ func TestNewCompletionOfferStartsAtItsFirstRowAfterManualScroll(t *testing.T) {
 	c.Offer(base.Token{Query: "new"}, candidates)
 	equalRows(t, paintWidget(scenes, 9, 2, &c), []string{"one......", "two......"})
 }
+
+// absentList is a nil list the compiler cannot prove nil, so the test reaches the
+// method rather than a vet diagnostic.
+func absentList() *base.List[int] { return nil }

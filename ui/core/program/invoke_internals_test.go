@@ -22,7 +22,7 @@ func TestInvokeCancellationStillOwnsWorkTakenButNotYetClaimed(t *testing.T) {
 			returned <- dispatch.Invoke(ctx, func() error { called = true; return nil })
 		}()
 		synctest.Wait()
-		taken := queue.take()
+		taken, _ := queue.take()
 		if len(taken) != 1 {
 			t.Fatalf("taken work = %d, want one invocation", len(taken))
 		}
@@ -58,7 +58,7 @@ func TestPendingInvokeReleasesItsCallbackAndContext(t *testing.T) {
 					queue.stop()
 					want = ErrStopped
 				} else {
-					taken = queue.take()
+					taken, _ = queue.take()
 					cancel()
 				}
 				if err := <-returned; !errors.Is(err, want) {

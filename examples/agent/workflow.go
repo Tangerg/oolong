@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
-	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
 	"github.com/Tangerg/oolong/ui/kit"
 )
@@ -73,10 +72,19 @@ func (w *workflow) Apply(update stepUpdate) error {
 	return nil
 }
 
-func (w *workflow) HeightForWidth(int) int { return layout.Sum(len(w.steps), w.box().Overhead().Y) }
+func (w *workflow) HeightForWidth(width int) int { return w.block().HeightForWidth(width) }
 
-func (w *workflow) box() kit.Box {
-	return kit.Box{Theme: w.theme, Glyphs: w.glyphs, Title: "run plan", Padding: boxPadding}
+func (w *workflow) Draw(view grid.View) { w.block().Draw(view) }
+
+// block lays the plan out from atoms: each step's state is pinned against the
+// right edge and dropped before it can run into the step it describes.
+func (w *workflow) block() kit.Framed {
+	steps := make(kit.Stack, 0, len(w.steps))
+	for _, step := range w.steps {
+		mark, label, style := w.appearance(step.state)
+		steps = append(steps, kit.Split{Start: text.Of(mark+" "+step.label, style), End: text.Of(label, style), Ellipsis: w.glyphs.Ellipsis})
+	}
+	return kit.Framed{Box: kit.Box{Theme: w.theme, Glyphs: w.glyphs, Title: "run plan", Padding: boxPadding}, Body: steps}
 }
 
 func (w *workflow) appearance(state stepState) (mark, label string, style grid.Style) {
@@ -89,22 +97,5 @@ func (w *workflow) appearance(state stepState) (mark, label string, style grid.S
 		return w.glyphs.Bullet, "skipped", w.theme.Muted
 	default:
 		return w.glyphs.Free, "waiting", w.theme.Subtle
-	}
-}
-
-func (w *workflow) Draw(view grid.View) {
-	inner := w.box().Draw(view)
-	width, height := inner.Size()
-	for row, step := range w.steps {
-		if row >= height {
-			return
-		}
-		mark, label, style := w.appearance(step.state)
-		end := inner.Text(0, row, mark+" "+step.label, style)
-		// The state label is right-aligned and only drawn with a column of space
-		// before it, so it never runs into the step it describes.
-		if labelWidth := text.Width(label); width-end > labelWidth+1 {
-			inner.Text(width-labelWidth, row, label, style)
-		}
 	}
 }

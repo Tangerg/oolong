@@ -23,7 +23,13 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 	items := []preference{{"theme"}, {"wrap"}}
 	values := []string{"dark", "on"}
 	settings := kit.NewSettings(kit.SettingsConfig[preference]{
-		Items: items,
+		Behavior: base.SettingsConfig[preference]{Items: items, Change: func(_ context.Context, index int, _ preference, action keymap.Action) (scene.ActionResult[bool], error) {
+			if action != base.Increase {
+				return scene.ActionResult[bool]{}, nil
+			}
+			values[index] = "off"
+			return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
+		}},
 		Label: func(item preference) string { return item.name },
 		Value: func(item preference) string {
 			for i := range items {
@@ -32,13 +38,6 @@ func TestSettingsComposeASelectableFittedValueList(t *testing.T) {
 				}
 			}
 			return ""
-		},
-		Change: func(_ context.Context, index int, _ preference, action keymap.Action) (scene.ActionResult[bool], error) {
-			if action != base.Increase {
-				return scene.ActionResult[bool]{}, nil
-			}
-			values[index] = "off"
-			return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
 		},
 	})
 
@@ -61,10 +60,10 @@ func TestSettingsSkinProjectsDomainFailuresOutsideSelectableRows(t *testing.T) {
 	t.Cleanup(scenes.Close)
 	problem := errors.New("save failed")
 	settings := kit.NewSettings(kit.SettingsConfig[string]{
-		Items: []string{"theme", "wrap"}, Label: func(value string) string { return value },
-		Change: func(context.Context, int, string, keymap.Action) (scene.ActionResult[bool], error) {
+		Behavior: base.SettingsConfig[string]{Items: []string{"theme", "wrap"}, Change: func(context.Context, int, string, keymap.Action) (scene.ActionResult[bool], error) {
 			return scene.ActionResult[bool]{State: scene.Started, Value: true}, problem
-		},
+		}},
+		Label: func(value string) string { return value },
 	})
 	fixture := scenes.Mount(settings)
 	if !fixture.Handle(input.Key{Code: input.Right}) || !errors.Is(settings.Controller().ChangeError(), problem) {
@@ -76,7 +75,7 @@ func TestSettingsSkinProjectsDomainFailuresOutsideSelectableRows(t *testing.T) {
 	equalRows(t, paintWidget(scenes, 16, 3, settings), []string{
 		"theme...........", "wrap............", "save failed.....",
 	})
-	if fixture.Handle(input.Mouse{Pos: image.Pt(0, 2), Action: input.MouseDown, Button: input.ButtonLeft}) || settings.Controller().List().Selected() != 0 {
+	if fixture.Handle(input.Mouse{Pos: image.Pt(0, 2), Action: input.MouseDown, Button: input.ButtonLeft}) || settings.Controller().Selected() != 0 {
 		t.Fatal("feedback row changed list selection")
 	}
 	settings.Controller().SetChange(func(context.Context, int, string, keymap.Action) (scene.ActionResult[bool], error) {
@@ -90,11 +89,11 @@ func TestSettingsSkinProjectsDomainFailuresOutsideSelectableRows(t *testing.T) {
 func TestSettingsOwnTheirItemSlice(t *testing.T) {
 	items := []string{"one", "two"}
 	settings := kit.NewSettings(kit.SettingsConfig[string]{
-		Items: items, Label: func(item string) string { return item },
+		Behavior: base.SettingsConfig[string]{Items: items}, Label: func(item string) string { return item },
 		Value: func(string) string { return "" },
 	})
 	items[0] = "changed"
-	if got := settings.Controller().List().Items(); !reflect.DeepEqual(got, []string{"one", "two"}) {
+	if got := settings.Controller().Items(); !reflect.DeepEqual(got, []string{"one", "two"}) {
 		t.Fatalf("Items = %v, want the controller-owned input", got)
 	}
 }

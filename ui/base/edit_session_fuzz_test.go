@@ -32,7 +32,7 @@ func FuzzSharedEditorStateTransitions(f *testing.F) {
 			case 3:
 				view.DeleteForward()
 			case 4:
-				view.SetCursor(int(operation)%5-1, int(operation)%17)
+				view.SetCursor(base.Caret{Line: int(operation)%5 - 1, Byte: int(operation) % 17})
 			case 5:
 				view.Anchor()
 				view.MoveRight()

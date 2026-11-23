@@ -169,28 +169,27 @@ func TestEndedRuntimeRevokesRetainedCapabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			called := false
-			if err := session.Hand(func() error { called = true; return nil }); called || !errors.Is(err, errors.ErrUnsupported) {
+			if err := session.Hand(func() error { called = true; return nil }); called || !errors.Is(err, program.ErrStopped) {
 				t.Errorf("ended session acquired display: child=%v error=%v", called, err)
 			}
-			if err := session.SetTitle("stale"); err == nil {
-				t.Error("refused operation reported success")
+			for name, err := range map[string]error{
+				"title":     session.SetTitle("stale"),
+				"progress":  session.SetProgress(term.Progress{State: term.ProgressNormal, Percent: 10}),
+				"bell":      session.Bell(),
+				"notify":    session.Notify("stale"),
+				"directory": session.ReportDirectory("/stale"),
+			} {
+				if !errors.Is(err, program.ErrStopped) {
+					t.Errorf("ended %s = %v, want ErrStopped", name, err)
+				}
 			}
-			if err := session.SetProgress(term.Progress{State: term.ProgressNormal, Percent: 10}); err == nil {
-				t.Error("refused operation reported success")
-			}
-			if err := session.Bell(); err == nil {
-				t.Error("refused operation reported success")
-			}
-			if err := session.Notify("stale"); err == nil {
-				t.Error("refused operation reported success")
-			}
-			if clipboard.Copy("stale") || clipboard.Read(t.Context(), func(string, error) {}) == nil || runtime.Clipboard().Copy("late") {
+			if !errors.Is(clipboard.Copy("stale"), program.ErrStopped) || clipboard.Read(t.Context(), func(string, error) {}) == nil || !errors.Is(runtime.Clipboard().Copy("late"), program.ErrStopped) {
 				t.Error("an ended runtime changed its externally owned host clipboard")
 			}
-			if _, err := images.Transmit(t.Context(), nil); !errors.Is(err, errors.ErrUnsupported) {
+			if _, err := images.Transmit(t.Context(), nil); !errors.Is(err, program.ErrStopped) {
 				t.Errorf("ended image transmission = %v", err)
 			}
-			if err := images.Release(graphics.Resource{}); !errors.Is(err, errors.ErrUnsupported) {
+			if err := images.Release(graphics.Resource{}); !errors.Is(err, program.ErrStopped) {
 				t.Errorf("ended image release = %v", err)
 			}
 			if err := publish(runtime, measurer{

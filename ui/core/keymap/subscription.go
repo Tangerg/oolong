@@ -3,9 +3,6 @@ package keymap
 import (
 	"errors"
 	"slices"
-	"weak"
-
-	"github.com/Tangerg/oolong/ui/internal/retention"
 )
 
 var (
@@ -57,11 +54,8 @@ func (m *Map) Subscribe(config SubscriptionConfig) *Subscription {
 		return nil
 	}
 	m.requireIdle()
-	if len(m.subscribers) == cap(m.subscribers) {
-		m.pruneSubscribers()
-	}
 	subscription := &Subscription{config: config}
-	m.subscribers = append(m.subscribers, weak.Make(subscription))
+	m.subscribers.Add(subscription)
 	return subscription
 }
 
@@ -71,34 +65,16 @@ func (s *Subscription) Close() {
 	}
 }
 
-func (m *Map) pruneSubscribers() {
-	live := m.subscribers[:0]
-	for _, reference := range m.subscribers {
-		if subscription := reference.Value(); subscription != nil && subscription.config.Changed != nil {
-			live = append(live, reference)
-		}
-	}
-	clear(m.subscribers[len(live):])
-	switch {
-	case len(live) == 0:
-		m.subscribers = nil
-	case retention.ShouldCompact(cap(live), len(live)):
-		m.subscribers = slices.Clone(live)
-	default:
-		m.subscribers = live
-	}
-}
+func (s *Subscription) open() bool { return s.config.Changed != nil }
 
 func (m *Map) checkSubscribers() []SubscriptionConfig {
 	m.requireIdle()
 	m.phase = mapChecking
 	defer func() { m.phase = mapIdle }()
-	m.pruneSubscribers()
+	m.subscribers.Prune((*Subscription).open)
 	var subscribers []SubscriptionConfig
-	for _, reference := range m.subscribers {
-		if subscription := reference.Value(); subscription != nil {
-			subscribers = append(subscribers, subscription.config)
-		}
+	for _, subscription := range m.subscribers.Live() {
+		subscribers = append(subscribers, subscription.config)
 	}
 	for _, subscriber := range subscribers {
 		if err := subscriber.Check(); err != nil {

@@ -93,9 +93,9 @@ func (h *partialHost) Color() grid.Depth { return h.colorAnswer }
 
 func (h *partialHost) Locale() string { return h.localeAnswer }
 
-func (h *partialHost) Copy(text string) bool {
+func (h *partialHost) Copy(text string) error {
 	h.copied = append(h.copied, text)
-	return true
+	return nil
 }
 
 func (h *partialHost) Notify(text string) error { h.notified = append(h.notified, text); return nil }
@@ -327,15 +327,17 @@ func (h *host) Size() (int, int, error)     { return h.w, h.h, nil }
 // round, which no amount of driving keystrokes could.
 func (h *host) Ground() grid.Ground { return h.ground }
 
-func (h *host) Copy(text string) bool {
+func (h *host) Copy(text string) error {
 	h.clipMu.Lock()
 	defer h.clipMu.Unlock()
 	if h.refuse {
-		return false
+		return errClipboardRefused
 	}
 	h.copied = append(h.copied, text)
-	return true
+	return nil
 }
+
+var errClipboardRefused = errors.New("clipboard refused")
 
 func (h *host) ReadClipboard(ctx context.Context) (string, error) {
 	h.clipMu.Lock()
@@ -773,8 +775,8 @@ func TestAHostOnlyImplementsTransport(t *testing.T) {
 			if got := runtime.Environment().Locale(); got != "" {
 				t.Errorf("missing Locale = %q, want no claim", got)
 			}
-			if runtime.Clipboard().Copy("text") {
-				t.Error("a host with no clipboard accepted a copy")
+			if err := runtime.Clipboard().Copy("text"); !errors.Is(err, errors.ErrUnsupported) {
+				t.Errorf("Copy without a clipboard = %v, want errors.ErrUnsupported", err)
 			}
 			if runtime.Images().Protocol() != graphics.None {
 				t.Error("a host with no graphics reported a protocol")
@@ -827,8 +829,8 @@ func TestOptionalHostOperationsAreIndependent(t *testing.T) {
 			if got := runtime.Environment().Locale(); got != "en_GB.UTF-8" {
 				t.Errorf("Locale = %q, want independent locale capability", got)
 			}
-			if !runtime.Clipboard().Copy("copied") {
-				t.Error("independent Copy capability was hidden")
+			if err := runtime.Clipboard().Copy("copied"); err != nil {
+				t.Errorf("independent Copy capability was hidden: %v", err)
 			}
 			if err := runtime.Clipboard().Read(t.Context(), func(string, error) {}); err == nil {
 				t.Error("missing Paste capability accepted a request")
@@ -875,31 +877,31 @@ func TestCapabilityZeroValuesAreHarmless(t *testing.T) {
 	}
 
 	var clipboard program.Clipboard
-	if clipboard.Copy("text") {
-		t.Fatal("zero Clipboard accepted a copy")
+	if err := clipboard.Copy("text"); !errors.Is(err, program.ErrStopped) {
+		t.Fatalf("zero Clipboard copy = %v, want ErrStopped", err)
 	}
 	if err := clipboard.Read(t.Context(), func(string, error) {}); err == nil {
 		t.Fatal("zero Clipboard accepted a paste request")
 	}
 
 	var images program.Images
-	if err := images.Release(graphics.Resource{}); !errors.Is(err, errors.ErrUnsupported) {
+	if err := images.Release(graphics.Resource{}); !errors.Is(err, program.ErrStopped) {
 		t.Fatal(err)
 	}
 	if images.Protocol() != graphics.None {
 		t.Fatal("zero Images reported a protocol")
 	}
-	if _, err := images.Transmit(t.Context(), []byte("png")); !errors.Is(err, errors.ErrUnsupported) {
-		t.Fatalf("zero Images.Transmit error = %v, want errors.ErrUnsupported", err)
+	if _, err := images.Transmit(t.Context(), []byte("png")); !errors.Is(err, program.ErrStopped) {
+		t.Fatalf("zero Images.Transmit error = %v, want ErrStopped", err)
 	}
 
 	var session program.Session
 	called := false
-	if err := session.Hand(func() error { called = true; return nil }); !errors.Is(err, errors.ErrUnsupported) || called {
+	if err := session.Hand(func() error { called = true; return nil }); !errors.Is(err, program.ErrStopped) || called {
 		t.Fatalf("zero Session.Hand = %v, called %v", err, called)
 	}
-	if err := session.Suspend(); !errors.Is(err, errors.ErrUnsupported) {
-		t.Fatalf("zero Session.Suspend error = %v, want errors.ErrUnsupported", err)
+	if err := session.Suspend(); !errors.Is(err, program.ErrStopped) {
+		t.Fatalf("zero Session.Suspend error = %v, want ErrStopped", err)
 	}
 	if err := session.SetTitle("ignored"); err == nil {
 		t.Error("refused operation reported success")
@@ -1256,17 +1258,16 @@ func TestAnInvalidResizeEndsTheProgramInsteadOfAllocatingIt(t *testing.T) {
 	}
 }
 
-func TestRegainingFocusRepaints(t *testing.T) {
+func TestRegainingFocusRepaintsAndReachesTheApplication(t *testing.T) {
 	// Another program may have written to the terminal while this one was not in front,
-	// so what it is showing can no longer be assumed.
+	// so what it is showing can no longer be assumed. The application is told as well:
+	// it hears FocusOut, and an attention policy built on one half is guesswork.
 	r := start(t, nil)
 	r.until("the opening frame", func() bool { return r.host.frames.size() > 0 })
 	settled := r.host.frames.size()
 	r.host.send(input.FocusIn{})
 	r.until("a repaint", func() bool { return r.host.frames.size() > settled })
-	if got := r.root.handled.Load(); got != 0 {
-		t.Fatalf("the component was offered %d events, want none", got)
-	}
+	r.until("the focus report", func() bool { return r.root.handled.Load() == 1 })
 	r.quit()
 	if err := r.wait(); err != nil {
 		t.Fatalf("program: %v", err)
@@ -2280,7 +2281,7 @@ func TestCopyGoesToTheHost(t *testing.T) {
 	// Who does the copying is the host's business. A component asks, and what it
 	// asked for is observable without anyone parsing an escape sequence.
 	r, rec := startRecording(t)
-	if !r.fromLoop(rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") }) {
+	if !r.fromLoop(rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") == nil }) {
 		t.Fatal("a copy the host accepts was reported as refused")
 	}
 	if got := r.host.copies(); len(got) != 1 || got[0] != "hello" {
@@ -2294,7 +2295,7 @@ func TestCopyReportsAHostThatWillNotTakeIt(t *testing.T) {
 	r.host.refuse = true
 	r.host.clipMu.Unlock()
 
-	if r.fromLoop(rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") }) {
+	if r.fromLoop(rec.runtime, func() bool { return rec.runtime.Clipboard().Copy("hello") == nil }) {
 		t.Error("a refused copy was reported as asked for")
 	}
 	if got := r.host.copies(); len(got) != 0 {

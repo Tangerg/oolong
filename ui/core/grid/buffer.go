@@ -24,10 +24,9 @@ func (b *frameBuffer) resize(w, h int) bool {
 	if cw, ch := b.back.Size(); cw == w && ch == h {
 		return false
 	}
-	paints := b.front.paints
-	b.front.paints = nil
-	b.front.Resize(w, h)
-	b.front.paints = paints
+	// Front regions describe native content still on the terminal; the next
+	// full repaint must erase them, so only their cells are resized.
+	b.front.resizeCells(w, h)
 	b.back.Resize(w, h)
 	return true
 }

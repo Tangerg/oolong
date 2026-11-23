@@ -55,7 +55,7 @@ func (f *observedField) Element() scene.Element {
 }
 func (*observedField) Revision() uint64          { return 0 }
 func (*observedField) HeightForWidth(int) int    { return 1 }
-func (*observedField) Prompt() string            { return "" }
+func (*observedField) Label() string             { return "" }
 func (*observedField) Validate() error           { return nil }
 func (*observedField) Validation() func() bool   { return func() bool { return true } }
 func (*observedField) Error() error              { return nil }
@@ -88,6 +88,34 @@ func TestReplacingFormFieldsTransfersKeyboardOwnership(t *testing.T) {
 	snapshot[0] = old
 	if got := form.Fields()[0]; got != next {
 		t.Fatal("Fields exposed the form's owned collection")
+	}
+}
+
+// A form that asks only whether to go ahead has no fields; its submit and cancel
+// keys must still reach it.
+func TestAFormWithoutFieldsTakesItsOwnKeys(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
+	submitted := 0
+	form := base.NewForm(base.FormConfig{Title: "Retry the request?", Keys: base.DefaultFormKeys(), Submit: func(base.SubmissionID) (scene.ActionState, error) {
+		submitted++
+		return scene.Applied, nil
+	}})
+	dialog := base.NewDialog(base.DialogConfig{Initial: true, Content: form.Element()})
+	root := scenes.Mount(dialog.Element())
+	root.Draw(grid.NewSurface(12, 3).View())
+	if !form.Element().Focused() {
+		t.Fatal("a form without fields left its keys nowhere to go")
+	}
+	root.Handle(input.Key{Code: input.Enter})
+	if submitted != 1 {
+		t.Fatalf("submit key reached the form %d times", submitted)
+	}
+	form.Set(base.NewConfirm(base.ConfirmConfig{}))
+	root.FlushNotifications()
+	if form.Element().Focused() {
+		t.Fatal("a form with a field kept focus from it")
 	}
 }
 
@@ -709,9 +737,7 @@ func TestAReleaseOutsideAFieldStillEndsTheSelectionItStarted(t *testing.T) {
 func styleFields(form *base.Form, look base.Look) {
 	for _, field := range form.Fields() {
 		themed := field.(base.ThemedField)
-		if err := field.Element().SetPaint(func(frame scene.Frame) { themed.DrawWith(frame, look) }); err != nil {
-			panic(err)
-		}
+		field.Element().SetPaint(func(frame scene.Frame) { themed.DrawWith(frame, look) })
 	}
 }
 

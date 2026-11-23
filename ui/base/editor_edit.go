@@ -66,23 +66,23 @@ func (e *Editor) DeleteBack() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	if e.byteOffset > 0 {
-		at := text.PrevCluster(e.document().lines[e.line], e.byteOffset)
-		if element, inside := e.document().insideElement(e.line, at); inside {
+	if e.caret.Byte > 0 {
+		at := text.PrevCluster(e.document().lines[e.caret.Line], e.caret.Byte)
+		if element, inside := e.document().insideElement(e.caret.Line, at); inside {
 			at = element.Start
 		}
 		e.document().replace(e, editReplacement{
-			start: Caret{Line: e.line, Byte: at}, end: Caret{Line: e.line, Byte: e.byteOffset}, history: coalesceEdit,
+			start: Caret{Line: e.caret.Line, Byte: at}, end: e.caret, history: coalesceEdit,
 		}, e.finishReplacement)
 		return
 	}
-	if e.line == 0 {
+	if e.caret.Line == 0 {
 		e.endTyping()
 		return
 	}
-	above := e.document().lines[e.line-1]
+	above := e.document().lines[e.caret.Line-1]
 	e.document().replace(e, editReplacement{
-		start: Caret{Line: e.line - 1, Byte: len(above)}, end: Caret{Line: e.line},
+		start: Caret{Line: e.caret.Line - 1, Byte: len(above)}, end: Caret{Line: e.caret.Line},
 	}, e.finishReplacement)
 }
 
@@ -91,23 +91,23 @@ func (e *Editor) DeleteForward() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	current := e.document().lines[e.line]
-	if e.byteOffset < len(current) {
-		at := nextClusterBoundary(current, e.byteOffset)
-		if element, inside := e.ElementAt(e.line, e.byteOffset); inside {
+	current := e.document().lines[e.caret.Line]
+	if e.caret.Byte < len(current) {
+		at := nextClusterBoundary(current, e.caret.Byte)
+		if element, inside := e.ElementAt(e.caret); inside {
 			at = element.End
 		}
 		e.document().replace(e, editReplacement{
-			start: Caret{Line: e.line, Byte: e.byteOffset}, end: Caret{Line: e.line, Byte: at},
+			start: e.caret, end: Caret{Line: e.caret.Line, Byte: at},
 		}, e.finishReplacement)
 		return
 	}
-	if e.line == len(e.document().lines)-1 {
+	if e.caret.Line == len(e.document().lines)-1 {
 		e.endTyping()
 		return
 	}
 	e.document().replace(e, editReplacement{
-		start: Caret{Line: e.line, Byte: len(current)}, end: Caret{Line: e.line + 1},
+		start: Caret{Line: e.caret.Line, Byte: len(current)}, end: Caret{Line: e.caret.Line + 1},
 	}, e.finishReplacement)
 }
 
@@ -115,11 +115,11 @@ func (e *Editor) DeleteWordBack() {
 	e.beginViewUpdate()
 	defer e.endViewUpdate()
 	e.ensure()
-	end := Caret{Line: e.line, Byte: e.byteOffset}
+	end := e.caret
 	start := end
 	if start.Byte > 0 {
-		at := wordStart(e.document().lines[e.line], e.byteOffset)
-		start.Byte = e.document().snapElementBoundary(e.line, at, false)
+		at := wordStart(e.document().lines[e.caret.Line], e.caret.Byte)
+		start.Byte = e.document().snapElementBoundary(e.caret.Line, at, false)
 	} else if start.Line > 0 {
 		start.Line--
 		start.Byte = len(e.document().lines[start.Line])
@@ -164,14 +164,14 @@ func (e *Editor) Elements() []Element {
 // ElementAt is the element covering a position, and whether there is one. The end is
 // exclusive, so the position just after an element is outside it. Out-of-range
 // positions return false.
-func (e *Editor) ElementAt(line, byteOffset int) (Element, bool) {
+func (e *Editor) ElementAt(at Caret) (Element, bool) {
 	lines := e.document().lines
-	if line < 0 || line >= len(lines) || byteOffset < 0 || byteOffset >= len(lines[line]) {
+	if at.Line < 0 || at.Line >= len(lines) || at.Byte < 0 || at.Byte >= len(lines[at.Line]) {
 		return Element{}, false
 	}
-	at := offsetInLines(lines, Caret{Line: line, Byte: byteOffset})
+	offset := offsetInLines(lines, at)
 	for _, m := range e.document().marks {
-		if m.Covers(at) {
+		if m.Covers(offset) {
 			return e.document().elementOf(m), true
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/internal/grapheme"
 	"github.com/Tangerg/oolong/ui/core/layout"
 )
 
@@ -95,4 +96,18 @@ func (s suffix) endColumn(column int) int {
 		end = layout.Sum(advanceCluster("\t", end), s.tailWidth)
 	}
 	return end
+}
+
+func prefix(s string, budget int) string {
+	col, end := 0, 0
+	clusters := grapheme.New(s)
+	for clusters.Next() {
+		next := advanceCluster(clusters.Value(), col)
+		if next > budget {
+			break
+		}
+		col = next
+		end = clusters.End()
+	}
+	return s[:end]
 }

@@ -39,12 +39,12 @@ func TestChangingTheComparisonKeepsTheReportedOrderTrue(t *testing.T) {
 	if got := ordered(tbl); got != "beta gamma alpha" {
 		t.Fatalf("rows after changing the comparison are %q", got)
 	}
-	if column, descending, ok := tbl.Sorted(); !ok || column != 0 || descending {
-		t.Fatalf("table reports column %d, descending %v, sorted %v", column, descending, ok)
+	if order, ok := tbl.Sorted(); !ok || order != (base.SortOrder{}) {
+		t.Fatalf("table reports order %+v, sorted %v", order, ok)
 	}
 
 	tbl.SetSortColumns(nil)
-	if _, _, ok := tbl.Sorted(); ok {
+	if _, ok := tbl.Sorted(); ok {
 		t.Fatal("table without a comparison still reports a sorted order")
 	}
 }
@@ -72,8 +72,8 @@ func TestATableIsOrderedByTheColumnItWasAsked(t *testing.T) {
 	if got := ordered(tbl); got != "gamma beta alpha" {
 		t.Fatalf("sorted the other way they are %q", got)
 	}
-	if column, descending, ok := tbl.Sorted(); !ok || column != 0 || !descending {
-		t.Fatalf("the table says it is sorted by %d, reversed %v, at all %v", column, descending, ok)
+	if order, ok := tbl.Sorted(); !ok || order != (base.SortOrder{Descending: true}) {
+		t.Fatalf("the table says it is sorted by %+v, at all %v", order, ok)
 	}
 	tbl.SortBy(1)
 	if got := ordered(tbl); got != "beta gamma alpha" {
@@ -114,7 +114,7 @@ func TestReplacingTheRowsKeepsTheOrder(t *testing.T) {
 	if got := ordered(tbl); got != "delta charlie" {
 		t.Fatalf("after giving up the order the rows are %q", got)
 	}
-	if _, _, ok := tbl.Sorted(); ok {
+	if _, ok := tbl.Sorted(); ok {
 		t.Error("a table that gave up its order still says it has one")
 	}
 }
@@ -162,9 +162,8 @@ func TestATablesRowsCanOnlyBeReplacedThroughTheTable(t *testing.T) {
 	}
 
 	table.SetItems([]string{"plum", "cherry"})
-	column, descending, sorted := table.Sorted()
-	if !sorted || column != 0 || descending {
-		t.Fatalf("the order was lost when the rows were replaced: %d %t %t", column, descending, sorted)
+	if order, sorted := table.Sorted(); !sorted || order != (base.SortOrder{}) {
+		t.Fatalf("the order was lost when the rows were replaced: %+v %t", order, sorted)
 	}
 	if got := table.Items(); !slices.Equal(got, []string{"cherry", "plum"}) {
 		t.Fatalf("replaced rows = %v, want them in the order the header says", got)

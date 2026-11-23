@@ -85,15 +85,13 @@ func TestDocumentRegistrationPublishesOnlyTheSubscribedReference(t *testing.T) {
 	m := transcriptModel(t, base.TranscriptConfig{})
 	d := transcriptDocument(t)
 	armed := false
-	if err := m.Element().SetFocusable(func() bool {
+	m.Element().SetFocusable(func() bool {
 		if armed {
 			armed = false
 			panic("model observed")
 		}
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	r := transcriptScene(t, m)
 	armed = true
 	func() {

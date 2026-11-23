@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/Tangerg/oolong/ui/core/grid"
-
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/term"
 )

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/oolong/ui/core/graphics"
+	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 )
 
@@ -97,10 +98,8 @@ func (t *Terminal) Transmit(ctx context.Context, png []byte) (<-chan graphics.Up
 }
 
 func (t *Terminal) imageAdmission(sourceBytes int) error {
-	select {
-	case <-t.stop:
+	if t.stopped() {
 		return ErrClosed
-	default:
 	}
 	select {
 	case <-t.readerDone:
@@ -331,4 +330,55 @@ func (t *Terminal) releasePendingImages() error {
 		t.retireUpload(number)
 	}
 	return nil
+}
+
+// Graphics is the richest way this terminal will take an image.
+//
+// An answered direct-transfer probe takes precedence over terminal name hints. A
+// session that did not ask — see [Features.Probe] — gets the answer
+// [graphics.Detect] derives from its environment alone.
+func (t *Terminal) Graphics() graphics.Protocol {
+	return t.imageProtocol
+}
+
+func (t *Terminal) NativeTarget() grid.NativeTarget { return t.imageOwner.NativeTarget() }
+
+// CellSize can remain unknown because cell counts do not determine pixel
+// dimensions. Image fitting must respect the boolean instead of inventing an
+// aspect ratio.
+func (t *Terminal) CellSize() (image.Point, bool) {
+	return cellSize(t.outFD)
+}
+
+// ReleaseImage queues deletion of transmitted image data and all its placements.
+// The caller must stop drawing the image before releasing it.
+func (t *Terminal) ReleaseImage(resource graphics.Resource) error {
+	t.modeMu.Lock()
+	defer t.modeMu.Unlock()
+	return t.imageOwner.Release(resource, func(img graphics.Image) error {
+		return deleteImage(img, t.writer.Queue)
+	})
+}
+
+func deleteImage(img graphics.Image, queue func([]byte) (uint64, error)) error {
+	var payload bytes.Buffer
+	if err := img.Release(&payload); err != nil {
+		return err
+	}
+	_, err := queue(payload.Bytes())
+	return err
+}
+
+// Never delete by ID after the child takes over. Draining between admissions
+// keeps cleanup inside the writer's fixed control budget for any image count.
+func (t *Terminal) releaseImages() error {
+	if err := t.releasePendingImages(); err != nil {
+		return err
+	}
+	return t.imageOwner.ReleaseAll(func(img graphics.Image) error {
+		if err := t.writer.Drain(DrainGrace); err != nil {
+			return err
+		}
+		return deleteImage(img, t.writer.QueueControl)
+	})
 }

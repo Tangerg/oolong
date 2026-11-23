@@ -67,8 +67,6 @@ type VirtualRange struct {
 	Revision uint64
 }
 
-type measuredHeight struct{ height int }
-
 // VirtualWindow owns the measured-height cache and materialized window. Its
 // scene Group alone owns actual attachment. Resolve is an explicit owner-stage
 // operation and must run before painting; it never runs from Paint or Measure.
@@ -78,16 +76,26 @@ type VirtualWindow struct {
 	cfg       VirtualConfig
 	width     int
 	keys      []ItemKey
-	heights   map[ItemKey]measuredHeight
+	heights   map[ItemKey]int
 	window    VirtualRange
 	group     *scene.Group
 	resolving bool
 }
 
-// NewVirtualWindow validates budgets and creates the sole scene group for materialized items.
-func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
-	if identity.IsNil(cfg.Source) || cfg.EstimatedHeight < 0 || cfg.Overscan < 0 || cfg.MaxItems < 0 || cfg.MaxKeyBytes < 0 || cfg.MaxMeasurementsPerResolve < 0 {
-		return nil, errors.New("base: invalid virtual window configuration")
+// Validate reports whether the configuration names a source and non-negative
+// budgets, for settings that come from outside the program.
+func (c VirtualConfig) Validate() error {
+	if identity.IsNil(c.Source) || c.EstimatedHeight < 0 || c.Overscan < 0 || c.MaxItems < 0 || c.MaxKeyBytes < 0 || c.MaxMeasurementsPerResolve < 0 {
+		return errors.New("base: invalid virtual window configuration")
+	}
+	return nil
+}
+
+// NewVirtualWindow creates the sole scene group for materialized items. It panics
+// for a configuration [VirtualConfig.Validate] refuses.
+func NewVirtualWindow(cfg VirtualConfig) *VirtualWindow {
+	if err := cfg.Validate(); err != nil {
+		panic(err)
 	}
 	if cfg.EstimatedHeight == 0 {
 		cfg.EstimatedHeight = 1
@@ -101,7 +109,7 @@ func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
 	if cfg.MaxMeasurementsPerResolve == 0 {
 		cfg.MaxMeasurementsPerResolve = defaultVirtualMeasurementsPerResolve
 	}
-	v := &VirtualWindow{cfg: cfg, heights: make(map[ItemKey]measuredHeight)}
+	v := &VirtualWindow{cfg: cfg, heights: make(map[ItemKey]int)}
 	v.group = scene.NewGroup(scene.GroupConfig{Layout: func(size image.Point, children []scene.Item) []image.Rectangle {
 		rects := make([]image.Rectangle, len(children))
 		for i := range children {
@@ -110,21 +118,15 @@ func NewVirtualWindow(cfg VirtualConfig) (*VirtualWindow, error) {
 		}
 		return rects
 	}})
-	return v, nil
+	return v
 }
 
 func (v *VirtualWindow) Element() scene.Element {
-	if v == nil {
-		return scene.Element{}
-	}
 	return v.group.Element()
 }
 
 // Snapshot returns a detached description of the most recently resolved window.
 func (v *VirtualWindow) Snapshot() VirtualRange {
-	if v == nil {
-		return VirtualRange{}
-	}
 	out := v.window
 	out.Items = slices.Clone(out.Items)
 	return out
@@ -132,9 +134,6 @@ func (v *VirtualWindow) Snapshot() VirtualRange {
 
 // Cached includes offscreen measurements needed to keep absolute row positions stable.
 func (v *VirtualWindow) Cached() int {
-	if v == nil {
-		return 0
-	}
 	return len(v.heights)
 }
 
@@ -142,9 +141,6 @@ func (v *VirtualWindow) Cached() int {
 // It may invoke Build and therefore belongs to the owner phase, before scene preparation.
 // It panics if a source or Build callback reenters Resolve on the same window.
 func (v *VirtualWindow) Resolve(width, height, offset int) (VirtualRange, error) {
-	if v == nil {
-		return VirtualRange{}, errors.New("base: virtual window is nil")
-	}
 	if v.resolving {
 		panic("base: reentrant virtual window resolution")
 	}
@@ -185,7 +181,7 @@ func (v *VirtualWindow) Resolve(width, height, offset int) (VirtualRange, error)
 
 type virtualCandidate struct {
 	keys    []ItemKey
-	heights map[ItemKey]measuredHeight
+	heights map[ItemKey]int
 	window  VirtualRange
 }
 
@@ -211,8 +207,8 @@ func (v *VirtualWindow) prepare(width, height, offset int) (virtualCandidate, er
 
 // A candidate can reuse measurements only under the exact source and width key.
 // It receives a separate map so a refused candidate cannot change live geometry.
-func (v *VirtualWindow) cachedHeights(width int, revision uint64) map[ItemKey]measuredHeight {
-	cache := make(map[ItemKey]measuredHeight)
+func (v *VirtualWindow) cachedHeights(width int, revision uint64) map[ItemKey]int {
+	cache := make(map[ItemKey]int)
 	if revision == v.window.Revision && width == v.width {
 		maps.Copy(cache, v.heights)
 	}
@@ -251,7 +247,7 @@ func (v *VirtualWindow) sourceKeys(revision uint64, count int) ([]ItemKey, error
 	return keys, nil
 }
 
-func (v *VirtualWindow) measureWindow(keys []ItemKey, cache map[ItemKey]measuredHeight, width, height, offset int) (VirtualRange, error) {
+func (v *VirtualWindow) measureWindow(keys []ItemKey, cache map[ItemKey]int, width, height, offset int) (VirtualRange, error) {
 	measured := 0
 	for {
 		tops, exact, err := v.estimateTops(keys, cache)
@@ -273,13 +269,13 @@ func (v *VirtualWindow) measureWindow(keys []ItemKey, cache map[ItemKey]measured
 	}
 }
 
-func (v *VirtualWindow) estimateTops(keys []ItemKey, cache map[ItemKey]measuredHeight) ([]int, bool, error) {
+func (v *VirtualWindow) estimateTops(keys []ItemKey, cache map[ItemKey]int) ([]int, bool, error) {
 	tops := make([]int, len(keys)+1)
 	exact := true
 	for index, key := range keys {
 		rows := v.cfg.EstimatedHeight
 		if cached, ok := cache[key]; ok {
-			rows = cached.height
+			rows = cached
 		} else {
 			exact = false
 		}
@@ -291,7 +287,7 @@ func (v *VirtualWindow) estimateTops(keys []ItemKey, cache map[ItemKey]measuredH
 	return tops, exact, nil
 }
 
-func (v *VirtualWindow) measureRange(keys []ItemKey, tops []int, cache map[ItemKey]measuredHeight, width, from, through int, measured *int) ([]VirtualItem, bool, error) {
+func (v *VirtualWindow) measureRange(keys []ItemKey, tops []int, cache map[ItemKey]int, width, from, through int, measured *int) ([]VirtualItem, bool, error) {
 	if from >= through {
 		return nil, false, nil
 	}
@@ -310,12 +306,12 @@ func (v *VirtualWindow) measureRange(keys []ItemKey, tops []int, cache map[ItemK
 			if value < 0 {
 				return nil, false, errors.New("base: negative virtual item height")
 			}
-			rows = measuredHeight{height: value}
+			rows = value
 			cache[key] = rows
 			*measured++
 			changed = changed || value != v.cfg.EstimatedHeight
 		}
-		items = append(items, VirtualItem{Key: key, Index: index, Top: tops[index], Height: rows.height})
+		items = append(items, VirtualItem{Key: key, Index: index, Top: tops[index], Height: rows})
 	}
 	return items, changed, nil
 }

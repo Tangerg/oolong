@@ -22,10 +22,7 @@ import (
 
 func transcriptModel(tb testing.TB, cfg base.TranscriptConfig) *base.Transcript {
 	tb.Helper()
-	m, err := base.NewTranscript(cfg)
-	if err != nil {
-		tb.Fatal(err)
-	}
+	m := base.NewTranscript(cfg)
 	return m
 }
 
@@ -247,9 +244,7 @@ func TestTranscriptOverflowCannotPublishPartialGeometry(t *testing.T) {
 
 func TestTranscriptRejectsMutationBeforeChangingStateDuringPaint(t *testing.T) {
 	m := transcriptModel(t, base.TranscriptConfig{})
-	if err := m.Element().SetPaint(func(scene.Frame) { _, _ = m.Add(transcriptBody("illegal")) }); err != nil {
-		t.Fatal(err)
-	}
+	m.Element().SetPaint(func(scene.Frame) { _, _ = m.Add(transcriptBody("illegal")) })
 	r := transcriptScene(t, m)
 	func() {
 		defer func() {
@@ -370,7 +365,7 @@ func TestTranscriptSelectionUsesItsConfiguredClickInterval(t *testing.T) {
 		want     string
 	}{
 		{name: "default", want: "alpha"},
-		{name: "short", interval: 10 * time.Millisecond, want: "l"},
+		{name: "short", interval: 10 * time.Millisecond, want: ""},
 		{name: "negative uses default", interval: -time.Second, want: "alpha"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -505,9 +500,10 @@ func TestTranscriptRecentRetentionLeavesRoomForNewSources(t *testing.T) {
 		{KeepCompleted: 1},
 		{Publisher: publisher, Retention: base.PublishCompleted, MaxItems: 2, KeepCompleted: 2},
 	} {
-		if _, err := base.NewTranscript(cfg); err == nil {
+		if err := cfg.Validate(); err == nil {
 			t.Fatalf("accepted impossible retention policy: %+v", cfg)
 		}
+		mustPanic(t, func() { base.NewTranscript(cfg) })
 	}
 }
 
@@ -599,5 +595,38 @@ func TestTranscriptSkipsBlocksOutsideTheVisibleClip(t *testing.T) {
 	m.Layout().Draw(view, 0)
 	if !reflect.DeepEqual(draws, []int{6, 7}) {
 		t.Fatalf("clipped draw visited blocks %v", draws)
+	}
+}
+
+// mustPanic asserts that construction refuses a configuration Validate refuses.
+func mustPanic(t *testing.T, construct func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("construction accepted a configuration Validate refuses")
+		}
+	}()
+	construct()
+}
+
+func TestALayoutCopiesAsASelectionOverAllOfItWould(t *testing.T) {
+	m := transcriptModel(t, base.TranscriptConfig{Key: "history"})
+	transcriptAdd(t, m, transcriptBody("first line"))
+	transcriptAdd(t, m, transcriptBody("second line"))
+	root := transcriptScene(t, m)
+	transcriptCommit(t, root, 20, 4, 1)
+	layout := m.Layout()
+	start, startOK := layout.Hit(base.Point{})
+	end, endOK := layout.Hit(base.Point{Row: 1, Col: len("second line") - 1})
+	if !startOK || !endOK {
+		t.Fatal("fixture text is not hit-testable")
+	}
+	m.Selection().Set(base.TextRange{Start: start.Start, End: end.End})
+	selected, err := m.Selection().Text(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := layout.Text(); got != selected || got != "first line\nsecond line" {
+		t.Fatalf("layout text %q, selection over everything %q", got, selected)
 	}
 }

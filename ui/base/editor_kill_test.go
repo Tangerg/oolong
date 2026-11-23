@@ -24,7 +24,7 @@ func TestConsecutiveBackwardKillsAccumulateInReadingOrder(t *testing.T) {
 func TestConsecutiveForwardKillsAccumulateAcrossALineBreak(t *testing.T) {
 	editor := &base.Editor{}
 	editor.SetText("keep one\ntwo")
-	editor.SetCursor(0, len("keep "))
+	editor.SetCursor(base.Caret{Byte: len("keep ")})
 	editor.Do(base.KillToEnd)
 	editor.Do(base.KillToEnd)
 	editor.Do(base.KillToEnd)

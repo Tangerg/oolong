@@ -62,27 +62,32 @@ func (p Placement) In(space image.Point) image.Rectangle {
 	if size.Y <= 0 || size.Y > room.Y {
 		size.Y = room.Y
 	}
-	at := p.Anchor.place(room, size).Add(image.Pt(margin, margin))
+	horizontal, vertical := p.Anchor.alignment()
+	at := image.Pt(horizontal.Offset(room.X, size.X), vertical.Offset(room.Y, size.Y)).Add(image.Pt(margin, margin))
 	return image.Rect(at.X, at.Y, at.X+size.X, at.Y+size.Y)
 }
 
-func (a Anchor) place(space, size image.Point) image.Point {
-	var at image.Point
+// alignment decomposes an anchor into the alignment it means on each axis, so
+// placement reuses Align's one offset rule instead of a second copy of it.
+func (a Anchor) alignment() (horizontal, vertical Align) {
 	switch a {
-	case TopLeft, Left, BottomLeft:
-		at.X = 0
-	case Top, Middle, Bottom:
-		at.X = (space.X - size.X) / 2
+	case TopLeft:
+		return Start, Start
+	case Top:
+		return Center, Start
+	case TopRight:
+		return End, Start
+	case Left:
+		return Start, Center
+	case Right:
+		return End, Center
+	case BottomLeft:
+		return Start, End
+	case Bottom:
+		return Center, End
+	case BottomRight:
+		return End, End
 	default:
-		at.X = space.X - size.X
+		return Center, Center
 	}
-	switch a {
-	case TopLeft, Top, TopRight:
-		at.Y = 0
-	case Left, Middle, Right:
-		at.Y = (space.Y - size.Y) / 2
-	default:
-		at.Y = space.Y - size.Y
-	}
-	return image.Pt(max(at.X, 0), max(at.Y, 0))
 }

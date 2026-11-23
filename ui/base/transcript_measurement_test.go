@@ -71,16 +71,14 @@ func TestRecoveredTranscriptMeasurementCannotCommitAnEmptyLayout(t *testing.T) {
 	item := transcriptAdd(t, transcript, block)
 	width := 20
 	element := transcript.Element()
-	if err := element.SetPaint(func(frame scene.Frame) {
+	element.SetPaint(func(frame scene.Frame) {
 		defer func() {
 			if got := recover(); got != nil && got != "measurement interrupted" {
 				panic(got)
 			}
 		}()
 		transcript.Stage(frame, width)
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	root, err := scene.NewRoot(scene.RootConfig{Element: element})
 	if err != nil {
 		t.Fatal(err)

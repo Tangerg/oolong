@@ -48,6 +48,28 @@ func TestDialogOwnsOpenPolicyAndSceneRestoresFocus(t *testing.T) {
 	}
 }
 
+// A dialog that opens while someone is typing must not take the key they pressed
+// for what was on screen before it.
+func TestADialogTakesNoKeyTypedBeforeItAppears(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
+	dialog, trigger, body, root := dialogFixture(t, scenes, false)
+	if _, err := trigger.Press(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	root.Handle(input.Key{Rune: 'x'})
+	root.Handle(input.Key{Code: input.Esc})
+	if !dialog.Open() || body.Text() != "body" {
+		t.Fatalf("unseen dialog answered: open=%t text=%q", dialog.Open(), body.Text())
+	}
+	root.Draw(grid.NewSurface(12, 5).View())
+	root.Handle(input.Key{Code: input.Esc})
+	if dialog.Open() {
+		t.Fatal("presented dialog refused its close key")
+	}
+}
+
 func TestDialogCanCloseUnderANewerModalWithoutDismissingIt(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)

@@ -93,7 +93,7 @@ func TestSpansFollowTheWrap(t *testing.T) {
 	// At width 10 the first row is "the quick " — the break takes the space with the
 	// row it ends, so the row is ten columns wide and the second begins at "brown".
 	const secondRow = len("the quick ")
-	spans := e.Spans(base.Caret{Line: 0, Byte: 4}, base.Caret{Line: 0, Byte: 15}, 10)
+	spans := e.Spans(base.Caret{Byte: 4}, base.Caret{Byte: 15}, 10)
 	if len(spans) != 2 {
 		t.Fatalf("the range covers %d rows, want 2: %+v", len(spans), spans)
 	}
@@ -109,7 +109,7 @@ func TestSpansFollowTheWrap(t *testing.T) {
 
 func TestSpansAcrossLines(t *testing.T) {
 	e := editorWith("first\nsecond\nthird")
-	spans := e.Spans(base.Caret{Line: 0, Byte: 2}, base.Caret{Line: 2, Byte: 3}, 20)
+	spans := e.Spans(base.Caret{Byte: 2}, base.Caret{Line: 2, Byte: 3}, 20)
 	if len(spans) != 3 {
 		t.Fatalf("got %+v, want three rows", spans)
 	}
@@ -125,7 +125,7 @@ func TestSpansAcrossLines(t *testing.T) {
 // a highlight is painted in columns.
 func TestSpansAreInColumnsAndNotBytes(t *testing.T) {
 	e := editorWith("中文ab")
-	spans := e.Spans(base.Caret{Line: 0, Byte: 0}, base.Caret{Line: 0, Byte: len("中文")}, 20)
+	spans := e.Spans(base.Caret{}, base.Caret{Byte: len("中文")}, 20)
 	if len(spans) != 1 {
 		t.Fatalf("got %+v", spans)
 	}
@@ -136,8 +136,8 @@ func TestSpansAreInColumnsAndNotBytes(t *testing.T) {
 
 func TestSpansOfABackwardsRangeAreTheSameRange(t *testing.T) {
 	e := editorWith("hello")
-	forward := e.Spans(base.Caret{Line: 0, Byte: 1}, base.Caret{Line: 0, Byte: 4}, 20)
-	back := e.Spans(base.Caret{Line: 0, Byte: 4}, base.Caret{Line: 0, Byte: 1}, 20)
+	forward := e.Spans(base.Caret{Byte: 1}, base.Caret{Byte: 4}, 20)
+	back := e.Spans(base.Caret{Byte: 4}, base.Caret{Byte: 1}, 20)
 	if len(forward) != 1 || len(back) != 1 || forward[0] != back[0] {
 		t.Errorf("forward %+v, backwards %+v", forward, back)
 	}
@@ -150,8 +150,8 @@ func TestSpansOfNothing(t *testing.T) {
 		from, to base.Caret
 		width    int
 	}{
-		{name: "no width", from: base.Caret{}, to: base.Caret{Line: 0, Byte: 3}, width: 0},
-		{name: "an empty range", from: base.Caret{Line: 0, Byte: 2}, to: base.Caret{Line: 0, Byte: 2}, width: 20},
+		{name: "no width", from: base.Caret{}, to: base.Caret{Byte: 3}, width: 0},
+		{name: "an empty range", from: base.Caret{Byte: 2}, to: base.Caret{Byte: 2}, width: 20},
 	} {
 		if got := e.Spans(tc.from, tc.to, tc.width); len(got) != 0 {
 			t.Errorf("%s covered %+v", tc.name, got)
@@ -174,7 +174,7 @@ func TestTheSelectionAndTheCursorAgree(t *testing.T) {
 	eLook := e.Look()
 	eLook.Selection = mark
 	e.SetLook(eLook)
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	for range 25 {
 		e.Handle(shift(input.Right))
 	}
@@ -234,7 +234,7 @@ func TestAFieldCanBeClickedInto(t *testing.T) {
 	if !mouseAt(scenes, e, click(6, 0), 20) {
 		t.Fatal("the field ignored a click")
 	}
-	if line, col := e.Cursor(); line != 0 || col != 6 {
+	if line, col := e.Cursor().Line, e.Cursor().Byte; line != 0 || col != 6 {
 		t.Errorf("the cursor is at %d:%d, want 0:6", line, col)
 	}
 }
@@ -247,7 +247,7 @@ func TestClickingLandsOnAClusterBoundary(t *testing.T) {
 	// not a place a cursor can be.
 	e := editorWith("中文ab")
 	mouseAt(scenes, e, click(3, 0), 20)
-	_, col := e.Cursor()
+	col := e.Cursor().Byte
 	if col != len("中") {
 		t.Errorf("the cursor is at byte %d, want the boundary at %d", col, len("中"))
 	}
@@ -260,7 +260,7 @@ func TestClickingAWrappedRow(t *testing.T) {
 	e := editorWith("the quick brown fox jumps")
 	// At width 10 the second row begins at "brown".
 	mouseAt(scenes, e, click(0, 1), 10)
-	_, col := e.Cursor()
+	col := e.Cursor().Byte
 	if got := e.Text()[col:]; got != "brown fox jumps" {
 		t.Errorf("the cursor landed before %q", got)
 	}
@@ -273,7 +273,7 @@ func TestClickingBelowTheTextMeansTheEnd(t *testing.T) {
 	// What a click past the last line means in every editor there is.
 	e := editorWith("one\ntwo")
 	mouseAt(scenes, e, click(0, 8), 20)
-	line, col := e.Cursor()
+	line, col := e.Cursor().Line, e.Cursor().Byte
 	if line != 1 || col != len("two") {
 		t.Errorf("the cursor is at %d:%d, want the end", line, col)
 	}
@@ -354,7 +354,7 @@ func TestClickingStepsOverAnElement(t *testing.T) {
 	e := editorWith("")
 	e.InsertElement(fileChip, "@main.go")
 	mouseAt(scenes, e, click(3, 0), 40)
-	_, col := e.Cursor()
+	col := e.Cursor().Byte
 	if col != len("@main.go") {
 		t.Errorf("a click inside the element put the cursor at %d, want past it", col)
 	}
@@ -397,7 +397,7 @@ func TestClickingAgreesWithWhereTheTextWasDrawn(t *testing.T) {
 }
 
 func TestClickingAnEmptyField(t *testing.T) {
-	// An empty field still has a row, because a blank line in a composer is a blank
+	// An empty field still has a row, because a blank line in an editor is a blank
 	// line on screen. A click anywhere in it lands on the only position there is.
 	e := &base.Editor{}
 	at, ok := e.At(4, 5, 20)
@@ -474,7 +474,7 @@ func TestClickingPastAWrappedRowStaysOnThatRow(t *testing.T) {
 	// makes this an affinity and not a rule about offsets.
 	// To the break itself: the row is "the quick " including the space the wrap took,
 	// so the boundary is one past what the row draws.
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	for range len("the quick ") {
 		e.Handle(input.Key{Code: input.Right})
 	}
@@ -544,11 +544,11 @@ func TestEditorPressRequiresTheDisplayedDocumentAndPolicy(t *testing.T) {
 			} else {
 				e.SetText("another answer")
 			}
-			before, col := e.Cursor()
+			before, col := e.Cursor().Line, e.Cursor().Byte
 			if root.Handle(click(1, 0)) || e.Handle(click(1, 0)) {
 				t.Fatal("press applied to a different document projection")
 			}
-			if line, after := e.Cursor(); line != before || after != col {
+			if line, after := e.Cursor().Line, e.Cursor().Byte; line != before || after != col {
 				t.Fatalf("stale press moved caret to (%d,%d)", line, after)
 			}
 			root.Draw(view)

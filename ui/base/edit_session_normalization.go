@@ -58,17 +58,7 @@ func completeClusters(line string, start, end int) (int, int) {
 }
 
 // Pure projections share one-line normalization without constructing or mutating an Editor.
-func oneLineText(s string) string { return text.Printable(flattenLines(s)) }
-
-func flattenLines(s string) string {
-	if !strings.ContainsAny(s, "\n\r") {
-		return s
-	}
-	return flatLineBreaks.Replace(s)
-}
-
-// An immutable replacer is shared safely without allocating one for each edit.
-var flatLineBreaks = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+func oneLineText(s string) string { return text.Printable(text.SingleLine(s)) }
 
 func (s *EditSession) canonicalText(value string) string {
 	if s.oneLine() {

@@ -92,7 +92,7 @@ func (t Theme) Look(g Glyphs) base.Look {
 // corresponding built-in theme unchanged; guessing a missing colour can erase text.
 func Suited(g grid.Ground) Theme {
 	base := Dark()
-	if !g.BG.Default() && !g.BG.RGB().Dark() {
+	if g.Light() {
 		base = Light()
 	}
 	if g.FG.Default() || g.BG.Default() {

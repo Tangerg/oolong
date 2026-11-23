@@ -61,8 +61,8 @@ func mappedSessionOffset(before, after string, at int) int {
 	session := NewEditSession(EditSessionConfig{Initial: before})
 	view := NewEditor(EditorConfig{Session: session})
 	position := session.caretAt(min(max(at, 0), len(before)))
-	view.SetCursor(position.Line, position.Byte)
+	view.SetCursor(Caret{Line: position.Line, Byte: position.Byte})
 	session.Reset(after)
-	line, byteOffset := view.Cursor()
+	line, byteOffset := view.Cursor().Line, view.Cursor().Byte
 	return session.offsetOf(Caret{Line: line, Byte: byteOffset})
 }

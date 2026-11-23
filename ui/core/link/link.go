@@ -7,8 +7,9 @@ import (
 	"cmp"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
+
+	"github.com/Tangerg/oolong/ui/internal/enum"
 )
 
 type Kind uint8
@@ -18,16 +19,9 @@ const (
 	File
 )
 
-func (k Kind) String() string {
-	switch k {
-	case URL:
-		return "url"
-	case File:
-		return "file"
-	default:
-		return "Kind(" + strconv.Itoa(int(k)) + ")"
-	}
-}
+var kindNames = [...]string{URL: "url", File: "file"}
+
+func (k Kind) String() string { return enum.Name(kindNames[:], k, "Kind") }
 
 type Link struct {
 	// Start and End are the byte range of the text that was matched, so a caller can

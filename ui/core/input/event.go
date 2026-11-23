@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Tangerg/oolong/ui/internal/enum"
 )
 
 // Event is one terminal report. A host supplies the concrete value types in this
@@ -99,7 +101,7 @@ func (m Mods) String() string {
 			parts = append(parts, named.name)
 		}
 	}
-	return strings.Join(parts, "+")
+	return strings.Join(parts, string(modSeparator))
 }
 
 // Code identifies which key was pressed. [Character] means the key produced text,
@@ -190,6 +192,7 @@ const (
 	KeypadBegin
 )
 
+// String is the configuration name of c, which [ParseChord] reads back.
 func (c Code) String() string {
 	if name, ok := codeNames[c]; ok {
 		return name
@@ -248,7 +251,7 @@ type Key struct {
 	Transition  Transition
 	// Text is what the key produced, when the terminal was able to say. It can
 	// hold more than one code point, and is empty on terminals that do not report
-	// it. [Key.FallbackRune] supplies the character fallback.
+	// it. [Key.Typed] decides what a key enters.
 	Text string
 	// At is when the transport first observed this key's bytes, so assembly and
 	// queueing cannot move it across a frame or key-sequence boundary. Zero is untimed.
@@ -315,6 +318,9 @@ type Mouse struct {
 }
 
 func (Mouse) terminalEvent() {}
+
+// Presses reports whether this is a press of button.
+func (m Mouse) Presses(button Button) bool { return m.Action == MouseDown && m.Button == button }
 
 // Releases reports whether this is a release of button. ButtonNone on the event
 // means the released button is unspecified and ends the current captured press.
@@ -500,8 +506,17 @@ type FocusOut struct{}
 
 func (FocusOut) terminalEvent() {}
 
-func (m Mods) Rune(r rune) Chord { return Chord{Code: Character, Rune: r, Mods: m} }
+var transitionNames = [...]string{Press: "press", Repeat: "repeat", Release: "release"}
 
-func (m Mods) With(code Code) Chord { return Chord{Code: code, Mods: m} }
+func (t Transition) String() string { return enum.Name(transitionNames[:], t, "Transition") }
 
-func (k Key) Chord() Chord { return Chord{Code: k.Code, Rune: k.Rune, Mods: k.Mods} }
+var mouseActionNames = [...]string{
+	MouseDown: "down", MouseUp: "up", MouseDrag: "drag", MouseMove: "move",
+	WheelUp: "wheel-up", WheelDown: "wheel-down", MouseLeave: "leave", MouseCancel: "cancel",
+}
+
+func (a MouseAction) String() string { return enum.Name(mouseActionNames[:], a, "MouseAction") }
+
+var buttonNames = [...]string{ButtonNone: "none", ButtonLeft: "left", ButtonMiddle: "middle", ButtonRight: "right"}
+
+func (b Button) String() string { return enum.Name(buttonNames[:], b, "Button") }

@@ -128,7 +128,7 @@ func TestObservationBoundsActionPresentationWithoutChangingItsOwner(t *testing.T
 	const reason = "可以执行"
 	action := scene.NewAction(scene.ActionConfig[struct{}, struct{}]{
 		ID: scene.ActionActivate, Label: label,
-		Availability: func(struct{}) scene.Availability { return scene.Availability{Reason: reason} },
+		Availability: func(struct{}) scene.Availability { return scene.Unavailable(reason) },
 		Run: func(context.Context, struct{}) (scene.ActionResult[struct{}], error) {
 			return scene.ActionResult[struct{}]{State: scene.Applied}, nil
 		},
@@ -139,14 +139,14 @@ func TestObservationBoundsActionPresentationWithoutChangingItsOwner(t *testing.T
 		t.Fatal(page, err)
 	}
 	got := page.Nodes[0].Actions[0]
-	if got.Label != "界" || got.Availability.Reason != "可" || !utf8.ValidString(got.Label+got.Availability.Reason) {
+	if got.Label != "界" || got.Reason != "可" || !utf8.ValidString(got.Label+got.Reason) {
 		t.Fatalf("action presentation was not clipped at a rune boundary: %+v", got)
 	}
 	if got.TruncatedText != scene.LabelTruncated|scene.ReasonTruncated || got.ID != action.ID() {
 		t.Fatalf("clipping lost evidence or changed identity: %+v", got)
 	}
 	full, err := r.Observe(scene.Query{})
-	if err != nil || full.Nodes[0].Actions[0].Label != label || full.Nodes[0].Actions[0].Availability.Reason != reason {
+	if err != nil || full.Nodes[0].Actions[0].Label != label || full.Nodes[0].Actions[0].Reason != reason {
 		t.Fatalf("projection modified the action: %+v, %v", full, err)
 	}
 }

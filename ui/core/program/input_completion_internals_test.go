@@ -75,7 +75,7 @@ func TestPhysicalInputUsesCompletionEvidenceBeforeOwnerNotification(t *testing.T
 					ctx, cancel := context.WithCancel(t.Context())
 					output := &controlledFrameOutput{started: make(chan struct{}, 1), release: make(chan struct{})}
 					writer := term.NewWriter(term.WriterConfig{Destination: output})
-					p := &program{root: root, canvas: grid.NewScreen(2, 1), writer: writer, tasks: newTaskQueue(), ctx: ctx, cancel: cancel}
+					p := &program{root: root, screen: grid.NewScreen(2, 1), writer: writer, tasks: newTaskQueue(), ctx: ctx, cancel: cancel}
 					source := &pipeSource{events: make(chan input.Event, 1)}
 					p.inputPipe = newInputPipe(ctx, root, source, source.events, writer.WrittenAt, Config{})
 					t.Cleanup(func() {

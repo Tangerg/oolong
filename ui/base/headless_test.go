@@ -74,9 +74,7 @@ type transcriptFrame struct {
 func (f *transcriptFrame) Element() scene.Element {
 	element := f.transcript.Element()
 	if !element.Alive() {
-		if err := element.SetPaint(f.Draw); err != nil {
-			panic(err)
-		}
+		element.SetPaint(f.Draw)
 	}
 	return element
 }
@@ -211,7 +209,7 @@ func TestAWidgetAnswersToTheNameOfWhatItDoes(t *testing.T) {
 	if !e.Do(base.MoveLineStart) {
 		t.Fatal("the editor did not know an action it documents")
 	}
-	if _, col := e.Cursor(); col != 0 {
+	if col := e.Cursor().Byte; col != 0 {
 		t.Fatalf("cursor at %d, want the start of the line", col)
 	}
 	if e.Do("fly") {
@@ -604,7 +602,7 @@ func TestAcceptingACompletionIsOneUndoStep(t *testing.T) {
 	if got := e.Text(); got != "look at @src/main.go" {
 		t.Fatalf("after accepting = %q", got)
 	}
-	if _, col := e.Cursor(); col != len("look at @src/main.go") {
+	if col := e.Cursor().Byte; col != len("look at @src/main.go") {
 		t.Fatalf("cursor at %d, want after what was put in", col)
 	}
 	e.Undo()
@@ -628,7 +626,7 @@ func TestEditorTyping(t *testing.T) {
 	if got := e.Text(); got != "hello" {
 		t.Fatalf("text = %q", got)
 	}
-	_, col := e.Cursor()
+	col := e.Cursor().Byte
 	if col != 5 {
 		t.Fatalf("cursor at %d, want the end", col)
 	}
@@ -654,16 +652,16 @@ func TestEditorMovesByClusterNotByByteOrRune(t *testing.T) {
 	e.Insert("a中b")
 	e.MoveLineStart()
 	e.MoveRight()
-	if _, col := e.Cursor(); col != 1 {
+	if col := e.Cursor().Byte; col != 1 {
 		t.Fatalf("after one right the cursor is at %d, want past the letter", col)
 	}
 	e.MoveRight()
 	// The wide character is three bytes and one cluster: one press crosses it whole.
-	if _, col := e.Cursor(); col != 4 {
+	if col := e.Cursor().Byte; col != 4 {
 		t.Fatalf("after two rights the cursor is at %d, want past the wide character", col)
 	}
 	e.MoveLeft()
-	if _, col := e.Cursor(); col != 1 {
+	if col := e.Cursor().Byte; col != 1 {
 		t.Fatalf("after moving back the cursor is at %d", col)
 	}
 }
@@ -692,7 +690,7 @@ func TestEditorNewlineSplitsTheLine(t *testing.T) {
 	if got := e.Text(); got != "hello\n world" {
 		t.Fatalf("text = %q", got)
 	}
-	line, col := e.Cursor()
+	line, col := e.Cursor().Line, e.Cursor().Byte
 	if line != 1 || col != 0 {
 		t.Fatalf("cursor at line %d column %d, want the start of the new line", line, col)
 	}
@@ -706,7 +704,7 @@ func TestEditorPasteArrivesAsText(t *testing.T) {
 	if got := e.Text(); got != "func main() {\n\tprintln(1)\n}" {
 		t.Fatalf("text = %q", got)
 	}
-	line, col := e.Cursor()
+	line, col := e.Cursor().Line, e.Cursor().Byte
 	if line != 2 || col != 1 {
 		t.Fatalf("cursor at line %d column %d, want the end of the paste", line, col)
 	}
@@ -720,7 +718,7 @@ func TestEditorBackspaceJoinsLines(t *testing.T) {
 	if got := e.Text(); got != "onetwo" {
 		t.Fatalf("text = %q", got)
 	}
-	if _, col := e.Cursor(); col != 3 {
+	if col := e.Cursor().Byte; col != 3 {
 		t.Fatalf("cursor at %d, want where the join happened", col)
 	}
 }
@@ -753,17 +751,17 @@ func TestEditorWordMotions(t *testing.T) {
 	e.MoveLineEnd()
 
 	e.MoveWordLeft()
-	if _, col := e.Cursor(); col != len("alpha beta_two  ") {
+	if col := e.Cursor().Byte; col != len("alpha beta_two  ") {
 		t.Fatalf("cursor at %d, want the start of the last word", col)
 	}
 	e.MoveWordLeft()
 	// The underscore is part of a word, so a word motion in code stops where a reader
 	// expects rather than in the middle of an identifier.
-	if _, col := e.Cursor(); col != len("alpha ") {
+	if col := e.Cursor().Byte; col != len("alpha ") {
 		t.Fatalf("cursor at %d, want the start of the identifier", col)
 	}
 	e.MoveWordRight()
-	if _, col := e.Cursor(); col != len("alpha beta_two") {
+	if col := e.Cursor().Byte; col != len("alpha beta_two") {
 		t.Fatalf("cursor at %d, want past the identifier", col)
 	}
 }
@@ -823,13 +821,13 @@ func TestEditorKillToStart(t *testing.T) {
 	if got := e.Text(); got != "keep" {
 		t.Fatalf("text = %q", got)
 	}
-	if _, col := e.Cursor(); col != 0 {
+	if col := e.Cursor().Byte; col != 0 {
 		t.Fatalf("cursor at %d, want the start", col)
 	}
 }
 
 func TestEditorUndoStepsOverAPhraseNotALetter(t *testing.T) {
-	// One undo per keystroke would make undo useless in a composer.
+	// One undo per keystroke would make undo useless in an editor.
 	e := &base.Editor{}
 	typeText(e, "hello world")
 	e.Undo()
@@ -885,7 +883,7 @@ func TestEditorVerticalMovementFollowsTheScreenNotTheParagraph(t *testing.T) {
 	if row != 1 {
 		t.Fatalf("after moving down the cursor is on row %d, want the second row", row)
 	}
-	line, _ := e.Cursor()
+	line := e.Cursor().Line
 	if line != 0 {
 		t.Fatalf("cursor moved to logical line %d, want it still inside the one paragraph", line)
 	}
@@ -900,15 +898,15 @@ func TestEditorVerticalMovementKeepsItsColumnThroughShortLines(t *testing.T) {
 	e := &base.Editor{}
 	e.Insert("aaaaaaaa\nbb\ncccccccc")
 	e.MoveLineStart()
-	e.SetCursor(0, 6)
+	e.SetCursor(base.Caret{Byte: 6})
 	cursorAt(scenes, e, 20, 5)
 
 	e.MoveDown()
-	if _, col := e.Cursor(); col != 2 {
+	if col := e.Cursor().Byte; col != 2 {
 		t.Fatalf("on the short line the cursor is at %d, want its end", col)
 	}
 	e.MoveDown()
-	if _, col := e.Cursor(); col != 6 {
+	if col := e.Cursor().Byte; col != 6 {
 		t.Fatalf("back on a long line the cursor is at %d, want the column it started from", col)
 	}
 }
@@ -922,13 +920,13 @@ func TestEditorVerticalMovementStopsAtTheEnds(t *testing.T) {
 	cursorAt(scenes, e, 20, 5)
 	e.MoveUp()
 	e.MoveUp()
-	if line, _ := e.Cursor(); line != 0 {
+	if line := e.Cursor().Line; line != 0 {
 		t.Fatalf("cursor at line %d, want the first", line)
 	}
 	e.MoveDown()
 	e.MoveDown()
 	e.MoveDown()
-	if line, _ := e.Cursor(); line != 1 {
+	if line := e.Cursor().Line; line != 1 {
 		t.Fatalf("cursor at line %d, want the last", line)
 	}
 }
@@ -958,7 +956,7 @@ func TestEditorScrollsToKeepTheCursorVisible(t *testing.T) {
 	if row < 0 || row > 2 {
 		t.Fatalf("cursor is on visible row %d of a 3-row field", row)
 	}
-	e.SetCursor(0, 0)
+	e.SetCursor(base.Caret{})
 	row, _ = cursorAt(scenes, e, 20, 3)
 	if row != 0 {
 		t.Fatalf("after moving to the top the cursor is on row %d", row)
@@ -1435,7 +1433,7 @@ func TestAZeroEditorAnswersTheKeysItDocuments(t *testing.T) {
 	if !e.Handle(input.Key{Code: input.Left}) {
 		t.Fatal("a zero editor ignored the left key")
 	}
-	if _, col := e.Cursor(); col != 2 {
+	if col := e.Cursor().Byte; col != 2 {
 		t.Fatalf("cursor at %d, want it to have moved left", col)
 	}
 }
@@ -1644,20 +1642,20 @@ func TestCompletionTracksTheEditorsLiveToken(t *testing.T) {
 		CurrentToken: func() (base.Token, bool) { return editor.TokenAtCursor(base.Trigger{Prefix: "@"}) },
 		Accept:       func(base.Candidate, base.Token) { accepted = true },
 	})
-	editor.SetCursor(0, 4)
+	editor.SetCursor(base.Caret{Byte: 4})
 	token, ok := completion.CurrentToken()
 	if !ok {
 		t.Fatal("missing initial token")
 	}
 	completion.Offer(token, []base.Candidate{{Text: "one"}})
-	editor.SetCursor(1, 4)
+	editor.SetCursor(base.Caret{Line: 1, Byte: 4})
 	if completion.Open() || completion.Width() != 0 || completion.Do(base.Accept) || accepted {
 		t.Fatal("an offer from another line remained actionable")
 	}
 	if stale, open := completion.Token(); open || stale != (base.Token{}) {
 		t.Fatalf("inactive completion exposed %v", stale)
 	}
-	editor.SetCursor(0, 4)
+	editor.SetCursor(base.Caret{Byte: 4})
 	if !completion.Do(base.Accept) || !accepted {
 		t.Fatal("the matching offer could not be accepted")
 	}
@@ -1666,7 +1664,7 @@ func TestCompletionTracksTheEditorsLiveToken(t *testing.T) {
 func TestMaskedEditorDoesNotOfferCompletionText(t *testing.T) {
 	editor := base.NewEditor(base.EditorConfig{Initial: "@secret"})
 	editor.SetMask("*")
-	editor.SetCursor(0, len(editor.Text()))
+	editor.SetCursor(base.Caret{Byte: len(editor.Text())})
 	token, ok := editor.TokenAtCursor(base.Trigger{Prefix: "@"})
 	if ok || token != (base.Token{}) {
 		t.Fatal("masked text escaped through a completion token")

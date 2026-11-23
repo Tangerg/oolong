@@ -32,16 +32,16 @@ type drawPurityCase struct {
 	state   func() any
 }
 
-func TestZeroComposerMeasurementDoesNotInitializeOwners(t *testing.T) {
-	var composer Composer
-	before := meaningOfEditor(&composer.editor)
-	if got := composer.HeightForWidth(20); got != 1 {
-		t.Fatalf("empty composer height = %d, want 1", got)
+func TestZeroEditorMeasurementDoesNotInitializeOwners(t *testing.T) {
+	var editor Editor
+	before := meaningOfEditor(&editor.editor)
+	if got := editor.HeightForWidth(20); got != 1 {
+		t.Fatalf("empty editor height = %d, want 1", got)
 	}
-	if composer.group != nil || composer.appearance.scope.owner != nil {
+	if editor.group != nil || editor.appearance.scope.owner != nil {
 		t.Fatal("measurement initialized scene or theme ownership")
 	}
-	if after := meaningOfEditor(&composer.editor); !reflect.DeepEqual(after, before) {
+	if after := meaningOfEditor(&editor.editor); !reflect.DeepEqual(after, before) {
 		t.Fatalf("measurement changed editor state: before=%+v after=%+v", before, after)
 	}
 }
@@ -205,7 +205,7 @@ type editorMeaning struct {
 }
 
 func meaningOfEditor(editor *base.Editor) editorMeaning {
-	line, column := editor.Cursor()
+	line, column := editor.Cursor().Line, editor.Cursor().Byte
 	return editorMeaning{
 		text: editor.Text(), line: line, column: column,
 		selection: editor.Selected(), look: editor.Look(),
@@ -257,6 +257,12 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 		name: "Label", width: 8, height: 1, draw: label.Draw, measure: label.HeightForWidth,
 	})
 
+	split := Split{Start: text.Of("working on it", grid.Style{}), End: text.Of("2s", grid.Style{}), Ellipsis: "…"}
+	cases = append(cases, drawPurityCase{
+		name: "Split", width: 10, height: 1, draw: split.Draw, measure: split.HeightForWidth,
+		state: func() any { return split },
+	})
+
 	numbers := LineNumbers{Separator: "│"}
 	rows := []text.Row{{Content: text.Of("one", grid.Style{}), SourceLine: 1}, {Content: text.Of("two", grid.Style{}), SourceLine: 2}}
 	cases = append(cases, drawPurityCase{
@@ -264,10 +270,26 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 		draw: func(view grid.View) { numbers.Draw(view, rows) },
 	})
 
-	entry := &Entry{Label: "source", Body: "passive content"}
+	entry := Entry{Label: "source", Body: NewParagraph("passive content", grid.Style{})}
 	cases = append(cases, drawPurityCase{
-		name: "*Entry", width: 16, height: 4, draw: entry.Draw, measure: entry.HeightForWidth,
+		name: "Entry", width: 16, height: 4, draw: entry.Draw, measure: entry.HeightForWidth,
 	})
+
+	wrapped := NewParagraph("a body that wraps", grid.Style{})
+	indent := Indent{Body: wrapped, Left: 2}
+	gap := Gap(1)
+	stack := Stack{label, indent, gap}
+	cases = append(cases,
+		drawPurityCase{name: "Indent", width: 8, height: 4, draw: indent.Draw, measure: indent.HeightForWidth, state: func() any { return wrapped.Lines() }},
+		drawPurityCase{name: "Gap", width: 8, height: 1, draw: gap.Draw, measure: gap.HeightForWidth},
+		drawPurityCase{name: "Stack", width: 8, height: 6, draw: stack.Draw, measure: stack.HeightForWidth, state: func() any { return wrapped.Lines() }},
+	)
+	framed := Framed{Box: Box{Glyphs: Unicode(), Padding: layout.Symmetric(0, 1)}, Body: wrapped}
+	disclosure := Disclosure{Glyphs: Unicode(), Summary: split, Details: wrapped, Open: true}
+	cases = append(cases,
+		drawPurityCase{name: "Framed", width: 12, height: 5, draw: framed.Draw, measure: framed.HeightForWidth, state: func() any { return wrapped.Lines() }},
+		drawPurityCase{name: "Disclosure", width: 12, height: 4, draw: disclosure.Draw, measure: disclosure.HeightForWidth, state: func() any { return wrapped.Lines() }},
+	)
 
 	overlay := Overlay{Width: 8, Height: 2}
 	cases = append(cases, drawPurityCase{
@@ -349,13 +371,10 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	firstPane.Insert("first")
 	secondPane := &base.Editor{}
 	secondPane.Insert("second")
-	tabs := NewTabs(TabsConfig{
-		Glyphs: Unicode(),
-		Items: []base.Tab{
-			{Title: "first", Content: firstPane.Element()},
-			{Title: "second", Content: secondPane.Element()},
-		},
-	})
+	tabs := NewTabs(TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{
+		{Title: "first", Content: firstPane.Element()},
+		{Title: "second", Content: secondPane.Element()},
+	}}, Glyphs: Unicode()})
 	tabs.Controller().Select(1)
 	scenes.Focus(tabs, true)
 	cases = append(cases, widgetPurityCase(scenes, "*Tabs", tabs, func() any {
@@ -366,7 +385,7 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 		}{tabs.Controller().Selected(), meaningOfEditor(firstPane), meaningOfEditor(secondPane)}
 	}))
 
-	input := NewInput(InputConfig{Label: "name", Initial: "你好"})
+	input := NewInput(InputConfig{Behavior: base.TextConfig{Label: "name", Initial: "你好"}})
 	cases = append(cases, widgetPurityCase(scenes, "*Input", input, func() any {
 		return struct {
 			text     string
@@ -387,24 +406,23 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	settingValues := []string{"dark", "on"}
 	settingChanges := 0
 	settings := NewSettings(SettingsConfig[int]{
-		Items: []int{0, 1},
-		Label: func(index int) string { return []string{"theme", "wrap"}[index] },
-		Value: func(index int) string { return settingValues[index] },
-		Change: func(context.Context, int, int, keymap.Action) (scene.ActionResult[bool], error) {
+		Behavior: base.SettingsConfig[int]{Items: []int{0, 1}, Change: func(context.Context, int, int, keymap.Action) (scene.ActionResult[bool], error) {
 			settingChanges++
 			return scene.ActionResult[bool]{State: scene.Applied, Value: true}, nil
-		},
+		}},
+		Label: func(index int) string { return []string{"theme", "wrap"}[index] },
+		Value: func(index int) string { return settingValues[index] },
 	})
-	settings.Controller().List().Select(1)
+	settings.Controller().Select(1)
 	cases = append(cases, widgetPurityCase(scenes, "*Settings", settings, func() any {
 		return struct {
 			selected int
 			values   []string
 			changes  int
-		}{settings.Controller().List().Selected(), slices.Clone(settingValues), settingChanges}
+		}{settings.Controller().Selected(), slices.Clone(settingValues), settingChanges}
 	}))
 
-	transcript, _ := NewTranscript(TranscriptConfig{})
+	transcript := NewTranscript(TranscriptConfig{})
 	content := transcript.Controller()
 	_, _ = content.Add(&purityBlock{text: "retained", height: 2})
 	scenes.Mount(transcript).Draw(grid.NewSurface(24, 6).View())
@@ -428,13 +446,13 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 		},
 	})
 
-	composer := NewComposer(ComposerConfig{Prompt: "> ", MaxRows: 3})
-	composer.Controller().SetPlaceholder("say something")
-	composer.Controller().SetText("hello")
-	composer.Controller().MoveLeft()
-	scenes.Focus(composer, true)
-	cases = append(cases, widgetPurityCase(scenes, "*Composer", composer, func() any {
-		return meaningOfEditor(composer.Controller())
+	editor := NewEditor(EditorConfig{Behavior: base.EditorConfig{MaxRows: 3}, Prompt: "> "})
+	editor.Controller().SetPlaceholder("say something")
+	editor.Controller().SetText("hello")
+	editor.Controller().MoveLeft()
+	scenes.Focus(editor, true)
+	cases = append(cases, widgetPurityCase(scenes, "*Editor", editor, func() any {
+		return meaningOfEditor(editor.Controller())
 	}))
 
 	paragraph := NewParagraph("one two three four", grid.Style{})
@@ -465,7 +483,7 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	})
 
 	formField := base.NewText(base.TextConfig{Label: "field", Initial: "answer"})
-	form := NewForm(FormConfig{Fields: []base.Field{formField}, Title: "form"})
+	form := NewForm(FormConfig{Behavior: base.FormConfig{Fields: []base.Field{formField}, Title: "form"}})
 	cases = append(cases, widgetPurityCase(scenes, "*Form", form, func() any {
 		return struct {
 			value      string
@@ -474,7 +492,7 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 		}{formField.Text(), formField.Revision(), form.Controller().Submission()}
 	}))
 
-	status := &Status{Glyphs: ASCII(), Doing: "working", Elapsed: "2s"}
+	status := &Status{Glyphs: ASCII(), Label: "working", Elapsed: "2s"}
 	status.Tick()
 	cases = append(cases, drawPurityCase{
 		name: "*Status", width: 24, height: 1,
@@ -484,11 +502,11 @@ func kitDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 				doing, elapsed string
 				frame          int
 				frames         []string
-			}{status.Doing, status.Elapsed, status.frame, slices.Clone(status.Glyphs.Spinner)}
+			}{status.Label, status.Elapsed, status.frame, slices.Clone(status.Glyphs.Spinner)}
 		},
 	})
 
-	tree := NewTree(TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root", Children: []base.Node[string]{{Item: "leaf"}}}}, Text: func(item string) string { return item }, Indent: 2})
+	tree := NewTree(TreeConfig[string]{Behavior: base.TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root", Children: []base.Node[string]{{Item: "leaf"}}}}}, Text: func(item string) string { return item }, Indent: 2})
 	tree.Controller().Open(0)
 	tree.Controller().Select(1)
 	cases = append(cases, widgetPurityCase(scenes, "*Tree", tree, func() any {

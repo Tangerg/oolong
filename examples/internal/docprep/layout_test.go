@@ -76,11 +76,7 @@ func TestWarmCompletionRetriesColdPublicationAfterReleasingTheWorker(t *testing.
 		var transcript *base.Transcript
 		fixture.apply(t, func() error {
 			publisher := fixture.queue.Publisher(source)
-			var err error
-			transcript, err = base.NewTranscript(base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted})
-			if err != nil {
-				return err
-			}
+			transcript = base.NewTranscript(base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted})
 			if _, err := transcript.Add(body); err != nil {
 				return err
 			}
@@ -115,10 +111,7 @@ func TestResizePreparesLatestWidthAndIdleFramesStartNoWork(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		fixture := newQueueFixture(t, 0)
 		body := &widthBody{}
-		transcript, err := base.NewTranscript(base.TranscriptConfig{})
-		if err != nil {
-			t.Fatal(err)
-		}
+		transcript := base.NewTranscript(base.TranscriptConfig{})
 		fixture.apply(t, func() error {
 			if _, err := transcript.Add(body); err != nil {
 				return err
@@ -160,10 +153,7 @@ func TestLayoutFailureDoesNotPollAfterCallerCleanup(t *testing.T) {
 		fixture := newQueueFixture(t, 0)
 		cause := errors.New("cannot prepare width")
 		body := &widthBody{err: cause}
-		transcript, err := base.NewTranscript(base.TranscriptConfig{})
-		if err != nil {
-			t.Fatal(err)
-		}
+		transcript := base.NewTranscript(base.TranscriptConfig{})
 		fixture.apply(t, func() error {
 			if _, err := transcript.Add(body); err != nil {
 				return err
@@ -198,10 +188,7 @@ func TestNewPreparedBodyAtTheSameIdentityCanRecoverFromLayoutFailure(t *testing.
 		cause := errors.New("old layout failed")
 		old, replacement := &widthBody{err: cause}, &widthBody{}
 		document := newDocument(t, "old", false)
-		transcript, err := base.NewTranscript(base.TranscriptConfig{})
-		if err != nil {
-			t.Fatal(err)
-		}
+		transcript := base.NewTranscript(base.TranscriptConfig{})
 		var identity base.BlockID
 		var revision uint64
 		fixture.apply(t, func() error {
@@ -249,10 +236,7 @@ func TestLayoutAdmissionFailureReturnsFromReadyWithoutAWorkerWakeup(t *testing.T
 	synctest.Test(t, func(t *testing.T) {
 		fixture := newQueueFixture(t, 1)
 		body := &widthBody{}
-		transcript, err := base.NewTranscript(base.TranscriptConfig{})
-		if err != nil {
-			t.Fatal(err)
-		}
+		transcript := base.NewTranscript(base.TranscriptConfig{})
 		fixture.apply(t, func() error {
 			if _, err := transcript.Add(body); err != nil {
 				return err
@@ -274,11 +258,7 @@ func TestQueuedResizePublishesOnlyTheLatestImmutableWidth(t *testing.T) {
 		source := &capturePublisher{}
 		var transcript *base.Transcript
 		fixture.apply(t, func() error {
-			var err error
-			transcript, err = base.NewTranscript(base.TranscriptConfig{Publisher: fixture.queue.Publisher(source), Retention: base.PublishCompleted})
-			if err != nil {
-				return err
-			}
+			transcript = base.NewTranscript(base.TranscriptConfig{Publisher: fixture.queue.Publisher(source), Retention: base.PublishCompleted})
 			if _, err := transcript.Add(body); err != nil {
 				return err
 			}
@@ -327,10 +307,7 @@ func TestRevokedDeliveryWaitsForActualLayoutExitBeforeTheShutdownFrame(t *testin
 		fixture := newQueueFixture(t, 0)
 		gate, release := newGate(t)
 		body := &noncooperativeLayout{gate: gate, started: make(chan struct{})}
-		transcript, err := base.NewTranscript(base.TranscriptConfig{})
-		if err != nil {
-			t.Fatal(err)
-		}
+		transcript := base.NewTranscript(base.TranscriptConfig{})
 		fixture.apply(t, func() error {
 			if _, err := transcript.Add(body); err != nil {
 				return err

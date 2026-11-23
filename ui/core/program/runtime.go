@@ -21,10 +21,7 @@ type Runtime struct{ p *program }
 // Operations that can change the host or start work end with task admission.
 // Final presentation may still read its canvas after that boundary closes.
 func (r *Runtime) owner() *program {
-	if r == nil {
-		return nil
-	}
-	if r.p == nil {
+	if r == nil || r.p == nil {
 		return nil
 	}
 	select {
@@ -35,9 +32,20 @@ func (r *Runtime) owner() *program {
 	return r.p
 }
 
-// services centralizes the zero Runtime contract for capability objects. Runtime
-// operations that need the live owner still check it explicitly; a missing owner
-// and a host with no optional services are equivalent only here.
+// live is the host of a running program. A capability that can report failure says
+// ErrStopped once its program has ended rather than errors.ErrUnsupported, which
+// would read as the host lacking the capability.
+func (r *Runtime) live() (hostServices, error) {
+	p := r.owner()
+	if p == nil {
+		return hostServices{}, ErrStopped
+	}
+	return p.host, nil
+}
+
+// services answers capability queries, where a missing owner and a host with no
+// optional services give the same answer: nothing to report. Operations that can
+// fail use live instead.
 func (r *Runtime) services() hostServices {
 	p := r.owner()
 	if p == nil {
@@ -76,7 +84,7 @@ func (r *Runtime) Dispatcher() Dispatcher {
 // Refresh requests a frame without changing component state.
 func (r *Runtime) Refresh() {
 	if p := r.owner(); p != nil {
-		_ = p.tasks.post(nil)
+		p.tasks.requestFrame()
 	}
 }
 

@@ -18,7 +18,7 @@ Kit 提供主题、字形选择、被动内容块和常用复合控件。它组�
 
 构造后始终通过指针持有 live 皮肤。已安装的控制器回调保留该外观所有者；复制结构体会让副本的可编辑字段与真正被测量、绘制的对象分离。这些类型声明不可复制契约，由 `go vet` 检查。需要独立组件时，使用 Config 重新构造；被动内容和不可变主题快照仍保留普通值语义。
 
-通过所有者命令修改保留的外观，例如 `panel.SetBox(next)`、`dialog.SetWhere(next)`、`composer.SetPrompt(next)`、`composer.SetHints(next)`。Getter 返回观察值；修改返回的 `Box` 或 hints 切片不会改变组件。Setter 与行为变更使用相同场景阶段约束，并发布呈现失效。`Box`、`Label`、`Image` 等被动值仍使用普通值构造；由保留它的所有者通过 setter 接受更新。
+通过所有者命令修改保留的外观，例如 `panel.SetBox(next)`、`dialog.SetWhere(next)`、`editor.SetPrompt(next)`、`editor.SetHints(next)`。Getter 返回观察值；修改返回的 `Box` 或 hints 切片不会改变组件。Setter 与行为变更使用相同场景阶段约束，并发布呈现失效。`Box`、`Label`、`Image` 等被动值仍使用普通值构造；由保留它的所有者通过 setter 接受更新。
 
 自定义皮肤可以在挂载前填入 base 元素的绘制与测量槽。挂载期间修改这些槽会被拒绝。Theme 和 glyph 输入只改变外观，不能决定字段焦点、已提交值或动作可用性。
 
@@ -32,7 +32,7 @@ Kit 替换绘制槽后仍保留控制器的类型化集合动作和带修订的�
 
 Box 标题和页脚的最小宽度、可用文字宽度与对齐起点，都由同一个边框标签内缩策略推导。截断与对齐始终保留角点及其相邻边框。
 
-`ButtonConfig`、`SliderConfig` 和 `TranscriptConfig` 通过 `Behavior` 组合对应的 base 配置。例如，`kit.SliderConfig{Behavior: base.SliderConfig{Minimum: 0, Maximum: 100}, Glyphs: glyphs}` 只在控制器配置中定义数值范围，kit 只补充外观与纯格式化能力。
+所有基于 base 控制器的 kit 配置都通过 `Behavior` 组合对应的 base 配置：`ButtonConfig`、`DialogConfig`、`EditorConfig`、`FormConfig`、`InputConfig`、`SettingsConfig`、`SliderConfig`、`TabsConfig`、`TranscriptConfig` 和 `TreeConfig`。例如，`kit.SliderConfig{Behavior: base.SliderConfig{Minimum: 0, Maximum: 100}, Glyphs: glyphs}` 只在控制器配置中定义数值范围，kit 只补充外观与纯格式化能力。`Behavior` 中属于皮肤自身外观槽位的字段（例如 `FormConfig.Behavior.PaintField`）必须保持未设置，构造函数会 panic，而不是忽略它。
 
 ## 主题所有权
 
@@ -44,6 +44,14 @@ Box 标题和页脚的最小宽度、可用文字宽度与对齐起点，都由�
 
 ## Transcript 示例
 
-`kit.NewTranscript(TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted}})` 返回皮肤与错误。通过 `skin.Controller().AddDocument(document)` 添加源文档，再挂载 `skin.Element()`。控制器拥有阅读、选择、固定标题与保留策略；kit 根据同一份候选布局绘制选区、匹配标记与固定标题。
+`kit.NewTranscript(TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: publisher, Retention: base.PublishCompleted}})` 返回皮肤；`base.TranscriptConfig.Validate` 拒绝的配置会令其 panic，来自程序外部的设置应先校验。通过 `skin.Controller().AddDocument(document)` 添加源文档，再挂载 `skin.Element()`。控制器拥有阅读、选择、固定标题与保留策略；kit 根据同一份候选布局绘制选区、匹配标记与固定标题。需要装饰 Transcript 的绘制槽调用 `skin.Draw(frame)`，在其返回的窗口上继续绘制。
+
+设置 `DialogConfig.Fit` 的对话框按放置宽度测量内容来决定面板高度，上限为 `Where.Height` 或可用空间，并随内容增减而伸缩，表单无需为可能出现的验证消息预留行。内容持有键盘焦点的面板用调色板的 `Accent` 绘制边框，接收按键的区域因此一目了然。被动内容通过 `scene.NewElement(scene.Passive(content))` 放入场景；需要被自动化定位时，在配置上补充 `Key`。
+
+需要让计数、耗时或状态保持完整的状态行与标题行使用 `kit.Split`：`Start` 按省略号截断，`End` 完整地贴在右边缘；一行放不下两者时，`End` 整体隐藏而不会被截断。
+
+用 `kit.Stack`、`kit.Indent`、`kit.Gap`、`kit.Label`、`kit.Framed` 和 `kit.Disclosure` 组合被动条目。每个部件的文本投影都落在它绘制的行与列上，组合后的条目按显示内容复制、选择和搜索；不投影文本的部件保留空行。`kit.Entry` 可以给其中任意一种加标签：它的 `Body` 可以是段落、渲染后的文档或 diff。`kit.Framed` 把正文放进 `kit.Box`，作为一个整体块；`kit.Disclosure` 是一段摘要，标记说明是否有详情、详情是否展开；何时展开由其所有者决定。
+
+具有固有宽度的 base 控件在横向测量时会报告它，所以包住 `base.Completion` 的面板测得的是最宽候选项加上自身边框。弹层尺寸用 `panel.Element().Measure(layout.Across, height)` 计算（height 是它可占用的高度），不要手工把边框加到 `Completion.Width` 上。
 
 渲染器不会因为内容滚出屏幕就让其退休，主题也不会最终化流。参见带测试的[流式示例](https://github.com/Tangerg/oolong/tree/main/examples/streaming)和[流式指南](../guides/streaming.md)。

@@ -16,7 +16,7 @@ A renderer consumes context and a complete source string, returning a passive `g
 
 ## Prepare complete snapshots
 
-`markdown.NewRenderer(markdown.RendererConfig{Look: look})` captures its appearance and returns a neutral `content.Renderer`. Each preparation renders the whole source. The returned document view can be drawn and reflowed, but it does not expose semantic setters that could revise an accepted result.
+`markdown.NewRenderer(markdown.RendererConfig{Look: look})` captures its appearance and returns a neutral `content.Renderer`. Set `Look.Glyphs` from `markdown.GlyphsFor(locale)` with the locale the host reports, as `latex.GlyphsFor` does for formulas: an explicit non-UTF locale receives ASCII marks. Each preparation renders the whole source. The returned document view can be drawn and reflowed, but it does not expose semantic setters that could revise an accepted result.
 
 `SourceSnapshot.Prepare` may run as `program.Work[content.Prepared]`. `StreamDocument.Accept` validates the originating identity, revision and EOF state. A late worker cannot replace newer content. Custom renderers must transfer read-only semantic results; layout caches do not authorize source mutation.
 

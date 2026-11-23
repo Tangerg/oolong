@@ -3,25 +3,21 @@
 package term
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"image"
-	"net/url"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	xterm "golang.org/x/term"
 
-	"github.com/Tangerg/oolong/ui/core/ansi"
 	"github.com/Tangerg/oolong/ui/core/clipboard"
 	"github.com/Tangerg/oolong/ui/core/graphics"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
+	"github.com/Tangerg/oolong/ui/core/termenv"
 )
 
 var ErrNotTerminal = errors.New("term: not a terminal")
@@ -142,15 +138,15 @@ func Open(cfg Config) (*Terminal, error) {
 
 // OpenOn accepts explicit files and their terminal environment so PTY and
 // remote sessions do not inherit this process's terminal assumptions. Nil
-// lookup means no environment facts are available.
+// env means no environment facts are available.
 func OpenOn(
 	in, out *os.File,
 	cfg Config,
-	lookup func(string) (string, bool),
+	env termenv.Lookup,
 ) (*Terminal, error) {
 	// Resolve every caller-provided environment fact before raw mode, files or
 	// readers need cleanup. A lookup may panic or leave its goroutine.
-	environment := startupEnvironment(lookup)
+	environment := env.Memoized()
 	modes, err := cfg.Modes(environment)
 	if err != nil {
 		return nil, err
@@ -207,32 +203,11 @@ func checkedTerminalFD(file *os.File, role string) (int, error) {
 	return fd, nil
 }
 
-// Capabilities share environment keys. Read each key from the provider once
-// without maintaining a separate list of which keys the detectors understand.
-func startupEnvironment(lookup func(string) (string, bool)) func(string) (string, bool) {
-	if lookup == nil {
-		return nil
-	}
-	type fact struct {
-		value string
-		set   bool
-	}
-	facts := make(map[string]fact)
-	return func(name string) (string, bool) {
-		f, ok := facts[name]
-		if !ok {
-			f.value, f.set = lookup(name)
-			facts[name] = f
-		}
-		return f.value, f.set
-	}
-}
-
 func newTerminal(
 	in, out *os.File,
 	cfg Config,
 	modes Modes,
-	lookup func(string) (string, bool),
+	env termenv.Lookup,
 ) *Terminal {
 	return &Terminal{
 		in:              in,
@@ -247,10 +222,10 @@ func newTerminal(
 		resizeDone:      make(chan struct{}),
 		task:            newTaskProgress(),
 		clipboard:       clipboard.New(cfg.Features.Clipboard),
-		locale:          DetectLocale(lookup),
-		color:           localDepth(lookup),
-		wheelProfile:    input.WheelFor(lookup, ""),
-		imageProtocol:   graphics.Detect(lookup, "", false),
+		locale:          DetectLocale(env),
+		color:           localDepth(env),
+		wheelProfile:    input.WheelFor(env),
+		imageProtocol:   graphics.Detect(env),
 	}
 }
 
@@ -319,8 +294,8 @@ func (t *Terminal) start(cfg Config) error {
 			deadline: time.Now().Add(answerGrace),
 		}
 		t.said, probeErr = pr.run()
-		if t.said.hasCursor {
-			t.modes = t.modes.restoringCursor(t.said.cursor)
+		if cursor, ok := t.said.cursor.Get(); ok {
+			t.modes = t.modes.restoringCursor(cursor)
 		}
 		early = append(early, pr.early...)
 		end = pr.end
@@ -329,7 +304,8 @@ func (t *Terminal) start(cfg Config) error {
 	// to it directly, so the stream has exactly one owner at every moment.
 	t.writer = NewWriter(WriterConfig{Destination: t.output})
 	go t.task.run(t.stop, t.writer.Queue)
-	t.wheelProfile = t.wheelProfile.Negotiated(t.said.name)
+	name, _ := t.said.name.Get()
+	t.wheelProfile = t.wheelProfile.Negotiated(name)
 	t.imageProtocol = t.said.graphics(t.imageProtocol)
 
 	p := &pump{
@@ -383,34 +359,25 @@ func (t *Terminal) Writer() FrameSink { return t.writer.Frames() }
 // Ground preserves unknown colors as terminal defaults. Blending needs known
 // RGB values for both colors; guessing them can make text unreadable on a
 // different terminal theme.
-func (t *Terminal) Ground() grid.Ground {
-	var g grid.Ground
-	if t.said.hasFg {
-		g.FG = grid.RGBColor(t.said.foreground.R, t.said.foreground.G, t.said.foreground.B)
-	}
-	if t.said.hasBg {
-		g.BG = grid.RGBColor(t.said.background.R, t.said.background.G, t.said.background.B)
-	}
-	return g
-}
+func (t *Terminal) Ground() grid.Ground { return t.said.ground }
 
 // Attributes exposes the terminal's claims, including sixel support. These
 // claims are negotiation evidence rather than proof that rendering will succeed.
 func (t *Terminal) Attributes() (input.DeviceAttributes, bool) {
-	return t.said.attributes, t.said.hasAttrs
+	return t.said.attributes.Get()
 }
 
 // Copy addresses the user's terminal clipboard, which may be remote from this
 // process. Admission is serialized with frames so OSC bytes cannot split one.
-// Success means queued: terminals may refuse clipboard access silently. Oversized
-// text is refused according to clipboard.MaxPayload.
-func (t *Terminal) Copy(text string) bool {
-	seq, ok := t.clipboard.Copy(clipboard.System, text)
-	if !ok {
-		return false
+// A nil error means queued: terminals may refuse clipboard access silently.
+// Oversized text is refused with [clipboard.ErrTooLarge].
+func (t *Terminal) Copy(text string) error {
+	seq, err := t.clipboard.Copy(clipboard.System, text)
+	if err != nil {
+		return err
 	}
-	_, err := t.writer.Queue([]byte(seq))
-	return err == nil
+	_, err = t.writer.Queue([]byte(seq))
+	return err
 }
 
 // ReadClipboard waits outside terminal mode locks. Cancellation ends delivery;
@@ -425,12 +392,12 @@ func (t *Terminal) ReadClipboard(ctx context.Context) (string, error) {
 // Name is the name the terminal gave in reply to the startup probe, and whether
 // it gave one. It never comes from the environment, which may describe an outer
 // or remote terminal. Its spelling is terminal-defined.
-func (t *Terminal) Name() (string, bool) { return t.said.name, t.said.hasName }
+func (t *Terminal) Name() (string, bool) { return t.said.name.Get() }
 
 // Version is the number a terminal gives when it will not give a name, and whether it
 // gave one. See [input.DeviceVersion] for why the numbers are not interpreted here.
 func (t *Terminal) Version() (input.DeviceVersion, bool) {
-	return t.said.version, t.said.hasVersion
+	return t.said.version.Get()
 }
 
 // Keyboard reports the startup probe's accepted-feature snapshot. Consumers
@@ -438,7 +405,7 @@ func (t *Terminal) Version() (input.DeviceVersion, bool) {
 // Features.Probe and a matching reply; later protocol-family observations belong
 // to the input decoder and do not advance this startup snapshot.
 func (t *Terminal) Keyboard() (input.KeyboardFeatures, bool) {
-	return t.said.keyboard, t.said.hasKeyboard
+	return t.said.keyboard.Get()
 }
 
 // Locale is the terminal environment's character locale. It is the explicit
@@ -452,93 +419,6 @@ func (t *Terminal) Color() grid.Depth { return t.color }
 // and otherwise the one its environment suggests.
 func (t *Terminal) Wheel() input.Wheel {
 	return t.wheelProfile
-}
-
-// Graphics is the richest way this terminal will take an image.
-//
-// An answered direct-transfer probe takes precedence over terminal name hints. A
-// session that did not ask — see [Features.Probe] — gets the answer
-// [graphics.Detect] derives from its environment alone.
-func (t *Terminal) Graphics() graphics.Protocol {
-	return t.imageProtocol
-}
-
-// ReportDirectory lets the terminal resolve relative paths in output after
-// the program changes directory. The path becomes absolute; empty uses the
-// process working directory. A nil error means queued with the frames, while
-// Writer reports delivery.
-func (t *Terminal) ReportDirectory(path string) error {
-	if path == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("term: report the directory: %w", err)
-		}
-		path = cwd
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return fmt.Errorf("term: report the directory: %w", err)
-	}
-	// The host is part of the form and is what tells a terminal on the other end of an
-	// ssh connection that the path is not one of its own. A machine that cannot name
-	// itself reports none, which is the form's own way of saying "wherever this is".
-	host, _ := os.Hostname()
-	location := (&url.URL{
-		Scheme: "file",
-		Host:   host,
-		Path:   filepath.ToSlash(abs),
-	}).String()
-	if _, err := t.writer.Queue([]byte("\x1b]7;" + location + "\x1b\\")); err != nil {
-		return err
-	}
-	return nil
-}
-
-// Size is the terminal's size in cells.
-func (t *Terminal) Size() (w, h int, err error) {
-	return xterm.GetSize(t.outFD)
-}
-
-func (t *Terminal) NativeTarget() grid.NativeTarget { return t.imageOwner.NativeTarget() }
-
-// CellSize can remain unknown because cell counts do not determine pixel
-// dimensions. Image fitting must respect the boolean instead of inventing an
-// aspect ratio.
-func (t *Terminal) CellSize() (image.Point, bool) {
-	return cellSize(t.outFD)
-}
-
-// ReleaseImage queues deletion of transmitted image data and all its placements.
-// The caller must stop drawing the image before releasing it.
-func (t *Terminal) ReleaseImage(resource graphics.Resource) error {
-	t.modeMu.Lock()
-	defer t.modeMu.Unlock()
-	return t.imageOwner.Release(resource, func(img graphics.Image) error {
-		return deleteImage(img, t.writer.Queue)
-	})
-}
-
-func deleteImage(img graphics.Image, queue func([]byte) (uint64, error)) error {
-	var payload bytes.Buffer
-	if err := img.Release(&payload); err != nil {
-		return err
-	}
-	_, err := queue(payload.Bytes())
-	return err
-}
-
-// Never delete by ID after the child takes over. Draining between admissions
-// keeps cleanup inside the writer's fixed control budget for any image count.
-func (t *Terminal) releaseImages() error {
-	if err := t.releasePendingImages(); err != nil {
-		return err
-	}
-	return t.imageOwner.ReleaseAll(func(img graphics.Image) error {
-		if err := t.writer.Drain(DrainGrace); err != nil {
-			return err
-		}
-		return deleteImage(img, t.writer.QueueControl)
-	})
 }
 
 // Close attempts every restoration step even after failure: output errors
@@ -638,278 +518,3 @@ func (t *Terminal) control(value string) error {
 }
 
 const readChunkBytes = 4096
-
-// read is the sole input consumer. The platform atom owns waiting and reading
-// together: console readiness can describe records that produce no characters.
-// Returning to this loop after each bounded read lets handover and shutdown claim
-// input without cancelling a kernel read or leaving a second consumer behind.
-func (t *Terminal) read(raw chan<- readResult) {
-	defer close(t.readerDone)
-	defer t.inputReader.close()
-	for {
-		// Bytes already removed from the terminal precede the handover boundary.
-		// Drain that bounded platform buffer before confirming that input parked;
-		// only then may the child own the next kernel read.
-		if !t.inputReader.buffered() {
-			t.handed.park(t.stop)
-		}
-		select {
-		case <-t.stop:
-			return
-		default:
-		}
-		if t.restartInput.Swap(false) {
-			t.inputReader.reset()
-			if !t.sendRead(raw, readResult{restart: true}) {
-				return
-			}
-		}
-
-		result := t.inputReader.read(t.in)
-		if len(result.data) > 0 || result.err != nil {
-			if !t.sendRead(raw, result) {
-				return
-			}
-		}
-		if result.err != nil {
-			return
-		}
-		select {
-		case <-t.stop:
-			return
-		default:
-		}
-	}
-}
-
-func (t *Terminal) sendRead(raw chan<- readResult, result readResult) bool {
-	select {
-	case raw <- result:
-		return true
-	case <-t.stop:
-		return false
-	}
-}
-
-// SetTitle retains the title-stack restoration obligation alongside writer
-// admission. Peers may omit title-stack support, so restoration is best-effort.
-// Titles too large to restate after handover return ErrPayloadTooLarge.
-func (t *Terminal) SetTitle(s string) error {
-	return t.title.to(s, len(t.modes.Enter()), t.writer.Queue)
-}
-
-// Bell delegates attention policy to the user's terminal configuration.
-func (t *Terminal) Bell() error { _, err := t.writer.Queue([]byte{ansi.Bell}); return err }
-
-// Notify is supplementary: unsupported peers may ignore it without a reply.
-// Numeric-leading text receives a bullet so OSC 9 peers cannot interpret it as
-// a control command in their shared notification namespace.
-func (t *Terminal) Notify(text string) error {
-	_, err := t.writer.Queue([]byte(notification(text)))
-	return err
-}
-
-// Hand parks the reader before restoring modes so the child owns every input
-// byte. It runs synchronously on the caller's goroutine; the caller must keep
-// other output producers idle until return. Ownership is restored even if run
-// panics, unless the session was closed from run.
-//
-// prepare runs after the handover claim while interface modes remain active.
-// A prepare error leaves modes unchanged and skips run. Failure to park within
-// the grace period wraps os.ErrDeadlineExceeded and also skips run. Nested or
-// concurrent calls return ErrHandoverActive; closed sessions return ErrClosed.
-// Unsupported input handover returns errors.ErrUnsupported without changes.
-//
-// Pending image cleanup that cannot settle within DrainGrace returns
-// ErrImageCleanupIncomplete without relinquishing terminal ownership. Upload
-// requests remain eligible for later replies. Successful handoff revokes images
-// and outstanding clipboard reads. Retransmit
-// live images before repainting; accepted deletions remain effective if a later
-// step fails. Reacquisition publishes a fresh size because foreground resize
-// signals may have belonged to the child.
-func (t *Terminal) Hand(prepare, run func() error) (err error) {
-	if run == nil {
-		return nil
-	}
-	select {
-	case <-t.stop:
-		return ErrClosed
-	default:
-	}
-	if !t.inputReader.interruptible() {
-		return fmt.Errorf("term: hand the terminal over: %w", errors.ErrUnsupported)
-	}
-	if !t.handed.hold() {
-		return ErrHandoverActive
-	}
-	defer t.handed.release()
-	if prepare != nil {
-		if prepareErr := prepare(); prepareErr != nil {
-			return prepareErr
-		}
-	}
-	select {
-	case <-t.stop:
-		return ErrClosed
-	default:
-	}
-	if releaseErr := t.release(); releaseErr != nil {
-		return releaseErr
-	}
-	// Resume in a defer so a panicking child cannot strand the caller in cooked mode
-	// with its terminal still parked. The panic continues after ownership is restored.
-	defer func() { err = errors.Join(err, t.resume()) }()
-	return run()
-}
-
-func (t *Terminal) release() error {
-	// Keepalives are output too. Pause before taking the writer's watermark so a
-	// refresh cannot appear after the drain and inside the child's output.
-	t.task.pause()
-	if err := t.writer.pauseAdmission(); err != nil {
-		return err
-	}
-	// Drain before changing modes: a late frame would otherwise enter the
-	// child's screen. Refusal here only needs to release the reader claim
-	// and resume keepalives, leaving mode ownership intact.
-	if err := t.writer.Drain(DrainGrace); err != nil {
-		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.resumeOutput())
-	}
-	if err := t.writer.Err(); err != nil {
-		return errors.Join(fmt.Errorf("term: drain before handover: %w", err), t.resumeOutput())
-	}
-	if err := t.awaitUploads(); err != nil {
-		return errors.Join(err, t.resumeOutput())
-	}
-
-	if err := t.park(t.handed.pause()); err != nil {
-		return errors.Join(err, t.resumeOutput())
-	}
-	t.modeMu.Lock()
-	defer t.modeMu.Unlock()
-	select {
-	case <-t.stop:
-		return ErrClosed
-	default:
-	}
-	// Close can seal admission while replies settle. Its seal and this final
-	// handoff check share modeMu, so handoff cannot commit after that seal.
-	if err := t.writer.pauseAdmission(); err != nil {
-		return err
-	}
-	if err := t.output.SetWriteDeadline(time.Now().Add(DrainGrace)); err != nil {
-		return errors.Join(err, t.resumeOutput())
-	}
-	if err := errors.Join(append(t.giveBack(), t.output.active(false))...); err != nil {
-		// release is transactional: on failure no child runs and the session is made
-		// live again before the error reaches the caller.
-		return errors.Join(err, t.retakeModes())
-	}
-	t.ownsModes = false
-	t.clipboard.Interrupt()
-	t.restartInput.Store(true)
-	return nil
-}
-
-func (t *Terminal) resume() error {
-	t.modeMu.Lock()
-	defer t.modeMu.Unlock()
-	select {
-	case <-t.stop:
-		return ErrClosed
-	default:
-	}
-	return t.retakeModes()
-}
-
-// The caller holds modeMu. From the first attempt, Close again owns cleanup
-// even if reacquisition only succeeds in part.
-func (t *Terminal) retakeModes() error {
-	t.ownsModes = true
-	var errs []error
-	errs = append(errs, t.output.active(true))
-	errs = append(errs, t.output.SetWriteDeadline(time.Now().Add(DrainGrace)))
-	if _, err := xterm.MakeRaw(t.inFD); err != nil {
-		errs = append(errs, fmt.Errorf("term: enter raw mode: %w", err))
-	}
-	if err := t.control(t.modes.Enter() + t.title.enter()); err != nil {
-		errs = append(errs, fmt.Errorf("term: take the terminal back: %w", err))
-	}
-	errs = append(errs, t.output.SetWriteDeadline(time.Time{}))
-	if err := errors.Join(errs...); err != nil {
-		// The display is in a state nobody can describe. Sealing admission makes
-		// every later frame report this failure instead of a handover that is
-		// no longer happening.
-		t.writer.seal(fmt.Errorf("term: take the terminal back: %w", err))
-		return err
-	}
-	errs = append(errs, t.resumeOutput())
-
-	// Publish through the watcher's same mailbox, owned by the pump. Even
-	// unchanged dimensions require repaint after a child has owned the display.
-	t.noteResize(t.Size, true)
-	return errors.Join(errs...)
-}
-
-func (t *Terminal) resumeOutput() error {
-	t.writer.resumeAdmission()
-	return t.task.restore(t.writer.Queue)
-}
-
-func (t *Terminal) park(parked <-chan struct{}) error {
-	t.inputReader.wake()
-
-	grace := time.NewTimer(parkGrace)
-	defer grace.Stop()
-	select {
-	case <-parked:
-		return nil
-	case <-t.readerDone:
-		return nil
-	case <-grace.C:
-		return fmt.Errorf("term: wait for reader before handover: %w", os.ErrDeadlineExceeded)
-	case <-t.stop:
-		return ErrClosed
-	}
-}
-
-// SetProgress changes task progress outside the cell grid. Unsupported terminals
-// ignore it. Repeating an unchanged value writes nothing; active values are refreshed
-// often enough for terminals that expire the indicator.
-// An unknown state returns [ErrInvalidProgressState] without replacing accepted progress.
-func (t *Terminal) SetProgress(progress Progress) error {
-	return t.task.to(progress, t.writer.Queue)
-}
-
-// Measure under the same lock as publication: a delayed watcher must not
-// overwrite a newer handover measurement. Handover forces a repaint even
-// when the child returned the same size, because the display may have changed.
-func (t *Terminal) noteResize(measure func() (int, int, error), force bool) {
-	t.resizeMu.Lock()
-	defer t.resizeMu.Unlock()
-	width, height, err := measure()
-	if err == nil && (t.size.observe(width, height) || force) {
-		t.publishResize(width, height)
-	}
-}
-
-// publishResize offers the newest measured size to the input pump. Dimensions are
-// replaceable state: when the pump has not consumed an older observation, replace it
-// instead of dropping the newer truth or blocking the platform watcher.
-//
-// The caller holds resizeMu, which is also what serializes the producers below.
-func (t *Terminal) publishResize(width, height int) {
-	latest := input.Resize{Width: width, Height: height}
-	select {
-	case t.resized <- latest:
-		return
-	default:
-	}
-	select {
-	case <-t.resized:
-	default:
-	}
-	// Producers are serialized by resizeMu. After removing their older value the
-	// mailbox has room, even if the pump raced and consumed that value first.
-	t.resized <- latest
-}

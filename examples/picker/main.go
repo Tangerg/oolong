@@ -42,7 +42,7 @@ func main() {
 type picker struct {
 	runtime *program.Runtime
 	theme   kit.Theme
-	query   *kit.Composer
+	query   *kit.Editor
 	list    *base.Filter[string]
 	chosen  *string
 	element scene.Element
@@ -65,21 +65,13 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 	keys.Bind(base.SelectPageDown, input.Chord{Code: input.PageDown})
 
 	p := &picker{runtime: runtime, theme: theme, chosen: chosen}
-	p.query = kit.NewComposer(kit.ComposerConfig{
-		Theme:       theme,
-		Glyphs:      glyphs,
-		Prompt:      glyphs.Marker + " ",
-		Placeholder: "type to narrow",
-		Keys:        keys,
-	})
-	p.list = new(base.Filter[string])
-	p.list.SetRow(p.row)
+	p.query = kit.NewEditor(kit.EditorConfig{Behavior: base.EditorConfig{Placeholder: "type to narrow", SingleLine: true, Keys: keys}, Theme: theme, Glyphs: glyphs, Prompt: glyphs.Marker + " "})
+	// A click on a match picks it, as the pick key does for the one under the cursor.
+	p.list = base.NewFilter(base.FilterConfig[string]{Row: p.row, Activate: func(int, string) { p.pick() }})
 	// What an item reads as travels with the items: an item is whatever the caller
 	// says it is, so this is the one thing the filter cannot work out for itself.
 	p.list.SetItems(items, func(s string) string { return s })
-	if err := p.list.Element().SetFocusable(func() bool { return false }); err != nil {
-		panic(err)
-	}
+	p.list.Element().SetFocusable(nil)
 	unsubscribe := p.query.Controller().Session().Subscribe(func(base.ChangeMap) {
 		p.list.SetPattern(p.query.Controller().Text())
 	})
@@ -87,7 +79,7 @@ func newPicker(runtime *program.Runtime, items []string, chosen *string) *picker
 		kit.Label{Text: fmt.Sprintf("%d of %d", p.list.Matched(), p.list.Len()), Style: p.theme.Subtle, Align: layout.End}.Draw(frame.View)
 	}})
 	p.element = scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Element: scene.ElementConfig{
-		Key: "picker", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input())} }, Detached: unsubscribe,
+		Key: "picker", Preview: func(event scene.Event) scene.EventResult { return event.Result(p.Handle(event.Input())) }, Detached: unsubscribe,
 	}, Items: []scene.Item{
 		{Size: layout.Fixed(1), Element: p.query.Element()},
 		{Size: layout.Flex(1), Element: p.list.Element()},

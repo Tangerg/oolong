@@ -11,10 +11,18 @@ import (
 
 type backend struct{ node, entry string }
 
+// The official package's npm name and the binary it declares; the defaults run
+// whatever installation of it, and of Node.js, the path selects.
+const (
+	cliPackage  = "@mermaid-js/mermaid-cli"
+	cliCommand  = "mmdc"
+	nodeCommand = "node"
+)
+
 func resolveBackend(cfg Config) (backend, error) {
 	executable := cfg.Executable
 	if executable == "" {
-		executable = "mmdc"
+		executable = cliCommand
 	}
 	resolved, err := exec.LookPath(executable)
 	if err != nil {
@@ -30,7 +38,7 @@ func resolveBackend(cfg Config) (backend, error) {
 	}
 	node := cfg.Node
 	if node == "" {
-		node = "node"
+		node = nodeCommand
 	}
 	node, err = exec.LookPath(node)
 	if err != nil {
@@ -51,12 +59,12 @@ func npmCLI(shim string) (string, error) {
 	// An npm-generated launcher lives in .bin (local) or beside node_modules
 	// (global). A symlink instead selects its target's own installation.
 	switch filepath.Base(entry) {
-	case "mmdc", "mmdc.cmd", "mmdc.ps1":
+	case cliCommand, cliCommand + ".cmd", cliCommand + ".ps1":
 		modules := filepath.Join(dir, "node_modules")
 		if filepath.Base(dir) == ".bin" {
 			modules = filepath.Dir(dir)
 		}
-		root := filepath.Join(modules, "@mermaid-js", "mermaid-cli")
+		root := filepath.Join(modules, filepath.FromSlash(cliPackage))
 		if _, statErr := os.Stat(filepath.Join(root, "package.json")); !errors.Is(statErr, os.ErrNotExist) {
 			return cliEntry(root)
 		}
@@ -85,8 +93,8 @@ func cliEntry(root string) (string, error) {
 	if err = json.Unmarshal(data, &metadata); err != nil {
 		return "", fmt.Errorf("mermaid: CLI package metadata: %w", err)
 	}
-	entry := metadata.Bin["mmdc"]
-	if metadata.Name != "@mermaid-js/mermaid-cli" || !filepath.IsLocal(entry) {
+	entry := metadata.Bin[cliCommand]
+	if metadata.Name != cliPackage || !filepath.IsLocal(entry) {
 		return "", errors.New("mermaid: invalid official CLI entry point")
 	}
 	script := filepath.Join(root, entry)

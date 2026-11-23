@@ -38,10 +38,7 @@ func TestMountedConfigurationChangesShareTheOwnersMutationBoundary(t *testing.T)
 	form := base.NewForm(base.FormConfig{})
 	viewport := base.NewViewport(base.ViewportConfig{})
 	completion := base.NewCompletion(base.CompletionConfig{})
-	transcript, err := base.NewTranscript(base.TranscriptConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := base.NewTranscript(base.TranscriptConfig{})
 	t.Cleanup(transcript.Close)
 	sticky := transcript.Sticky()
 	var keys keymap.Map
@@ -233,10 +230,7 @@ func TestInvalidConfigurationIsRefusedBeforePublication(t *testing.T) {
 	multi := base.NewMultiSelect(base.MultiSelectConfig[int]{Rows: 2})
 	form := base.NewForm(base.FormConfig{Gap: 2})
 	completion := base.NewCompletion(base.CompletionConfig{MaxRows: 2})
-	transcript, err := base.NewTranscript(base.TranscriptConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := base.NewTranscript(base.TranscriptConfig{})
 	t.Cleanup(transcript.Close)
 	sticky := transcript.Sticky()
 	sticky.SetGap(2)
@@ -303,5 +297,53 @@ func TestPresentationConfigurationReadsAreDetachedValues(t *testing.T) {
 	editor.SetLook(look)
 	if editor.Look().Ellipsis != "more" || root.Progress().ModelRevision <= revision {
 		t.Fatal("owner did not publish the revised presentation")
+	}
+}
+
+func TestTextSettingsBeforeMountingFollowTheFieldsIdentity(t *testing.T) {
+	var keys keymap.Map
+	field := base.NewText(base.TextConfig{})
+	field.SetKeys(&keys)
+	field.SetPlaceholder("name")
+	root, err := scene.NewRoot(scene.RootConfig{Element: field.Element()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	candidate, err := root.Prepare(grid.NewSurface(10, 1).View())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.Commit(1)
+	changes := root.Changes()
+	keys.Bind(base.MoveRight, input.Chord{Code: input.Right})
+	select {
+	case <-changes:
+	default:
+		t.Fatal("a key map set before mounting did not invalidate the mounted field")
+	}
+}
+
+func TestAMaskIsConstructionState(t *testing.T) {
+	field := base.NewText(base.TextConfig{Initial: "secret", Mask: "•"})
+	if field.Mask() != "•" || field.Text() != "secret" {
+		t.Fatalf("masked field mask %q text %q", field.Mask(), field.Text())
+	}
+	session := base.NewEditSession(base.EditSessionConfig{Initial: "one\ntwo", Mask: "*"})
+	if got := session.Text(); got != "one two" {
+		t.Fatalf("a masked session holds %q, want one line", got)
+	}
+	for name, construct := range map[string]func(){
+		"invisible mask":    func() { base.NewEditSession(base.EditSessionConfig{Mask: "\u200b"}) },
+		"competing session": func() { base.NewEditor(base.EditorConfig{Session: session, Mask: "*"}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("construction accepted the mask")
+				}
+			}()
+			construct()
+		})
 	}
 }

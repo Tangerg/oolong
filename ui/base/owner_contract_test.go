@@ -58,8 +58,8 @@ func TestSharedEditSessionHasOneTextRevisionAndUndoHistory(t *testing.T) {
 	session := base.NewEditSession(base.EditSessionConfig{Initial: "你好 world"})
 	left := base.NewEditor(base.EditorConfig{Session: session})
 	right := base.NewEditor(base.EditorConfig{Session: session})
-	left.SetCursor(0, len("你好 "))
-	right.SetCursor(0, len("你好 world"))
+	left.SetCursor(base.Caret{Byte: len("你好 ")})
+	right.SetCursor(base.Caret{Byte: len("你好 world")})
 	right.Anchor()
 	right.MoveLeft()
 	revision := session.Revision()
@@ -67,7 +67,7 @@ func TestSharedEditSessionHasOneTextRevisionAndUndoHistory(t *testing.T) {
 	if session.Revision() != revision+1 || right.Text() != left.Text() || right.Text() != "你好 wide world" {
 		t.Fatalf("shared revision/text=%d %q %q", session.Revision(), left.Text(), right.Text())
 	}
-	_, col := right.Cursor()
+	col := right.Cursor().Byte
 	if col != len("你好 wide worl") {
 		t.Fatalf("other view caret=%d", col)
 	}
@@ -93,9 +93,7 @@ func TestSharedSessionRejectsMutationDuringAnyViewProjection(t *testing.T) {
 	first := base.NewEditor(base.EditorConfig{Session: session})
 	second := base.NewEditor(base.EditorConfig{Session: session})
 	element := first.Element()
-	if err := element.SetPaint(func(scene.Frame) { second.SetText("polluted") }); err != nil {
-		t.Fatal(err)
-	}
+	element.SetPaint(func(scene.Frame) { second.SetText("polluted") })
 	root, err := scene.NewRoot(scene.RootConfig{Element: element})
 	if err != nil {
 		t.Fatal(err)
@@ -290,7 +288,7 @@ func TestEditSessionResetPublishesOnlyAfterHistoryIsSettled(t *testing.T) {
 			return
 		}
 		edited = true
-		view.SetCursor(0, len(view.Text()))
+		view.SetCursor(base.Caret{Byte: len(view.Text())})
 		view.Insert(" newer")
 	})
 	defer unsubscribe()
@@ -337,14 +335,12 @@ func TestEditSessionPublishesRevisionBeforeInvalidatingScenePredicates(t *testin
 	editor := base.NewEditor(base.EditorConfig{Session: session})
 	before := session.Revision()
 	observedPartial := false
-	if err := editor.Element().SetFocusable(func() bool {
+	editor.Element().SetFocusable(func() bool {
 		if session.Text() == "new" && session.Revision() == before {
 			observedPartial = true
 		}
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	root := scenes.Mount(editor)
 	root.Draw(grid.NewSurface(8, 1).View())
 	editor.SetText("new")
@@ -369,16 +365,14 @@ func TestControllerInputRejectsPurePhaseBeforeAdvancingMatchers(t *testing.T) {
 		"list":       &base.List[string]{},
 		"filter":     &base.Filter[string]{},
 		"table":      &base.Table[string]{},
-		"tree":       base.NewTree(base.Node[string]{Item: "root"}),
+		"tree":       base.NewTree(base.TreeConfig[string]{Nodes: []base.Node[string]{{Item: "root"}}}),
 		"settings":   &base.Settings[string]{},
 		"completion": &base.Completion{},
 		"slider":     base.NewSlider(base.SliderConfig{Maximum: 5}),
 	}
 	for name, owner := range owners {
 		t.Run(name, func(t *testing.T) {
-			if err := owner.Element().SetPaint(func(scene.Frame) { owner.Handle(input.Key{Rune: 'g'}) }); err != nil {
-				t.Fatal(err)
-			}
+			owner.Element().SetPaint(func(scene.Frame) { owner.Handle(input.Key{Rune: 'g'}) })
 			root := scenes.Mount(owner)
 			func() {
 				defer func() {
@@ -403,9 +397,7 @@ func TestFormCancellationRejectsPurePhaseBeforeCallingWorker(t *testing.T) {
 	if _, err := form.Submit(); err != nil {
 		t.Fatal(err)
 	}
-	if err := form.Element().SetPaint(func(scene.Frame) { _ = form.Cancel() }); err != nil {
-		t.Fatal(err)
-	}
+	form.Element().SetPaint(func(scene.Frame) { _ = form.Cancel() })
 	root := scenes.Mount(form)
 	func() {
 		defer func() {

@@ -11,10 +11,7 @@ func TestTranscriptCloseReleasesItsCommittedContentProjection(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	transcript, err := NewTranscript(TranscriptConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	transcript := NewTranscript(TranscriptConfig{})
 	item, err := transcript.Add(&retainedBlock{payload: []byte("retired body")})
 	if err != nil {
 		t.Fatal(err)

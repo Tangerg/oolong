@@ -6,9 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/content"
-
 	"github.com/Tangerg/oolong/ui/base"
+	"github.com/Tangerg/oolong/ui/core/content"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/publication"
@@ -37,9 +36,7 @@ func (s *said) Rows(int) []text.Row {
 func stageContent(tb testing.TB, content *base.Transcript, width int) {
 	tb.Helper()
 	element := content.Element()
-	if err := element.SetPaint(func(frame scene.Frame) { content.Stage(frame, width) }); err != nil {
-		tb.Fatal(err)
-	}
+	element.SetPaint(func(frame scene.Frame) { content.Stage(frame, width) })
 	root, err := scene.NewRoot(scene.RootConfig{Element: element})
 	if err != nil {
 		tb.Fatal(err)
@@ -54,10 +51,7 @@ func stageContent(tb testing.TB, content *base.Transcript, width int) {
 
 func transcriptSkin(tb testing.TB, cfg kit.TranscriptConfig, blocks ...[]string) (*kit.Transcript, *scene.Root) {
 	tb.Helper()
-	skin, err := kit.NewTranscript(cfg)
-	if err != nil {
-		tb.Fatal(err)
-	}
+	skin := kit.NewTranscript(cfg)
 	for _, rows := range blocks {
 		if _, addErr := skin.Controller().Add(&said{rows: rows}); addErr != nil {
 			tb.Fatal(addErr)
@@ -310,5 +304,47 @@ func TestPhysicalSearchMarksBelongToOneTranscriptProjection(t *testing.T) {
 	updated := transcriptPaint(t, r, 12, 1, 3)
 	if transcriptCell(updated.View(), 0, 0).Style == theme.Selection || m.RevealMatch(0) {
 		t.Error("old match survived a new prepared body at the same size")
+	}
+}
+
+// A decorating paint slot reuses the window the skin staged: the selection the skin
+// marks and the marker the caller adds land on the same rows.
+func TestDrawLetsAPaintSlotDecorateTheStagedRows(t *testing.T) {
+	theme := kit.Dark()
+	skin := kit.NewTranscript(kit.TranscriptConfig{Theme: theme})
+	model := skin.Controller()
+	for _, rows := range [][]string{{"one"}, {"two", "three"}} {
+		if _, addErr := model.Add(&said{rows: rows}); addErr != nil {
+			t.Fatal(addErr)
+		}
+	}
+	current := model.FirstBlock() + 1
+	skin.Element().SetPaint(func(frame scene.Frame) {
+		window := skin.Draw(frame)
+		top, height, ok := window.Content.Extent(current)
+		if !ok {
+			return
+		}
+		for row := top - window.BodyFrom; row < top-window.BodyFrom+height; row++ {
+			window.Body.Text(19, row, "<", theme.Accent)
+		}
+	})
+	root, err := scene.NewRoot(scene.RootConfig{Element: skin.Element()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(root.Close)
+	model.Scroll().ToTop()
+	transcriptPaint(t, root, 20, 3, 1)
+	selected, _ := model.Layout().Hit(base.Point{Row: 1})
+	model.Selection().Set(selected)
+	surface := transcriptPaint(t, root, 20, 3, 2)
+	if transcriptCell(surface.View(), 0, 1).Style != theme.Selection {
+		t.Fatal("the skin's selection was not painted under the decoration")
+	}
+	for row, want := range []string{"", "<", "<"} {
+		if got := transcriptCell(surface.View(), 19, row).Content(); got != want {
+			t.Fatalf("decoration at row %d = %q, want %q", row, got, want)
+		}
 	}
 }

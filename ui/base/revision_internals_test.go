@@ -78,7 +78,7 @@ func TestCollectionRevisionExhaustionCannotPartiallyChangeComposedOwners(t *test
 		}
 	})
 	t.Run("tree", func(t *testing.T) {
-		tree := NewTree(Node[int]{Item: 1, Children: []Node[int]{{Item: 2}}})
+		tree := NewTree(TreeConfig[int]{Nodes: []Node[int]{{Item: 1, Children: []Node[int]{{Item: 2}}}}})
 		tree.list.contentRevision = math.MaxUint64
 		for _, change := range []func(){
 			func() { tree.Open(0) },
@@ -105,11 +105,11 @@ func TestCollectionRevisionExhaustionCannotPartiallyChangeComposedOwners(t *test
 	t.Run("table", func(t *testing.T) {
 		table := NewTable(TableConfig[int]{Items: []int{2, 1}})
 		table.SetSortColumns(func(int) func(int, int) int { return cmp.Compare[int] })
-		table.rows.contentRevision = math.MaxUint64
+		table.contentRevision = math.MaxUint64
 		if panicFrom(func() { table.SortBy(0) }) == nil {
 			t.Fatal("exhausted collection revision accepted a sort")
 		}
-		if _, _, sorted := table.Sorted(); sorted || !slices.Equal(table.Items(), []int{2, 1}) {
+		if _, sorted := table.Sorted(); sorted || !slices.Equal(table.Items(), []int{2, 1}) {
 			t.Fatal("refused sort changed its order or rows")
 		}
 	})

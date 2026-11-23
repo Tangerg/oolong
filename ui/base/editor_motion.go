@@ -2,8 +2,6 @@ package base
 
 import (
 	"image"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
@@ -29,13 +27,13 @@ func (e *Editor) MoveLeft() {
 	e.ensure()
 	e.endTyping()
 	e.desiredColumn = editorColumn{}
-	if e.byteOffset > 0 {
-		e.byteOffset = e.document().snapElementBoundary(e.line, text.PrevCluster(e.document().lines[e.line], e.byteOffset), false)
+	if e.caret.Byte > 0 {
+		e.caret.Byte = e.document().snapElementBoundary(e.caret.Line, text.PrevCluster(e.document().lines[e.caret.Line], e.caret.Byte), false)
 		return
 	}
-	if e.line > 0 {
-		e.line--
-		e.byteOffset = len(e.document().lines[e.line])
+	if e.caret.Line > 0 {
+		e.caret.Line--
+		e.caret.Byte = len(e.document().lines[e.caret.Line])
 	}
 }
 
@@ -46,13 +44,13 @@ func (e *Editor) MoveRight() {
 	e.ensure()
 	e.endTyping()
 	e.desiredColumn = editorColumn{}
-	if e.byteOffset < len(e.document().lines[e.line]) {
-		e.byteOffset = e.document().snapElementBoundary(e.line, nextClusterBoundary(e.document().lines[e.line], e.byteOffset), true)
+	if e.caret.Byte < len(e.document().lines[e.caret.Line]) {
+		e.caret.Byte = e.document().snapElementBoundary(e.caret.Line, nextClusterBoundary(e.document().lines[e.caret.Line], e.caret.Byte), true)
 		return
 	}
-	if e.line < len(e.document().lines)-1 {
-		e.line++
-		e.byteOffset = 0
+	if e.caret.Line < len(e.document().lines)-1 {
+		e.caret.Line++
+		e.caret.Byte = 0
 	}
 }
 
@@ -63,11 +61,11 @@ func (e *Editor) MoveWordLeft() {
 	e.ensure()
 	e.endTyping()
 	e.desiredColumn = editorColumn{}
-	if e.byteOffset == 0 {
+	if e.caret.Byte == 0 {
 		e.MoveLeft()
 		return
 	}
-	e.byteOffset = e.document().snapElementBoundary(e.line, wordStart(e.document().lines[e.line], e.byteOffset), false)
+	e.caret.Byte = e.document().snapElementBoundary(e.caret.Line, wordStart(e.document().lines[e.caret.Line], e.caret.Byte), false)
 }
 
 func (e *Editor) MoveWordRight() {
@@ -77,11 +75,11 @@ func (e *Editor) MoveWordRight() {
 	e.ensure()
 	e.endTyping()
 	e.desiredColumn = editorColumn{}
-	if e.byteOffset == len(e.document().lines[e.line]) {
+	if e.caret.Byte == len(e.document().lines[e.caret.Line]) {
 		e.MoveRight()
 		return
 	}
-	e.byteOffset = e.document().snapElementBoundary(e.line, wordEnd(e.document().lines[e.line], e.byteOffset), true)
+	e.caret.Byte = e.document().snapElementBoundary(e.caret.Line, wordEnd(e.document().lines[e.caret.Line], e.caret.Byte), true)
 }
 
 func (e *Editor) MoveLineStart() {
@@ -91,7 +89,7 @@ func (e *Editor) MoveLineStart() {
 	e.ensure()
 	e.endTyping()
 	e.desiredColumn = editorColumn{}
-	e.byteOffset = 0
+	e.caret.Byte = 0
 }
 
 func (e *Editor) MoveLineEnd() {
@@ -101,14 +99,14 @@ func (e *Editor) MoveLineEnd() {
 	e.ensure()
 	e.endTyping()
 	e.desiredColumn = editorColumn{}
-	e.byteOffset = len(e.document().lines[e.line])
+	e.caret.Byte = len(e.document().lines[e.caret.Line])
 }
 
 func wordStart(s string, i int) int {
 	start := 0
 	inWord := false
 	for at, cluster := range text.Clusters(s[:i]) {
-		word := isWord(cluster)
+		word := text.ClassOf(cluster).InWord()
 		if word && !inWord {
 			start = at
 		}
@@ -120,7 +118,7 @@ func wordStart(s string, i int) int {
 func wordEnd(s string, i int) int {
 	found := false
 	for at, cluster := range text.Clusters(s[i:]) {
-		word := isWord(cluster)
+		word := text.ClassOf(cluster).InWord()
 		if found && !word {
 			return i + at
 		}
@@ -140,11 +138,6 @@ func nextClusterBoundary(s string, at int) int {
 	return at
 }
 
-func isWord(cluster string) bool {
-	r, _ := utf8.DecodeRuneInString(cluster)
-	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
-}
-
 // A soft break has two visual positions at one byte offset; pointer affinity chooses the earlier row.
 func (e *Editor) rowAt(width int) (row, column int) {
 	e.rows(width)
@@ -152,7 +145,7 @@ func (e *Editor) rowAt(width int) (row, column int) {
 	if e.prefersRowEnd() {
 		affinity = text.Backward
 	}
-	point := e.layout.projection.Caret(text.Position{Line: e.line, Byte: e.byteOffset, Affinity: affinity})
+	point := e.layout.projection.Caret(text.Position{Line: e.caret.Line, Byte: e.caret.Byte, Affinity: affinity})
 	return point.Y, point.X
 }
 
@@ -181,14 +174,14 @@ func (e *Editor) moveRow(delta int) {
 		// Logical lines are the best available answer, but the horizontal coordinate
 		// is still a terminal column rather than a byte offset. Copying the byte offset
 		// to a UTF-8 line can put the cursor in the middle of a rune.
-		column := text.ColumnOf(e.document().lines[e.line], e.byteOffset)
+		column := text.ColumnOf(e.document().lines[e.caret.Line], e.caret.Byte)
 		column = e.desiredColumn.resolve(column)
-		target := min(max(e.line+delta, 0), len(e.document().lines)-1)
-		if target == e.line {
+		target := min(max(e.caret.Line+delta, 0), len(e.document().lines)-1)
+		if target == e.caret.Line {
 			return
 		}
-		e.line = target
-		e.byteOffset = e.document().snapElementBoundary(target, text.OffsetAt(e.document().lines[target], column), forward)
+		e.caret.Line = target
+		e.caret.Byte = e.document().snapElementBoundary(target, text.OffsetAt(e.document().lines[target], column), forward)
 		e.desiredColumn = editorColumn{cells: column, valid: true}
 		return
 	}
@@ -198,8 +191,8 @@ func (e *Editor) moveRow(delta int) {
 	if target < 0 || target >= len(e.rows(width)) {
 		return
 	}
-	e.line, e.byteOffset = e.offsetIn(width, target, column)
-	e.byteOffset = e.document().snapElementBoundary(e.line, e.byteOffset, forward)
+	e.caret.Line, e.caret.Byte = e.offsetIn(width, target, column)
+	e.caret.Byte = e.document().snapElementBoundary(e.caret.Line, e.caret.Byte, forward)
 	e.desiredColumn = editorColumn{cells: column, valid: true}
 }
 

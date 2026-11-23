@@ -17,7 +17,7 @@ func TestDialogComposesPanelAndOneBehaviorOwner(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	body := base.NewEditor(base.EditorConfig{Initial: "body"})
-	dialog := kit.NewDialog(kit.DialogConfig{Initial: true, Glyphs: kit.ASCII(), Title: "Title", Body: body.Element(), Where: layout.Placement{Width: 16, Height: 5}})
+	dialog := kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Initial: true, Title: "Title", Content: body.Element()}, Glyphs: kit.ASCII(), Where: layout.Placement{Width: 16, Height: 5}})
 	owner := dialog.Controller()
 	if owner != dialog.Controller() || owner.Content() != dialog.Panel().Element() {
 		t.Fatal("dialog appearance is not attached through its controller")
@@ -47,7 +47,7 @@ func TestDialogCanReplaceItsPanelBodyWithoutAnotherRouter(t *testing.T) {
 
 	first := base.NewEditor(base.EditorConfig{})
 	second := base.NewEditor(base.EditorConfig{})
-	dialog := kit.NewDialog(kit.DialogConfig{Initial: true, Body: first.Element()})
+	dialog := kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Initial: true, Content: first.Element()}})
 	root := scenes.Mount(dialog)
 	root.Draw(grid.NewSurface(20, 6).View())
 	dialog.Panel().SetContent(second.Element())
@@ -61,7 +61,7 @@ func TestDialogWithNoBodyAndNoSpaceIsStillDrawable(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	dialog := kit.NewDialog(kit.DialogConfig{Initial: true, Glyphs: kit.ASCII()})
+	dialog := kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Initial: true}, Glyphs: kit.ASCII()})
 	paintWidget(scenes, 1, 1, dialog)
 	scenes.Mount(dialog).Draw(grid.NewSurface(0, 0).View())
 }
@@ -70,7 +70,7 @@ func TestDialogPlacementUsesConfiguredRectangle(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	dialog := kit.NewDialog(kit.DialogConfig{Initial: true, Glyphs: kit.ASCII(), Where: layout.Placement{Width: 4, Height: 3, Anchor: layout.Middle}})
+	dialog := kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Initial: true}, Glyphs: kit.ASCII(), Where: layout.Placement{Width: 4, Height: 3, Anchor: layout.Middle}})
 	rows := paintWidget(scenes, 10, 7, dialog)
 	if !strings.Contains(rows[2], "+--+") {
 		t.Fatalf("centered rectangle: %v", rows)

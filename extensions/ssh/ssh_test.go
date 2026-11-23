@@ -379,8 +379,8 @@ func TestClipboardPassthroughIsExplicitForTheAcceptedRemoteTerminal(t *testing.T
 		err := runFakeSSHFixture(session, program.ScreenConfig{
 			Terminal: term.Features{Clipboard: clipboard.Config{TmuxPassthrough: passthrough}},
 			Build: func(runtime *program.Runtime) (scene.Element, error) {
-				if !runtime.Clipboard().Copy("copied") {
-					t.Error("remote clipboard copy refused")
+				if err := runtime.Clipboard().Copy("copied"); err != nil {
+					t.Errorf("remote clipboard copy refused: %v", err)
 				}
 				return fixtureElement(quittingComponent{runtime: runtime}), nil
 			},

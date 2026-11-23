@@ -17,7 +17,8 @@ import (
 // source remains readable.
 type Scheme string
 
-// Schemes sorts scheme names so application selection lists remain deterministic.
+// Schemes lists the available scheme names in sorted order, so an application
+// selection list stays deterministic.
 func Schemes() []Scheme {
 	names := styles.Names()
 	available := make([]Scheme, len(names))

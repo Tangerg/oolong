@@ -55,6 +55,8 @@ const (
 	maxReplySourceBytes = 1 << 20
 	mockChunkBytes      = 13
 	mockChunkInterval   = 24 * time.Millisecond
+	// composerMaxRows keeps a long prompt from pushing the reply off the screen.
+	composerMaxRows = 6
 )
 
 // chat owns the product state and composes the lower-level state machines. Each
@@ -69,7 +71,7 @@ type chat struct {
 
 	content     *base.Transcript
 	view        *kit.Transcript
-	composer    *kit.Composer
+	composer    *kit.Editor
 	status      kit.Status
 	element     scene.Element
 	confirm     *base.Confirm
@@ -106,35 +108,21 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) (*cha
 		source:  source,
 		theme:   theme,
 		glyphs:  glyphs,
-		status:  kit.Status{Theme: theme, Glyphs: glyphs, Doing: "ready"},
+		status:  kit.Status{Theme: theme, Glyphs: glyphs, Label: "ready"},
 	}
 	c.preparation = docprep.New(docprep.Config{Runtime: runtime.Runtime, Scope: scope, Failed: c.setOutcome})
-	c.view, err = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: c.preparation.Publisher(runtime.Publisher()), Retention: base.PublishCompleted, PublishPartial: true}, Theme: theme, Glyphs: glyphs})
-	if err != nil {
-		scope.Close()
-		return nil, err
-	}
+	c.view = kit.NewTranscript(kit.TranscriptConfig{Behavior: base.TranscriptConfig{Publisher: c.preparation.Publisher(runtime.Publisher()), Retention: base.PublishCompleted, PublishPartial: true}, Theme: theme, Glyphs: glyphs})
 	c.content = c.view.Controller()
 	if err := runtime.SetFramePreparation(func(width, _ int) (bool, error) { return c.preparation.Ready(width, c.content) }); err != nil {
 		c.content.Close()
 		scope.Close()
 		return nil, err
 	}
-	c.content.Scroll().Wheel(runtime.Environment().Wheel())
-	if err := c.view.Element().SetFocusable(func() bool { return false }); err != nil {
-		panic(err)
-	}
-	c.composer = kit.NewComposer(kit.ComposerConfig{
-		Theme:       theme,
-		Glyphs:      glyphs,
-		Prompt:      glyphs.Marker + " ",
-		Hints:       []keymap.Action{send, base.InsertNewline, cancelSource, quit},
-		Placeholder: "Ask something",
-		Keys:        keys,
-		Clipboard:   runtime.Clipboard(),
-	})
-	c.render = markdown.NewRenderer(markdown.RendererConfig{Look: markdownlook.New(theme, glyphs)})
-	status := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) { c.status.Draw(frame.View) }})
+	c.content.Scroll().SetWheel(runtime.Environment().Wheel())
+	c.view.Element().SetFocusable(nil)
+	c.composer = kit.NewEditor(kit.EditorConfig{Behavior: base.EditorConfig{Placeholder: "Ask something", MaxRows: composerMaxRows, Keys: keys, Clipboard: runtime.Clipboard()}, Theme: theme, Glyphs: glyphs, Prompt: glyphs.Marker + " ", Hints: []keymap.Action{send, base.InsertNewline, cancelSource, quit}})
+	c.render = markdown.NewRenderer(markdown.RendererConfig{Look: markdownlook.New(theme, runtime.Environment().Locale())})
+	status := scene.NewElement(scene.Passive(&c.status))
 	body := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 		{Size: layout.Flex(1), Element: c.view.Element()},
 		{Size: layout.Fixed(1), Element: status},
@@ -142,8 +130,10 @@ func newChatWithSource(runtime *program.InlineRuntime, source replySource) (*cha
 	}})
 	c.buildApproval()
 	c.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
-		Key:     "streaming",
-		Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: c.Handle(event.Input())} },
+		Key: "streaming",
+		// Quitting is a shortcut, so it still works behind the approval dialog.
+		Shortcut: func(event scene.Event) scene.EventResult { return event.Result(c.quitKey(event.Input())) },
+		Preview:  func(event scene.Event) scene.EventResult { return event.Result(c.Handle(event.Input())) },
 		Detached: func() {
 			c.scope.Close()
 			c.preparation.Close()
@@ -164,9 +154,6 @@ func (c *chat) Handle(event input.Event) bool {
 	}
 	action, _ := c.composer.Controller().Keys().ActionFor(key)
 	switch action {
-	case quit:
-		c.runtime.Quit()
-		return true
 	case send:
 		c.requestApproval()
 		return true
@@ -178,9 +165,12 @@ func (c *chat) Handle(event input.Event) bool {
 	}
 }
 
-func (c *chat) quitKey(key input.Key) bool {
-	action, _ := c.composer.Controller().Keys().ActionFor(key)
-	if action != quit {
+func (c *chat) quitKey(event input.Event) bool {
+	key, ok := event.(input.Key)
+	if !ok {
+		return false
+	}
+	if action, _ := c.composer.Controller().Keys().ActionFor(key); action != quit {
 		return false
 	}
 	c.runtime.Quit()

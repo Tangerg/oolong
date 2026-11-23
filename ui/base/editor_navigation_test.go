@@ -27,15 +27,15 @@ func TestEditorPreservesDesiredColumnAcrossWrappedElement(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var editor base.Editor
 			editor.SetText("a\n\nwxyz")
-			editor.SetCursor(1, 0)
+			editor.SetCursor(base.Caret{Line: 1})
 			editor.InsertElement(1, "abcdefg")
-			editor.SetCursor(test.from, test.column)
+			editor.SetCursor(base.Caret{Line: test.from, Byte: test.column})
 			fixture := scenes.Mount(&editor)
 			t.Cleanup(fixture.Root.Close)
 			fixture.Draw(grid.NewSurface(4, 8).View())
 			for range 4 {
 				test.move(&editor)
-				line, byteOffset := editor.Cursor()
+				line, byteOffset := editor.Cursor().Line, editor.Cursor().Byte
 				if line == test.to {
 					if byteOffset != test.column {
 						t.Fatalf("vertical movement reached byte %d, want visual column %d", byteOffset, test.column)
@@ -58,24 +58,24 @@ func TestSharedEditorViewsKeepIndependentDesiredColumns(t *testing.T) {
 
 	session := base.NewEditSession(base.EditSessionConfig{Initial: "a\n\nwxyz"})
 	first := base.NewEditor(base.EditorConfig{Session: session})
-	first.SetCursor(1, 0)
+	first.SetCursor(base.Caret{Line: 1})
 	first.InsertElement(1, "abcdefg")
 	views := []*base.Editor{first, base.NewEditor(base.EditorConfig{Session: session})}
 	for column, editor := range views {
-		editor.SetCursor(0, column)
+		editor.SetCursor(base.Caret{Byte: column})
 		fixture := scenes.Mount(editor)
 		t.Cleanup(fixture.Root.Close)
 		fixture.Draw(grid.NewSurface(4, 8).View())
 	}
 	for range 4 {
 		for _, editor := range views {
-			if line, _ := editor.Cursor(); line < 2 {
+			if line := editor.Cursor().Line; line < 2 {
 				editor.MoveDown()
 			}
 		}
 	}
 	for column, editor := range views {
-		if line, byteOffset := editor.Cursor(); line != 2 || byteOffset != column {
+		if line, byteOffset := editor.Cursor().Line, editor.Cursor().Byte; line != 2 || byteOffset != column {
 			t.Fatalf("view %d cursor = (%d,%d), want (2,%d)", column, line, byteOffset, column)
 		}
 	}

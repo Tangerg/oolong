@@ -161,11 +161,13 @@ func DefaultEditorKeys() *keymap.Map {
 }
 
 func DefaultListKeys() *keymap.Map {
-	return verticalKeys(verticalActions{
+	m := verticalKeys(verticalActions{
 		up: SelectPrev, down: SelectNext,
 		pageUp: SelectPageUp, pageDown: SelectPageDown,
 		first: SelectFirst, last: SelectLast,
 	})
+	m.Bind(Activate, input.Chord{Code: input.Enter})
+	return m
 }
 
 func DefaultScrollKeys() *keymap.Map {

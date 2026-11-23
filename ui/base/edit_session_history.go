@@ -118,30 +118,25 @@ func (h *editHistory) endTyping(view *Editor) {
 func (s *EditSession) snapshot(view *Editor) editSnapshot {
 	return editSnapshot{
 		view: weak.Make(view), lines: slices.Clone(s.lines), marks: slices.Clone(s.marks),
-		caret: Caret{Line: view.line, Byte: view.byteOffset},
+		caret: view.caret,
 	}
 }
 
-func (s *EditSession) undo(view *Editor) {
-	if !s.history.canBack() {
+func (s *EditSession) undo(view *Editor) { s.travel(view, s.history.canBack, s.history.back) }
+
+func (s *EditSession) redo(view *Editor) { s.travel(view, s.history.canForward, s.history.forward) }
+
+// travel ends typing either way, but claims a revision only when there is
+// history to restore.
+func (s *EditSession) travel(view *Editor, available func() bool, step func(editSnapshot) (editSnapshot, bool)) {
+	if !available() {
 		view.endTyping()
 		return
 	}
 	s.requireRevision()
 	view.endTyping()
-	previous, _ := s.history.back(s.snapshot(view))
-	s.restore(view, previous)
-}
-
-func (s *EditSession) redo(view *Editor) {
-	if !s.history.canForward() {
-		view.endTyping()
-		return
-	}
-	s.requireRevision()
-	view.endTyping()
-	next, _ := s.history.forward(s.snapshot(view))
-	s.restore(view, next)
+	restored, _ := step(s.snapshot(view))
+	s.restore(view, restored)
 }
 
 func (s *EditSession) restore(view *Editor, snapshot editSnapshot) {

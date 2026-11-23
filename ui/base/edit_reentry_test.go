@@ -8,9 +8,9 @@ import (
 	"github.com/Tangerg/oolong/ui/base"
 )
 
-type callbackClipboard struct{ copy func(string) bool }
+type callbackClipboard struct{ copy func(string) error }
 
-func (c callbackClipboard) Copy(text string) bool { return c.copy(text) }
+func (c callbackClipboard) Copy(text string) error { return c.copy(text) }
 func (callbackClipboard) Read(context.Context, func(string, error)) error {
 	return errors.ErrUnsupported
 }
@@ -22,18 +22,18 @@ func TestCutCannotDeleteASelectionChangedDuringCopy(t *testing.T) {
 			e.SetText("first second")
 			e.SelectAll()
 			copied := ""
-			e.SetClipboard(callbackClipboard{copy: func(text string) bool {
+			e.SetClipboard(callbackClipboard{copy: func(text string) error {
 				copied = text
 				if change == "content" {
 					e.SetText("replacement")
 					e.SelectAll()
 				} else {
-					e.SetCursor(0, len("first"))
+					e.SetCursor(base.Caret{Byte: len("first")})
 				}
-				return true
+				return nil
 			}})
-			if e.Cut() {
-				t.Fatal("cut deleted a selection that was not copied")
+			if err := e.Cut(); err != nil {
+				t.Fatal(err)
 			}
 			want := "first second"
 			if change == "content" {

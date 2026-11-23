@@ -44,12 +44,11 @@ const quitMarkdown keymap.Action = "quit"
 
 func newMarkdown(runtime *program.Runtime) *markdownScreen {
 	theme := kit.Suited(runtime.Environment().Ground())
-	glyphs := kit.GlyphsFor(runtime.Environment().Locale())
 	screen := &markdownScreen{runtime: runtime, theme: theme}
 	screen.element = drawn.Element("markdown", screen)
 	screen.keys.Bind(quitMarkdown, input.Chord{Rune: 'q'})
 	screen.keys.Bind(quitMarkdown, input.Ctrl.Rune('c'))
-	blocks, err := markdown.Render(markdownSource, markdownlook.New(theme, glyphs))
+	blocks, err := markdown.Render(markdownSource, markdownlook.New(theme, runtime.Environment().Locale()))
 	screen.renderErr = err
 	screen.doc.SetBlocks(blocks)
 	return screen

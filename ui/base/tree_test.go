@@ -33,7 +33,7 @@ func shape(t *base.Tree[string]) string {
 }
 
 func TestATreeShowsWhatHasBeenOpened(t *testing.T) {
-	tree := base.NewTree(files()...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 	if got := shape(tree); got != "core/README" {
 		t.Fatalf("a tree nobody opened shows %q", got)
 	}
@@ -61,7 +61,7 @@ func TestATreeShowsWhatHasBeenOpened(t *testing.T) {
 func TestATreeKeepsItsShapeWhenTheItemsAreReplaced(t *testing.T) {
 	// A file tree is refreshed while the reader is looking at it. Everything they
 	// opened closing again is the difference between a tree and a list of paths.
-	tree := base.NewTree(files()...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 	tree.Open(0)
 	tree.SetNodes(files())
 	if got := shape(tree); got != "core/ grid/ term/README" {
@@ -70,7 +70,7 @@ func TestATreeKeepsItsShapeWhenTheItemsAreReplaced(t *testing.T) {
 }
 
 func TestTreeRefreshPreservesHiddenBranchesWithoutRevivingRemovedOnes(t *testing.T) {
-	tree := base.NewTree(files()...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 	tree.Open(0)
 	tree.Open(2)
 	tree.Close(0)
@@ -96,7 +96,7 @@ func TestTreeRowsRemainDetachedAcrossBranchChanges(t *testing.T) {
 	if empty.Rows() != nil {
 		t.Fatal("zero tree returned a non-nil row snapshot")
 	}
-	tree := base.NewTree(files()...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 	before := tree.Rows()
 	tree.Open(0)
 	opened := tree.Rows()
@@ -112,7 +112,7 @@ func TestTreeRowsRemainDetachedAcrossBranchChanges(t *testing.T) {
 
 func TestATreeOwnsItsRecursiveNodeCollection(t *testing.T) {
 	nodes := files()
-	tree := base.NewTree(nodes...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: nodes})
 	nodes[0].Children[0].Item = "changed outside"
 	if got := tree.Nodes()[0].Children[0].Item; got != "grid" {
 		t.Fatalf("input mutation changed the tree to %q", got)
@@ -129,7 +129,7 @@ func TestTheArrowsMoveThroughATreeTheWayATreeMoves(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	tree := base.NewTree(files()...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 	paintWidget(scenes, 12, 6, tree)
 
 	right := input.Key{Code: input.Right}
@@ -162,7 +162,7 @@ func TestATreeDrawsTheRowsThatFit(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	tree := base.NewTree(files()...)
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: files()})
 	tree.SetRow(func(v grid.View, _ int, row base.Shown[string], selected bool) {
 		mark := " "
 		if selected {

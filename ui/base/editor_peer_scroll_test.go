@@ -17,14 +17,14 @@ func TestAPeerEditKeepsAnotherReadersScroll(t *testing.T) {
 	session := base.NewEditSession(base.EditSessionConfig{Initial: strings.Repeat("line\n", 200)})
 	writer := base.NewEditor(base.EditorConfig{Session: session})
 	reader := base.NewEditor(base.EditorConfig{Session: session})
-	reader.SetCursor(199, 0)
+	reader.SetCursor(base.Caret{Line: 199})
 	paintWidget(scenes, 20, 5, reader)
 	reader.Scroll().ToTop()
 	paintWidget(scenes, 20, 5, reader)
 	if reader.Scroll().Offset() != 0 {
 		t.Fatalf("fixture offset = %d", reader.Scroll().Offset())
 	}
-	writer.SetCursor(0, 0)
+	writer.SetCursor(base.Caret{})
 	writer.InsertRune('x')
 	paintWidget(scenes, 20, 5, reader)
 	if got := reader.Scroll().Offset(); got != 0 {
@@ -41,7 +41,7 @@ func TestPeerEditsOnlyRefineAnUnconsumedCursorReveal(t *testing.T) {
 			writer := base.NewEditor(base.EditorConfig{Session: session})
 			reader := base.NewEditor(base.EditorConfig{Session: session})
 			paintWidget(scenes, 20, 3, reader)
-			reader.SetCursor(10, 0)
+			reader.SetCursor(base.Caret{Line: 10})
 			switch mode {
 			case "committed":
 				paintWidget(scenes, 20, 3, reader)

@@ -35,3 +35,20 @@ func (p *publication) write(w io.Writer, data []byte) error {
 	p.failure = writeAll(w, data)
 	return p.failure
 }
+
+// commit writes one prepared transaction synchronously and settles it only after
+// every byte crossed w; a failed or interrupted write aborts it.
+func (p *publication) commit(w io.Writer, prepare func() (*Output, error)) error {
+	output, err := prepare()
+	if err != nil {
+		return err
+	}
+	defer output.Abort()
+	if output.Len() > 0 {
+		if err := p.write(w, output.payload); err != nil {
+			return err
+		}
+	}
+	output.Commit()
+	return nil
+}

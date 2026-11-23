@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"sync"
 
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/counter"
+	"github.com/Tangerg/oolong/ui/internal/enum"
 )
 
 var (
@@ -121,6 +122,22 @@ func (s *Scope) Close() {
 	}
 }
 
+// admit is the one admission rule for work started under a scope: a live
+// owner, a scope from this session, and a lifetime that has not ended.
+func (r *Runtime) admit(scope *Scope) (*program, error) {
+	p := r.owner()
+	if p == nil {
+		return nil, ErrStopped
+	}
+	if scope == nil || scope.queue != p.tasks {
+		return nil, ErrForeignScope
+	}
+	if !scope.eligible(p) {
+		return nil, ErrScopeClosed
+	}
+	return p, nil
+}
+
 func (s *Scope) eligible(p *program) bool {
 	if s == nil || s.queue != p.tasks || s.ctx.Err() != nil {
 		return false
@@ -191,15 +208,9 @@ type Work[T any] struct {
 // Start reserves completion capacity before launching work. Ordinary Post
 // saturation cannot lose the result or leave an accepted task permanently busy.
 func (r *Runtime) Start[T any](scope *Scope, work Work[T]) (*Task, error) {
-	p := r.owner()
-	if p == nil {
-		return nil, ErrStopped
-	}
-	if scope == nil || scope.queue != p.tasks {
-		return nil, ErrForeignScope
-	}
-	if !scope.eligible(p) {
-		return nil, ErrScopeClosed
+	p, err := r.admit(scope)
+	if err != nil {
+		return nil, err
 	}
 	if work.Run == nil {
 		return nil, errors.New("program: work requires Run")
@@ -208,11 +219,12 @@ func (r *Runtime) Start[T any](scope *Scope, work Work[T]) (*Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.nextTask == math.MaxUint64 {
+	id, ok := counter.Next(p.nextTask)
+	if !ok {
 		slot.close()
 		return nil, errors.New("program: task identity exhausted")
 	}
-	p.nextTask++
+	p.nextTask = id
 	ctx, cancel := context.WithCancelCause(scope.ctx)
 	task := &Task{
 		status: TaskStatus{ID: p.nextTask}, cancel: cancel,
@@ -240,28 +252,28 @@ func (t *Task) run[T any](ctx context.Context, scope *Scope, p *program, slot *r
 		t.complete(err)
 		if work.Apply == nil || t.Snapshot().Delivery != DeliveryPending {
 			slot.close()
-			t.settle(false)
+			t.settle(DeliveryRevoked)
 			return
 		}
 		if !slot.post(func() bool {
 			defer slot.close()
-			delivered := false
-			defer func() { t.settle(delivered) }()
+			delivery := DeliveryRevoked
+			defer func() { t.settle(delivery) }()
 			if scope.eligible(p) && t.claimDelivery() {
-				delivered = true
+				delivery = DeliveryDelivered
 				work.Apply(value, err)
 			}
-			return delivered
+			return delivery == DeliveryDelivered
 		}) {
 			slot.close()
-			t.settle(false)
+			t.settle(DeliveryRevoked)
 		} else {
 			// Revocation can settle delivery before the owner takes the queued
 			// completion. Its captures must not wait for another owner turn to expire.
 			select {
 			case <-t.settled:
 			case <-p.tasks.done:
-				t.settle(false)
+				t.settle(DeliveryRevoked)
 			}
 			slot.close()
 		}
@@ -371,17 +383,13 @@ func (t *Task) revoke() {
 	t.finishDelivery(DeliveryRevoked)
 }
 
-func (t *Task) settle(delivered bool) {
+func (t *Task) settle(delivery DeliveryState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.status.Delivery != DeliveryPending {
 		return
 	}
-	state := DeliveryRevoked
-	if delivered {
-		state = DeliveryDelivered
-	}
-	t.finishDelivery(state)
+	t.finishDelivery(delivery)
 }
 
 // A retained task needs only its receipt after settlement. The callback used
@@ -392,3 +400,11 @@ func (t *Task) finishDelivery(state DeliveryState) {
 	t.status.Delivery = state
 	close(t.settled)
 }
+
+var taskStateNames = [...]string{TaskRunning: "running", TaskSucceeded: "succeeded", TaskFailed: "failed", TaskCancelled: "cancelled"}
+
+func (s TaskState) String() string { return enum.Name(taskStateNames[:], s, "TaskState") }
+
+var deliveryStateNames = [...]string{DeliveryPending: "pending", DeliveryDelivered: "delivered", DeliveryRevoked: "revoked"}
+
+func (s DeliveryState) String() string { return enum.Name(deliveryStateNames[:], s, "DeliveryState") }

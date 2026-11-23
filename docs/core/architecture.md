@@ -35,7 +35,7 @@ The package graph is checked from Go import facts. Mentioning an upper-layer con
 | Field value | The concrete base controller or explicit domain Control | Form output, semantic value, kit paint |
 | Logical editable text and revision | `base.EditSession` | Editor layout, carets and selections mapped through changes |
 | Stream source and finalization | `content.StreamDocument` | Immutable source snapshots and prepared results |
-| Retained conversation references | `base.Transcript` | Transcript layout and reading anchors |
+| Retained transcript content references | `base.Transcript` | Transcript layout and reading anchors |
 | Permanent-output responsibility | `publication.Publisher` | Immutable batches and concurrency-safe receipts |
 | Worker outcome | `program.Task` | Task status; cancellation and delivery are separate fields |
 | Written terminal progress | The frame writer | Publication and scene written-watermark projections |

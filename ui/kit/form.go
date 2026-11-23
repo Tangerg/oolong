@@ -9,27 +9,21 @@ import (
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/scene"
+	"github.com/Tangerg/oolong/ui/internal/setting"
 )
 
-// FormConfig supplies the form's initial fields, semantic title, submission policy and appearance. Scope supplies the live application palette.
-// Fields use the form look while attached. Removing a field restores its own
-// presentation; its value and scene identity stay with its controller.
+// FormConfig carries the base form configuration in Behavior and adds its title,
+// help and field appearance. The skin paints fields, so Behavior.PaintField must be
+// nil. Scope supplies the live application palette. Fields use the form look while
+// attached. Removing a field restores its own presentation; its value and scene
+// identity stay with its controller.
 type FormConfig struct {
-	Key        string
+	Behavior   base.FormConfig
 	Scope      *ThemeScope
 	Appearance ThemeOverride
 	Theme      Theme
 	Glyphs     Glyphs
-	Title      string
 	Hints      []keymap.Action
-	Fields     []base.Field
-	Keys       *keymap.Map
-	Gap        int
-	Check      func() error
-	Submit     func(base.SubmissionID) (scene.ActionState, error)
-	// Cancel follows [base.FormConfig] Cancel: it requests cancellation of a pending attempt only,
-	// and leaving an unsubmitted form belongs to the enclosing navigation.
-	Cancel func(base.SubmissionID) error
 }
 
 // Form composes one base.Form with a title, help and field appearance. It does not own a second field collection, validation state or submission attempt.
@@ -43,28 +37,25 @@ type Form struct {
 	group      *scene.Group
 }
 
-// NewForm panics for negative Gap, invalid fields or scene relations, or
-// competing Theme and Scope palette sources.
+// NewForm panics for negative Gap, invalid fields or scene relations, a field
+// painter in Behavior, or competing Theme and Scope palette sources.
 func NewForm(config FormConfig) *Form {
-	look, appearanceErr := newAppearance(config.Theme, config.Scope, config.Appearance)
-	if appearanceErr != nil {
-		panic(appearanceErr)
-	}
+	look := newAppearance(config.Theme, config.Scope, config.Appearance)
+	requireSkinOwned("form Behavior.PaintField", config.Behavior.PaintField == nil)
 	f := &Form{appearance: look, glyphs: config.Glyphs.clone(), hints: slices.Clone(config.Hints)}
-	f.controller = base.NewForm(base.FormConfig{
-		Key: config.Key, Title: config.Title, Fields: config.Fields, Keys: config.Keys, Gap: config.Gap, Check: config.Check, Submit: config.Submit, Cancel: config.Cancel,
-		PaintField: func(frame scene.Frame, field base.Field) {
-			if themed, ok := field.(base.ThemedField); ok {
-				themed.DrawWith(frame, f.appearance.palette().Look(f.glyphs))
-			} else {
-				field.Draw(frame)
-			}
-		},
-	})
+	behavior := config.Behavior
+	behavior.PaintField = func(frame scene.Frame, field base.Field) {
+		if themed, ok := field.(base.ThemedField); ok {
+			themed.DrawWith(frame, f.appearance.palette().Look(f.glyphs))
+		} else {
+			field.Draw(frame)
+		}
+	}
+	f.controller = base.NewForm(behavior)
 	f.group = scene.NewGroup(scene.GroupConfig{
 		Items: []scene.Item{{Element: f.controller.Element(), Size: layout.Flex(1)}},
 		Element: scene.ElementConfig{
-			Measure: scene.MeasureRows(f.HeightForWidth),
+			Measure: layout.MeasureRows(f.HeightForWidth),
 			Paint: func(frame scene.Frame) {
 				w, h := frame.Size()
 				if f.controller.Title() != "" {
@@ -88,7 +79,7 @@ func NewForm(config FormConfig) *Form {
 func (f *Form) Controller() *base.Form { return f.controller }
 
 func (f *Form) Element() scene.Element {
-	if f == nil || f.group == nil {
+	if f.group == nil {
 		return scene.Element{}
 	}
 	return f.group.Element()
@@ -113,4 +104,4 @@ func (f *Form) Glyphs() Glyphs { return f.glyphs.clone() }
 
 // SetGlyphs panics with scene.ErrBusy outside owner mutation: retained
 // presentation must stay stable during observation and frame preparation.
-func (f *Form) SetGlyphs(value Glyphs) { replaceGlyphs(f.Element(), &f.glyphs, value) }
+func (f *Form) SetGlyphs(value Glyphs) { setting.Replace(f.Element(), &f.glyphs, value.clone()) }

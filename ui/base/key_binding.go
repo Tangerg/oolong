@@ -1,6 +1,7 @@
 package base
 
 import (
+	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
 )
@@ -19,6 +20,12 @@ func (b *keyBinding) resolve(defaults func() *keymap.Map) *keymap.Map {
 		return b.current
 	}
 	return defaults()
+}
+
+// bound is what the effective map binds to action, defaults included, so help text
+// describes exactly the keys that work.
+func (b *keyBinding) bound(defaults func() *keymap.Map, action keymap.Action) []input.Keys {
+	return b.resolve(defaults).Keys(action)
 }
 
 func (b *keyBinding) attach(element scene.Element, matcher *keymap.Matcher) {

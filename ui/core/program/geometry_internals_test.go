@@ -34,7 +34,7 @@ func geometryOwner(t *testing.T) (*program, *int, *int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &program{root: root, canvas: grid.NewScreen(12, 3), writer: &admissionWriter{changes: make(chan struct{})}, tasks: newTaskQueue()}
+	p := &program{root: root, screen: grid.NewScreen(12, 3), writer: &admissionWriter{changes: make(chan struct{})}, tasks: newTaskQueue()}
 	t.Cleanup(p.stop)
 	if _, err := p.compose(true); err != nil {
 		t.Fatal(err)

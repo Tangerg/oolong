@@ -51,9 +51,9 @@ func TestEveryEditorContentOperationAdvancesRevisionOnce(t *testing.T) {
 		{"rune", nil, func(e *base.Editor) { e.InsertRune('x') }},
 		{"newline", nil, func(e *base.Editor) { e.Newline() }},
 		{"backspace", func(e *base.Editor) { e.SetText("x") }, func(e *base.Editor) { e.DeleteBack() }},
-		{"forward delete", func(e *base.Editor) { e.SetText("x"); e.SetCursor(0, 0) }, func(e *base.Editor) { e.DeleteForward() }},
+		{"forward delete", func(e *base.Editor) { e.SetText("x"); e.SetCursor(base.Caret{}) }, func(e *base.Editor) { e.DeleteForward() }},
 		{"word delete", func(e *base.Editor) { e.SetText("a word") }, func(e *base.Editor) { e.DeleteWordBack() }},
-		{"kill to end", func(e *base.Editor) { e.SetText("text"); e.SetCursor(0, 0) }, func(e *base.Editor) { e.KillToEnd() }},
+		{"kill to end", func(e *base.Editor) { e.SetText("text"); e.SetCursor(base.Caret{}) }, func(e *base.Editor) { e.KillToEnd() }},
 		{"kill to start", func(e *base.Editor) { e.SetText("text") }, func(e *base.Editor) { e.KillToStart() }},
 		{"selection delete", func(e *base.Editor) { e.SetText("text"); e.SelectAll() }, func(e *base.Editor) { e.DeleteSelection() }},
 		{"paste event", nil, func(e *base.Editor) { e.Handle(input.Paste{Text: "text"}) }},
@@ -61,7 +61,7 @@ func TestEveryEditorContentOperationAdvancesRevisionOnce(t *testing.T) {
 			e.SetClipboard(&clip{})
 			e.SetText("text")
 			e.SelectAll()
-		}, func(e *base.Editor) { e.Cut() }},
+		}, func(e *base.Editor) { _ = e.Cut() }},
 		{"yank", func(e *base.Editor) {
 			e.SetText("text")
 			e.KillToStart()
@@ -139,11 +139,11 @@ func TestEditorRevisionIgnoresNonContentOperationsAndNoOps(t *testing.T) {
 		{"undo", func(e *base.Editor) { e.Undo() }},
 		{"redo", func(e *base.Editor) { e.Redo() }},
 		{"unknown element", func(e *base.Editor) { e.RemoveElement(base.ElementID{}) }},
-		{"cursor", func(e *base.Editor) { e.SetCursor(3, 8) }},
+		{"cursor", func(e *base.Editor) { e.SetCursor(base.Caret{Line: 3, Byte: 8}) }},
 		{"movement", func(e *base.Editor) { e.MoveRight() }},
 		{"selection", func(e *base.Editor) { e.SelectAll() }},
 		{"focus", func(e *base.Editor) { scenes.Focus(e, false) }},
-		{"copy", func(e *base.Editor) { e.SetClipboard(&clip{}); e.Copy() }},
+		{"copy", func(e *base.Editor) { e.SetClipboard(&clip{}); _ = e.Copy() }},
 		{"paste request", func(e *base.Editor) { e.SetClipboard(&clip{}); _ = e.Paste(context.Background(), func(error) {}) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -167,13 +167,13 @@ func TestEditorRevisionIgnoresInteractionAndPresentationState(t *testing.T) {
 	editor.SetText("first\nsecond\nthird")
 	before := editor.Revision()
 
-	editor.SetCursor(0, 0)
+	editor.SetCursor(base.Caret{})
 	editor.Anchor()
 	editor.MoveRight()
 	editor.Scroll().By(1)
 	scenes.Focus(editor, false)
-	if !editor.Copy() {
-		t.Fatal("selected text was not copied")
+	if err := editor.Copy(); err != nil {
+		t.Fatal(err)
 	}
 	if clipboard.held != "f" {
 		t.Fatalf("clipboard holds %q, want f", clipboard.held)
@@ -261,7 +261,7 @@ func TestHandledNoOpEditorActionsCloseTheTypingRun(t *testing.T) {
 
 func TestVerticalMovementClosesTheTypingRun(t *testing.T) {
 	editor := editorWith("first\nsecond")
-	editor.SetCursor(0, len("first"))
+	editor.SetCursor(base.Caret{Byte: len("first")})
 	editor.InsertRune('x')
 	editor.MoveDown()
 	editor.InsertRune('y')

@@ -22,7 +22,7 @@ func Element(key string, view View) scene.Element {
 		Focusable: func() bool { return true },
 		Paint:     func(frame scene.Frame) { view.Draw(frame.View) },
 		Handle: func(event scene.Event) scene.EventResult {
-			return scene.EventResult{Consumed: view.Handle(event.Input())}
+			return event.Result(view.Handle(event.Input()))
 		},
 	})
 }

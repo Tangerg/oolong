@@ -18,7 +18,7 @@ func TestFormComposesOneControllerWithThemeAndHelp(t *testing.T) {
 
 	field := base.NewText(base.TextConfig{Label: "Name", Placeholder: "who?"})
 	choice := base.NewSelect(base.SelectConfig[string]{Same: base.Equal[string], Label: "Model", Options: base.Options("fast", "good")})
-	form := kit.NewForm(kit.FormConfig{Theme: kit.Dark(), Glyphs: kit.Unicode(), Fields: []base.Field{field, choice}, Title: "New session", Hints: []keymap.Action{base.Submit, base.Cancel}})
+	form := kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Fields: []base.Field{field, choice}, Title: "New session"}, Theme: kit.Dark(), Glyphs: kit.Unicode(), Hints: []keymap.Action{base.Submit, base.Cancel}})
 	owner := form.Controller()
 	if owner == nil || form.Controller() != owner {
 		t.Fatal("appearance manufactured another controller")
@@ -39,7 +39,7 @@ func TestFormAppearanceDoesNotMutateFieldsConfiguration(t *testing.T) {
 	t.Cleanup(scenes.Close)
 
 	field := base.NewText(base.TextConfig{Initial: "answer", Placeholder: "original"})
-	form := kit.NewForm(kit.FormConfig{Theme: kit.Dark(), Glyphs: kit.Unicode(), Fields: []base.Field{field}})
+	form := kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Fields: []base.Field{field}}, Theme: kit.Dark(), Glyphs: kit.Unicode()})
 	revision := field.Revision()
 	_ = paintWidget(scenes, 20, form.HeightForWidth(20), form)
 	if field.Text() != "answer" || field.Placeholder() != "original" || field.Revision() != revision || field.Keys() != nil {
@@ -53,7 +53,7 @@ func TestFormShowsValidationUsingThemeDangerStyle(t *testing.T) {
 
 	theme := kit.Dark()
 	field := base.NewText(base.TextConfig{Label: "Name", Check: func(string) error { return errors.New("required") }})
-	form := kit.NewForm(kit.FormConfig{Theme: theme, Fields: []base.Field{field}})
+	form := kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Fields: []base.Field{field}}, Theme: theme})
 	_, _ = form.Controller().Submit()
 	surface := grid.NewSurface(20, form.HeightForWidth(20))
 	scenes.Mount(form).Draw(surface.View())

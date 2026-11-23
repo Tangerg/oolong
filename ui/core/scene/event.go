@@ -1,7 +1,6 @@
 package scene
 
 import (
-	"errors"
 	"image"
 	"slices"
 	"time"
@@ -33,6 +32,9 @@ type inputRoute struct {
 	layout          *layoutSnapshot
 	turn, focusTurn *byte
 	pointer         bool
+	// crossesModal admits the origin's ancestors above an active modal, which
+	// hold that layer rather than sit beneath it. Only shortcuts cross it.
+	crossesModal bool
 }
 
 func (r *Root) route(n *node, event input.Event, snapshot *layoutSnapshot) inputRoute {
@@ -65,13 +67,22 @@ func (q inputRoute) checkTarget(target Target) error {
 	if n == nil {
 		return ErrStale
 	}
-	if !q.root.allowed(n) {
+	if !q.eligible(n) {
 		return ErrUnavailable
 	}
 	if q.pointer && !q.root.currentGeometry(n, q.layout) {
 		return ErrStale
 	}
 	return nil
+}
+
+// eligible applies the interaction rule of this route: a shortcut route asks only
+// that n be enabled, because it reaches the ancestors that hold a modal layer.
+func (q inputRoute) eligible(n *node) bool {
+	if q.crossesModal {
+		return q.root.enabled(n)
+	}
+	return q.root.allowed(n)
 }
 
 // Input returns the routed input in local coordinates.
@@ -89,7 +100,7 @@ func (e Event) Target() Target { return e.target }
 func (e Event) Read[T any](snapshot *Snapshot[T]) (T, bool) {
 	var zero T
 	layout := e.route.layout
-	if _, pointer := e.input.(input.Mouse); !pointer {
+	if !e.route.pointer {
 		r := e.route.root
 		if r == nil || !r.current(r.layout) {
 			return zero, false
@@ -142,9 +153,20 @@ func (e Event) RequestFocus() error {
 	return e.route.root.RequestFocus(e.target)
 }
 
-// FocusNext traverses eligible targets while this delivery is current.
-func (e Event) FocusNext(backward bool) bool {
-	return e.checkDelivery() == nil && e.route.root.FocusNext(backward)
+// FocusNext moves focus to the next eligible target while this delivery is current.
+func (e Event) FocusNext() bool { return e.checkDelivery() == nil && e.route.root.FocusNext() }
+
+// FocusPrev moves focus to the previous eligible target while this delivery is current.
+func (e Event) FocusPrev() bool { return e.checkDelivery() == nil && e.route.root.FocusPrev() }
+
+// Result answers this event for a handler that reports only whether it consumed the
+// input. A consumed left-button press also takes focus and captures the pointer, so
+// the drag and release completing the gesture come back to this target even after the
+// pointer leaves it. Every other consumed event only stops propagation.
+func (e Event) Result(consumed bool) EventResult {
+	mouse, pointer := e.input.(input.Mouse)
+	press := consumed && pointer && mouse.Presses(input.ButtonLeft)
+	return EventResult{Consumed: consumed, Capture: press, Focus: press}
 }
 
 // Capture claims and consumes this delivered press until release or revocation.
@@ -159,36 +181,6 @@ func (e Event) Capture() error {
 	placement, _ := e.route.layout.lookup(e.target)
 	e.route.root.capture = capture{target: e.target, button: mouse.Button, content: placement.content, press: e.route.turn}
 	return nil
-}
-
-type capture struct {
-	target  Target
-	button  input.Button
-	content contentVersion
-	press   *byte
-	phase   capturePhase
-}
-
-type capturePhase uint8
-
-const (
-	captureActive capturePhase = iota
-	captureReleasing
-	captureRevoked
-)
-
-func (c capture) endsOn(event input.Event) bool {
-	mouse, ok := event.(input.Mouse)
-	if !ok || c.target.IsZero() {
-		return false
-	}
-	return mouse.Action == input.MouseDown || mouse.Action == input.MouseCancel || mouse.Releases(c.button)
-}
-
-func (c capture) cancel(n *node) {
-	if n != nil && n.config.Handle != nil {
-		n.config.Handle(Event{input: input.Mouse{Action: input.MouseCancel, Button: c.button}, target: c.target})
-	}
 }
 
 // CapturedInput retains only the immutable hit map current at input arrival.
@@ -302,165 +294,69 @@ func (r *Root) HandleInput(event CapturedInput) bool {
 		}
 		consumed = r.mouse(mouse, event.layout)
 	} else {
-		route := r.keyboardRoute(r.focus, r.modal())
-		if len(route) != 0 {
-			n := r.resolve(route[0])
-			consumed = r.route(n, event.input, nil).bubble(event.input)
-		}
+		consumed = r.keyboard(event.input)
 	}
 	return consumed || r.inputTurn != turn
 }
 
-func (r *Root) mouse(mouse input.Mouse, snapshot *layoutSnapshot) bool {
-	turn := r.inputTurn
-	if mouse.Action == input.MouseCancel || mouse.Action == input.MouseDown {
-		previous := r.capture
-		r.capture = capture{}
-		if n := r.resolve(previous.target); n != nil && previous.phase != captureRevoked {
-			previous.cancel(n)
-		}
-		if r.inputTurn != turn || r.mutable() != nil {
+// keyboard routes input that follows focus. Shortcuts see a key first. A modal
+// layer that has not reached the screen as it is now composed takes nothing typed,
+// because the key or paste was meant for what the user could see; terminal reports
+// and focus notices still arrive.
+func (r *Root) keyboard(event input.Event) bool {
+	route := r.keyboardRoute(r.focus, r.modal())
+	if len(route) == 0 {
+		return false
+	}
+	q := r.route(r.resolve(route[0]), event, nil)
+	if q.shortcuts(event) {
+		return true
+	}
+	if modal := r.modal(); modal != nil && typed(event) && !r.presented(modal) {
+		return true
+	}
+	return q.bubble(event)
+}
+
+// typed reports whether event is something a person entered.
+func typed(event input.Event) bool {
+	switch event.(type) {
+	case input.Key, input.Paste:
+		return true
+	default:
+		return false
+	}
+}
+
+// shortcuts offers a key to the Shortcut of every node from the root content down
+// to the origin, including those above an active modal.
+func (q inputRoute) shortcuts(event input.Event) bool {
+	if _, ok := event.(input.Key); !ok {
+		return false
+	}
+	q.crossesModal = true
+	var path []*node
+	for n := q.root.resolve(q.origin); n != nil; n = n.parent {
+		path = append(path, n)
+	}
+	for _, n := range slices.Backward(path) {
+		if q.offer(n, n.config.Shortcut, event).Consumed {
 			return true
 		}
-		if mouse.Action == input.MouseCancel {
-			return false
-		}
 	}
-	if mouse.Action == input.MouseLeave {
-		r.leave(mouse)
-		return false
-	}
-	if consumed, routed := r.capturedMouse(mouse, snapshot); routed {
-		return consumed
-	}
-	if mouse.Action == input.MouseDrag || mouse.Action == input.MouseUp {
-		return false
-	}
-	if snapshot == nil {
-		return false
-	}
-	return r.hitMouse(mouse, snapshot)
-}
-
-func (r *Root) capturedMouse(mouse input.Mouse, snapshot *layoutSnapshot) (consumed, routed bool) {
-	held := r.capture
-	if held.target.IsZero() || !mouse.Drags(held.button) && mouse.Action != input.MouseUp {
-		return false, false
-	}
-	n := r.resolve(held.target)
-	if held.phase == captureRevoked || !r.allowed(n) {
-		r.revokeCapture(mouse, held, n)
-		return true, true
-	}
-	if mouse.Action == input.MouseUp && !mouse.Releases(held.button) {
-		return false, true
-	}
-	placement, ok := snapshot.lookup(held.target)
-	q := r.route(n, mouse, snapshot)
-	if !ok || placement.content != held.content || q.check(held.target) != nil {
-		r.revokeCapture(mouse, held, n)
-		return true, true
-	}
-	if held.phase == captureReleasing {
-		return true, true
-	}
-	handle := n.config.Handle
-	if mouse.Releases(held.button) {
-		r.capture.phase = captureReleasing
-		if handle != nil {
-			handle = func(e Event) EventResult {
-				r.capture = capture{}
-				return n.config.Handle(e)
-			}
-		}
-	}
-	if q.preview(n, mouse) {
-		return true, true
-	}
-	return q.dispatch(n, handle, mouse, placement.area).Consumed, true
-}
-
-// Routing can exit before the release reaches its handler. Only the original
-// gesture still awaiting an end needs cancellation; a new press owns itself. A
-// notification may have prepared a frame while the release was routed; the model
-// must then stay unchanged until it settles, so the cancellation waits in the
-// notification queue like every other callback in that phase.
-func (r *Root) finishCapture(held capture, n *node) {
-	if r.capture.press != held.press {
-		return
-	}
-	cancel := r.capture.phase != captureRevoked
-	r.capture = capture{}
-	if !cancel {
-		return
-	}
-	if errors.Is(r.mutable(), ErrBusy) && n != nil {
-		r.notify(n, func() { held.cancel(n) })
-		return
-	}
-	held.cancel(n)
-}
-
-func (r *Root) revokeCapture(mouse input.Mouse, held capture, n *node) {
-	turn := r.inputTurn
-	r.capture.phase = captureRevoked
-	if held.phase != captureRevoked {
-		held.cancel(n)
-	}
-	if r.inputTurn == turn && mouse.Releases(held.button) {
-		r.capture = capture{}
-	}
-}
-
-func (r *Root) currentContent(n *node, placement geometry) bool {
-	return r.contentVersion(n) == placement.content
-}
-
-func (r *Root) hitMouse(mouse input.Mouse, snapshot *layoutSnapshot) bool {
-	turn := r.inputTurn
-	for _, placement := range slices.Backward(snapshot.geometry) {
-		if !placement.hit || !mouse.Pos.In(placement.clip) {
-			continue
-		}
-		n := r.resolve(placement.target)
-		if n == nil {
-			return false
-		}
-		if !r.allowed(n) {
-			return r.modalPointer(mouse, snapshot)
-		}
-		q := r.route(n, mouse, snapshot)
-		if q.check(placement.target) != nil {
-			return false
-		}
-		r.hoverTo(n.target(), mouse, snapshot)
-		if r.inputTurn != turn || r.resolve(placement.target) == nil || r.hover != placement.target {
-			return true
-		}
-		return q.bubble(mouse)
-	}
-	r.leave(mouse)
 	return false
 }
 
-// modalPointer gives a pointer blocked by a modal layer to that layer through the
-// ordinary route: it becomes the hovered target, so what it covers is left, and
-// its Preview sees the event before its Handle, as for any other delivery.
-func (r *Root) modalPointer(mouse input.Mouse, snapshot *layoutSnapshot) bool {
-	modal := r.modal()
-	if modal == nil {
-		return false
+// presented reports whether a confirmed frame carried every child of modal under
+// its current attachment. Opening a layer or replacing its content attaches a child
+// anew, so either one waits for the frame that shows it.
+func (r *Root) presented(modal *node) bool {
+	for _, item := range modal.group.items {
+		if _, ok := r.frames.shown.lookup(item.Element.node.target()); !ok {
+			return false
+		}
 	}
-	if _, ok := snapshot.lookup(modal.target()); !ok {
-		return false
-	}
-	turn := r.inputTurn
-	q := r.route(modal, mouse, snapshot)
-	r.hoverTo(modal.target(), mouse, snapshot)
-	if r.inputTurn != turn || r.hover != modal.target() {
-		return true
-	}
-	return q.bubble(mouse)
+	return true
 }
 
 func (q inputRoute) preview(start *node, event input.Event) bool {
@@ -481,14 +377,6 @@ func (q inputRoute) preview(start *node, event input.Event) bool {
 		}
 	}
 	return false
-}
-
-func (r *Root) currentGeometry(n *node, snapshot *layoutSnapshot) bool {
-	if !r.current(snapshot) {
-		return false
-	}
-	p, ok := snapshot.lookup(n.target())
-	return ok && r.currentContent(n, p)
 }
 
 func (q inputRoute) bubble(event input.Event) bool {
@@ -558,34 +446,4 @@ func (q inputRoute) dispatch(n *node, handle func(Event) EventResult, event inpu
 		result.Consumed = true
 	}
 	return result
-}
-
-func (r *Root) hoverTo(target Target, mouse input.Mouse, snapshot *layoutSnapshot) {
-	if r.hover == target {
-		return
-	}
-	previous := r.hover
-	r.hover = target
-	if n := r.resolve(previous); n != nil && n.config.Handle != nil {
-		placement, _ := snapshot.lookup(previous)
-		mouse.Action = input.MouseLeave
-		mouse.Pos = mouse.Pos.Sub(placement.area.Min)
-		n.config.Handle(Event{input: mouse, target: previous, route: inputRoute{layout: snapshot, pointer: true}})
-	}
-}
-
-func (r *Root) leave(mouse input.Mouse) { r.hoverTo(Target{}, mouse, r.frames.written) }
-
-// Geometry loss and detachment revoke the hit before user code can reenter.
-// A newer hit on the same attachment supersedes its queued leave.
-func (r *Root) revokeHover(n *node) {
-	previous := r.hover
-	r.hover = Target{}
-	if n.config.Handle != nil {
-		r.notify(n, func() {
-			if r.hover != previous {
-				n.config.Handle(Event{input: input.Mouse{Action: input.MouseLeave}, target: previous})
-			}
-		})
-	}
 }

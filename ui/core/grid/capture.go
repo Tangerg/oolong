@@ -87,14 +87,23 @@ func (p *captureStorage) own(value string) string {
 		return owned
 	}
 	cost := int64(len(value))
-	if cost > p.limit-p.used {
-		p.err = ErrCaptureLimit
+	if !p.admits(cost) {
 		return ""
 	}
 	owned := ownedCluster(value)
 	p.values[owned] = owned
 	p.used += cost
 	return owned
+}
+
+// admits is the one budget rule for owned strings. Callers ask before building
+// a string so an oversized cluster is refused without first being copied.
+func (p *captureStorage) admits(cost int64) bool {
+	if p == nil || cost <= p.limit-p.used {
+		return true
+	}
+	p.err = ErrCaptureLimit
+	return false
 }
 
 // Once drawing ends, consuming a string from the pool charges only its first

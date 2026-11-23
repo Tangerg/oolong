@@ -124,7 +124,7 @@ func (a *agent) settleRun(err error) {
 	a.run = nil
 	outcome := finishedOutcome(err)
 	if outcome.kind == outcomeFailed {
-		if appendErr := a.conversation.Append(a.scope.Context(), &kit.Entry{Theme: a.theme, Label: "runtime", Body: err.Error()}); appendErr != nil {
+		if appendErr := a.conversation.Append(a.scope.Context(), &kit.Entry{Theme: a.theme, Label: "runtime", Body: kit.NewParagraph(err.Error(), a.theme.Text)}); appendErr != nil {
 			err = errors.Join(err, appendErr)
 			outcome = finishedOutcome(err)
 		}

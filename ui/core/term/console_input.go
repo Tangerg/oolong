@@ -56,7 +56,7 @@ func (c *consoleText) read() readResult {
 			if !leading.at.Equal(c.at) {
 				out.firstAt = &leading.at
 			}
-			if unit >= 0xdc00 && unit <= 0xdfff {
+			if trailingSurrogate(unit) {
 				c.consume()
 				out.data = utf8.AppendRune(out.data, utf16.DecodeRune(rune(leading.unit), rune(unit)))
 			} else {
@@ -68,9 +68,9 @@ func (c *consoleText) read() readResult {
 		}
 		c.consume()
 		switch {
-		case unit >= 0xd800 && unit <= 0xdbff:
+		case leadingSurrogate(unit):
 			c.leading = consoleSurrogate{unit: unit, at: c.at}
-		case unit >= 0xdc00 && unit <= 0xdfff:
+		case trailingSurrogate(unit):
 			out.data = utf8.AppendRune(out.data, utf8.RuneError)
 		default:
 			out.data = utf8.AppendRune(out.data, rune(unit))
@@ -101,4 +101,20 @@ func (c *consoleText) consume() {
 	if key.repeatCount == 0 {
 		c.records = c.records[1:]
 	}
+}
+
+// UTF-16 encodes a supplementary character as a leading unit from the first range
+// followed by a trailing unit from the second; utf16 decodes a pair but does not
+// say which half a lone unit is.
+const (
+	leadingSurrogateFirst, leadingSurrogateLast   = 0xd800, 0xdbff
+	trailingSurrogateFirst, trailingSurrogateLast = 0xdc00, 0xdfff
+)
+
+func leadingSurrogate(unit uint16) bool {
+	return unit >= leadingSurrogateFirst && unit <= leadingSurrogateLast
+}
+
+func trailingSurrogate(unit uint16) bool {
+	return unit >= trailingSurrogateFirst && unit <= trailingSurrogateLast
 }

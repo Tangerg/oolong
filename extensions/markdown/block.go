@@ -134,11 +134,7 @@ func (p placedEmbedded) height() int { return p.rows }
 func (p placedEmbedded) draw(v grid.View) { p.child.Draw(v) }
 
 func (p placedEmbedded) project(context.Context) ([]text.Row, error) {
-	rows := make([]text.Row, p.rows)
-	if projector, ok := p.child.(text.Projector); ok {
-		copy(rows, text.CloneRows(projector.Rows(p.width)))
-	}
-	return rows, nil
+	return text.ProjectedRows(p.child, p.width, p.rows), nil
 }
 
 // ruleBody is a thematic break: one row of a repeated glyph.
@@ -148,7 +144,7 @@ func (b ruleBody) layout(context.Context, int) (placedBody, error) { return b, n
 
 func (ruleBody) height() int { return 1 }
 
-func (b ruleBody) draw(v grid.View) { drawRule(v, b.glyph) }
+func (b ruleBody) draw(v grid.View) { text.Line{b.glyph}.Tile(v, 0) }
 
 func (ruleBody) project(context.Context) ([]text.Row, error) { return []text.Row{{}}, nil }
 
@@ -205,24 +201,6 @@ func publicRows(rows []text.Wrapped, offset int) []text.Row {
 		}
 	}
 	return out
-}
-
-// Repetition stays anchored to the logical origin even when a viewport clips its left edge.
-func drawRule(v grid.View, glyph text.Span) {
-	pattern := text.Line{glyph}
-	unit := pattern.Width()
-	if unit == 0 || v.Empty() {
-		return
-	}
-	width, _ := v.Size()
-	visible := v.Visible()
-	for x := visible.Min.X - visible.Min.X%unit; x < visible.Max.X; {
-		pattern.Truncate(width-x, "").Draw(v, x, 0)
-		if visible.Max.X-x <= unit {
-			break
-		}
-		x += unit
-	}
 }
 
 var _ grid.Drawable = Block{}

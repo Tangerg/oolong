@@ -38,7 +38,7 @@ func TestFormDisplaysCrossFieldValidationError(t *testing.T) {
 	scenes := scenetest.New()
 	t.Cleanup(scenes.Close)
 
-	form := kit.NewForm(kit.FormConfig{Fields: []base.Field{&base.Text{}}, Check: func() error { return errors.New("answers conflict") }})
+	form := kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Fields: []base.Field{&base.Text{}}, Check: func() error { return errors.New("answers conflict") }}})
 	controller := form.Controller()
 	before := form.HeightForWidth(30)
 	_, _ = controller.Submit()

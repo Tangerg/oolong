@@ -5,9 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/oolong/ui/core/text"
-
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/text"
 )
 
 type cellReader interface {
@@ -88,6 +87,17 @@ func TestRowSeparatorReconstructsLogicalText(t *testing.T) {
 	}
 	if got := (text.Row{Joined: true, Gap: " "}).Separator(); got != " " {
 		t.Fatalf("joined row separator = %q, want its consumed space", got)
+	}
+}
+
+func TestJoinRowsCopiesWhatWasDrawn(t *testing.T) {
+	wrapped := text.NewBlock(text.BlockConfig{Wrap: true, Lines: []text.Line{text.Of("one two three", grid.Style{}), text.Of("four", grid.Style{})}})
+	rows := append(wrapped.Rows(7), text.Row{Content: text.Of("bell\a", grid.Style{})})
+	if got, want := text.JoinRows(rows), "one two three\nfour\nbell"; got != want {
+		t.Fatalf("joined %q, want %q", got, want)
+	}
+	if text.JoinRows(nil) != "" {
+		t.Fatal("no rows joined into text")
 	}
 }
 
@@ -682,7 +692,7 @@ func TestTrailingSpacesAreKeptOnlyWhileTheyFit(t *testing.T) {
 }
 
 func TestWrappingNothingStillGivesARow(t *testing.T) {
-	// A blank line in a composer is a blank line on screen.
+	// A blank line in an editor is a blank line on screen.
 	rows := text.Of("", grid.Style{}).Wrap(10)
 	if len(rows) != 1 {
 		t.Fatalf("wrapped into %d rows, want the one blank row", len(rows))

@@ -1,6 +1,8 @@
 package kit
 
 import (
+	"strings"
+
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/layout"
 	"github.com/Tangerg/oolong/ui/core/text"
@@ -19,6 +21,9 @@ type Spinner struct {
 	frame int
 }
 
+// spinnerLabelGap separates the spinner glyph from its label.
+const spinnerLabelGap = 1
+
 func (s *Spinner) Tick() { s.frame++ }
 
 func (s *Spinner) HeightForWidth(int) int { return 1 }
@@ -28,19 +33,20 @@ func (s *Spinner) Draw(v grid.View) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	x := 0
-	frames := s.Glyphs.Spinner
-	if len(frames) > 0 {
+	s.line().Truncate(w, s.Glyphs.Ellipsis).Draw(v, 0, 0)
+}
+
+// line is the spinner's row: the current frame's glyph, then the label.
+func (s *Spinner) line() text.Line {
+	var line text.Line
+	if frames := s.Glyphs.Spinner; len(frames) > 0 {
 		glyph := frames[((s.frame%len(frames))+len(frames))%len(frames)]
-		x = text.Of(glyph, s.Theme.Accent).Draw(v, 0, 0)
-		if x < w {
-			x = layout.Sum(x, 1)
+		line = append(line, text.Of(glyph, s.Theme.Accent)...)
+		if s.Label != "" {
+			line = append(line, text.Of(strings.Repeat(" ", spinnerLabelGap), s.Theme.Accent)...)
 		}
 	}
-	if s.Label == "" || x >= w {
-		return
-	}
-	text.Of(s.Label, s.Theme.Muted).Truncate(w-x, s.Glyphs.Ellipsis).Draw(v, x, 0)
+	return append(line, text.Of(s.Label, s.Theme.Muted)...)
 }
 
 // Scrollbar shows where a window sits in something taller than itself.
@@ -66,34 +72,28 @@ func (s Scrollbar) Draw(v grid.View) {
 	if visible.Empty() {
 		return
 	}
-	track, thumb := s.Glyphs.ScrollTrack.value, s.Glyphs.ScrollThumb.value
-	if !s.Needed() {
-		if track != "" {
-			for y := visible.Min.Y; y < visible.Max.Y; y++ {
-				v.Text(0, y, track, s.Theme.Subtle)
-			}
+	top, size := s.thumb(h)
+	for y := visible.Min.Y; y < visible.Max.Y; y++ {
+		glyph, style := s.Glyphs.ScrollTrack.value, s.Theme.Subtle
+		if y >= top && y < layout.Sum(top, size) {
+			glyph, style = s.Glyphs.ScrollThumb.value, s.Theme.Muted
 		}
-		return
+		if glyph != "" {
+			v.Text(0, y, glyph, style)
+		}
 	}
+}
 
-	// At least one row of thumb, however long the content: a thumb rounded down to
-	// nothing tells the user nothing.
-	size := max(layout.Scale(h, s.Window, s.Total), 1)
-	scrollable := s.Total - s.Window
-	span := h - size
-	top := 0
-	if scrollable > 0 && span > 0 {
+// thumb is where the thumb starts on a bar of height rows and how many it takes,
+// zero when there is nothing to indicate. A needed thumb takes at least one row: one
+// rounded down to nothing tells the user nothing.
+func (s Scrollbar) thumb(height int) (top, size int) {
+	if !s.Needed() {
+		return 0, 0
+	}
+	size = max(layout.Scale(height, s.Window, s.Total), 1)
+	if scrollable, span := s.Total-s.Window, height-size; scrollable > 0 && span > 0 {
 		top = layout.Scale(span, s.Offset, scrollable)
 	}
-	for y := visible.Min.Y; y < visible.Max.Y; y++ {
-		if y >= top && y < layout.Sum(top, size) {
-			if thumb != "" {
-				v.Text(0, y, thumb, s.Theme.Muted)
-			}
-			continue
-		}
-		if track != "" {
-			v.Text(0, y, track, s.Theme.Subtle)
-		}
-	}
+	return top, size
 }

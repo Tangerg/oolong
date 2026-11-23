@@ -35,3 +35,29 @@ func TestCursorStyleReplyRequiresTheRequestedSuccessfulStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestAPieceReadsBackTheCursorStyleItSelects(t *testing.T) {
+	for _, tc := range []struct {
+		raw   string
+		style ansi.CursorStyle
+		ok    bool
+	}{
+		{"\x1b[ q", ansi.CursorReset, true},
+		{"\x1b[0 q", ansi.CursorReset, true},
+		{"\x1b[2 q", ansi.CursorSteadyBlock, true},
+		{"\x1b[6 q", ansi.CursorSteadyBar, true},
+		{"\x1b[7 q", 0, false},
+		{"\x1b[?2 q", 0, false},
+		{"\x1b[2;1 q", 0, false},
+		{"\x1b[2q", 0, false},
+		{"\x1b[2$q", 0, false},
+	} {
+		piece, _, ok := ansi.Next(tc.raw)
+		if !ok {
+			t.Fatalf("Next(%q) did not frame a piece", tc.raw)
+		}
+		if style, ok := piece.CursorStyle(); ok != tc.ok || style != tc.style {
+			t.Errorf("CursorStyle(%q) = %v, %v; want %v, %v", tc.raw, style, ok, tc.style, tc.ok)
+		}
+	}
+}

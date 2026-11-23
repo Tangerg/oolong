@@ -219,3 +219,39 @@ func FuzzFilteredCoordinatesFollowDisplay(f *testing.F) {
 		}
 	})
 }
+
+type overprojecting struct{ rows []string }
+
+func (o overprojecting) HeightForWidth(int) int { return 1 }
+func (o overprojecting) Draw(grid.View)         {}
+func (o overprojecting) Rows(int) []text.Row {
+	out := make([]text.Row, len(o.rows))
+	for i, row := range o.rows {
+		out[i] = text.Row{Content: text.Of(row, grid.Style{}), Offset: i}
+	}
+	return out
+}
+
+type unprojected struct{}
+
+func (unprojected) HeightForWidth(int) int { return 2 }
+func (unprojected) Draw(grid.View)         {}
+
+// A composition reports exactly the rows a part draws: its text where it has some,
+// never more rows than it draws, and blank rows for a part with no text at all.
+func TestProjectedRowsAlignTextWithTheDrawnHeight(t *testing.T) {
+	cut := text.ProjectedRows(overprojecting{rows: []string{"kept", "extra"}}, 10, 1)
+	if len(cut) != 1 || cut[0].Content.String() != "kept" {
+		t.Fatalf("over-long projection = %+v, want only the drawn row", cut)
+	}
+	padded := text.ProjectedRows(overprojecting{rows: []string{"one"}}, 10, 3)
+	if len(padded) != 3 || padded[0].Content.String() != "one" || padded[2].Content != nil {
+		t.Fatalf("short projection = %+v, want blank rows after the text", padded)
+	}
+	if blank := text.ProjectedRows(unprojected{}, 10, 2); len(blank) != 2 || blank[1].Content != nil {
+		t.Fatalf("unprojected rows = %+v", blank)
+	}
+	if none := text.ProjectedRows(unprojected{}, 10, 0); none != nil {
+		t.Fatalf("a part that draws nothing projected %+v", none)
+	}
+}

@@ -155,9 +155,16 @@ func TestCommandsReplaceByName(t *testing.T) {
 	if !ok || cmd.Title != "something else" || value != "replacement" {
 		t.Errorf("lookup found %+v, %q (%v)", cmd, value, ok)
 	}
-	c.Add(base.Command{}, "ignored")
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("a command with no name was accepted")
+			}
+		}()
+		c.Add(base.Command{}, "refused")
+	}()
 	if c.Len() != before {
-		t.Errorf("a command with no name was registered")
+		t.Errorf("a refused command changed the registry to %d commands", c.Len())
 	}
 }
 

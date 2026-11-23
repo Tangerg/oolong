@@ -122,8 +122,7 @@ func newSearchCorpus(source []text.Row) searchCorpus {
 	corpus := searchCorpus{rows: make([]text.Row, len(source)), starts: make([]int, len(source))}
 	var b strings.Builder
 	for i, row := range source {
-		row.Content = row.Content.Display()
-		row.Gap = (text.Line{{Text: row.Gap}}).Display().String()
+		row = row.Display()
 		corpus.rows[i] = row
 		if i > 0 {
 			b.WriteString(row.Separator())

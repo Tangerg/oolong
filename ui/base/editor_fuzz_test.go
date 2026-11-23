@@ -47,7 +47,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 			case 1:
 				editor.InsertRune(rune(b))
 			case 2:
-				line, _ := editor.Cursor()
+				line := editor.Cursor().Line
 				editor.Replace(line, int(b)%5-2, int(b)%9, fragment)
 			case 3:
 				editor.DeleteBack()
@@ -56,7 +56,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 			case 5:
 				editor.DeleteWordBack()
 			case 6:
-				editor.SetCursor(int(b)%7-3, int(b)%13-4)
+				editor.SetCursor(base.Caret{Line: int(b)%7 - 3, Byte: int(b)%13 - 4})
 			case 7:
 				editor.MoveLeft()
 			case 8:
@@ -109,7 +109,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 			case 29:
 				editor.DeleteSelection()
 			case 30:
-				editor.Cut()
+				_ = editor.Cut()
 			case 31:
 				editor.Handle(input.Paste{Text: fragment})
 			case 32:
@@ -117,7 +117,7 @@ func FuzzEditorStateTransitions(f *testing.F) {
 			case 33:
 				scenes.Focus(editor, b&1 != 0)
 			case 34:
-				editor.Copy()
+				_ = editor.Copy()
 			case 35:
 				editor.DeleteForward()
 			}
@@ -150,7 +150,7 @@ func assertEditorStorage(t *testing.T, editor *base.Editor) {
 	if (editor.SingleLine() || editor.Mask() != "") && len(lines) != 1 {
 		t.Fatalf("one-line editor retained %d logical lines in %q", len(lines), document)
 	}
-	line, col := editor.Cursor()
+	line, col := editor.Cursor().Line, editor.Cursor().Byte
 	if line < 0 || line >= len(lines) || col < 0 || col > len(lines[line]) {
 		t.Fatalf("cursor (%d,%d) is outside %q", line, col, document)
 	}

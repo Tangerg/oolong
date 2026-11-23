@@ -16,7 +16,7 @@ contentType: How-to
 
 ## 准备完整快照
 
-`markdown.NewRenderer(markdown.RendererConfig{Look: look})` 固定外观并返回中性的 `content.Renderer`。每次准备都渲染完整源。结果文档可以绘制和重排，但不暴露会修订已接受结果的语义 setter。
+`markdown.NewRenderer(markdown.RendererConfig{Look: look})` 固定外观并返回中性的 `content.Renderer`。`Look.Glyphs` 取自 `markdown.GlyphsFor(locale)`，locale 使用宿主报告的值，与公式使用的 `latex.GlyphsFor` 一致：明确的非 UTF locale 得到 ASCII 标记。每次准备都渲染完整源。结果文档可以绘制和重排，但不暴露会修订已接受结果的语义 setter。
 
 `SourceSnapshot.Prepare` 可作为 `program.Work[content.Prepared]` 执行。`StreamDocument.Accept` 验证来源身份、修订与 EOF 状态，迟到的工作线程不能覆盖新内容。自定义渲染器必须移交只读语义结果；布局缓存不授予修改源的权限。
 

@@ -373,10 +373,10 @@ func visibleRuns(frame string) (string, error) {
 				visible.WriteByte(0)
 			}
 		case ansi.Other:
-			if piece.Raw == "\x1b(B" {
+			if piece.Raw == ansi.DesignateASCII {
 				continue
 			}
-			if strings.HasPrefix(piece.Raw, "\x1b(") {
+			if strings.HasPrefix(piece.Raw, ansi.DesignateG0) {
 				return "", fmt.Errorf("unsupported character set %q", piece.Raw)
 			}
 			visible.WriteByte(0)

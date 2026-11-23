@@ -151,7 +151,7 @@ func TestDerivedCollectionsCancelAfterTheirCompleteTransition(t *testing.T) {
 		},
 		{
 			name:    "table",
-			matcher: &table.rows.matcher,
+			matcher: &table.matcher,
 			change:  func() { table.SortBy(0) },
 			cancel:  func() { table.Select(1) },
 			verify:  func() bool { return table.Selected() == 1 },
@@ -173,7 +173,7 @@ func TestDerivedCollectionsCancelAfterTheirCompleteTransition(t *testing.T) {
 
 func TestSettingsContextCancellationCannotContinueANewerSequence(t *testing.T) {
 	var settings Settings[string]
-	settings.List().SetItems([]string{"a", "b"})
+	settings.SetItems([]string{"a", "b"})
 	var keys keymap.Map
 	keys.Bind("prefix", input.Chord{Rune: 'g'})
 	keys.Bind("long", input.Chord{Rune: 'g'}, input.Chord{Rune: 'g'})
@@ -183,9 +183,9 @@ func TestSettingsContextCancellationCannotContinueANewerSequence(t *testing.T) {
 		return func() { settings.Handle(input.Key{Rune: 'h'}) }
 	})
 	settings.Handle(input.Key{Rune: 'g'})
-	settings.List().Select(1)
+	settings.Select(1)
 	settings.Handle(input.Key{Rune: 'x'})
-	if got := settings.matcher.Keys().String(); got != "h" {
+	if got := settings.editMatcher.Keys().String(); got != "h" {
 		t.Fatalf("interrupted key replaced cancellation's sequence: %q", got)
 	}
 }

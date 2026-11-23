@@ -9,6 +9,7 @@ import (
 
 	"github.com/Tangerg/oolong/ui/base"
 	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/keymap"
 	"github.com/Tangerg/oolong/ui/core/scene"
 	"github.com/Tangerg/oolong/ui/internal/scenetest"
@@ -142,7 +143,7 @@ func TestMultiSelectActionsExposeChoiceIdentityAndHonorTheLimit(t *testing.T) {
 }
 
 func TestTreeActionsOperateOnCurrentBranches(t *testing.T) {
-	tree := base.NewTree(base.Node[string]{Item: "branch", Children: []base.Node[string]{{Item: "leaf"}}})
+	tree := base.NewTree(base.TreeConfig[string]{Nodes: []base.Node[string]{{Item: "branch", Children: []base.Node[string]{{Item: "leaf"}}}}})
 	root := semanticOwner(t, tree.Element())
 	address := base.CollectionIndex{ContentRevision: semanticRevision(t, root, tree.Element())}
 	expanded, err := root.Invoke(t.Context(), tree.Element().Target(), scene.ActionExpand, address)
@@ -181,7 +182,7 @@ func TestTableSemanticSortIsExplicitIdempotentAndInvalidatesRowAddresses(t *test
 	}
 	returned := result.Value.(*base.SortOrder)
 	returned.Column = 10
-	if column, _, _ := table.Sorted(); column != 0 {
+	if current, _ := table.Sorted(); current.Column != 0 {
 		t.Fatal("sort result aliases owned order")
 	}
 	result, err = root.Invoke(t.Context(), table.Element().Target(), base.ActionSort, order)
@@ -192,14 +193,14 @@ func TestTableSemanticSortIsExplicitIdempotentAndInvalidatesRowAddresses(t *test
 		t.Fatalf("pre-sort address = %v", err)
 	}
 	result, err = root.Invoke(t.Context(), table.Element().Target(), base.ActionClearSort, nil)
-	if _, _, sorted := table.Sorted(); err != nil || result.State != scene.Applied || sorted || !slices.Equal(table.Items(), []int{3, 2, 1}) {
+	if _, sorted := table.Sorted(); err != nil || result.State != scene.Applied || sorted || !slices.Equal(table.Items(), []int{3, 2, 1}) {
 		t.Fatalf("clear sort = %+v, %v", result, err)
 	}
 }
 
 func TestSettingsSemanticActionsKeepAcceptanceSeparateFromDomainChange(t *testing.T) {
 	var settings base.Settings[string]
-	settings.List().SetItems([]string{"volume"})
+	settings.SetItems([]string{"volume"})
 	root := semanticOwner(t, settings.Element())
 	address := base.CollectionIndex{ContentRevision: semanticRevision(t, root, settings.Element())}
 	if _, err := root.Invoke(t.Context(), settings.Element().Target(), scene.ActionIncrement, address); !errors.Is(err, scene.ErrUnavailable) {
@@ -250,6 +251,26 @@ func TestViewportScrollActionUsesThePresentedScrollOwner(t *testing.T) {
 	viewport.SetContent(scene.Element{})
 	if _, err := root.Invoke(t.Context(), viewport.Element().Target(), base.ActionScroll, base.ScrollRequest{Rows: 1}); !errors.Is(err, scene.ErrUnavailable) {
 		t.Fatalf("empty viewport scroll = %v", err)
+	}
+}
+
+// A document read beside a decision scrolls by the keys forwarded to it while the
+// decision keeps the arrows.
+func TestAViewportAnswersForwardedKeysFromItsOwnMap(t *testing.T) {
+	scenes := scenetest.New()
+	t.Cleanup(scenes.Close)
+
+	pages := &keymap.Map{}
+	pages.Bind(base.ScrollPageDown, input.Chord{Code: input.PageDown})
+	viewport := base.NewViewport(base.ViewportConfig{Content: scenes.Element(&tall{rows: 10}), Keys: pages})
+	viewport.Element().SetFocusable(nil)
+	root := scenes.Mount(viewport.Element())
+	root.Draw(grid.NewSurface(8, 3).View())
+	if viewport.Handle(input.Key{Code: input.Down}) {
+		t.Fatal("a key outside the viewport's map was consumed")
+	}
+	if !viewport.Handle(input.Key{Code: input.PageDown}) || viewport.Scroll().Offset() == 0 {
+		t.Fatalf("forwarded page key: offset %d", viewport.Scroll().Offset())
 	}
 }
 

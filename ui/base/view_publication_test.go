@@ -18,12 +18,15 @@ func TestViewOnlyChangesPublishTheirOwningScene(t *testing.T) {
 			switch name {
 			case "cursor", "selection", "scroll":
 				editor := base.NewEditor(base.EditorConfig{Initial: "zero\none\ntwo\nthree\nfour\nfive"})
-				editor.SetCursor(0, 0)
+				editor.SetCursor(base.Caret{})
 				element = editor.Element()
 				switch name {
 				case "cursor":
 					mutate = editor.MoveRight
-					changed = func() bool { line, column := editor.Cursor(); return line == 0 && column == 1 }
+					changed = func() bool {
+						line, column := editor.Cursor().Line, editor.Cursor().Byte
+						return line == 0 && column == 1
+					}
 				case "selection":
 					mutate = editor.SelectAll
 					changed = func() bool { return editor.Selected() == editor.Text() }
@@ -76,14 +79,14 @@ func TestViewOnlyChangesPublishTheirOwningScene(t *testing.T) {
 
 func TestUnchangedViewOperationsDoNotPublish(t *testing.T) {
 	editor := base.NewEditor(base.EditorConfig{Initial: "text", SingleLine: true})
-	editor.SetCursor(0, 0)
+	editor.SetCursor(base.Caret{})
 	root, err := scene.NewRoot(scene.RootConfig{Element: editor.Element()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer root.Close()
 	before := root.Progress().ModelRevision
-	editor.SetCursor(0, 0)
+	editor.SetCursor(base.Caret{})
 	editor.MoveLeft()
 	editor.SelectNone()
 	if root.Progress().ModelRevision != before {
@@ -110,8 +113,8 @@ func TestEditorPublishesCompletedCommandsAndSharedEdits(t *testing.T) {
 	session := base.NewEditSession(base.EditSessionConfig{Initial: "abc"})
 	first := base.NewEditor(base.EditorConfig{Session: session})
 	second := base.NewEditor(base.EditorConfig{Session: session})
-	first.SetCursor(0, 0)
-	second.SetCursor(0, 2)
+	first.SetCursor(base.Caret{})
+	second.SetCursor(base.Caret{Byte: 2})
 	observe := func() {}
 	group := scene.NewGroup(scene.GroupConfig{
 		Element: scene.ElementConfig{Enabled: func() bool { observe(); return true }},
@@ -126,7 +129,7 @@ func TestEditorPublishesCompletedCommandsAndSharedEdits(t *testing.T) {
 	observed := 0
 	observe = func() {
 		observed++
-		_, column := second.Cursor()
+		column := second.Cursor().Byte
 		if session.Text() != "Xabc" || session.Revision() != before+1 || column != 3 {
 			t.Error("scene observed text before all shared view anchors and revision committed")
 		}
@@ -153,11 +156,11 @@ func TestEditorNavigationPreservesTheCommittedScrollViewport(t *testing.T) {
 	for _, action := range []string{"bottom", "page"} {
 		t.Run(action, func(t *testing.T) {
 			editor := base.NewEditor(base.EditorConfig{Initial: "0\n1\n2\n3\n4\n5\n6\n7\n8\n9"})
-			editor.SetCursor(0, 0)
+			editor.SetCursor(base.Caret{})
 			root := scenes.Mount(editor)
 			t.Cleanup(root.Root.Close)
 			root.Draw(grid.NewSurface(12, 4).View())
-			editor.SetCursor(0, 0)
+			editor.SetCursor(base.Caret{})
 			want := 6
 			if action == "bottom" {
 				editor.Scroll().ToBottom()

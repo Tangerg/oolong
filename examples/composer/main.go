@@ -48,7 +48,7 @@ type prompt struct {
 	theme   kit.Theme
 	glyphs  kit.Glyphs
 
-	composer   *kit.Composer
+	composer   *kit.Editor
 	completion *base.Completion
 	history    *base.History[draft]
 	output     kit.Paragraph
@@ -82,11 +82,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 		},
 		pastes: make(map[base.ElementID]pasteText),
 	}
-	p.composer = kit.NewComposer(kit.ComposerConfig{
-		Theme: theme, Glyphs: glyphs, Prompt: glyphs.Marker + " ", Keys: keys,
-		Hints: []keymap.Action{submitPrompt, previousPrompt, nextPrompt, quitPrompt}, MaxRows: 1,
-		Placeholder: "Type @ to reference something", Clipboard: runtime.Clipboard(),
-	})
+	p.composer = kit.NewEditor(kit.EditorConfig{Behavior: base.EditorConfig{Keys: keys, MaxRows: 1, Placeholder: "Type @ to reference something", Clipboard: runtime.Clipboard()}, Theme: theme, Glyphs: glyphs, Prompt: glyphs.Marker + " ", Hints: []keymap.Action{submitPrompt, previousPrompt, nextPrompt, quitPrompt}})
 	p.composer.Controller().SetSingleLine(true)
 	p.completion = base.NewCompletion(base.CompletionConfig{
 		Look: theme.Look(glyphs), MaxRows: 5, Keys: base.DefaultCompletionKeys(),
@@ -113,7 +109,7 @@ func newPrompt(runtime *program.Runtime) *prompt {
 		},
 	})
 	completionHelp := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
-		kit.Help{Theme: p.theme, Keys: p.completion.Keys(), Show: []keymap.Action{base.Accept}}.Draw(frame.View)
+		kit.Help{Theme: p.theme, Keys: kit.KeysFunc(p.completion.KeysFor), Show: []keymap.Action{base.Accept}}.Draw(frame.View)
 	}})
 	completionBody := scene.NewGroup(scene.GroupConfig{Axis: layout.Down, Items: []scene.Item{
 		{Element: p.completion.Element(), Size: layout.Measured(0, 0)},
@@ -128,14 +124,14 @@ func newPrompt(runtime *program.Runtime) *prompt {
 			if !p.completion.Open() {
 				return []image.Rectangle{{}}
 			}
-			width := max(0, min(max(p.completion.Width()+panel.Box().Overhead().X, minimumReferencePopupColumns), space.X-2))
+			width := max(0, min(max(panel.Element().Measure(layout.Across, space.Y), minimumReferencePopupColumns), space.X-2))
 			height := min(panel.HeightForWidth(width), space.Y)
 			y := max(space.Y-p.composer.HeightForWidth(space.X)-height, 0)
 			return []image.Rectangle{grid.Area(1, y, width, height)}
 		},
 	})
 	p.element = scene.NewGroup(scene.GroupConfig{Overlay: true, Element: scene.ElementConfig{
-		Key: "composer", Preview: func(event scene.Event) scene.EventResult { return scene.EventResult{Consumed: p.Handle(event.Input())} }, Detached: unsubscribe,
+		Key: "composer", Preview: func(event scene.Event) scene.EventResult { return event.Result(p.Handle(event.Input())) }, Detached: unsubscribe,
 	}, Items: []scene.Item{{Element: body.Element()}, {Element: popup.Element()}}}).Element()
 	return p
 }

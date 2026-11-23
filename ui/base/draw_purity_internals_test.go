@@ -222,7 +222,7 @@ type editorMeaning struct {
 }
 
 func meaningOfEditor(editor *Editor) editorMeaning {
-	line, byteOffset := editor.Cursor()
+	line, byteOffset := editor.Cursor().Line, editor.Cursor().Byte
 	return editorMeaning{
 		text: editor.Text(), revision: editor.Revision(), line: line, byteOffset: byteOffset,
 		selection: editor.Selected(), anchor: editor.anchor, selecting: editor.selection != editorSelectionNone,
@@ -275,7 +275,7 @@ func headlessDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	candidate := Candidate{Text: "choice", Detail: "detail", Matched: []int{0, 2}}
 	renderer := DefaultCompletionRenderer{}
 	cases = append(cases, drawPurityCase{name: "DefaultCompletionRenderer", width: 24, height: 1, draw: func(v grid.View) { renderer.DrawRow(v, candidate, true, Look{}) }, measure: func(int) int { return renderer.Width(candidate) }})
-	transcript, _ := NewTranscript(TranscriptConfig{})
+	transcript := NewTranscript(TranscriptConfig{})
 	_, _ = transcript.Add(purityBlock{text: "transcript", height: 1})
 	stageTranscriptForTest(transcript, 24)
 	presented := transcript.Layout()
@@ -315,7 +315,7 @@ func headlessDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 	list := NewList(ListConfig[string]{Row: func(v grid.View, _ int, item string, _ bool) { v.Text(0, 0, item, grid.Style{}) }})
 	list.SetItems([]string{"one", "two", "three"})
 	list.Select(1)
-	cases = append(cases, widgetPurityCase(scenes, "*List", list, func() any {
+	cases = append(cases, widgetPurityCase(scenes, "*rows", list, func() any {
 		return struct {
 			selected  int
 			geometry  scrollGeometry
@@ -327,27 +327,16 @@ func headlessDrawPurityCases(scenes *scenetest.Scope) []drawPurityCase {
 			return scene.ActionResult[bool]{Value: true}, errors.New("setting unavailable")
 		},
 	})
-	settings.List().SetItems([]string{"volume", "theme"})
-	settings.List().SetRow(list.Row())
+	settings.SetItems([]string{"volume", "theme"})
+	settings.SetRow(list.Row())
 	settings.Do(Increase)
 	cases = append(cases, widgetPurityCase(scenes, "*Settings", settings, func() any {
 		return struct {
 			selected int
 			feedback requestFeedback
-		}{settings.List().Selected(), settings.feedback}
+		}{settings.Selected(), settings.feedback}
 	}))
-	table := NewTable(TableConfig[string]{Row: list.Row()})
-	table.SetSortColumns(func(int) func(string, string) int { return strings.Compare })
-	table.SetItems([]string{"two", "one"})
-	table.SortBy(0)
-	cases = append(cases, widgetPurityCase(scenes, "*Table", table, func() any {
-		return struct {
-			items    []string
-			selected int
-			row      func(grid.View, int, string, bool)
-		}{table.Items(), table.Selected(), nil}
-	}))
-	tree := NewTree(Node[string]{Item: "root", Children: []Node[string]{{Item: "leaf"}}})
+	tree := NewTree(TreeConfig[string]{Nodes: []Node[string]{{Item: "root", Children: []Node[string]{{Item: "leaf"}}}}})
 	tree.Open(0)
 	tree.Select(1)
 	cases = append(cases, widgetPurityCase(scenes, "*Tree", tree, func() any { return tree.Rows() }))

@@ -29,8 +29,8 @@ func TestCompositeMeasurementsSaturateAtMaxInt(t *testing.T) {
 	child := &maximumWidget{}
 	cases := map[string]int{
 		"panel": NewPanel(PanelConfig{Box: Box{Glyphs: Glyphs{}}, Content: scenes.Element(child)}).HeightForWidth(80),
-		"tabs":  NewTabs(TabsConfig{Items: []base.Tab{{Title: "one", Content: scenes.Element(&maximumWidget{})}}}).HeightForWidth(80),
-		"entry": (&Entry{Trailing: maxInt}).HeightForWidth(80),
+		"tabs":  NewTabs(TabsConfig{Behavior: base.TabsConfig{Items: []base.Tab{{Title: "one", Content: scenes.Element(&maximumWidget{})}}}}).HeightForWidth(80),
+		"entry": Entry{Trailing: maxInt}.HeightForWidth(80),
 	}
 	for name, got := range cases {
 		if got != maxInt {

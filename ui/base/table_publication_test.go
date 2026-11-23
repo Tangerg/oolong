@@ -25,7 +25,7 @@ func TestTableComparisonFailureLeavesThePublishedOrderIntact(t *testing.T) {
 			}
 			table.Select(1)
 			before := table.Items()
-			column, descending, sorted := table.Sorted()
+			order, sorted := table.Sorted()
 			func() {
 				defer func() {
 					if got := recover(); got != "comparison failed" {
@@ -43,11 +43,10 @@ func TestTableComparisonFailureLeavesThePublishedOrderIntact(t *testing.T) {
 					table.SetItems([]int{9, 7, 8})
 				}
 			}()
-			gotColumn, gotDescending, gotSorted := table.Sorted()
-			if !slices.Equal(table.Items(), before) || table.Selected() != 1 ||
-				gotColumn != column || gotDescending != descending || gotSorted != sorted {
-				t.Fatalf("failed operation changed publication: rows=%v cursor=%d order=(%d,%t,%t)",
-					table.Items(), table.Selected(), gotColumn, gotDescending, gotSorted)
+			gotOrder, gotSorted := table.Sorted()
+			if !slices.Equal(table.Items(), before) || table.Selected() != 1 || gotOrder != order || gotSorted != sorted {
+				t.Fatalf("failed operation changed publication: rows=%v cursor=%d order=%+v sorted=%t",
+					table.Items(), table.Selected(), gotOrder, gotSorted)
 			}
 			fail = false
 			table.SortBy(0)
@@ -92,7 +91,7 @@ func TestTableComparisonCannotReplaceItsOwnOrderingInputs(t *testing.T) {
 				}()
 				table.SortBy(0)
 			}()
-			if _, _, sorted := table.Sorted(); sorted || !slices.Equal(table.Items(), []int{3, 1, 2}) {
+			if _, sorted := table.Sorted(); sorted || !slices.Equal(table.Items(), []int{3, 1, 2}) {
 				t.Fatalf("interrupted comparison changed rows or order: %v sorted=%t", table.Items(), sorted)
 			}
 			table.SortBy(0)
@@ -109,8 +108,8 @@ func TestTableComparisonReadsTheLastCompleteOrder(t *testing.T) {
 	checking := false
 	table.SetSortColumns(singleSortColumn(func(a, b int) int {
 		if checking {
-			_, descending, sorted := table.Sorted()
-			if !sorted || descending || !slices.Equal(table.Items(), []int{1, 2, 3}) {
+			order, sorted := table.Sorted()
+			if !sorted || order.Descending || !slices.Equal(table.Items(), []int{1, 2, 3}) {
 				t.Fatal("comparison observed partial ordering publication")
 			}
 		}

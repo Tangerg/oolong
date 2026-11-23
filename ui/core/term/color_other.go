@@ -2,8 +2,11 @@
 
 package term
 
-import "github.com/Tangerg/oolong/ui/core/grid"
+import (
+	"github.com/Tangerg/oolong/ui/core/grid"
+	"github.com/Tangerg/oolong/ui/core/termenv"
+)
 
 // localDepth is the colour depth of the terminal this process opened, which its
 // environment describes.
-func localDepth(lookup func(string) (string, bool)) grid.Depth { return DetectDepth(lookup) }
+func localDepth(env termenv.Lookup) grid.Depth { return DetectDepth(env) }

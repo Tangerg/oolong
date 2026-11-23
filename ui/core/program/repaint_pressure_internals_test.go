@@ -47,7 +47,7 @@ func TestRepaintPressureRestoresInputProgressThroughSourceTermination(t *testing
 						result: func() error { return sourceErr },
 					}
 					owner := &program{
-						root: root, canvas: grid.NewScreen(20, 4), writer: &drainingWriter{changes: make(chan struct{}, 1)},
+						root: root, screen: grid.NewScreen(20, 4), writer: &drainingWriter{changes: make(chan struct{}, 1)},
 						ctx: ctx, cancel: cancel, tasks: newTaskQueue(),
 						framePreparation: func(int, int) (bool, error) { return false, nil },
 					}

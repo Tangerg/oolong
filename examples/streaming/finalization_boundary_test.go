@@ -46,13 +46,13 @@ func TestCancelSourceDoesNotMisreportFinalPreparation(t *testing.T) {
 		<-entered
 		synctest.Wait()
 		if err := c.runtime.Dispatcher().Invoke(t.Context(), func() error {
-			if c.document != document || document.Current().State != content.Finalizing || c.producer.Snapshot().State != program.TaskSucceeded || c.status.Doing != "preparing final answer" {
-				t.Errorf("source EOF did not enter final preparation: document=%+v producer=%+v status=%q", document.Current(), c.producer.Snapshot(), c.status.Doing)
+			if c.document != document || document.Current().State != content.Finalizing || c.producer.Snapshot().State != program.TaskSucceeded || c.status.Label != "preparing final answer" {
+				t.Errorf("source EOF did not enter final preparation: document=%+v producer=%+v status=%q", document.Current(), c.producer.Snapshot(), c.status.Label)
 			}
-			before := c.status.Doing
+			before := c.status.Label
 			c.stopSource()
-			if c.status.Doing != before || c.document != document || document.Current().State != content.Finalizing {
-				t.Errorf("cancel-source changed finished source: document=%+v status=%q", document.Current(), c.status.Doing)
+			if c.status.Label != before || c.document != document || document.Current().State != content.Finalizing {
+				t.Errorf("cancel-source changed finished source: document=%+v status=%q", document.Current(), c.status.Label)
 			}
 			return nil
 		}); err != nil {
@@ -61,8 +61,8 @@ func TestCancelSourceDoesNotMisreportFinalPreparation(t *testing.T) {
 		release()
 		synctest.Wait()
 		if err := c.runtime.Dispatcher().Invoke(t.Context(), func() error {
-			if c.document != nil || c.producer != nil || document.Current().State != content.Final || c.status.Doing != "complete" {
-				t.Errorf("prepared final answer did not complete: document=%+v producer=%+v status=%q", document.Current(), c.producer.Snapshot(), c.status.Doing)
+			if c.document != nil || c.producer != nil || document.Current().State != content.Final || c.status.Label != "complete" {
+				t.Errorf("prepared final answer did not complete: document=%+v producer=%+v status=%q", document.Current(), c.producer.Snapshot(), c.status.Label)
 			}
 			return nil
 		}); err != nil {

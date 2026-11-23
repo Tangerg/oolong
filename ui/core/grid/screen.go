@@ -1,81 +1,9 @@
 package grid
 
 import (
-	"errors"
-	"fmt"
 	"image"
 	"io"
-
-	"github.com/Tangerg/oolong/ui/core/ansi"
 )
-
-type CursorShape uint8
-
-const (
-	// CursorReset requests the terminal-specific DECSCUSR reset. Blink is ignored.
-	// This is a blinking block on xterm, not the user's configured or entry shape.
-	CursorReset CursorShape = iota
-	CursorBlock
-	CursorUnderline
-	CursorBar
-)
-
-var ErrInvalidCursorShape = errors.New("grid: invalid cursor shape")
-
-func (s CursorShape) Validate() error {
-	if s > CursorBar {
-		return fmt.Errorf("%w: %d", ErrInvalidCursorShape, s)
-	}
-	return nil
-}
-
-// CursorStyle is how the terminal's own cursor is drawn. The zero value uses the
-// protocol reset. Blink applies to Block, Underline and Bar.
-type CursorStyle struct {
-	Shape CursorShape
-	Blink bool
-}
-
-// Sequence panics for an invalid Shape rather than encoding it as a protocol
-// reset with unrelated terminal-specific meaning.
-func (s CursorStyle) Sequence() string { return s.selector().Sequence() }
-
-// selector is the one mapping from shape and blink to the DECSCUSR wire value.
-func (s CursorStyle) selector() ansi.CursorStyle {
-	blinking := func(blinking, steady ansi.CursorStyle) ansi.CursorStyle {
-		if s.Blink {
-			return blinking
-		}
-		return steady
-	}
-	switch s.Shape {
-	case CursorReset:
-		return ansi.CursorReset
-	case CursorBlock:
-		return blinking(ansi.CursorBlinkingBlock, ansi.CursorSteadyBlock)
-	case CursorUnderline:
-		return blinking(ansi.CursorBlinkingUnderline, ansi.CursorSteadyUnderline)
-	case CursorBar:
-		return blinking(ansi.CursorBlinkingBar, ansi.CursorSteadyBar)
-	}
-	panic(ErrInvalidCursorShape)
-}
-
-func (s CursorStyle) normalized() CursorStyle {
-	if err := s.Shape.Validate(); err != nil {
-		panic(err)
-	}
-	if s.Shape == CursorReset {
-		s.Blink = false
-	}
-	return s
-}
-
-type Cursor struct {
-	Visible bool
-	Pos     image.Point
-	Style   CursorStyle
-}
 
 // Screen owns double-buffered cells and the terminal publication model. Unchanged
 // frames write nothing so cursor blinking is undisturbed. A Screen must not be copied
@@ -86,7 +14,7 @@ type Screen struct {
 	publication publication
 
 	buffers frameBuffer
-	cursor  cursorState
+	cursor  screenCursor
 	placed  Cursor
 
 	// frame and scratch are reused across flushes. scratch measures a scroll
@@ -227,18 +155,7 @@ func (s *Screen) Prepare() (output *Output, err error) {
 // Flush synchronously writes one prepared transaction. Any partial write makes
 // this output session unusable; admission-based runtimes use Prepare instead.
 func (s *Screen) Flush(w io.Writer) error {
-	output, err := s.Prepare()
-	if err != nil {
-		return err
-	}
-	defer output.Abort()
-	if output.Len() > 0 {
-		if err := s.publication.write(w, output.payload); err != nil {
-			return err
-		}
-	}
-	output.Commit()
-	return nil
+	return s.publication.commit(w, s.Prepare)
 }
 
 // Opaque painters go after the restored cells, in their registered drawing order.
@@ -303,55 +220,27 @@ func (s *Screen) paintScroll() bool {
 	return true
 }
 
-// cursorState avoids redundant positioning because each command can restart
-// terminal blinking. Cell output still requires re-anchoring the requested
-// cursor; a completely idle frame emits nothing.
-type cursorState struct {
-	known      bool
-	visible    bool
-	pos        image.Point
-	styleKnown bool
-	style      CursorStyle
+// screenCursor adds the absolute position that a Screen re-anchors against.
+type screenCursor struct {
+	belief cursorBelief
+	pos    image.Point
 }
 
-func (c *cursorState) forget() { *c = cursorState{} }
+func (c *screenCursor) forget() { c.belief.forget() }
 
-func (c *cursorState) emit(p *painter, next Cursor, cellsChanged bool) {
-	defer func() {
-		c.known = true
-		c.visible = next.Visible
-		if next.Visible {
-			c.pos = next.Pos
-			c.styleKnown = true
-			c.style = next.Style
-		}
-	}()
-
-	if next.Visible {
-		style := next.Style
-		if !c.styleKnown || style != c.style {
-			p.out = append(p.out, style.Sequence()...)
-		}
-	}
-	if !c.known {
-		if next.Visible {
-			p.moveTo(next.Pos.X, next.Pos.Y)
-			p.out = append(p.out, ansi.ShowCursor...)
-			return
-		}
-		p.out = append(p.out, ansi.HideCursor...)
+// emit re-anchors absolutely after any cell output: the terminal's advance over
+// cells is only estimated by ClusterWidth, so the painter's cursor belief can
+// differ from where the last glyph actually left the terminal cursor.
+func (c *screenCursor) emit(p *painter, next Cursor, cellsChanged bool) {
+	if !next.Visible {
+		p.out = c.belief.appendVisibility(p.out, false)
 		return
 	}
-	switch {
-	case next.Visible && !c.visible:
-		p.moveTo(next.Pos.X, next.Pos.Y)
-		p.out = append(p.out, ansi.ShowCursor...)
-	case !next.Visible && c.visible:
-		p.out = append(p.out, ansi.HideCursor...)
-	case next.Visible && (next.Pos != c.pos || cellsChanged):
-		// Writing cells left the terminal's cursor wherever the last glyph
-		// landed, so an unmoved cursor still has to be re-anchored.
+	p.out = c.belief.appendStyle(p.out, next.Style)
+	if cellsChanged || !c.belief.showing() || next.Pos != c.pos {
 		p.forcePos()
-		p.moveTo(next.Pos.X, next.Pos.Y)
+		p.moveToPoint(next.Pos)
+		c.pos = next.Pos
 	}
+	p.out = c.belief.appendVisibility(p.out, true)
 }

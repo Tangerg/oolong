@@ -40,7 +40,7 @@ func TestAFieldGivingUpFocusCancelsItsPartialBinding(t *testing.T) {
 		t.Fatal("blur did not cancel the binding resolver")
 	}
 	resolve()
-	if line, col := e.Cursor(); line != 0 || col != 2 {
+	if line, col := e.Cursor().Line, e.Cursor().Byte; line != 0 || col != 2 {
 		t.Fatalf("late resolver moved cursor to %d:%d", line, col)
 	}
 }
@@ -127,7 +127,7 @@ func TestAMaskedFieldPutsTheCursorWhereTheMaskIs(t *testing.T) {
 	e := &base.Editor{}
 	e.SetMask("••")
 	e.SetText("ab")
-	e.SetCursor(0, 1)
+	e.SetCursor(base.Caret{Byte: 1})
 
 	// A screen rather than a bare surface, because the cursor is only observable
 	// through one.
@@ -162,7 +162,7 @@ func TestAClickInAMaskedFieldLandsOnTheClusterItIsUnder(t *testing.T) {
 	paintWidget(scenes, 10, 1, e)
 
 	e.Handle(input.Mouse{Action: input.MouseDown, Button: input.ButtonLeft, Pos: image.Pt(4, 0)})
-	if _, col := e.Cursor(); col != 2 {
+	if col := e.Cursor().Byte; col != 2 {
 		t.Fatalf("cursor at byte %d, want the third cluster", col)
 	}
 }
@@ -188,7 +188,7 @@ func TestEnablingOneLineModeSettlesExistingContent(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			editor := editorWith("first\nsecond")
-			editor.SetCursor(1, len("second"))
+			editor.SetCursor(base.Caret{Line: 1, Byte: len("second")})
 			before := editor.Revision()
 			tc.enable(editor)
 
@@ -198,7 +198,7 @@ func TestEnablingOneLineModeSettlesExistingContent(t *testing.T) {
 			if got := editor.Revision(); got != before+1 {
 				t.Fatalf("mode transition advanced revision to %d, want %d", got, before+1)
 			}
-			if line, col := editor.Cursor(); line != 0 || col != len("first second") {
+			if line, col := editor.Cursor().Line, editor.Cursor().Byte; line != 0 || col != len("first second") {
 				t.Fatalf("cursor = (%d,%d), want the same document position on line zero", line, col)
 			}
 			editor.Undo()
@@ -342,9 +342,9 @@ func TestReplaceCannotSplitAGraphemeCluster(t *testing.T) {
 
 func TestVerticalMovementBeforeTheFirstFrameKeepsAClusterBoundary(t *testing.T) {
 	editor := editorWith("中文\nabc")
-	editor.SetCursor(1, 2)
+	editor.SetCursor(base.Caret{Line: 1, Byte: 2})
 	editor.MoveUp()
-	line, col := editor.Cursor()
+	line, col := editor.Cursor().Line, editor.Cursor().Byte
 	if line != 0 || col != len("中") {
 		t.Fatalf("cursor = (%d,%d), want column two after the first wide cluster", line, col)
 	}
@@ -356,10 +356,10 @@ func TestVerticalMovementBeforeTheFirstFrameKeepsAClusterBoundary(t *testing.T) 
 
 func TestInsertionSettlesAGraphemeThatReformsAcrossItsBoundary(t *testing.T) {
 	editor := editorWith("a\u0605")
-	editor.SetCursor(0, 1)
+	editor.SetCursor(base.Caret{Byte: 1})
 	editor.Insert("\u0605")
 
-	line, col := editor.Cursor()
+	line, col := editor.Cursor().Line, editor.Cursor().Byte
 	if line != 0 || !clusterOffset(editor.Text(), col) {
 		t.Fatalf("cursor (%d,%d) splits the reformed grapheme in %q", line, col, editor.Text())
 	}

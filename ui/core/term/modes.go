@@ -2,33 +2,11 @@ package term
 
 import (
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/Tangerg/oolong/ui/core/ansi"
 	"github.com/Tangerg/oolong/ui/core/input"
-)
-
-// Pair mode acquisition with restoration: terminal modes outlive the process
-// and would otherwise affect the next foreground owner.
-const (
-	altScreenOn  = "\x1b[?1049h"
-	altScreenOff = "\x1b[?1049l"
-
-	// Mouse reporting: any-event tracking so hover is reported and not only drags,
-	// plus the extended coordinate encoding, which is the only one that works past
-	// column 223.
-	mouseOn  = "\x1b[?1003h\x1b[?1006h"
-	mouseOff = "\x1b[?1006l\x1b[?1003l"
-
-	focusOn  = "\x1b[?1004h"
-	focusOff = "\x1b[?1004l"
-
-	keyboardOff   = "\x1b[<u"
-	queryKeyboard = "\x1b[?u"
-
-	pasteOn  = "\x1b[?2004h"
-	pasteOff = "\x1b[?2004l"
+	"github.com/Tangerg/oolong/ui/core/termenv"
 )
 
 // KeyboardCompatible is the portable keyboard enhancement set. It makes modified
@@ -75,11 +53,11 @@ func (c Config) Validate() error {
 // process. A local terminal passes its process environment lookup; an SSH adapter
 // passes the client's accepted PTY environment. Nil means no environment facts are
 // available.
-func (c Config) Modes(lookup func(string) (string, bool)) (Modes, error) {
+func (c Config) Modes(env termenv.Lookup) (Modes, error) {
 	if err := c.Validate(); err != nil {
 		return Modes{}, err
 	}
-	keyboard := compatibleKeyboard(c.Features.Keyboard, lookup)
+	keyboard := compatibleKeyboard(c.Features.Keyboard, env)
 	return Modes{
 		altScreen:       c.AltScreen,
 		mouse:           c.Features.Mouse,
@@ -90,15 +68,12 @@ func (c Config) Modes(lookup func(string) (string, bool)) (Modes, error) {
 	}, nil
 }
 
-func compatibleKeyboard(
-	features input.KeyboardFeatures,
-	lookup func(string) (string, bool),
-) input.KeyboardFeatures {
+func compatibleKeyboard(features input.KeyboardFeatures, env termenv.Lookup) input.KeyboardFeatures {
 	features &= input.KeyboardAll
 	if features.Has(input.KeyboardReportText) {
 		features |= input.KeyboardReportAllAsEscapes
 	}
-	if features == 0 || lookup == nil {
+	if features == 0 {
 		return features
 	}
 
@@ -106,52 +81,46 @@ func compatibleKeyboard(
 	// and then corrupt or lose the sequences it carries. An application running on
 	// another machine must use that session's environment, which is why this decision
 	// is made while Modes is built rather than by a package global.
-	wsl := environmentSet(lookup, "WSL_INTEROP") || environmentSet(lookup, "WSL_DISTRO_NAME")
-	vscode := environmentEqual(lookup, "TERM_PROGRAM", "vscode") ||
-		environmentSet(lookup, "VSCODE_INJECTION")
-	if wsl && vscode {
+	terminal := env.Terminal()
+	if env.WSL() && terminal == termenv.VSCode {
 		return 0
 	}
 
 	// iTerm2 can leak a release belonging to the exiting application into its parent
 	// shell. The compatible set never asks for releases; callers that add them still
 	// get every other requested feature on this terminal.
-	if environmentEqual(lookup, "TERM_PROGRAM", "iTerm.app") {
+	if terminal == termenv.ITerm2 {
 		features &^= input.KeyboardReportEvents
 	}
 	return features
-}
-
-func environmentSet(lookup func(string) (string, bool), name string) bool {
-	value, ok := lookup(name)
-	return ok && strings.TrimSpace(value) != ""
-}
-
-func environmentEqual(lookup func(string) (string, bool), name, want string) bool {
-	value, ok := lookup(name)
-	return ok && strings.EqualFold(strings.TrimSpace(value), want)
 }
 
 func keyboardOn(features input.KeyboardFeatures) string {
 	if features == 0 {
 		return ""
 	}
-	return "\x1b[>" + strconv.Itoa(int(features)) + "u"
+	return ansi.PushKeyboard(int(features))
 }
 
+// mode pairs acquisition with restoration: terminal modes outlive the process
+// and would otherwise affect the next foreground owner.
 type mode struct {
 	on, off string
 	wanted  bool
 }
 
+func decMode(m ansi.Mode, wanted bool) mode { return mode{m.Set(), m.Reset(), wanted} }
+
 // Bracketed paste is unconditional so pasted code cannot become shortcuts.
+// Mouse reporting pairs any-event tracking with the SGR coordinate encoding.
 func (m Modes) sequence() []mode {
 	return []mode{
-		{altScreenOn, altScreenOff, m.altScreen},
-		{mouseOn, mouseOff, m.mouse},
-		{focusOn, focusOff, m.focus},
-		{keyboardOn(m.keyboard), keyboardOff, m.keyboard != 0},
-		{pasteOn, pasteOff, true},
+		decMode(ansi.ModeAltScreen, m.altScreen),
+		decMode(ansi.ModeAnyEventMouse, m.mouse),
+		decMode(ansi.ModeSGRMouse, m.mouse),
+		decMode(ansi.ModeFocusReports, m.focus),
+		{keyboardOn(m.keyboard), ansi.PopKeyboard, m.keyboard != 0},
+		decMode(ansi.ModeBracketedPaste, true),
 	}
 }
 
@@ -163,7 +132,7 @@ func (m Modes) Enter() string {
 		}
 	}
 	if m.observeKeyboard {
-		b.WriteString(queryKeyboard)
+		b.WriteString(ansi.QueryKeyboard)
 	}
 	return b.String()
 }
@@ -184,6 +153,6 @@ func (m Modes) Leave() string {
 		restore = ansi.CursorReset.Sequence()
 	}
 	b.WriteString(restore)
-	b.WriteString(ansi.ShowCursor)
+	b.WriteString(ansi.ModeCursorVisible.Set())
 	return b.String()
 }

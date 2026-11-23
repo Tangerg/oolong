@@ -61,34 +61,21 @@ func reviewWindowKeys() *keymap.Map {
 	return keys
 }
 
-func newReviewPane(theme kit.Theme, glyphs kit.Glyphs, form *kit.Form, sessionKey func(input.Key) bool) (*reviewPane, error) {
+func newReviewPane(theme kit.Theme, glyphs kit.Glyphs, form *kit.Form) *reviewPane {
 	p := &reviewPane{theme: theme, glyphs: glyphs, form: form}
 	p.diff = kit.NewDiff(kit.DiffConfig{Theme: theme, Glyphs: glyphs, Numbers: true})
-	change := scene.NewElement(scene.ElementConfig{
-		Paint:   func(frame scene.Frame) { p.diff.Draw(frame.View) },
-		Measure: scene.MeasureRows(p.diff.HeightForWidth),
-	})
-	p.window = base.NewViewport(base.ViewportConfig{Content: change, Keys: reviewWindowKeys()})
-	if err := p.window.Element().SetFocusable(func() bool { return false }); err != nil {
-		return nil, err
-	}
+	p.window = base.NewViewport(base.ViewportConfig{Content: scene.NewElement(scene.Passive(p.diff)), Keys: reviewWindowKeys()})
+	p.window.Element().SetFocusable(nil)
 	title := scene.NewElement(scene.ElementConfig{Paint: func(frame scene.Frame) {
 		kit.Label{Text: p.proposal.title(), Style: p.theme.Subtle, Ellipsis: p.glyphs.Ellipsis}.Draw(frame.View)
 	}})
 	p.element = scene.NewGroup(scene.GroupConfig{
 		Items: []scene.Item{{Element: title}, {Element: p.window.Element()}, {Element: p.form.Element()}},
 		Element: scene.ElementConfig{Preview: func(event scene.Event) scene.EventResult {
-			key, ok := event.Input().(input.Key)
-			if !ok || !key.Down() {
+			if _, key := event.Input().(input.Key); !key {
 				return scene.EventResult{}
 			}
-			if sessionKey(key) {
-				return scene.EventResult{Consumed: true}
-			}
-			if action, ok := p.window.Keys().ActionFor(key); ok {
-				return scene.EventResult{Consumed: p.window.Do(action)}
-			}
-			return scene.EventResult{}
+			return scene.EventResult{Consumed: p.window.Handle(event.Input())}
 		}},
 		Layout: func(space image.Point, _ []scene.Item) []image.Rectangle {
 			// The change keeps a row even on a short terminal: approval must never
@@ -98,7 +85,7 @@ func newReviewPane(theme kit.Theme, glyphs kit.Glyphs, form *kit.Form, sessionKe
 			return (layout.Flow{Axis: layout.Down}).Rects(space, []layout.Slot{{Size: layout.Fixed(titleRows)}, {Size: layout.Flex(1)}, {Size: layout.Fixed(formRows)}})
 		},
 	}).Element()
-	return p, nil
+	return p
 }
 
 func (p *reviewPane) show(proposal changeProposal) {
@@ -107,34 +94,20 @@ func (p *reviewPane) show(proposal changeProposal) {
 	p.window.Scroll().ToTop()
 }
 
-func (a *agent) buildReview() error {
+func (a *agent) buildReview() {
 	a.reviewConfirm = base.NewConfirm(base.ConfirmConfig{Label: "Allow this tool call?", Initial: true, Yes: "apply", No: "deny"})
-	form := kit.NewForm(kit.FormConfig{
-		Theme: a.theme, Glyphs: a.glyphs,
-		Fields: []base.Field{a.reviewConfirm}, Keys: base.DefaultFormKeys(),
-		Hints: []keymap.Action{base.Submit, base.Cancel},
-		Submit: func(base.SubmissionID) (scene.ActionState, error) {
-			if err := a.answerReview(a.reviewConfirm.Answer()); err != nil {
-				return scene.Unchanged, err
-			}
-			return scene.Applied, nil
-		},
-	})
-	pane, err := newReviewPane(a.theme, a.glyphs, form, a.sessionKey)
-	if err != nil {
-		return err
-	}
-	a.reviewPane = pane
-	a.reviewDialog = kit.NewDialog(kit.DialogConfig{
-		Theme: a.theme, Glyphs: a.glyphs,
-		Dismissed: func() {
-			if err := a.answerReview(false); err != nil {
-				a.finishRun(err)
-			}
-		},
-		Title: "Review tool call", Body: pane.element, Where: reviewPlacement,
-	})
-	return nil
+	form := kit.NewForm(kit.FormConfig{Behavior: base.FormConfig{Fields: []base.Field{a.reviewConfirm}, Keys: base.DefaultFormKeys(), Submit: func(base.SubmissionID) (scene.ActionState, error) {
+		if err := a.answerReview(a.reviewConfirm.Answer()); err != nil {
+			return scene.Unchanged, err
+		}
+		return scene.Applied, nil
+	}}, Theme: a.theme, Glyphs: a.glyphs, Hints: []keymap.Action{base.Submit, base.Cancel}})
+	a.reviewPane = newReviewPane(a.theme, a.glyphs, form)
+	a.reviewDialog = kit.NewDialog(kit.DialogConfig{Behavior: base.DialogConfig{Dismissed: func() {
+		if err := a.answerReview(false); err != nil {
+			a.finishRun(err)
+		}
+	}, Title: "Review tool call", Content: a.reviewPane.element}, Theme: a.theme, Glyphs: a.glyphs, Where: reviewPlacement})
 }
 
 func (a *agent) openReview(request *reviewRequest) error {
@@ -193,7 +166,7 @@ func (a *agent) answerReview(approved bool) error {
 	}
 	a.inform("tool call denied")
 	err := a.conversation.Append(a.scope.Context(), &kit.Entry{
-		Theme: a.theme, Label: "tool", Body: request.proposal.Path + " — denied",
+		Theme: a.theme, Label: "tool", Body: kit.NewParagraph(request.proposal.Path+" — denied", a.theme.Text),
 	})
 	request.settle(false, err)
 	return err
@@ -217,7 +190,7 @@ func (a *agent) releaseReview() {
 }
 
 func (a *agent) showTool(result toolResult) error {
-	entry := &kit.Entry{Theme: a.theme, Label: result.Name, Body: strings.Join(strings.Fields(result.Summary), " ")}
+	summary := kit.NewParagraph(strings.Join(strings.Fields(result.Summary), " "), a.theme.Text)
 	change := kit.NewDiff(kit.DiffConfig{Theme: a.theme, Glyphs: a.glyphs, Hunks: result.Change.hunks(), Numbers: true})
-	return a.conversation.Append(a.scope.Context(), entry, change)
+	return a.conversation.Append(a.scope.Context(), &kit.Entry{Theme: a.theme, Label: result.Name, Body: kit.Stack{summary, change}})
 }

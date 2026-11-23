@@ -12,7 +12,7 @@ import (
 func TestBackspaceAtTheStartClosesTheTypingRun(t *testing.T) {
 	editor := &base.Editor{}
 	editor.SetText("hello")
-	editor.SetCursor(0, 2)
+	editor.SetCursor(base.Caret{Byte: 2})
 	editor.InsertRune('x')
 	for range 4 {
 		editor.DeleteBack()

@@ -265,6 +265,23 @@ func TestDarkSplitsTheRangeDownTheMiddle(t *testing.T) {
 	}
 }
 
+func TestAGroundIsLightOnlyWhenTheTerminalSaysSo(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		ground grid.Ground
+		light  bool
+	}{
+		{"nothing reported", grid.Ground{}, false},
+		{"a reported paper background", grid.Ground{BG: grid.RGBColor(0xfd, 0xf6, 0xe3)}, true},
+		{"a reported night background", grid.Ground{BG: grid.RGBColor(0x1a, 0x1b, 0x26)}, false},
+		{"a light foreground alone", grid.Ground{FG: grid.RGBColor(0xff, 0xff, 0xff)}, false},
+	} {
+		if got := tc.ground.Light(); got != tc.light {
+			t.Errorf("%s: Light() = %v, want %v", tc.name, got, tc.light)
+		}
+	}
+}
+
 func TestAPaletteEntryCrossesTheWireAsItsIndex(t *testing.T) {
 	// The terminal's theme decides what a palette entry looks like, so the entry is
 	// sent by index at every depth that has it, never as xterm's estimate of it.

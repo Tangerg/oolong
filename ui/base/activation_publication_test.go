@@ -51,7 +51,7 @@ func TestButtonInputPublishesFeedbackBeforeScenePredicates(t *testing.T) {
 				invoked = true
 				return scene.ActionResult[struct{}]{State: outcome}, failure
 			}})
-			if err := button.Element().SetFocusable(func() bool {
+			button.Element().SetFocusable(func() bool {
 				if invoked {
 					observed = true
 					if !errors.Is(button.Error(), failure) {
@@ -59,9 +59,7 @@ func TestButtonInputPublishesFeedbackBeforeScenePredicates(t *testing.T) {
 					}
 				}
 				return true
-			}); err != nil {
-				t.Fatal(err)
-			}
+			})
 			root := semanticOwner(t, button.Element())
 			root.FlushNotifications()
 			frame, err := root.Prepare(grid.NewSurface(10, 1).View())
@@ -120,7 +118,7 @@ func TestButtonProgrammaticActivationPreservesPhysicalFeedback(t *testing.T) {
 		t.Fatalf("direct activation changed physical feedback: %v, %v", err, button.Error())
 	}
 	if _, err := root.Invoke(t.Context(), button.Element().Target(), scene.ActionActivate, nil); err != nil || !errors.Is(button.Error(), problem) {
-		t.Fatalf("agent activation changed physical feedback: %v, %v", err, button.Error())
+		t.Fatalf("semantic activation changed physical feedback: %v, %v", err, button.Error())
 	}
 }
 
@@ -153,7 +151,7 @@ func TestConfirmPublishesSynchronousAnswerAndFeedbackTogether(t *testing.T) {
 		t.Cleanup(confirm.Close)
 		confirm.Say(true)
 		checking, observed := false, false
-		if err := confirm.Element().SetFocusable(func() bool {
+		confirm.Element().SetFocusable(func() bool {
 			if checking {
 				observed = true
 				if !confirm.Answer() || !errors.Is(confirm.ChangeError(), failure) {
@@ -161,9 +159,7 @@ func TestConfirmPublishesSynchronousAnswerAndFeedbackTogether(t *testing.T) {
 				}
 			}
 			return true
-		}); err != nil {
-			t.Fatal(err)
-		}
+		})
 		root := semanticOwner(t, confirm.Element())
 		domain.reject, domain.problem = false, failure
 		before, changed := root.Progress().ModelRevision, root.Changes()
@@ -214,7 +210,7 @@ func TestConfirmCoalescesSynchronousNestedDomainNotifications(t *testing.T) {
 		}
 	}
 	checking, observed := false, false
-	if err := confirm.Element().SetFocusable(func() bool {
+	confirm.Element().SetFocusable(func() bool {
 		if checking {
 			observed = true
 			if confirm.Answer() || confirm.Revision() != 2 {
@@ -222,9 +218,7 @@ func TestConfirmCoalescesSynchronousNestedDomainNotifications(t *testing.T) {
 			}
 		}
 		return true
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	root := semanticOwner(t, confirm.Element())
 	before, changed := root.Progress().ModelRevision, root.Changes()
 	checking = true

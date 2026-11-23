@@ -324,8 +324,8 @@ func TestCopyAsksTheTerminalToDoIt(t *testing.T) {
 	// The terminal does the copying because over ssh, in a container, or through a
 	// multiplexer running elsewhere it is the only end the user is at.
 	tty, primary := open(t, term.Config{})
-	if !tty.Copy("hello") {
-		t.Fatal("a small copy was refused")
+	if err := tty.Copy("hello"); err != nil {
+		t.Fatalf("a small copy was refused: %v", err)
 	}
 	want, _ := (&clipboard.Channel{}).Copy(clipboard.System, "hello")
 	if got := read(t, primary, time.Second); !strings.Contains(got, want) {
@@ -335,8 +335,8 @@ func TestCopyAsksTheTerminalToDoIt(t *testing.T) {
 
 func TestCopyRefusesMoreThanItCanCarry(t *testing.T) {
 	tty, _ := open(t, term.Config{})
-	if tty.Copy(strings.Repeat("x", clipboard.MaxPayload+1)) {
-		t.Error("a copy past the limit was reported as asked for")
+	if err := tty.Copy(strings.Repeat("x", clipboard.MaxPayload+1)); !errors.Is(err, clipboard.ErrTooLarge) {
+		t.Errorf("a copy past the limit = %v", err)
 	}
 }
 
@@ -345,7 +345,7 @@ func TestClipboardRefusesAfterTerminalClose(t *testing.T) {
 	if err := tty.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if tty.Copy("must remain selected") {
+	if tty.Copy("must remain selected") == nil {
 		t.Fatal("a closed terminal accepted a clipboard command")
 	}
 	if _, err := tty.ReadClipboard(t.Context()); err == nil {
