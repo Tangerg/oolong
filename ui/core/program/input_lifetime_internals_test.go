@@ -57,7 +57,7 @@ func TestSmallInputQueueDrainsAContinuousKeyStreamThroughEOF(t *testing.T) {
 		defer root.Close()
 		source := &pipeSource{events: make(chan input.Event)}
 		pipe := newInputPipe(t.Context(), root, source, source.Events(), nil, Config{InputEvents: 1, InputBytes: 8})
-		owner := &program{root: root, inputPipe: pipe, tasks: newTaskQueue()}
+		owner := &program{root: root, inputPipe: pipe, tasks: newTaskQueue(), writer: new(admissionWriter)}
 		go func() {
 			defer close(source.events)
 			for at := range count {
@@ -97,7 +97,7 @@ func TestInputEOFDoesNotWaitForAnAbsentCreditReader(t *testing.T) {
 		pipe.consumed <- 1
 		close(pipe.events)
 		close(pipe.done)
-		owner := &program{root: root, inputPipe: pipe, tasks: newTaskQueue()}
+		owner := &program{root: root, inputPipe: pipe, tasks: newTaskQueue(), writer: new(admissionWriter)}
 		due := deadline.NewTimer()
 		defer due.Stop()
 		completed := make(chan bool, 1)

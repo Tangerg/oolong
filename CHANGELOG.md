@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 
 ## [Unreleased]
 
+## [ui/v0.30.1] — 2026-11-28
+
+### Fixed
+
+- Route modal keys and paste using the completed frame write even when input arrives ahead of the writer's notification.
+- Preserve ANSI and UTF-8 boundaries across PTY resizes and use complete synchronized updates for screen assertions.
+
 ## [ui/v0.30.0] — 2026-11-23
 
 ### Breaking API migration

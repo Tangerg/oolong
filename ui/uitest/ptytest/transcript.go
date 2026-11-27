@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/Tangerg/oolong/ui/core/ansi"
 )
 
 // Transcript is everything a session has written, accumulated as it arrives.
@@ -19,9 +22,8 @@ import (
 type Transcript struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
-	// size is the terminal's current geometry and from is where the output laid out
-	// for it begins: a resize starts a new geometry, and what was written before it
-	// was laid out for another size.
+	// from is the byte count observed when the current geometry was requested. It
+	// may be inside a write laid out for the former size.
 	size Size
 	from int
 	grew chan struct{}
@@ -33,19 +35,27 @@ func newTranscript(size Size) *Transcript {
 	return &Transcript{size: size, grew: make(chan struct{}), done: make(chan struct{})}
 }
 
-// resized starts the output for a new terminal geometry.
-func (t *Transcript) resized(size Size) {
+func (t *Transcript) resize(size Size, setSize func() error) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.size, t.from = size, t.buf.Len()
+	// The reader must not append a new frame between the ioctl and recording its cutoff.
+	if err := setSize(); err != nil {
+		return err
+	}
+	if t.size != size {
+		t.size, t.from = size, t.buf.Len()
+		close(t.grew)
+		t.grew = make(chan struct{})
+	}
+	return nil
 }
 
 // current is one consistent snapshot of the geometry, its output and the wake-up
 // for the next byte.
-func (t *Transcript) current() (Size, []byte, <-chan struct{}) {
+func (t *Transcript) current() (Size, []byte, int, <-chan struct{}) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.size, bytes.Clone(t.buf.Bytes()[t.from:]), t.grew
+	return t.size, bytes.Clone(t.buf.Bytes()), t.from, t.grew
 }
 
 func (t *Transcript) finish(err error) {
@@ -74,17 +84,16 @@ func (t *Transcript) Bytes() []byte {
 
 func (t *Transcript) String() string { return string(t.Bytes()) }
 
-// Screen interprets the output written since the latest [Session.Resize] as
-// cell-renderer output at the terminal's current size. An interface repaints for a
-// new size, and the output before it was laid out for another one, so it is not part
-// of the screen.
+// Screen interprets complete renderer output at the terminal's current size.
+// A synchronized update that straddles [Session.Resize] belongs to the old
+// geometry. A synchronized update still arriving has not changed the screen.
 //
 // It takes one byte snapshot before decoding, so output arriving concurrently belongs
 // wholly to this snapshot or the next one. See [Screen] for the intentionally narrow
 // boundary of the interpretation.
 func (t *Transcript) Screen() (*Screen, error) {
-	size, written, _ := t.current()
-	return decodeScreen(size, written)
+	size, written, from, _ := t.current()
+	return decodeScreen(size, written, from)
 }
 
 // WaitForScreen waits until the [Transcript.Screen] text, its rows joined by newlines,
@@ -95,8 +104,8 @@ func (t *Transcript) Screen() (*Screen, error) {
 func (t *Transcript) WaitForScreen(ctx context.Context, tokens ...string) (*Screen, error) {
 	var cause error
 	for {
-		size, written, grew := t.current()
-		screen, decodeErr := decodeScreen(size, written)
+		size, written, from, grew := t.current()
+		screen, decodeErr := decodeScreen(size, written, from)
 		var shown string
 		if decodeErr == nil {
 			shown = strings.Join(screen.Rows(), "\n")
@@ -117,18 +126,61 @@ func (t *Transcript) WaitForScreen(ctx context.Context, tokens ...string) (*Scre
 	}
 }
 
-func decodeScreen(size Size, written []byte) (*Screen, error) {
+func decodeScreen(size Size, written []byte, from int) (*Screen, error) {
+	output, err := completeOutput(written, from)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnsupportedOutput, err)
+	}
 	screen, err := NewScreen(size)
 	if err != nil {
 		return nil, err
 	}
-	if err := screen.Apply(written); err != nil {
+	if err := screen.Apply(output); err != nil {
 		return nil, err
 	}
 	if err := screen.Flush(); err != nil {
 		return nil, err
 	}
 	return screen, nil
+}
+
+func completeOutput(written []byte, from int) ([]byte, error) {
+	var scan ansi.Scanner
+	var consumed, complete int
+	inFrame := false
+	begin, end := ansi.ModeSynchronizedOutput.Set(), ansi.ModeSynchronizedOutput.Reset()
+	visit := func(piece ansi.Piece) error {
+		consumed += len(piece.Raw)
+		switch piece.Raw {
+		case begin:
+			inFrame = true
+		case end:
+			inFrame = false
+		}
+		if !inFrame {
+			complete = consumed
+		}
+		return nil
+	}
+	source := string(written)
+	if err := scan.Feed(source[:from], visit); err != nil {
+		return nil, err
+	}
+	// Finish any old token or frame at its exact boundary, even when the resize
+	// cut through UTF-8 or an escape sequence.
+	for from < len(source) && (inFrame || scan.Pending() != "") {
+		if err := scan.Feed(source[from:from+1], visit); err != nil {
+			return nil, err
+		}
+		from++
+	}
+	if inFrame || scan.Pending() != "" {
+		return nil, nil
+	}
+	if err := scan.Feed(source[from:], visit); err != nil {
+		return nil, err
+	}
+	return written[from:complete], nil
 }
 
 // ended is why output stopped: the reader's failure, or EOF for a clean end.

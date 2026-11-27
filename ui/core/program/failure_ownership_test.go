@@ -67,6 +67,9 @@ func TestLaterWriterFailureCannotReplaceTheFatalFrameCause(t *testing.T) {
 			}); !errors.Is(err, frameFailure) {
 				t.Errorf("Hand = %v, want frame failure", err)
 			}
+			if err := writer.Drain(term.DrainGrace); err != nil {
+				t.Fatalf("settle output before injecting transport failure: %v", err)
+			}
 			destination.failure.Store(&writerFailure)
 			if _, err := writer.Queue([]byte("independent output")); err != nil {
 				t.Error(err)

@@ -13,7 +13,9 @@ import (
 func TestScreenReadsTheOutputForTheCurrentSize(t *testing.T) {
 	tr := newTranscript(Size{Cols: 10, Rows: 1})
 	tr.append([]byte("old frame"))
-	tr.resized(Size{Cols: 4, Rows: 2})
+	if err := tr.resize(Size{Cols: 4, Rows: 2}, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 	tr.append([]byte("new"))
 	screen, err := tr.Screen()
 	if err != nil {
@@ -24,6 +26,42 @@ func TestScreenReadsTheOutputForTheCurrentSize(t *testing.T) {
 	}
 	if got := strings.TrimRight(screen.Rows()[0], " "); got != "new" {
 		t.Fatalf("screen shows %q, want only the output since the resize", got)
+	}
+}
+
+func TestScreenUsesOnlyCompleteFramesAcrossResize(t *testing.T) {
+	const begin, end = "\x1b[?2026h", "\x1b[?2026l"
+	const old = begin + "\x1b[1;1H┌old size" + end
+	const next = begin + "\x1b[1;1Hnew geometry"
+	for name, split := range map[string]int{
+		"opening sequence": len(begin) - 2,
+		"border character": strings.Index(old, "┌") + 1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			tr := newTranscript(Size{Cols: 10, Rows: 1})
+			tr.append([]byte(old[:split]))
+			if err := tr.resize(Size{Cols: 16, Rows: 2}, func() error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			tr.append([]byte(old[split:] + next))
+
+			screen, err := tr.Screen()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if shown := strings.TrimSpace(strings.Join(screen.Rows(), "\n")); shown != "" {
+				t.Fatalf("screen shows %q before the replacement frame completed", shown)
+			}
+			tr.append([]byte(end))
+			tr.finish(nil)
+			screen, err = tr.WaitForScreen(t.Context(), "new geometry")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.TrimRight(screen.Rows()[0], " "); got != "new geometry" {
+				t.Fatalf("screen shows %q, want the completed replacement frame", got)
+			}
+		})
 	}
 }
 

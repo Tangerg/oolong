@@ -329,6 +329,8 @@ func (p *program) wait(ctx context.Context, due *deadline.Timer) (last bool, err
 		if item.repaint != nil {
 			return false, p.answerRepaint(item.repaint)
 		}
+		// Input can win the select while a completed modal frame's notification is still pending.
+		p.wrote(p.writer.Written())
 		return false, p.handleInput(item.event)
 
 	case <-p.tasks.wake:

@@ -214,11 +214,7 @@ func (s *Session) Write(p []byte) (int, error) { return s.primary.Write(p) }
 // process group when the size changes, even after the original child exits. From
 // then on [Transcript.Screen] reads the output laid out for the new size.
 func (s *Session) Resize(size Size) error {
-	if err := setSize(s.primary, size); err != nil {
-		return err
-	}
-	s.transcript.resized(size)
-	return nil
+	return s.transcript.resize(size, func() error { return setSize(s.primary, size) })
 }
 
 // Wait observes exit without reaping: Close must still release the child identity.

@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/Tangerg/oolong/ui/core/deadline"
 	"github.com/Tangerg/oolong/ui/core/grid"
 	"github.com/Tangerg/oolong/ui/core/input"
 	"github.com/Tangerg/oolong/ui/core/scene"
@@ -25,6 +26,67 @@ func (s *controlledFrameOutput) Write(frame []byte) (int, error) {
 	s.started <- struct{}{}
 	<-s.release
 	return s.Buffer.Write(frame)
+}
+
+func TestModalInputUsesCompletedWriteBeforeOwnerNotification(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var answers []input.Event
+		prompt := scene.NewElement(scene.ElementConfig{
+			Focusable: func() bool { return true },
+			Paint:     func(frame scene.Frame) { frame.Text(0, 0, "Approve?", grid.Style{}) },
+			Handle: func(event scene.Event) scene.EventResult {
+				answers = append(answers, event.Input())
+				return scene.EventResult{Consumed: true}
+			},
+		})
+		modal := scene.NewGroup(scene.GroupConfig{Modal: true, Overlay: true, Items: []scene.Item{{Element: prompt}}})
+		root, err := scene.NewRoot(scene.RootConfig{Element: modal.Element()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		output := &controlledFrameOutput{started: make(chan struct{}, 1), release: make(chan struct{})}
+		writer := term.NewWriter(term.WriterConfig{Destination: output})
+		p := &program{root: root, screen: grid.NewScreen(8, 1), writer: writer, tasks: newTaskQueue(), ctx: ctx, cancel: cancel}
+		source := &pipeSource{events: make(chan input.Event, 1)}
+		p.inputPipe = newInputPipe(ctx, root, source, source.events, writer.WrittenAt, Config{})
+		t.Cleanup(func() {
+			p.stop()
+			close(output.release)
+			if err := writer.Close(); err != nil {
+				t.Error(err)
+			}
+		})
+		due := deadline.NewTimer()
+		defer due.Stop()
+		deliver := func(event input.Event) {
+			t.Helper()
+			source.events <- event
+			if stopped, err := p.wait(ctx, due); stopped || err != nil {
+				t.Fatalf("routing input: stopped=%t, err=%v", stopped, err)
+			}
+		}
+		if _, err := p.compose(true); err != nil {
+			t.Fatal(err)
+		}
+		<-output.started
+		deliver(input.Key{Code: input.Enter})
+		if len(answers) != 0 {
+			t.Fatalf("unwritten prompt received answers: %v", answers)
+		}
+		output.release <- struct{}{}
+		if err := writer.Drain(time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(output.Bytes(), []byte("Approve?")) || writer.Written() <= root.Progress().WrittenSequence {
+			t.Fatalf("prompt write must precede owner notification: output=%q, writer=%d, scene=%d", output.Bytes(), writer.Written(), root.Progress().WrittenSequence)
+		}
+		deliver(input.Key{Code: input.Enter})
+		deliver(input.Paste{Text: "yes"})
+		if len(answers) != 2 {
+			t.Fatalf("completed prompt received %d answers, want a key and a paste", len(answers))
+		}
+	})
 }
 
 func TestPhysicalInputUsesCompletionEvidenceBeforeOwnerNotification(t *testing.T) {
